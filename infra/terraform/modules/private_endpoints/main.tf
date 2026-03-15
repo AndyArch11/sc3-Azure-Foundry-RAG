@@ -1,0 +1,50 @@
+locals {
+  endpoints = {
+    storage_blob = {
+      resource_id      = var.storage_account_id
+      subresource_name = "blob"
+      zone_name        = "privatelink.blob.core.windows.net"
+    }
+    storage_file = {
+      resource_id      = var.storage_account_id
+      subresource_name = "file"
+      zone_name        = "privatelink.file.core.windows.net"
+    }
+    search = {
+      resource_id      = var.search_service_id
+      subresource_name = "searchService"
+      zone_name        = "privatelink.search.windows.net"
+    }
+    cosmos_sql = {
+      resource_id      = var.cosmosdb_account_id
+      subresource_name = "Sql"
+      zone_name        = "privatelink.documents.azure.com"
+    }
+    foundry_account = {
+      resource_id      = var.foundry_account_id
+      subresource_name = "account"
+      zone_name        = "privatelink.cognitiveservices.azure.com"
+    }
+  }
+}
+
+resource "azurerm_private_endpoint" "this" {
+  for_each            = local.endpoints
+  name                = "pe-${replace(each.key, "_", "-")}"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  subnet_id           = var.private_endpoint_subnet_id
+  tags                = var.tags
+
+  private_service_connection {
+    name                           = "psc-${replace(each.key, "_", "-")}"
+    private_connection_resource_id = each.value.resource_id
+    subresource_names              = [each.value.subresource_name]
+    is_manual_connection           = false
+  }
+
+  private_dns_zone_group {
+    name                 = "default"
+    private_dns_zone_ids = [var.private_dns_zone_ids[each.value.zone_name]]
+  }
+}

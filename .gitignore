@@ -1,0 +1,25 @@
+# Terraform local state and cache
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfplan
+
+# Terraform variable overrides / secrets
+*.auto.tfvars
+*.auto.tfvars.json
+
+# Local env files
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS/editor noise
+.DS_Store
+.vscode/settings.json

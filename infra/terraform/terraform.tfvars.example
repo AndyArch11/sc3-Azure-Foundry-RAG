@@ -1,0 +1,19 @@
+subscription_id             = "00000000-0000-0000-0000-000000000000"
+location                    = "australiaeast"
+location_short              = "aue"
+environment                 = "dev"
+instance                    = "001"
+resource_group_name         = "rg-ai-cyber-safety-dev"
+vnet_cidr                   = "10.20.0.0/16"
+private_endpoint_subnet_cidr = "10.20.1.0/24"
+agent_subnet_cidr           = "10.20.2.0/24"
+jumpbox_subnet_cidr         = "10.20.3.0/24"
+azure_bastion_subnet_cidr   = "10.20.4.0/26"
+
+embedding_model             = "text-embedding-ada-002"
+query_model                 = "gpt-5.1-chat"
+evaluation_model            = "gpt-4.1-mini"
+
+tags = {
+  owner = "platform-team"
+}
