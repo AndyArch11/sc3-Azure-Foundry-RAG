@@ -11,15 +11,46 @@ Build an end-to-end, private-network Azure AI Agent platform by code only, using
 - Agent runtime is Azure-hosted AI Agent infrastructure (not self-managed Azure Container Apps for the agent runtime).
 - Public network access is disabled for supported data and AI services.
 - Documentation and internal naming use UK English unless platform APIs require specific values.
+- Bastion and jumpbox are optional operational access patterns intended for standalone isolated deployments (for example sandbox Foundry validation) and for small or medium organisations without mature private network controls.
+- In larger enterprise environments with mature private networking and governed access paths, Bastion and jumpbox are not normally required and are expected to be replaced by enterprise access patterns.
 
 ## 3. Functional Outcomes
 
-- Ingest agent for PDF and Excel sources.
-- Query agent supporting conversational RAG with hybrid retrieval and reranking.
+- Ingest workflow supporting PDF and Excel sources with repeatable chunking and index update behaviour.
+- Query workflow supporting conversational RAG with hybrid retrieval and reranking.
 - Configurable default models:
   - Embedding model: `text-embedding-ada-002`
   - Query model: `gpt-5.1-chat`
   - Query evaluation model: `gpt-4.1-mini`
+- Runtime behaviour outcomes:
+  - Identity-based access to Storage, Search, Foundry, and Cosmos without static secrets in code.
+  - Traceable request path with correlated logs, metrics, and traces for ingest and query execution.
+  - Environment-driven configuration so model names, index settings, and feature flags can be changed without code edits.
+- Outcome validation signals:
+  - Sample ingestion run produces indexed content from both PDF and Excel fixtures.
+  - Query run returns grounded responses with retrievable evidence references.
+  - Evaluation path can execute against configured evaluation model and emit structured result records.
+
+### 3.1 Functional Breakdown
+
+1. Ingest workflow
+  - Source adapters for PDF and Excel fixtures.
+  - Deterministic chunking strategy with configurable chunk size/overlap.
+  - Upsert flow into Azure AI Search with idempotent document keys.
+  - Run summary output: processed files, chunk count, skipped/failed files.
+2. Query workflow
+  - Request contract for conversation context, user query, and retrieval options.
+  - Hybrid retrieval + reranking path with configurable top-k limits.
+  - Grounded response payload including evidence references.
+  - Fallback and error handling for empty retrieval and model timeouts.
+3. Evaluation workflow
+  - Optional evaluation execution against configured evaluation model.
+  - Structured evaluation output persisted for review (score/reason/result metadata).
+  - Feature flag to enable/disable evaluation in runtime environments.
+4. Identity and configuration
+  - Managed identity authentication only for runtime-to-service calls.
+  - Environment-driven configuration for models, index names, and feature flags.
+  - No static credentials embedded in runtime code.
 
 ## 4. Infrastructure Outcomes
 
@@ -29,7 +60,7 @@ Build an end-to-end, private-network Azure AI Agent platform by code only, using
 - Azure AI Search.
 - Azure AI Foundry resources and hosted agent runtime components.
 - Azure Cosmos DB.
-- Jumpbox VM with Bastion access.
+- Optional jumpbox VM with Bastion access for standalone/sandbox and SMB-style deployments.
 - Private DNS zones and conditional forwarder rules for:
   - `privatelink.blob.core.windows.net`
   - `privatelink.cognitiveservices.azure.com`
@@ -48,7 +79,7 @@ Build an end-to-end, private-network Azure AI Agent platform by code only, using
 2. Network and name resolution layer
   - Provision private endpoint subnet (/24).
   - Provision delegated agent subnet (/24).
-  - Provision jumpbox subnet and Azure Bastion.
+  - Optionally provision jumpbox subnet and Azure Bastion for standalone/sandbox and SMB deployments.
   - Create private DNS zones, links, and records through private endpoint associations.
   - Configure conditional forwarders in DNS virtual server operations workflow.
 3. Data and AI services layer
@@ -67,7 +98,7 @@ Build an end-to-end, private-network Azure AI Agent platform by code only, using
 - Least-privilege RBAC assignments through Terraform.
 - Private endpoint access for Storage, Search, Foundry, and Cosmos.
 - Network-level isolation for agent runtime workloads.
-- Bastion-mediated access for operational administration.
+- Optional Bastion-mediated access for operational administration when enterprise network access patterns are not available.
 - No direct public ingress to private data-plane services.
 
 ## 7. Observability Model
@@ -81,14 +112,16 @@ Build an end-to-end, private-network Azure AI Agent platform by code only, using
 
 - Unit tests run in CI without private network access.
 - Integration tests that require private endpoints run from:
-  - Jumpbox, or
-  - self-hosted runner inside the private VNet.
+  - Jumpbox (standalone/sandbox convenience), or
+  - self-hosted runner inside the private VNet (typical enterprise approach).
 - Smoke tests verify DNS private resolution and data-plane reachability.
 
 ## 9. Terraform Delivery Structure
 
 1. Bootstrap
   - Remote state prerequisites and backend resources.
+  - Optional standalone demo Key Vault for jumpbox public-key publish workflow (toggleable).
+  - Enterprise deployments are expected to replace this workflow with organization-managed key lifecycle controls at the publish integration point in phase automation.
 2. Root stack composition
   - Module orchestration from `infra/terraform/main.tf`.
 3. Module responsibilities
@@ -99,7 +132,7 @@ Build an end-to-end, private-network Azure AI Agent platform by code only, using
   - `private_endpoints`: endpoint mappings and private DNS zone groups.
   - `identity`: managed identities and RBAC.
   - `agent_hosting`: hosted agent runtime dependencies and bindings.
-  - `bastion_jumpbox`: jumpbox VM and Bastion path.
+  - `bastion_jumpbox`: optional jumpbox VM and Bastion path for standalone/sandbox and SMB deployments.
   - `observability`: LAW, diagnostics, and monitoring baselines.
 
 ## 10. Runtime Delivery Structure
@@ -128,6 +161,7 @@ Build an end-to-end, private-network Azure AI Agent platform by code only, using
 5. Runtime workflows
   - Implement ingest and query workflows.
   - Integrate default model configuration and evaluation path.
+  - Deliver local smoke workflow execution path and baseline runtime tests.
 6. Verification and hardening
   - Execute private-network integration tests.
   - Add alerting baselines and operational checks.

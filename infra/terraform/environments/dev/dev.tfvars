@@ -8,5 +8,6 @@ private_endpoint_subnet_cidr = "10.20.1.0/24"
 agent_subnet_cidr            = "10.20.2.0/24"
 jumpbox_subnet_cidr          = "10.20.3.0/24"
 azure_bastion_subnet_cidr    = "10.20.4.0/26"
-jumpbox_admin_ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEp0+6PTCvtcLhoNtK96wv49jvORpAeu6XkZsnhLwbtT root@0ba5a9f45bc8"
+jumpbox_admin_ssh_public_key = "<set-me-ssh-public-key>"
 jumpbox_vm_size              = "Standard_B2as_v2"
+enable_model_deployments     = true

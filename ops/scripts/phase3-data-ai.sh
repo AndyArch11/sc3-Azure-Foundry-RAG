@@ -58,16 +58,24 @@ TARGET_ARGS=(
   "-target=module.identity"
 )
 
+# Safety-first defaults: serialize graph execution and wait for state lock.
+TF_SAFETY_ARGS=(
+  "-parallelism=1"
+  "-lock-timeout=5m"
+)
+
 if [[ "${ACTION}" == "plan" ]]; then
   echo "==> Running Phase 3 plan (${ENVIRONMENT})"
   terraform -chdir="${TF_DIR}" plan \
     -input=false \
+    "${TF_SAFETY_ARGS[@]}" \
     -var-file="${VAR_FILE}" \
     "${TARGET_ARGS[@]}"
 else
   echo "==> Running Phase 3 apply (${ENVIRONMENT})"
   terraform -chdir="${TF_DIR}" apply \
     -input=false \
+    "${TF_SAFETY_ARGS[@]}" \
     -auto-approve \
     -var-file="${VAR_FILE}" \
     "${TARGET_ARGS[@]}"

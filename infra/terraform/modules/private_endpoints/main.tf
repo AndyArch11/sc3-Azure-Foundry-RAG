@@ -3,27 +3,31 @@ locals {
     storage_blob = {
       resource_id      = var.storage_account_id
       subresource_name = "blob"
-      zone_name        = "privatelink.blob.core.windows.net"
+      zone_names       = ["privatelink.blob.core.windows.net"]
     }
     storage_file = {
       resource_id      = var.storage_account_id
       subresource_name = "file"
-      zone_name        = "privatelink.file.core.windows.net"
+      zone_names       = ["privatelink.file.core.windows.net"]
     }
     search = {
       resource_id      = var.search_service_id
       subresource_name = "searchService"
-      zone_name        = "privatelink.search.windows.net"
+      zone_names       = ["privatelink.search.windows.net"]
     }
     cosmos_sql = {
       resource_id      = var.cosmosdb_account_id
       subresource_name = "Sql"
-      zone_name        = "privatelink.documents.azure.com"
+      zone_names       = ["privatelink.documents.azure.com"]
     }
     foundry_account = {
       resource_id      = var.foundry_account_id
       subresource_name = "account"
-      zone_name        = "privatelink.cognitiveservices.azure.com"
+      zone_names = [
+        "privatelink.cognitiveservices.azure.com",
+        "privatelink.openai.azure.com",
+        "privatelink.services.ai.azure.com"
+      ]
     }
   }
 }
@@ -44,7 +48,7 @@ resource "azurerm_private_endpoint" "this" {
   }
 
   private_dns_zone_group {
-    name                 = "default"
-    private_dns_zone_ids = [var.private_dns_zone_ids[each.value.zone_name]]
+    name                 = "zg-${replace(each.key, "_", "-")}"
+    private_dns_zone_ids = [for zone_name in each.value.zone_names : var.private_dns_zone_ids[zone_name]]
   }
 }

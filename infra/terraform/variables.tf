@@ -65,21 +65,51 @@ variable "jumpbox_vm_size" {
 }
 
 variable "embedding_model" {
-  type        = string
-  description = "Default embedding model deployment name."
-  default     = "text-embedding-ada-002"
+  type = object({
+    name    = string
+    version = string
+  })
+  description = "Embedding model deployment name and version."
+  default = {
+    name    = "text-embedding-ada-002"
+    version = "2"
+  }
 }
 
 variable "query_model" {
-  type        = string
-  description = "Default query model deployment name."
-  default     = "gpt-5.1-chat"
+  type = object({
+    name    = string
+    version = string
+  })
+  description = "Query model deployment name and version."
+  default = {
+    name    = "gpt-5.1-chat"
+    version = "2025-11-13"
+  }
 }
 
 variable "evaluation_model" {
-  type        = string
-  description = "Default query evaluation model deployment name."
-  default     = "gpt-4.1-mini"
+  type = object({
+    name    = string
+    version = string
+  })
+  description = "Evaluation model deployment name and version."
+  default = {
+    name    = "gpt-4.1-mini"
+    version = "2025-04-14"
+  }
+}
+
+variable "enable_model_deployments" {
+  type        = bool
+  description = "Whether to create Foundry model deployments via Terraform."
+  default     = false
+}
+
+variable "enable_hosted_query_agent_preview" {
+  type        = bool
+  description = "Opt-in switch for hosted query agent preview resource. Leave false for standard private-network agent setup."
+  default     = false
 }
 
 variable "tags" {

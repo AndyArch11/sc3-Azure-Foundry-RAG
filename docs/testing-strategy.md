@@ -22,8 +22,10 @@ Integration tests that call private endpoints must run from a trusted network lo
 
 ### Supported Execution Locations
 
-- Jumpbox VM reached through Bastion.
-- Self-hosted CI runner deployed inside the VNet.
+- Jumpbox VM reached through Bastion (standalone/sandbox convenience, or SMB deployments without mature network controls).
+- Self-hosted CI runner deployed inside the VNet (typical enterprise pattern).
+
+In larger enterprise environments with mature private networking, jumpbox access is usually unnecessary and tests should run from enterprise-controlled private runners.
 
 ### Suggested Split
 
