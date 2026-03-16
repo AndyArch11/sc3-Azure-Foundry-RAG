@@ -31,6 +31,7 @@ esac
 
 BACKEND_FILE="${TF_DIR}/environments/${ENVIRONMENT}/backend.hcl"
 VAR_FILE="${TF_DIR}/environments/${ENVIRONMENT}/${ENVIRONMENT}.tfvars"
+BOOTSTRAP_VARS_FILE="${TF_DIR}/environments/${ENVIRONMENT}/bootstrap.generated.tfvars"
 
 if ! command -v terraform >/dev/null 2>&1; then
   echo "Terraform is required in PATH."
@@ -58,7 +59,12 @@ TARGET_ARGS=(
   "-target=module.identity"
 )
 
-# Safety-first defaults: serialize graph execution and wait for state lock.
+EXTRA_VAR_FILE_ARGS=()
+if [[ -f "${BOOTSTRAP_VARS_FILE}" ]]; then
+  EXTRA_VAR_FILE_ARGS+=("-var-file=${BOOTSTRAP_VARS_FILE}")
+fi
+
+# Safety-first defaults: serialise graph execution and wait for state lock.
 TF_SAFETY_ARGS=(
   "-parallelism=1"
   "-lock-timeout=5m"
@@ -69,6 +75,7 @@ if [[ "${ACTION}" == "plan" ]]; then
   terraform -chdir="${TF_DIR}" plan \
     -input=false \
     "${TF_SAFETY_ARGS[@]}" \
+    "${EXTRA_VAR_FILE_ARGS[@]}" \
     -var-file="${VAR_FILE}" \
     "${TARGET_ARGS[@]}"
 else
@@ -76,6 +83,7 @@ else
   terraform -chdir="${TF_DIR}" apply \
     -input=false \
     "${TF_SAFETY_ARGS[@]}" \
+    "${EXTRA_VAR_FILE_ARGS[@]}" \
     -auto-approve \
     -var-file="${VAR_FILE}" \
     "${TARGET_ARGS[@]}"

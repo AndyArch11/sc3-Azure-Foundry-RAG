@@ -4,7 +4,7 @@ locals {
   tags = merge(
     {
       environment = var.environment
-      workload    = "ai-cyber-safety"
+      workload    = "ai-platform"
       managed_by  = "terraform"
     },
     var.tags

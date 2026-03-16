@@ -59,6 +59,24 @@ variable "jumpbox_admin_ssh_public_key" {
   description = "SSH public key for jumpbox admin access."
 }
 
+variable "bootstrap_key_vault_name" {
+  type        = string
+  description = "Optional bootstrap Key Vault name used to read runtime convenience secrets such as the jumpbox SSH public key."
+  default     = ""
+}
+
+variable "bootstrap_key_vault_resource_group_name" {
+  type        = string
+  description = "Optional bootstrap Key Vault resource group name. Defaults to rg-tfstate-<environment> when unset."
+  default     = ""
+}
+
+variable "jumpbox_ssh_public_key_secret_name" {
+  type        = string
+  description = "Optional Key Vault secret name for jumpbox SSH public key. Defaults to jumpbox-admin-ssh-public-key-<environment> when unset."
+  default     = ""
+}
+
 variable "jumpbox_vm_size" {
   type        = string
   description = "VM size for the jumpbox host."

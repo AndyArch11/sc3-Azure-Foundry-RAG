@@ -7,6 +7,24 @@ module "foundation" {
 
 data "azurerm_client_config" "current" {}
 
+locals {
+  bootstrap_key_vault_resource_group_name = trimspace(var.bootstrap_key_vault_resource_group_name) != "" ? var.bootstrap_key_vault_resource_group_name : "rg-tfstate-${var.environment}"
+  jumpbox_ssh_public_key_secret_name      = trimspace(var.jumpbox_ssh_public_key_secret_name) != "" ? var.jumpbox_ssh_public_key_secret_name : "jumpbox-admin-ssh-public-key-${var.environment}"
+  use_key_vault_jumpbox_key               = (trimspace(var.jumpbox_admin_ssh_public_key) == "" || trimspace(var.jumpbox_admin_ssh_public_key) == "<set-me-ssh-public-key>") && trimspace(var.bootstrap_key_vault_name) != ""
+}
+
+data "azurerm_key_vault" "bootstrap" {
+  count               = local.use_key_vault_jumpbox_key ? 1 : 0
+  name                = var.bootstrap_key_vault_name
+  resource_group_name = local.bootstrap_key_vault_resource_group_name
+}
+
+data "azurerm_key_vault_secret" "jumpbox_admin_ssh_public_key" {
+  count        = local.use_key_vault_jumpbox_key ? 1 : 0
+  name         = local.jumpbox_ssh_public_key_secret_name
+  key_vault_id = data.azurerm_key_vault.bootstrap[0].id
+}
+
 module "network" {
   source                       = "./modules/network"
   resource_group_name          = module.foundation.resource_group_name
@@ -98,7 +116,7 @@ module "bastion_jumpbox" {
   jumpbox_subnet_id            = module.network.jumpbox_subnet_id
   azure_bastion_subnet_id      = module.network.azure_bastion_subnet_id
   suffix                       = local.naming_suffix
-  jumpbox_admin_ssh_public_key = var.jumpbox_admin_ssh_public_key
+  jumpbox_admin_ssh_public_key = local.use_key_vault_jumpbox_key ? data.azurerm_key_vault_secret.jumpbox_admin_ssh_public_key[0].value : var.jumpbox_admin_ssh_public_key
   jumpbox_vm_size              = var.jumpbox_vm_size
   tags                         = local.tags
 }

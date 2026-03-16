@@ -8,11 +8,14 @@ This stack creates:
 
 - Terraform state resource group
 - Storage account + `tfstate` container
+- Delete protection for backend storage via Terraform `prevent_destroy` and Azure management lock
 - Optional bootstrap Key Vault (RBAC enabled, public network access enabled)
 
 It then outputs values consumed by environment backend configuration.
 
 Note: The bootstrap Key Vault pattern in this repository is a standalone deployment convenience for demonstration. In production environments, keys and secrets are expected to be managed independently (lifecycle, ownership, access model, and private networking) after jump host creation.
+
+Note: The Terraform backend storage account is intentionally protected against accidental deletion. The bootstrap configuration applies both Terraform `prevent_destroy` protection and an Azure `CanNotDelete` management lock. Removing the backend storage account therefore requires an explicit, deliberate unlock/removal step before deletion.
 
 ## Inputs
 
