@@ -96,3 +96,99 @@ resource "azurerm_role_assignment" "ingestion_job_contributor" {
   role_definition_name = "Contributor"
   principal_id         = var.agent_runtime_principal_id
 }
+
+resource "azurerm_container_app" "query_web" {
+	count                        = var.enable_query_web_app ? 1 : 0
+	name                         = "ca-rag-query-${var.suffix}"
+	resource_group_name          = var.resource_group_name
+	container_app_environment_id = azurerm_container_app_environment.this.id
+	revision_mode                = "Single"
+
+	identity {
+		type         = "UserAssigned"
+		identity_ids = [var.agent_runtime_identity_id]
+	}
+
+	registry {
+		server   = var.acr_login_server
+		identity = var.agent_runtime_identity_id
+	}
+
+	dynamic "secret" {
+		for_each = var.query_web_auth_token != "" ? [1] : []
+		content {
+			name  = "query-web-auth-token"
+			value = var.query_web_auth_token
+		}
+	}
+
+	ingress {
+		external_enabled = false
+		target_port      = 8080
+		transport        = "auto"
+
+		traffic_weight {
+			latest_revision = true
+			percentage      = 100
+		}
+	}
+
+	template {
+		container {
+			name   = "rag-query-web"
+			image  = "${var.acr_login_server}/rag-query-web:${var.query_web_image_tag}"
+			cpu    = 1.0
+			memory = "2Gi"
+
+			env {
+				name  = "AZURE_CLIENT_ID"
+				value = var.agent_runtime_client_id
+			}
+			env {
+				name  = "AZURE_SEARCH_ENDPOINT"
+				value = var.azure_search_endpoint
+			}
+			env {
+				name  = "AZURE_OPENAI_ENDPOINT"
+				value = var.azure_openai_endpoint
+			}
+			env {
+				name  = "AZURE_SEARCH_INDEX_NAME"
+				value = var.search_index_name
+			}
+			env {
+				name  = "EMBEDDING_DEPLOYMENT_NAME"
+				value = var.embedding_deployment_name
+			}
+			env {
+				name  = "QUERY_DEPLOYMENT_NAME"
+				value = var.query_deployment_name
+			}
+			env {
+				name  = "EVALUATOR_DEPLOYMENT_NAME"
+				value = var.evaluator_deployment_name
+			}
+			env {
+				name  = "SEARCH_TOP_K"
+				value = tostring(var.query_top_k)
+			}
+			env {
+				name  = "DEFAULT_TEMPERATURE"
+				value = tostring(var.query_default_temperature)
+			}
+			env {
+				name  = "ACCEPTABLE_SCORE_THRESHOLD"
+				value = tostring(var.query_eval_threshold)
+			}
+			dynamic "env" {
+				for_each = var.query_web_auth_token != "" ? [1] : []
+				content {
+					name        = "QUERY_WEB_AUTH_TOKEN"
+					secret_name = "query-web-auth-token"
+				}
+			}
+		}
+	}
+
+	tags = var.tags
+}

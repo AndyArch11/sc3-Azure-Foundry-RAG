@@ -29,3 +29,11 @@ output "acr_login_server" {
 output "container_app_job_name" {
   value = module.agent_hosting.container_app_job_name
 }
+
+output "query_web_app_name" {
+  value = module.agent_hosting.query_web_app_name
+}
+
+output "query_web_fqdn" {
+  value = module.agent_hosting.query_web_fqdn
+}

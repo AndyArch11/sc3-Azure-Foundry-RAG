@@ -142,9 +142,18 @@ module "agent_hosting" {
   azure_openai_endpoint      = "https://${module.foundry.foundry_account_name}.openai.azure.com"
   storage_account_name       = module.data_services.storage_account_name
   storage_account_id         = module.data_services.storage_account_id
+  search_index_name          = var.search_index_name
   embedding_deployment_name  = var.embedding_model.name
+  query_deployment_name      = var.query_model.name
+  evaluator_deployment_name  = var.evaluation_model.name
   embedding_dimensions       = 1536
+  query_top_k                = var.query_top_k
+  query_default_temperature  = var.query_default_temperature
+  query_eval_threshold       = var.query_eval_threshold
+  query_web_auth_token       = var.query_web_auth_token
+  query_web_image_tag        = var.query_web_image_tag
   enable_ingestion_job       = var.enable_ingestion_job
+  enable_query_web_app       = var.enable_query_web_app
   tags                       = local.tags
 }
 

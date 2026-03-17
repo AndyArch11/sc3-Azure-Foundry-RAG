@@ -148,6 +148,49 @@ variable "enable_ingestion_job" {
   default     = false
 }
 
+variable "enable_query_web_app" {
+  type        = bool
+  description = "Whether to create the internal query web Container App."
+  default     = false
+}
+
+variable "query_web_image_tag" {
+  type        = string
+  description = "Image tag for rag-query-web in ACR."
+  default     = "latest"
+}
+
+variable "search_index_name" {
+  type        = string
+  description = "Azure AI Search index name used by query workloads."
+  default     = "grounding-index"
+}
+
+variable "query_top_k" {
+  type        = number
+  description = "Number of chunks to retrieve for hybrid search in query web app."
+  default     = 5
+}
+
+variable "query_default_temperature" {
+  type        = number
+  description = "Default generation temperature for query web app."
+  default     = 0.2
+}
+
+variable "query_eval_threshold" {
+  type        = number
+  description = "Minimum acceptable evaluator score before triggering a second answer attempt."
+  default     = 0.72
+}
+
+variable "query_web_auth_token" {
+  type        = string
+  description = "Optional shared token to gate query web app access. Leave empty to disable app-level auth."
+  default     = ""
+  sensitive   = true
+}
+
 variable "tags" {
   type        = map(string)
   description = "Additional tags."

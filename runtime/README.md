@@ -219,6 +219,10 @@ ACR has no public access:
 cd /path/to/sc3-Azure-Foundry-RAG
 chmod +x ops/scripts/build-push-ingestion.sh
 ENV=dev IMAGE_TAG=latest ./ops/scripts/build-push-ingestion.sh
+
+# Build and push the query web app image
+chmod +x ops/scripts/build-push-query-web.sh
+ENV=dev IMAGE_TAG=latest ./ops/scripts/build-push-query-web.sh
 ```
 
 The script resolves the ACR login server from `ACR_LOGIN_SERVER`, Terraform
@@ -237,7 +241,17 @@ az storage blob upload-batch \
   --auth-mode login
 ```
 
-### 3. Trigger the Container App Job
+### 3. Deploy and trigger workloads
+
+```bash
+# Ensure ingestion job + query web app are deployed
+cd infra/terraform
+terraform apply -input=false \
+  -var-file=environments/dev/bootstrap.generated.tfvars \
+  -var-file=environments/dev/dev.tfvars
+```
+
+Trigger ingestion job:
 
 ```bash
 JOB_NAME=$(cd infra/terraform && terraform output -raw container_app_job_name)
@@ -252,6 +266,16 @@ az containerapp job start \
   -n "${JOB_NAME}" \
   -g rg-ai-platform-dev \
   --args '--mode' 'azure' '--input-dir' '/path/to/files'
+
+# Query web app details (private ingress)
+QUERY_APP=$(cd infra/terraform && terraform output -raw query_web_app_name)
+QUERY_FQDN=$(cd infra/terraform && terraform output -raw query_web_fqdn)
+
+echo "${QUERY_APP}"
+echo "https://${QUERY_FQDN}"
+
+# Optional auth gate token (if query_web_auth_token is set in tfvars)
+export QUERY_WEB_AUTH_TOKEN="<your-token>"
 ```
 
 ### 4. Check job status and logs
@@ -304,6 +328,43 @@ az containerapp job execution list \
   -n "${JOB_NAME}" \
   -g rg-ai-platform-dev \
   --query "[0].{name:name,status:status,startTime:properties.startTime}" \
+  -o table
+
+# Confirm query web app image and ingress config
+az containerapp show \
+  -n "${QUERY_APP}" \
+  -g rg-ai-platform-dev \
+  --query "{image:properties.template.containers[0].image,fqdn:properties.configuration.ingress.fqdn,external:properties.configuration.ingress.external}" \
+  -o table
+
+# Confirm query runtime env (k, temperature, threshold, evaluator deployment)
+az containerapp show \
+  -n "${QUERY_APP}" \
+  -g rg-ai-platform-dev \
+  --query "properties.template.containers[0].env[?name=='SEARCH_TOP_K' || name=='DEFAULT_TEMPERATURE' || name=='ACCEPTABLE_SCORE_THRESHOLD' || name=='EVALUATOR_DEPLOYMENT_NAME']"
+
+# Test the JSON API endpoint from inside the restricted network
+curl -sS "https://${QUERY_FQDN}/api/ask" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What cyber-security guidance is most relevant to secure-by-design delivery?",
+    "retrieve_k": 5,
+    "temperature": 0.2,
+    "auth_token": "'"${QUERY_WEB_AUTH_TOKEN:-}"'"'
+  }' | jq
+
+# Inspect effective non-secret runtime configuration
+curl -sS "https://${QUERY_FQDN}/api/config" | jq
+
+# View log events
+LAW_ID=$(az monitor log-analytics workspace show \
+  -g rg-ai-platform-dev -n law-dev-aue-001 --query customerId -o tsv)
+
+echo "$LAW_ID"
+
+az monitor log-analytics query \
+  --workspace "$LAW_ID" \
+  --analytics-query "search \"caj-ingestion-dev-aue-001-0icdgtt\" | where TimeGenerated > ago(6h) | sort by TimeGenerated desc | take 200" \
   -o table
 ```
 

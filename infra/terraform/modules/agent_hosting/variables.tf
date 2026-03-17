@@ -12,10 +12,23 @@ variable "azure_openai_endpoint"      { type = string }
 variable "storage_account_name"       { type = string }
 variable "storage_account_id"         { type = string }
 variable "embedding_deployment_name"  { type = string }
+variable "query_deployment_name"      { type = string }
+variable "evaluator_deployment_name"  { type = string }
+variable "search_index_name"          { type = string }
 variable "embedding_dimensions"       { type = number }
+variable "query_top_k"                { type = number }
+variable "query_default_temperature"  { type = number }
+variable "query_eval_threshold"       { type = number }
+variable "query_web_auth_token"       { type = string }
+variable "query_web_image_tag"        { type = string }
 variable "enable_ingestion_job" {
   type        = bool
   description = "Whether to create the ingestion Container App Job."
+  default     = false
+}
+variable "enable_query_web_app" {
+  type        = bool
+  description = "Whether to create the internal query web Container App."
   default     = false
 }
 variable "tags" {

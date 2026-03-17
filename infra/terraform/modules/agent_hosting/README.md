@@ -9,6 +9,14 @@ App Job for the ingestion runner.
 |---|---|---|
 | `azurerm_container_app_environment` | `cae-<suffix>` | VNet-integrated CAE on the agent-delegated subnet |
 | `azurerm_container_app_job` | `caj-ingestion-<suffix>` | Manually-triggered ingestion pipeline job (created when `enable_ingestion_job = true`) |
+| `azurerm_container_app` | `ca-rag-query-<suffix>` | Internal browser-accessible query web app (created when `enable_query_web_app = true`) |
+
+The query web app provides:
+- Hybrid retrieval (keyword + vector)
+- Cyber-security persona prompt
+- Evaluator scoring with one retry when score is below threshold
+- Runtime controls for Top-K and temperature
+- Optional shared-token auth gate via `query_web_auth_token`
 
 ## Networking
 
@@ -54,6 +62,12 @@ az containerapp job start \
 	-n caj-ingestion-dev-aue-001 \
 	-g rg-ai-platform-dev \
 	--args '--mode' 'azure' '--input-dir' '/path/to/files'
+
+# Query web app endpoint (private ingress)
+az containerapp show \
+  -n ca-rag-query-dev-aue-001 \
+  -g rg-ai-platform-dev \
+  --query "properties.configuration.ingress.fqdn" -o tsv
 ```
 
 ## Inputs
