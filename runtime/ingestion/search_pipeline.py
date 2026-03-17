@@ -353,7 +353,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         description="PDF and Excel enrichment: extract → OCR → merge → split → embed",
         skills=[document_extraction, ocr, merge, split, embedding],
         cognitive_services_account=_cognitive_services_account(config),
-        index_projections=index_projections,
+        index_projection=index_projections,
     )
 
     client.create_or_update_skillset(skillset)
@@ -374,6 +374,9 @@ def ensure_indexer(config: IngestionConfig, credential: TokenCredential) -> None
             allow_skillset_to_read_file_data=True,
             # Generate normalised page images so OcrSkill can process them.
             image_action=BlobIndexerImageAction.GENERATE_NORMALIZED_IMAGES,
+            # azure-search-documents 11.6.0 injects queryTimeout by default,
+            # but Azure Blob indexers reject that property.
+            query_timeout=None,
         )
     )
 
