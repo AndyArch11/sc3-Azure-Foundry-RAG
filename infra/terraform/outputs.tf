@@ -6,6 +6,14 @@ output "vnet_id" {
   value = module.network.vnet_id
 }
 
+output "search_endpoint" {
+  value = "https://${module.data_services.search_service_name}.search.windows.net"
+}
+
+output "storage_account_name" {
+  value = module.data_services.storage_account_name
+}
+
 output "foundry_project_id" {
   value = module.foundry.foundry_project_id
 }

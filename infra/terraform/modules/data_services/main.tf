@@ -30,6 +30,10 @@ resource "azurerm_search_service" "this" {
   public_network_access_enabled = false
   local_authentication_enabled  = false
   tags                          = var.tags
+
+  identity {
+    type = "SystemAssigned"
+  }
 }
 
 resource "azurerm_cosmosdb_account" "this" {

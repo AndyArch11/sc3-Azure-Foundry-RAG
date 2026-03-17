@@ -100,6 +100,7 @@ module "identity" {
   location                       = var.location
   suffix                         = local.naming_suffix
   deployment_principal_object_id = data.azurerm_client_config.current.object_id
+  search_service_principal_id    = module.data_services.search_service_principal_id
   scope_ids = {
     storage = module.data_services.storage_account_id
     search  = module.data_services.search_service_id

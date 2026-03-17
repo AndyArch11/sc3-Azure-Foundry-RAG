@@ -6,6 +6,11 @@ variable "deployment_principal_object_id" {
   type        = string
   description = "Object ID of the principal running Terraform; assigned Azure AI Project Manager on Foundry."
 }
+variable "search_service_principal_id" {
+  type        = string
+  description = "Principal ID of the Search service system-assigned managed identity."
+  default     = null
+}
 variable "tags" {
   type    = map(string)
   default = {}

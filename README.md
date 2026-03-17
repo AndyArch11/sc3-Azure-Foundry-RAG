@@ -92,3 +92,8 @@ Infrastructure-as-Code and runtime scaffold for a privately secured Azure AI Age
 ## Current State
 
 This repository contains a working scaffold and delivery plan. Module-level implementation and runtime build-out continue in phased increments, with private networking and security controls treated as non-negotiable constraints.
+
+## Runtime Progress
+
+- Initial PDF and Excel ingestion scaffold is now available under `runtime/ingestion/`.
+- Includes source extraction, deterministic chunking, and JSONL output generation for downstream search indexing.

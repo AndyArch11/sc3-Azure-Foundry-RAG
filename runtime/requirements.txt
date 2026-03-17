@@ -1,0 +1,8 @@
+# Local extraction (used by --mode local)
+pypdf==5.4.0
+openpyxl==3.1.5
+
+# Azure SDK (used by --mode azure)
+azure-identity==1.21.0
+azure-search-documents==11.6.0
+azure-storage-blob==12.25.1
