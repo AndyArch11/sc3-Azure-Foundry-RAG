@@ -177,9 +177,10 @@ def _chat_completion(messages: list[dict[str, str]], deployment: str, temperatur
         f"{config.openai_endpoint}/openai/deployments/"
         f"{deployment}/chat/completions?api-version=2025-01-01-preview"
     )
-    body = {
+    # Note: gpt-5.1+ models only accept the server default temperature (1).
+    # temperature is intentionally omitted to support both classic and reasoning-class models.
+    body: dict[str, Any] = {
         "messages": messages,
-        "temperature": temperature,
         "max_completion_tokens": 600,
     }
     response = requests.post(
