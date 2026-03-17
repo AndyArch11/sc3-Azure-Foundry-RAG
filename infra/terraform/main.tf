@@ -104,11 +104,12 @@ module "identity" {
   deployment_principal_object_id = data.azurerm_client_config.current.object_id
   search_service_principal_id    = module.data_services.search_service_principal_id
   scope_ids = {
-    storage = module.data_services.storage_account_id
-    search  = module.data_services.search_service_id
-    cosmos  = module.data_services.cosmosdb_account_id
-    foundry = module.foundry.foundry_account_id
-    acr     = module.data_services.acr_id
+    storage       = module.data_services.storage_account_id
+    search        = module.data_services.search_service_id
+    cosmos        = module.data_services.cosmosdb_account_id
+    foundry       = module.foundry.foundry_account_id
+    acr           = module.data_services.acr_id
+    log_analytics = module.observability.log_analytics_workspace_id
   }
   tags = local.tags
 }
@@ -136,6 +137,7 @@ module "agent_hosting" {
   acr_login_server           = module.data_services.acr_login_server
   agent_runtime_identity_id  = module.identity.agent_runtime_identity_id
   agent_runtime_client_id    = module.identity.agent_runtime_client_id
+  agent_runtime_principal_id = module.identity.agent_runtime_principal_id
   azure_search_endpoint      = "https://${module.data_services.search_service_name}.search.windows.net"
   azure_openai_endpoint      = "https://${module.foundry.foundry_account_name}.openai.azure.com"
   storage_account_name       = module.data_services.storage_account_name

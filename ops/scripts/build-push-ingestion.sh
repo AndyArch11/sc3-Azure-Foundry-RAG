@@ -14,6 +14,16 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Fail early with a helpful message if Docker is not available.
+if ! command -v docker &>/dev/null || ! docker info &>/dev/null 2>&1; then
+  echo "ERROR: Docker is not installed or the daemon is not running." >&2
+  echo "" >&2
+  echo "Install Docker on Ubuntu:" >&2
+  echo "  curl -fsSL https://get.docker.com | sudo sh" >&2
+  echo "  sudo usermod -aG docker \$USER && newgrp docker" >&2
+  exit 1
+fi
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 RUNTIME_DIR="${REPO_ROOT}/runtime"
 

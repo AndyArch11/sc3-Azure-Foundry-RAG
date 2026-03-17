@@ -12,3 +12,4 @@ azure_bastion_subnet_cidr    = "10.20.4.0/26"
 jumpbox_admin_ssh_public_key = "<set-me-ssh-public-key>"
 jumpbox_vm_size              = "Standard_B2as_v2"
 enable_model_deployments     = true
+enable_ingestion_job         = true

@@ -65,3 +65,15 @@ resource "azurerm_role_assignment" "acr_push" {
   role_definition_name = "AcrPush"
   principal_id         = azurerm_user_assigned_identity.agent_runtime.principal_id
 }
+
+resource "azurerm_role_assignment" "log_analytics_reader" {
+  scope                = var.scope_ids.log_analytics
+  role_definition_name = "Log Analytics Reader"
+  principal_id         = azurerm_user_assigned_identity.agent_runtime.principal_id
+}
+
+resource "azurerm_role_assignment" "log_analytics_workspace_reader" {
+  scope                = var.scope_ids.log_analytics
+  role_definition_name = "Reader"
+  principal_id         = azurerm_user_assigned_identity.agent_runtime.principal_id
+}

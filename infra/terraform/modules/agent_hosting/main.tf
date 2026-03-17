@@ -87,3 +87,12 @@ resource "azurerm_container_app_job" "ingestion" {
 
 	tags = var.tags
 }
+
+# Allow the agent runtime MI to start (and stop) the ingestion job.
+# Contributor is scoped to just this job resource — not the resource group.
+resource "azurerm_role_assignment" "ingestion_job_contributor" {
+  count                = var.enable_ingestion_job ? 1 : 0
+  scope                = azurerm_container_app_job.ingestion[0].id
+  role_definition_name = "Contributor"
+  principal_id         = var.agent_runtime_principal_id
+}

@@ -221,8 +221,9 @@ chmod +x ops/scripts/build-push-ingestion.sh
 ENV=dev IMAGE_TAG=latest ./ops/scripts/build-push-ingestion.sh
 ```
 
-The script resolves the ACR login server from `terraform output -raw acr_login_server`
-(falling back to `az acr list`) and runs `docker build` + `docker push`.
+The script resolves the ACR login server from `ACR_LOGIN_SERVER`, Terraform
+output, or the deterministic naming pattern `acr<env><location_short><instance>.azurecr.io`,
+then runs `docker build` + `docker push`.
 
 ### 2. Upload source documents to blob storage
 
@@ -262,16 +263,69 @@ az containerapp job execution list \
   -g rg-ai-platform-dev \
   --output table
 
-# Stream logs from the most recent execution
+# Get details for the most recent execution
 EXEC_NAME=$(az containerapp job execution list \
   -n "${JOB_NAME}" -g rg-ai-platform-dev \
   --query "[0].name" -o tsv)
 
+az containerapp job execution show \
+  -n "${JOB_NAME}" \
+  -g rg-ai-platform-dev \
+  --job-execution-name "${EXEC_NAME}" \
+  -o yaml
+
+# Optional: stream current app logs (CLI support varies by extension version)
 az containerapp logs show \
   -n "${JOB_NAME}" \
   -g rg-ai-platform-dev \
-  --execution "${EXEC_NAME}" \
   --follow
+```
+
+### 5. Verify deployed container and execution
+
+```bash
+# Confirm the pushed image tag exists in ACR
+az acr repository show-tags \
+  --name acrdevaue001 \
+  --repository ingestion-runner \
+  --top 10 \
+  --orderby time_desc \
+  -o table
+
+# Confirm the Container App Job is using the expected image
+az containerapp job show \
+  -n "${JOB_NAME}" \
+  -g rg-ai-platform-dev \
+  --query "properties.template.containers[0].image" \
+  -o tsv
+
+# Confirm the latest execution status
+az containerapp job execution list \
+  -n "${JOB_NAME}" \
+  -g rg-ai-platform-dev \
+  --query "[0].{name:name,status:status,startTime:properties.startTime}" \
+  -o table
+```
+
+### Troubleshooting CLI mismatches
+
+```bash
+# Managed identity login on newer Azure CLI versions:
+# --username is no longer supported for MI login.
+az login --identity --client-id <user-assigned-mi-client-id>
+
+# Some CLI/extension versions do not support:
+#   az containerapp logs show --execution <name>
+# Use job execution APIs instead:
+EXEC_NAME=$(az containerapp job execution list \
+  -n "${JOB_NAME}" -g rg-ai-platform-dev \
+  --query "[0].name" -o tsv)
+
+az containerapp job execution show \
+  -n "${JOB_NAME}" \
+  -g rg-ai-platform-dev \
+  --job-execution-name "${EXEC_NAME}" \
+  -o yaml
 ```
 
 ---
