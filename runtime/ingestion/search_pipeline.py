@@ -53,7 +53,7 @@ import time
 from typing import Optional
 
 from azure.core.credentials import TokenCredential
-from azure.core.exceptions import ResourceNotFoundError
+from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
 from azure.search.documents.indexes.models import (
     AzureOpenAIEmbeddingSkill,
@@ -93,6 +93,26 @@ from azure.search.documents.indexes.models import (
 from .config import IngestionConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _delete_if_exists(delete_fn, resource_name: str, resource_kind: str) -> None:
+    try:
+        delete_fn(resource_name)
+        logger.warning("Deleted Search %s for schema reset: %s", resource_kind, resource_name)
+    except ResourceNotFoundError:
+        return
+
+
+def _reset_search_artifacts_for_schema_change(
+    config: IngestionConfig,
+    credential: TokenCredential,
+) -> None:
+    indexer_client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
+    index_client = SearchIndexClient(endpoint=config.search_endpoint, credential=credential)
+
+    _delete_if_exists(indexer_client.delete_indexer, config.indexer_name, "indexer")
+    _delete_if_exists(indexer_client.delete_skillset, config.skillset_name, "skillset")
+    _delete_if_exists(index_client.delete_index, config.search_index_name, "index")
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +194,20 @@ def ensure_search_index(config: IngestionConfig, credential: TokenCredential) ->
         semantic_search=semantic_search,
     )
 
-    client.create_or_update_index(index)
+    try:
+        client.create_or_update_index(index)
+    except HttpResponseError as exc:
+        error_text = str(exc)
+        if "CannotChangeExistingField" not in error_text and "Existing field 'id' cannot be changed" not in error_text:
+            raise
+
+        logger.warning(
+            "Search index schema is incompatible with the existing '%s' definition; recreating index-dependent artifacts.",
+            config.search_index_name,
+        )
+        _reset_search_artifacts_for_schema_change(config, credential)
+        client.create_or_update_index(index)
+
     logger.info("Search index ensured: %s", config.search_index_name)
 
 
