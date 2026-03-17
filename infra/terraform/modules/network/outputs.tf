@@ -10,6 +10,10 @@ output "agent_subnet_id" {
   value = azurerm_subnet.agent.id
 }
 
+output "container_apps_subnet_id" {
+  value = azurerm_subnet.container_apps.id
+}
+
 output "jumpbox_subnet_id" {
   value = azurerm_subnet.jumpbox.id
 }

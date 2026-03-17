@@ -304,6 +304,26 @@ resource "azurerm_subnet_network_security_group_association" "agent" {
   network_security_group_id = azurerm_network_security_group.agent.id
 }
 
+resource "azurerm_subnet" "container_apps" {
+  name                 = "snet-container-apps"
+  resource_group_name  = var.resource_group_name
+  virtual_network_name = azurerm_virtual_network.this.name
+  address_prefixes     = [var.container_apps_subnet_cidr]
+
+  delegation {
+    name = "delegation-container-app-environments"
+    service_delegation {
+      name    = "Microsoft.App/environments"
+      actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
+    }
+  }
+}
+
+resource "azurerm_subnet_network_security_group_association" "container_apps" {
+  subnet_id                 = azurerm_subnet.container_apps.id
+  network_security_group_id = azurerm_network_security_group.agent.id
+}
+
 resource "azurerm_subnet" "jumpbox" {
   name                 = "snet-jumpbox"
   resource_group_name  = var.resource_group_name

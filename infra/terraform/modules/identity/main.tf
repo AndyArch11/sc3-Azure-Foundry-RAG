@@ -45,3 +45,10 @@ resource "azurerm_role_assignment" "search_mi_openai_user" {
   role_definition_name = "Cognitive Services OpenAI User"
   principal_id         = var.search_service_principal_id
 }
+
+# Agent runtime MI — AcrPull on the container registry.
+resource "azurerm_role_assignment" "acr_pull" {
+  scope                = var.scope_ids.acr
+  role_definition_name = "AcrPull"
+  principal_id         = azurerm_user_assigned_identity.agent_runtime.principal_id
+}

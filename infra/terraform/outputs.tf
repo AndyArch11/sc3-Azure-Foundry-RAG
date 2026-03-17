@@ -21,3 +21,11 @@ output "foundry_project_id" {
 output "log_analytics_workspace_id" {
   value = module.observability.log_analytics_workspace_id
 }
+
+output "acr_login_server" {
+  value = module.data_services.acr_login_server
+}
+
+output "container_app_job_name" {
+  value = module.agent_hosting.container_app_job_name
+}

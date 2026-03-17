@@ -88,41 +88,64 @@ Index projections produce **one Search document per chunk**, with stable chunk-l
 
 ### Terraform applies required
 
-All role assignments are managed by Terraform but require two sequential applies
-because the Search service managed identity principal ID is not known until the
-service is updated:
+All role assignments and compute resources are managed by Terraform.  Two
+sequential applies are needed because the Search service MI principal ID is not
+known until the first apply completes:
 
 ```bash
 cd infra/terraform
 
-# Apply 1: enable system-assigned identity on the Search service
+# Apply 1: enable Search system-assigned identity, provision ACR,
+#          Container App Environment, attach MI to jumpbox
 terraform apply -var-file=environments/dev/bootstrap.generated.tfvars \
                 -var-file=environments/dev/dev.tfvars
 
-# Apply 2: create role assignments now that the principal ID is known
+# Apply 2: create Search MI role assignments (principal ID now known)
 terraform apply -var-file=environments/dev/bootstrap.generated.tfvars \
                 -var-file=environments/dev/dev.tfvars
 ```
 
-Roles assigned by Terraform to the Search service system-assigned MI:
+Resources provisioned:
+
+| Resource | Name | Purpose |
+|---|---|---|
+| `azurerm_container_registry` (Premium) | `acr-dev-aue-001` | Private image registry |
+| `azurerm_container_app_environment` | `cae-dev-aue-001` | VNet-integrated Container Apps environment |
+| `azurerm_container_app_job` | `caj-ingestion-dev-aue-001` | Manually-triggered ingestion job (optional; gated by `enable_ingestion_job`) |
+
+Roles assigned to the **user-assigned MI** (`id-agent-runtime-dev-aue-001`):
+
+| Role | Scope | Purpose |
+|---|---|---|
+| `Storage Blob Data Contributor` | Storage account | Upload and read source files |
+| `Search Index Data Contributor` | Search service | Write index documents |
+| `Cognitive Services User` | Foundry account | OCR skill enrichment |
+| `AcrPull` | Container registry | Pull ingestion image |
+
+Roles assigned to the **Search service system-assigned MI**:
 
 | Role | Scope | Purpose |
 |---|---|---|
 | `Storage Blob Data Reader` | Storage account | Blob indexer data source access |
-| `Cognitive Services OpenAI User` | Foundry / AI Services account | AzureOpenAIEmbeddingSkill (MI auth) |
+| `Cognitive Services OpenAI User` | Foundry account | Embedding skill (MI auth) |
+
+The user-assigned MI is also attached to the jumpbox VM, so `DefaultAzureCredential`
+resolves automatically when running ingestion interactively on the jumpbox.
+
+`enable_ingestion_job` defaults to `false` so infra can deploy before the
+`ingestion-runner:latest` image exists in ACR.  After pushing the image from a
+VNet-connected runner, set `enable_ingestion_job = true` and apply again.
 
 ### Private network constraint
 
-All Azure resources are provisioned with `public_network_access_enabled = false`.
+All Azure resources have `public_network_access_enabled = false`.  
 **`--mode azure` cannot reach any endpoint from outside the VNet.**
 
-To run `--mode azure`, choose one of:
-
-- **Jumpbox (recommended)**: SSH into `vm-jumpbox-dev-aue-001` via Azure Bastion
-  and run ingestion from there.  Private DNS resolves all endpoints to 10.20.1.x.
-- **Dev network exception**: add a conditional IP-based network rule to the
-  storage account and Search service for the dev machine's outbound IP (a Terraform
-  variable flag is the clean way to do this).
+| Option | When to use |
+|---|---|
+| **Container App Job** (recommended) | Production; trigger via `az containerapp job start`; runs inside the VNet |
+| **Jumpbox** | Interactive dev/debug; SSH in via Azure Bastion; MI already attached |
+| **Dev IP exception** | Add a conditional IP-based firewall rule in Terraform (variable flag) for the dev machine |
 
 ---
 
@@ -158,6 +181,113 @@ python3 -m pip install -r requirements.txt
 python3 -m ingestion.runner --mode azure --input-dir ./samples
 
 # Optional: verify tests from runtime directory
+
+---
+
+## Container App Deployment (production)
+
+### 1. Build and push the image
+
+Run from inside the VNet (jumpbox or CI runner with VNet injection) because the
+ACR has no public access:
+
+```bash
+# From the jumpbox or a VNet-connected CI runner
+cd /path/to/sc3-Azure-Foundry-RAG
+chmod +x ops/scripts/build-push-ingestion.sh
+ENV=dev IMAGE_TAG=latest ./ops/scripts/build-push-ingestion.sh
+```
+
+The script resolves the ACR login server from `terraform output -raw acr_login_server`
+(falling back to `az acr list`) and runs `docker build` + `docker push`.
+
+### 2. Upload source documents to blob storage
+
+```bash
+STORAGE_NAME=$(cd infra/terraform && terraform output -raw storage_account_name)
+
+az storage blob upload-batch \
+  --account-name "${STORAGE_NAME}" \
+  --destination grounding-data \
+  --source ./runtime/samples \
+  --auth-mode login
+```
+
+### 3. Trigger the Container App Job
+
+```bash
+JOB_NAME=$(cd infra/terraform && terraform output -raw container_app_job_name)
+
+# Provision pipeline and index files already in blob (default args: --skip-upload)
+az containerapp job start \
+  -n "${JOB_NAME}" \
+  -g rg-ai-platform-dev
+
+# Or upload + index in one step by overriding the default args
+az containerapp job start \
+  -n "${JOB_NAME}" \
+  -g rg-ai-platform-dev \
+  --args '--mode' 'azure' '--input-dir' '/path/to/files'
+```
+
+### 4. Check job status and logs
+
+```bash
+# List recent executions
+az containerapp job execution list \
+  -n "${JOB_NAME}" \
+  -g rg-ai-platform-dev \
+  --output table
+
+# Stream logs from the most recent execution
+EXEC_NAME=$(az containerapp job execution list \
+  -n "${JOB_NAME}" -g rg-ai-platform-dev \
+  --query "[0].name" -o tsv)
+
+az containerapp logs show \
+  -n "${JOB_NAME}" \
+  -g rg-ai-platform-dev \
+  --execution "${EXEC_NAME}" \
+  --follow
+```
+
+---
+
+## Jumpbox (interactive)
+
+The jumpbox VM has the `id-agent-runtime-dev-aue-001` managed identity attached,
+so no credentials or `AZURE_CLIENT_ID` are needed — `DefaultAzureCredential`
+picks up the single user-assigned MI automatically.
+
+```bash
+# SSH in via Azure Bastion (Standard/Premium SKU required for native client tunnel)
+az network bastion ssh \
+  --name bas-dev-aue-001 \
+  --resource-group rg-ai-platform-dev \
+  --target-resource-id <jumpbox-vm-id> \
+  --auth-type ssh-key \
+  --username azureuser \
+  --ssh-key ~/.ssh/id_ed25519
+
+# On the jumpbox — install Python and clone the repo (first time only)
+sudo apt-get update && sudo apt-get install -y python3.12 python3.12-venv python3-pip git
+git clone <repo-url> /opt/sc3-ingestion
+cd /opt/sc3-ingestion/runtime
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# Set env vars (no credentials — MI handles auth)
+export AZURE_SEARCH_ENDPOINT="https://srch-dev-aue-001.search.windows.net"
+export AZURE_OPENAI_ENDPOINT="https://foundry-dev-aue-001.openai.azure.com"
+export AZURE_STORAGE_ACCOUNT_NAME=$(az storage account list -g rg-ai-platform-dev --query "[0].name" -o tsv)
+export AZURE_STORAGE_RESOURCE_ID=$(az storage account show -g rg-ai-platform-dev -n "$AZURE_STORAGE_ACCOUNT_NAME" --query id -o tsv)
+
+# Upload samples and index
+python3 -m ingestion.runner --mode azure --input-dir ./samples
+
+# Or just re-index (files already in blob)
+python3 -m ingestion.runner --mode azure --skip-upload
+```
 .venv/bin/python -m pytest ../tests
 ```
 

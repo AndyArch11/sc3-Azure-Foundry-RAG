@@ -60,6 +60,14 @@ resource "azurerm_linux_virtual_machine" "jumpbox" {
     offer     = "0001-com-ubuntu-server-jammy"
     sku       = "22_04-lts"
     version   = "latest"
+
+  }
+
+  # Attach the agent runtime user-assigned MI so DefaultAzureCredential
+  # resolves without any explicit client ID or credential on the VM.
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [var.agent_runtime_identity_id]
   }
 
   tags = var.tags

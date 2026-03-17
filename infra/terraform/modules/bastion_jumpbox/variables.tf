@@ -7,6 +7,10 @@ variable "jumpbox_admin_ssh_public_key" { type = string }
 variable "jumpbox_vm_size" {
   type = string
 }
+variable "agent_runtime_identity_id" {
+  type        = string
+  description = "Resource ID of the user-assigned managed identity to attach to the jumpbox."
+}
 variable "tags" {
   type    = map(string)
   default = {}

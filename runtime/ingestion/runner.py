@@ -34,7 +34,17 @@ modes:
         default="local",
         help="local: client-side extraction + JSONL; azure: blob upload + Search indexer pipeline",
     )
-    parser.add_argument("--input-dir", required=True, help="Directory containing source files")
+    parser.add_argument(
+        "--input-dir",
+        default=None,
+        help="Directory containing source files (required for local mode; required for azure mode unless --skip-upload)",
+    )
+    parser.add_argument(
+        "--skip-upload",
+        action="store_true",
+        default=False,
+        help="(azure mode) skip blob upload; files must already be in the grounding-data container",
+    )
     # local mode
     parser.add_argument("--output-jsonl", default="./out/chunks.jsonl", help="(local mode) JSONL output path")
     parser.add_argument("--chunk-size", type=int, default=1200)
@@ -43,6 +53,9 @@ modes:
 
 
 def _run_local(args: argparse.Namespace) -> int:
+    if args.input_dir is None:
+        print("--input-dir is required for local mode", file=sys.stderr)
+        return 2
     input_dir = Path(args.input_dir)
     output_path = Path(args.output_jsonl)
 
@@ -126,29 +139,39 @@ def _run_azure(args: argparse.Namespace) -> int:
         return 1
 
     credential = DefaultAzureCredential()
-    input_dir = Path(args.input_dir)
 
-    if not input_dir.exists() or not input_dir.is_dir():
-        print(f"Input directory does not exist: {input_dir}", file=sys.stderr)
-        return 2
-
-    # Step 1: upload source documents to blob storage
-    logger.info("Uploading source documents to blob storage…")
-    upload_summary = upload_source_files(
-        storage_account_name=config.storage_account_name,
-        container_name=config.storage_container_name,
-        input_dir=input_dir,
-        credential=credential,
-    )
-    logger.info(
-        "Upload complete: %d uploaded, %d skipped, %d failed",
-        len(upload_summary.uploaded),
-        len(upload_summary.skipped),
-        len(upload_summary.failed),
-    )
-    if upload_summary.failed:
-        for msg in upload_summary.failed:
-            logger.error("Upload failure: %s", msg)
+    # Step 1: upload source documents to blob storage (optional — skip with --skip-upload)
+    upload_summary = None
+    if not args.skip_upload:
+        if args.input_dir is None:
+            print("--input-dir is required unless --skip-upload is set", file=sys.stderr)
+            return 2
+        input_dir = Path(args.input_dir)
+        if not input_dir.exists() or not input_dir.is_dir():
+            print(f"Input directory does not exist: {input_dir}", file=sys.stderr)
+            return 2
+        logger.info("Uploading source documents to blob storage…")
+        upload_summary = upload_source_files(
+            storage_account_name=config.storage_account_name,
+            container_name=config.storage_container_name,
+            input_dir=input_dir,
+            credential=credential,
+        )
+        logger.info(
+            "Upload complete: %d uploaded, %d skipped, %d failed",
+            len(upload_summary.uploaded),
+            len(upload_summary.skipped),
+            len(upload_summary.failed),
+        )
+        if upload_summary.failed:
+            for msg in upload_summary.failed:
+                logger.error("Upload failure: %s", msg)
+    else:
+        logger.info(
+            "Skipping blob upload (--skip-upload); files must already be in %s/%s",
+            config.storage_account_name,
+            config.storage_container_name,
+        )
 
     # Step 2: provision index, data source, skillset, indexer
     logger.info("Ensuring Search index…")
@@ -170,8 +193,8 @@ def _run_azure(args: argparse.Namespace) -> int:
 
     summary = {
         "mode": "azure",
-        "uploaded_files": len(upload_summary.uploaded),
-        "upload_failed": len(upload_summary.failed),
+        "uploaded_files": len(upload_summary.uploaded) if upload_summary is not None else "skipped",
+        "upload_failed": len(upload_summary.failed) if upload_summary is not None else 0,
         "indexer_status": result["status"],
         "items_processed": result["items_processed"],
         "items_failed": result["items_failed"],

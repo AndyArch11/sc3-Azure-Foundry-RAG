@@ -29,6 +29,11 @@ locals {
         "privatelink.services.ai.azure.com"
       ]
     }
+    acr = {
+      resource_id      = var.acr_id
+      subresource_name = "registry"
+      zone_names       = ["privatelink.azurecr.io"]
+    }
   }
 }
 

@@ -44,6 +44,12 @@ variable "agent_subnet_cidr" {
   description = "Delegated agent subnet CIDR block (/24)."
 }
 
+variable "container_apps_subnet_cidr" {
+  type        = string
+  description = "Dedicated Container Apps managed environment subnet CIDR block (/24)."
+  default     = "10.20.5.0/24"
+}
+
 variable "jumpbox_subnet_cidr" {
   type        = string
   description = "Jumpbox subnet CIDR block."
@@ -127,6 +133,12 @@ variable "enable_model_deployments" {
 variable "enable_hosted_query_agent_preview" {
   type        = bool
   description = "Opt-in switch for hosted query agent preview resource. Leave false for standard private-network agent setup."
+  default     = false
+}
+
+variable "enable_ingestion_job" {
+  type        = bool
+  description = "Whether to create the Container App Job for ingestion. Keep false until the ingestion image exists in ACR."
   default     = false
 }
 

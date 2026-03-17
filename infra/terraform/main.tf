@@ -33,6 +33,7 @@ module "network" {
   vnet_cidr                    = var.vnet_cidr
   private_endpoint_subnet_cidr = var.private_endpoint_subnet_cidr
   agent_subnet_cidr            = var.agent_subnet_cidr
+  container_apps_subnet_cidr   = var.container_apps_subnet_cidr
   jumpbox_subnet_cidr          = var.jumpbox_subnet_cidr
   azure_bastion_subnet_cidr    = var.azure_bastion_subnet_cidr
   tags                         = local.tags
@@ -91,6 +92,7 @@ module "private_endpoints" {
   search_service_id          = module.data_services.search_service_id
   cosmosdb_account_id        = module.data_services.cosmosdb_account_id
   foundry_account_id         = module.foundry.foundry_account_id
+  acr_id                     = module.data_services.acr_id
   tags                       = local.tags
 }
 
@@ -106,6 +108,7 @@ module "identity" {
     search  = module.data_services.search_service_id
     cosmos  = module.data_services.cosmosdb_account_id
     foundry = module.foundry.foundry_account_id
+    acr     = module.data_services.acr_id
   }
   tags = local.tags
 }
@@ -119,6 +122,27 @@ module "bastion_jumpbox" {
   suffix                       = local.naming_suffix
   jumpbox_admin_ssh_public_key = local.use_key_vault_jumpbox_key ? data.azurerm_key_vault_secret.jumpbox_admin_ssh_public_key[0].value : var.jumpbox_admin_ssh_public_key
   jumpbox_vm_size              = var.jumpbox_vm_size
+  agent_runtime_identity_id    = module.identity.agent_runtime_identity_id
   tags                         = local.tags
+}
+
+module "agent_hosting" {
+  source                     = "./modules/agent_hosting"
+  resource_group_name        = module.foundation.resource_group_name
+  location                   = var.location
+  suffix                     = local.naming_suffix
+  delegated_agent_subnet_id  = module.network.container_apps_subnet_id
+  log_analytics_workspace_id = module.observability.log_analytics_workspace_id
+  acr_login_server           = module.data_services.acr_login_server
+  agent_runtime_identity_id  = module.identity.agent_runtime_identity_id
+  agent_runtime_client_id    = module.identity.agent_runtime_client_id
+  azure_search_endpoint      = "https://${module.data_services.search_service_name}.search.windows.net"
+  azure_openai_endpoint      = "https://${module.foundry.foundry_account_name}.openai.azure.com"
+  storage_account_name       = module.data_services.storage_account_name
+  storage_account_id         = module.data_services.storage_account_id
+  embedding_deployment_name  = var.embedding_model.name
+  embedding_dimensions       = 1536
+  enable_ingestion_job       = var.enable_ingestion_job
+  tags                       = local.tags
 }
 

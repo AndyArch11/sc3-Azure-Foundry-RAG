@@ -59,3 +59,15 @@ resource "azurerm_cosmosdb_account" "this" {
 
   tags = var.tags
 }
+
+# Azure Container Registry — Premium SKU required for private endpoint.
+# Admin credentials disabled; access is exclusively via managed identity (AcrPull).
+resource "azurerm_container_registry" "this" {
+  name                          = "acr${replace(var.suffix, "-", "")}"
+  resource_group_name           = var.resource_group_name
+  location                      = var.location
+  sku                           = "Premium"
+  admin_enabled                 = false
+  public_network_access_enabled = false
+  tags                          = var.tags
+}
