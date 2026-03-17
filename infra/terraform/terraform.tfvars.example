@@ -10,9 +10,23 @@ agent_subnet_cidr           = "10.20.2.0/24"
 jumpbox_subnet_cidr         = "10.20.3.0/24"
 azure_bastion_subnet_cidr   = "10.20.4.0/26"
 
-embedding_model             = "text-embedding-ada-002"
-query_model                 = "gpt-5.1-chat"
-evaluation_model            = "gpt-4.1-mini"
+embedding_model = {
+  name     = "text-embedding-ada-002"
+  version  = "2"
+  capacity = 10
+}
+
+query_model = {
+  name     = "gpt-5.1-chat"
+  version  = "2025-11-13"
+  capacity = 1
+}
+
+evaluation_model = {
+  name     = "gpt-4.1-mini"
+  version  = "2025-04-14"
+  capacity = 1
+}
 
 tags = {
   owner = "platform-team"

@@ -51,7 +51,7 @@ resource "azapi_resource" "model_deployment_embedding" {
   body = {
     sku = {
       name     = "GlobalStandard"
-      capacity = 1
+      capacity = var.embedding_model.capacity
     }
     properties = {
       model = {
@@ -77,7 +77,7 @@ resource "azapi_resource" "model_deployment_query" {
   body = {
     sku = {
       name     = "GlobalStandard"
-      capacity = 1
+      capacity = var.query_model.capacity
     }
     properties = {
       model = {
@@ -104,7 +104,7 @@ resource "azapi_resource" "model_deployment_evaluation" {
   body = {
     sku = {
       name     = "GlobalStandard"
-      capacity = 1
+      capacity = var.evaluation_model.capacity
     }
     properties = {
       model = {

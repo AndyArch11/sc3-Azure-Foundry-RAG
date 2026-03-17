@@ -62,6 +62,28 @@ Index projections produce **one Search document per chunk**, with stable chunk-l
 
 ---
 
+### `--mode reset` (on-demand data reset)
+
+Removes loaded indexed data without destroying Azure resources.
+
+**What it does:**
+
+1. Deletes all documents from the target Search index.
+2. Resets Search indexer state so unchanged blobs can be reprocessed.
+3. Optionally deletes all source blobs from the storage container.
+
+Examples:
+
+```bash
+# Reset only indexed documents (preserve source blobs)
+python3 -m ingestion.runner --mode reset
+
+# Reset indexed documents and purge source blobs
+python3 -m ingestion.runner --mode reset --purge-blobs
+```
+
+---
+
 ## Required Environment Variables (azure mode)
 
 | Variable | Example | Notes |
@@ -299,6 +321,12 @@ export AZURE_STORAGE_RESOURCE_ID=$(az storage account show -g rg-ai-platform-dev
 python3 -m ingestion.runner --mode azure --input-dir ./samples
 
 # Or just re-index (files already in blob)
+
+# Reset indexed data on demand (keeps Azure resources)
+python3 -m ingestion.runner --mode reset
+
+# Reset indexed data and source blobs
+python3 -m ingestion.runner --mode reset --purge-blobs
 
 
 ```

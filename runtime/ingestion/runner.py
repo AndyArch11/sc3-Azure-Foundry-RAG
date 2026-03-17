@@ -26,13 +26,17 @@ modes:
           indexer pipeline (DocumentExtractionSkill, OcrSkill, MergeSkill,
           SplitSkill, AzureOpenAIEmbeddingSkill).  Requires env vars —
           see runtime/README.md for the full list.
+
+  reset   Remove loaded indexed data on demand while keeping Azure resources.
+      Clears documents from the Search index and resets indexer state.
+      Optional: also clear source blobs from the storage container.
 """,
     )
     parser.add_argument(
         "--mode",
-        choices=["local", "azure"],
+        choices=["local", "azure", "reset"],
         default="local",
-        help="local: client-side extraction + JSONL; azure: blob upload + Search indexer pipeline",
+        help="local: client-side extraction + JSONL; azure: blob upload + Search indexer pipeline; reset: purge loaded indexed data",
     )
     parser.add_argument(
         "--input-dir",
@@ -49,6 +53,12 @@ modes:
     parser.add_argument("--output-jsonl", default="./out/chunks.jsonl", help="(local mode) JSONL output path")
     parser.add_argument("--chunk-size", type=int, default=1200)
     parser.add_argument("--chunk-overlap", type=int, default=200)
+    parser.add_argument(
+        "--purge-blobs",
+        action="store_true",
+        default=False,
+        help="(reset mode) also delete all source blobs from AZURE_STORAGE_CONTAINER_NAME",
+    )
     return parser.parse_args()
 
 
@@ -204,10 +214,44 @@ def _run_azure(args: argparse.Namespace) -> int:
     return 0 if result["status"] == "success" else 1
 
 
+def _run_reset(args: argparse.Namespace) -> int:
+    from azure.identity import DefaultAzureCredential
+
+    from .config import IngestionConfig
+    from .reset import reset_loaded_data
+
+    try:
+        config = IngestionConfig.from_env()
+    except ValueError as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        return 1
+
+    credential = DefaultAzureCredential()
+
+    try:
+        result = reset_loaded_data(config, credential, purge_blobs=args.purge_blobs)
+    except RuntimeError as exc:
+        print(f"Reset error: {exc}", file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "mode": "reset",
+                **result,
+            },
+            ensure_ascii=True,
+        )
+    )
+    return 0
+
+
 def main() -> int:
     args = parse_args()
     if args.mode == "azure":
         return _run_azure(args)
+    if args.mode == "reset":
+        return _run_reset(args)
     return _run_local(args)
 
 
