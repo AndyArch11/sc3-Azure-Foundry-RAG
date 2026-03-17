@@ -46,7 +46,7 @@ def load_config() -> QueryConfig:
         query_deployment=os.getenv("QUERY_DEPLOYMENT_NAME", "gpt-5.1-chat"),
         evaluator_deployment=os.getenv("EVALUATOR_DEPLOYMENT_NAME", "gpt-4.1-mini"),
         search_top_k=int(os.getenv("SEARCH_TOP_K", "5")),
-        default_temperature=float(os.getenv("DEFAULT_TEMPERATURE", "0.2")),
+        default_temperature=float(os.getenv("DEFAULT_TEMPERATURE", "1")),
         evaluation_threshold=float(os.getenv("ACCEPTABLE_SCORE_THRESHOLD", "0.72")),
         auth_token=os.getenv("QUERY_WEB_AUTH_TOKEN", "").strip(),
     )
@@ -95,7 +95,7 @@ search_client = SearchClient(
 class AskRequest(BaseModel):
     question: str
     retrieve_k: int = Field(default=5, ge=1, le=20)
-    temperature: float = Field(default=0.2, ge=0.0, le=1.0)
+    temperature: float = Field(default=1.0, ge=0.0, le=1.0)
     auth_token: str = ""
 
 
@@ -207,7 +207,7 @@ def _evaluate(question: str, context: str, answer: str) -> dict[str, Any]:
             ),
         },
     ]
-    raw = _chat_completion(eval_messages, deployment=config.evaluator_deployment, temperature=0.0, timeout=40)
+    raw = _chat_completion(eval_messages, deployment=config.evaluator_deployment, temperature=1.0, timeout=40)
     return _parse_eval(raw)
 
 
@@ -398,7 +398,7 @@ def ask(
         )
 
     retrieve_k = max(1, min(20, retrieve_k))
-    temperature = max(0.0, min(1.0, temperature))
+    temperature = max(1.0, min(1.0, temperature))
 
     try:
         result = _run_rag(question=question, retrieve_k=retrieve_k, temperature=temperature)
