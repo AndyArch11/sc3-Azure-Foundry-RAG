@@ -133,6 +133,7 @@ module "agent_hosting" {
   location                   = var.location
   suffix                     = local.naming_suffix
   delegated_agent_subnet_id  = module.network.container_apps_subnet_id
+  vnet_id                    = module.network.vnet_id
   log_analytics_workspace_id = module.observability.log_analytics_workspace_id
   acr_login_server           = module.data_services.acr_login_server
   agent_runtime_identity_id  = module.identity.agent_runtime_identity_id
