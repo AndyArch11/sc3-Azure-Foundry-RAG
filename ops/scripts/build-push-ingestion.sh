@@ -18,26 +18,46 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 RUNTIME_DIR="${REPO_ROOT}/runtime"
 
 ENV="${ENV:-dev}"
+LOCATION_SHORT="${LOCATION_SHORT:-aue}"
+INSTANCE="${INSTANCE:-001}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 IMAGE_REPOSITORY="ingestion-runner"
+RESOURCE_GROUP="${RESOURCE_GROUP:-rg-ai-platform-${ENV}}"
 
 # ---------------------------------------------------------------------------
-# Resolve ACR login server: terraform output first, then az CLI fallback.
+# Resolve ACR login server.
+# Priority:
+#   1. ACR_LOGIN_SERVER env var (explicit override — fastest, no API call)
+#   2. terraform output (works from the dev container with initialised state)
+#   3. az acr show with derived name acr<env><location><instance> (works on
+#      jumpbox where Terraform state is not available; requires only AcrPull,
+#      not Reader on the resource group)
+#   4. az acr list fallback (requires Reader on resource group)
 # ---------------------------------------------------------------------------
 TF_DIR="${REPO_ROOT}/infra/terraform"
-ACR_LOGIN_SERVER=""
+ACR_LOGIN_SERVER="${ACR_LOGIN_SERVER:-}"
 
-if command -v terraform &>/dev/null; then
+if [[ -z "${ACR_LOGIN_SERVER}" ]] && command -v terraform &>/dev/null; then
   pushd "${TF_DIR}" >/dev/null
   ACR_LOGIN_SERVER=$(terraform output -raw acr_login_server 2>/dev/null || true)
   popd >/dev/null
 fi
 
 if [[ -z "${ACR_LOGIN_SERVER}" ]]; then
-  echo "INFO: Falling back to az CLI to find ACR in rg-ai-platform-${ENV}"
-  ACR_NAME=$(az acr list -g "rg-ai-platform-${ENV}" --query "[0].name" -o tsv 2>/dev/null || true)
+  # Derive name from naming convention: acr<env><location_short><instance>
+  DERIVED_ACR_NAME="acr${ENV}${LOCATION_SHORT}${INSTANCE}"
+  echo "INFO: Trying derived ACR name: ${DERIVED_ACR_NAME}"
+  ACR_LOGIN_SERVER=$(az acr show --name "${DERIVED_ACR_NAME}" \
+    --resource-group "${RESOURCE_GROUP}" \
+    --query loginServer -o tsv 2>/dev/null || true)
+fi
+
+if [[ -z "${ACR_LOGIN_SERVER}" ]]; then
+  echo "INFO: Falling back to az acr list in ${RESOURCE_GROUP}"
+  ACR_NAME=$(az acr list -g "${RESOURCE_GROUP}" --query "[0].name" -o tsv 2>/dev/null || true)
   if [[ -z "${ACR_NAME}" ]]; then
-    echo "ERROR: No ACR found in rg-ai-platform-${ENV}. Run Terraform first." >&2
+    echo "ERROR: No ACR found. Set ACR_LOGIN_SERVER explicitly or run Terraform first." >&2
+    echo "  Example: ACR_LOGIN_SERVER=acrdevaue001.azurecr.io ENV=dev IMAGE_TAG=latest ./ops/scripts/build-push-ingestion.sh" >&2
     exit 1
   fi
   ACR_LOGIN_SERVER="${ACR_NAME}.azurecr.io"
