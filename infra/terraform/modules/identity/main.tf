@@ -52,9 +52,16 @@ resource "azurerm_role_assignment" "search_mi_openai_user" {
   principal_id         = var.search_service_principal_id
 }
 
-# Agent runtime MI — AcrPull on the container registry.
+# Agent runtime MI — AcrPull for Container App Job image pull;
+# AcrPush for jumpbox / CI build-and-push workflow.
 resource "azurerm_role_assignment" "acr_pull" {
   scope                = var.scope_ids.acr
   role_definition_name = "AcrPull"
+  principal_id         = azurerm_user_assigned_identity.agent_runtime.principal_id
+}
+
+resource "azurerm_role_assignment" "acr_push" {
+  scope                = var.scope_ids.acr
+  role_definition_name = "AcrPush"
   principal_id         = azurerm_user_assigned_identity.agent_runtime.principal_id
 }

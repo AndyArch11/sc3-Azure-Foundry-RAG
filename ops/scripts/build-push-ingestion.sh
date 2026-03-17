@@ -27,12 +27,10 @@ RESOURCE_GROUP="${RESOURCE_GROUP:-rg-ai-platform-${ENV}}"
 # ---------------------------------------------------------------------------
 # Resolve ACR login server.
 # Priority:
-#   1. ACR_LOGIN_SERVER env var (explicit override — fastest, no API call)
-#   2. terraform output (works from the dev container with initialised state)
-#   3. az acr show with derived name acr<env><location><instance> (works on
-#      jumpbox where Terraform state is not available; requires only AcrPull,
-#      not Reader on the resource group)
-#   4. az acr list fallback (requires Reader on resource group)
+#   1. ACR_LOGIN_SERVER env var (explicit override)
+#   2. terraform output (dev container with initialised state)
+#   3. Derived directly from naming convention: acr<env><location_short><instance>
+#      No API call required — avoids needing registries/read permission.
 # ---------------------------------------------------------------------------
 TF_DIR="${REPO_ROOT}/infra/terraform"
 ACR_LOGIN_SERVER="${ACR_LOGIN_SERVER:-}"
@@ -44,23 +42,10 @@ if [[ -z "${ACR_LOGIN_SERVER}" ]] && command -v terraform &>/dev/null; then
 fi
 
 if [[ -z "${ACR_LOGIN_SERVER}" ]]; then
-  # Derive name from naming convention: acr<env><location_short><instance>
-  DERIVED_ACR_NAME="acr${ENV}${LOCATION_SHORT}${INSTANCE}"
-  echo "INFO: Trying derived ACR name: ${DERIVED_ACR_NAME}"
-  ACR_LOGIN_SERVER=$(az acr show --name "${DERIVED_ACR_NAME}" \
-    --resource-group "${RESOURCE_GROUP}" \
-    --query loginServer -o tsv 2>/dev/null || true)
-fi
-
-if [[ -z "${ACR_LOGIN_SERVER}" ]]; then
-  echo "INFO: Falling back to az acr list in ${RESOURCE_GROUP}"
-  ACR_NAME=$(az acr list -g "${RESOURCE_GROUP}" --query "[0].name" -o tsv 2>/dev/null || true)
-  if [[ -z "${ACR_NAME}" ]]; then
-    echo "ERROR: No ACR found. Set ACR_LOGIN_SERVER explicitly or run Terraform first." >&2
-    echo "  Example: ACR_LOGIN_SERVER=acrdevaue001.azurecr.io ENV=dev IMAGE_TAG=latest ./ops/scripts/build-push-ingestion.sh" >&2
-    exit 1
-  fi
-  ACR_LOGIN_SERVER="${ACR_NAME}.azurecr.io"
+  # Naming convention: acr<env><location_short><instance>.azurecr.io
+  # Matches locals.tf: naming_suffix = "${environment}-${location_short}-${instance}"
+  ACR_LOGIN_SERVER="acr${ENV}${LOCATION_SHORT}${INSTANCE}.azurecr.io"
+  echo "INFO: Using derived ACR login server: ${ACR_LOGIN_SERVER}"
 fi
 
 FULL_IMAGE="${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${IMAGE_TAG}"
