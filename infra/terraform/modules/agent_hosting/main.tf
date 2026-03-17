@@ -231,3 +231,10 @@ resource "azurerm_container_app" "query_web" {
 
 	tags = var.tags
 }
+
+resource "azurerm_role_assignment" "query_web_contributor" {
+	count                = var.enable_query_web_app ? 1 : 0
+	scope                = azurerm_container_app.query_web[0].id
+	role_definition_name = "Contributor"
+	principal_id         = var.agent_runtime_principal_id
+}
