@@ -467,11 +467,40 @@ def wait_for_indexer(
             continue
 
         if run.status in ("success", "transientFailure", "reset"):
+            errors = [
+                {
+                    "key": error.key,
+                    "name": error.name,
+                    "status_code": error.status_code,
+                    "error_message": error.error_message,
+                    "details": error.details,
+                    "documentation_link": error.documentation_link,
+                }
+                for error in (run.errors or [])
+            ]
+            warnings = [
+                {
+                    "key": warning.key,
+                    "name": warning.name,
+                    "message": warning.message,
+                    "details": warning.details,
+                    "documentation_link": warning.documentation_link,
+                }
+                for warning in (run.warnings or [])
+            ]
+
+            if errors:
+                logger.error("Indexer reported %d item-level error(s): %s", len(errors), errors)
+            if warnings:
+                logger.warning("Indexer reported %d warning(s): %s", len(warnings), warnings)
+
             return {
                 "status": run.status,
                 "items_processed": run.item_count,
                 "items_failed": run.failed_item_count,
-                "error_message": run.error_message,
+                "error_message": run.error_message or (errors[0]["error_message"] if errors else None),
+                "errors": errors,
+                "warnings": warnings,
             }
 
         logger.info(
