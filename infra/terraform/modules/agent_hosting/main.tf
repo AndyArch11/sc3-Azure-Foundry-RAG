@@ -53,6 +53,16 @@ resource "azurerm_private_dns_a_record" "query_web" {
 	records             = [local.cae_internal_lb_ip]
 }
 
+# VNet-scoped ingress hostname (external=true on an internal CAE).
+resource "azurerm_private_dns_a_record" "query_web_vnet" {
+	count               = var.enable_query_web_app ? 1 : 0
+	name                = "ca-rag-query-${var.suffix}"
+	zone_name           = azurerm_private_dns_zone.container_apps.name
+	resource_group_name = azurerm_private_dns_zone.container_apps.resource_group_name
+	ttl                 = 300
+	records             = [local.cae_internal_lb_ip]
+}
+
 # Container App Job — manually triggered ingestion runner.
 # Default args run the indexer pipeline only (files must already be in blob).
 # Override args at trigger time to upload-and-index in one step:
@@ -160,7 +170,7 @@ resource "azurerm_container_app" "query_web" {
 	}
 
 	ingress {
-		external_enabled = false
+		external_enabled = true
 		target_port      = 8080
 		transport        = "auto"
 

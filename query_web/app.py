@@ -175,12 +175,12 @@ def _chat_completion(messages: list[dict[str, str]], deployment: str, temperatur
     token = _cognitive_token()
     url = (
         f"{config.openai_endpoint}/openai/deployments/"
-        f"{deployment}/chat/completions?api-version=2024-10-21"
+        f"{deployment}/chat/completions?api-version=2025-01-01-preview"
     )
     body = {
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": 600,
+        "max_completion_tokens": 600,
     }
     response = requests.post(
         url,

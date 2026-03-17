@@ -160,9 +160,25 @@ resource "azurerm_network_security_rule" "agent_inbound_azureml" {
   network_security_group_name = azurerm_network_security_group.agent.name
 }
 
+# Allow inbound traffic from VirtualNetwork on port 8080 for Container App ingress.
+# This enables applications in other subnets (like jumpbox) to reach internal container apps.
+resource "azurerm_network_security_rule" "agent_inbound_vnet_app" {
+  name                        = "allow-vnet-container-app-inbound"
+  priority                    = 110
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "8080"
+  source_address_prefix       = "VirtualNetwork"
+  destination_address_prefix  = "*"
+  resource_group_name         = var.resource_group_name
+  network_security_group_name = azurerm_network_security_group.agent.name
+}
+
 resource "azurerm_network_security_rule" "agent_outbound_azureml" {
   name                        = "allow-azureml-outbound"
-  priority                    = 100
+   priority                    = 100
   direction                   = "Outbound"
   access                      = "Allow"
   protocol                    = "Tcp"
@@ -176,7 +192,7 @@ resource "azurerm_network_security_rule" "agent_outbound_azureml" {
 
 resource "azurerm_network_security_rule" "agent_outbound_aad" {
   name                        = "allow-aad-outbound"
-  priority                    = 110
+   priority                    = 110
   direction                   = "Outbound"
   access                      = "Allow"
   protocol                    = "Tcp"
@@ -190,7 +206,7 @@ resource "azurerm_network_security_rule" "agent_outbound_aad" {
 
 resource "azurerm_network_security_rule" "agent_outbound_batch" {
   name                        = "allow-batch-node-management-outbound"
-  priority                    = 120
+   priority                    = 120
   direction                   = "Outbound"
   access                      = "Allow"
   protocol                    = "Tcp"
@@ -204,7 +220,7 @@ resource "azurerm_network_security_rule" "agent_outbound_batch" {
 
 resource "azurerm_network_security_rule" "agent_outbound_arm" {
   name                        = "allow-arm-outbound"
-  priority                    = 130
+   priority                    = 130
   direction                   = "Outbound"
   access                      = "Allow"
   protocol                    = "Tcp"
@@ -218,7 +234,7 @@ resource "azurerm_network_security_rule" "agent_outbound_arm" {
 
 resource "azurerm_network_security_rule" "agent_outbound_afd_first_party" {
   name                        = "allow-azure-frontdoor-firstparty-outbound"
-  priority                    = 140
+   priority                    = 140
   direction                   = "Outbound"
   access                      = "Allow"
   protocol                    = "Tcp"
@@ -232,7 +248,7 @@ resource "azurerm_network_security_rule" "agent_outbound_afd_first_party" {
 
 resource "azurerm_network_security_rule" "agent_outbound_mcr" {
   name                        = "allow-mcr-outbound"
-  priority                    = 150
+   priority                    = 150
   direction                   = "Outbound"
   access                      = "Allow"
   protocol                    = "Tcp"
@@ -246,7 +262,7 @@ resource "azurerm_network_security_rule" "agent_outbound_mcr" {
 
 resource "azurerm_network_security_rule" "agent_outbound_azure_monitor" {
   name                        = "allow-azure-monitor-outbound"
-  priority                    = 160
+   priority                    = 160
   direction                   = "Outbound"
   access                      = "Allow"
   protocol                    = "Tcp"
@@ -260,7 +276,7 @@ resource "azurerm_network_security_rule" "agent_outbound_azure_monitor" {
 
 resource "azurerm_network_security_rule" "agent_outbound_virtual_network" {
   name                        = "allow-virtual-network-outbound"
-  priority                    = 170
+   priority                    = 170
   direction                   = "Outbound"
   access                      = "Allow"
   protocol                    = "*"
