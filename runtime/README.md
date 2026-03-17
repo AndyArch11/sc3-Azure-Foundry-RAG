@@ -118,6 +118,7 @@ Roles assigned to the **user-assigned MI** (`id-agent-runtime-dev-aue-001`):
 | Role | Scope | Purpose |
 |---|---|---|
 | `Storage Blob Data Contributor` | Storage account | Upload and read source files |
+| `Search Service Contributor` | Search service | Create or update the index, data source, skillset, and indexer |
 | `Search Index Data Contributor` | Search service | Write index documents |
 | `Cognitive Services User` | Foundry account | OCR skill enrichment |
 | `AcrPull` | Container registry | Pull ingestion image |
@@ -269,12 +270,24 @@ az network bastion ssh \
   --username azureuser \
   --ssh-key ~/.ssh/id_ed25519
 
-# On the jumpbox — install Python and clone the repo (first time only)
+# On the jumpbox — install Azure CLI, Python 3.12, and clone the repo (first time only)
+
+# 1. Azure CLI (not installed by default on Ubuntu 22.04)
+curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+# 2. Python 3.12 — not in default Ubuntu 22.04 repos; add the deadsnakes PPA
+sudo apt-get update && sudo apt-get install -y software-properties-common
+sudo add-apt-repository ppa:deadsnakes/ppa -y
 sudo apt-get update && sudo apt-get install -y python3.12 python3.12-venv python3-pip git
-git clone <repo-url> /opt/sc3-ingestion
+sudo git clone https://github.com/AndyArch11/sc3-Azure-Foundry-RAG /opt/sc3-ingestion
+sudo chown -R azureuser:azureuser /opt/sc3-ingestion
 cd /opt/sc3-ingestion/runtime
+# Use python3.12 explicitly — python3 may default to 3.10 on Ubuntu 22.04
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+
+# Login with VM managed identity
+az login --identity
 
 # Set env vars (no credentials — MI handles auth)
 export AZURE_SEARCH_ENDPOINT="https://srch-dev-aue-001.search.windows.net"
@@ -286,7 +299,8 @@ export AZURE_STORAGE_RESOURCE_ID=$(az storage account show -g rg-ai-platform-dev
 python3 -m ingestion.runner --mode azure --input-dir ./samples
 
 # Or just re-index (files already in blob)
-python3 -m ingestion.runner --mode azure --skip-upload
+
+
 ```
 .venv/bin/python -m pytest ../tests
 ```

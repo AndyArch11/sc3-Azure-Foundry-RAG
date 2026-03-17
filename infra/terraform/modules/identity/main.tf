@@ -17,6 +17,12 @@ resource "azurerm_role_assignment" "search_index_contributor" {
   principal_id         = azurerm_user_assigned_identity.agent_runtime.principal_id
 }
 
+resource "azurerm_role_assignment" "search_service_contributor" {
+  scope                = var.scope_ids.search
+  role_definition_name = "Search Service Contributor"
+  principal_id         = azurerm_user_assigned_identity.agent_runtime.principal_id
+}
+
 resource "azurerm_role_assignment" "cognitive_services_user" {
   scope                = var.scope_ids.foundry
   role_definition_name = "Cognitive Services User"

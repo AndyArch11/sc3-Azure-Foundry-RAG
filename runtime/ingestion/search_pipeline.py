@@ -278,8 +278,8 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
             ),
         ],
         outputs=[OutputFieldMappingEntry(name="mergedText", target_name="merged_content")],
-        insertPreTag="",
-        insertPostTag=" ",
+        insert_pre_tag="",
+        insert_post_tag=" ",
     )
 
     # 4. SplitSkill ──────────────────────────────────────────────────────────
@@ -307,8 +307,8 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         name="embedding",
         description="Embed each text chunk using Azure OpenAI",
         context="/document/pages/*",
-        resource_uri=config.azure_openai_endpoint,
-        deployment_id=config.embedding_deployment_name,
+        resource_url=config.azure_openai_endpoint,
+        deployment_name=config.embedding_deployment_name,
         model_name=config.embedding_deployment_name,
         dimensions=config.embedding_dimensions,
         api_key=config.azure_openai_api_key,
@@ -344,7 +344,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
             )
         ],
         parameters=SearchIndexerIndexProjectionsParameters(
-            projection_mode=IndexProjectionMode.GENERATED_KEY_AS_ID
+            projection_mode=IndexProjectionMode.SKIP_INDEXING_PARENT_DOCUMENTS
         ),
     )
 
