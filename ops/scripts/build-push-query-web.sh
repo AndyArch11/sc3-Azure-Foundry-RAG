@@ -2,8 +2,26 @@
 # Build and push the rag-query-web image to the environment's ACR.
 #
 # Usage:
-#   ENV=dev IMAGE_TAG=<tag> ./ops/scripts/build-push-query-web.sh
+#   ENV=<env> IMAGE_TAG=<immutable-tag> ./ops/scripts/build-push-query-web.sh
 set -euo pipefail
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  cat <<'EOF'
+Usage:
+  ENV=<env> IMAGE_TAG=<immutable-tag> ./ops/scripts/build-push-query-web.sh
+
+Builds and pushes the rag-query-web image to the target environment ACR.
+
+Recommended follow-up rollout:
+  terraform -chdir=infra/terraform apply \
+    -input=false \
+    -var-file=environments/<env>/bootstrap.generated.tfvars \
+    -var-file=environments/<env>/<env>.tfvars \
+    -var query_web_image_tag=<immutable-tag> \
+    -target=module.agent_hosting
+EOF
+  exit 0
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -51,4 +69,4 @@ docker push "${FULL_IMAGE}"
 
 echo "==> Done: ${FULL_IMAGE}"
 echo "==> Rollout command:"
-echo "terraform -chdir=${TF_DIR} apply -var-file=environments/${ENV}/${ENV}.tfvars -var query_web_image_tag=${IMAGE_TAG} -target=module.agent_hosting"
+echo "terraform -chdir=${TF_DIR} apply -input=false -var-file=environments/${ENV}/bootstrap.generated.tfvars -var-file=environments/${ENV}/${ENV}.tfvars -var query_web_image_tag=${IMAGE_TAG} -target=module.agent_hosting"

@@ -1,5 +1,11 @@
 # Delivery Phases and Artefacts
 
+Operational convention:
+
+- Use `TARGET_ENV` in runbooks and shell examples.
+- Treat `infra/terraform/environments/<env>/<env>.tfvars` as the authoritative environment configuration.
+- Roll out runtime image changes through Terraform with immutable image tags.
+
 ## Phase 1
 
 - Terraform runner container
@@ -17,14 +23,16 @@ Note: In larger enterprise environments with mature private networking and contr
 
 - Data services and private endpoints
 - Foundry and agent hosting module wiring
+- Cosmos DB SQL database and container for conversation persistence
 
 ## Phase 4
 
-- Runtime API/worker skeleton
-- Ingestion and query workflow scaffolding with shared configuration package
+- Runtime API and worker implementation
+- Ingestion and query workflows with shared configuration package
 - Identity-first client wiring (no embedded secrets)
 - Unit tests and telemetry baseline
 - Local developer execution path for runtime smoke validation
+- Conversation persistence and response-feedback flow
 
 ### Phase 4 Workstreams
 
@@ -41,7 +49,7 @@ Note: In larger enterprise environments with mature private networking and contr
   - Implement grounded response shaping with evidence references.
   - Add configurable query/evaluation model selection.
 4. Identity and security
-  - Implement managed-identity client initialization.
+  - Implement managed-identity client initialisation.
   - Validate no static credential usage in runtime paths.
 5. Quality and observability
   - Add unit tests for configuration, chunking, retrieval, and response shaping.
@@ -53,6 +61,7 @@ Note: In larger enterprise environments with mature private networking and contr
 - Runtime API and worker entry points can execute locally with environment-based config.
 - Ingestion smoke run can process PDF and Excel fixtures and index results.
 - Query smoke run returns grounded responses with evidence references.
+- Conversation create/message/history/rating flows operate against Cosmos DB.
 - Unit test baseline passes in CI.
 - Telemetry baseline emits traces/logs for both ingest and query flows.
 
@@ -60,6 +69,7 @@ Note: In larger enterprise environments with mature private networking and contr
 
 - Integration tests from private network runner
 - Operational hardening
+- Immutable image-tag rollout and rollback through Terraform
 
 ## Dependency Order
 

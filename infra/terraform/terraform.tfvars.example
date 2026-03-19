@@ -1,44 +1,62 @@
-subscription_id             = "00000000-0000-0000-0000-000000000000"
-location                    = "australiaeast"
-location_short              = "aue"
-environment                 = "dev"
-instance                    = "001"
-resource_group_name         = "rg-ai-platform-dev"
-vnet_cidr                   = "10.20.0.0/16"
+# Minimal example for creating an environment-specific tfvars file.
+#
+# Recommended usage:
+# - Copy relevant values into infra/terraform/environments/<env>/<env>.tfvars
+# - Keep image tags and other rollout-specific values in the environment tfvars
+#   or pass them explicitly on apply.
+# - Rely on defaults from variables.tf where appropriate rather than duplicating them here.
+
+subscription_id              = "<set-me>"
+location                     = "australiaeast"
+location_short               = "aue"
+environment                  = "dev"
+resource_group_name          = "rg-ai-platform-dev"
+
+vnet_cidr                    = "10.20.0.0/16"
 private_endpoint_subnet_cidr = "10.20.1.0/24"
-agent_subnet_cidr           = "10.20.2.0/24"
-jumpbox_subnet_cidr         = "10.20.3.0/24"
-azure_bastion_subnet_cidr   = "10.20.4.0/26"
+agent_subnet_cidr            = "10.20.2.0/24"
+container_apps_subnet_cidr   = "10.20.5.0/24"
+jumpbox_subnet_cidr          = "10.20.3.0/24"
+azure_bastion_subnet_cidr    = "10.20.4.0/26"
 
-embedding_model = {
-  name     = "text-embedding-ada-002"
-  version  = "2"
-  capacity = 10
-}
+jumpbox_admin_ssh_public_key = "<set-me-ssh-public-key>"
+jumpbox_vm_size              = "Standard_B2as_v2"
 
-query_model = {
-  name     = "gpt-5.1-chat"
-  version  = "2025-11-13"
-  capacity = 1
-}
+enable_model_deployments     = true
+enable_ingestion_job         = true
+enable_query_web_app         = true
 
-evaluation_model = {
-  name     = "gpt-4.1-mini"
-  version  = "2025-04-14"
-  capacity = 1
-}
+search_index_name            = "grounding-index"
+query_top_k                  = 5
+query_default_temperature    = 1.0
+query_eval_threshold         = 0.72
 
-enable_ingestion_job = true
-enable_query_web_app = true
-query_web_image_tag  = "latest"
-search_index_name    = "grounding-index"
-cosmos_database_name = "rag-conversations"
-cosmos_container_name = "conversations"
-query_top_k          = 5
-query_default_temperature = 1.0
-query_eval_threshold      = 0.72
-# query_web_auth_token    = "change-me"
+# Optional shared token for query web app auth gate.
+# query_web_auth_token       = "change-me"
 
-tags = {
-  owner = "platform-team"
-}
+# Optional overrides. These default in variables.tf and usually do not need to be set.
+# instance                   = "001"
+# cosmos_database_name       = "rag-conversations"
+# cosmos_container_name      = "conversations"
+# ingestion_job_image_tag    = "202603190340-localfix"
+# query_web_image_tag        = "202603190340-localfix"
+# embedding_model = {
+#   name     = "text-embedding-ada-002"
+#   version  = "2"
+#   capacity = 10
+# }
+# query_model = {
+#   name     = "gpt-5.1-chat"
+#   version  = "2025-11-13"
+#   capacity = 1
+# }
+# evaluation_model = {
+#   name     = "gpt-4.1-mini"
+#   version  = "2025-04-14"
+#   capacity = 1
+# }
+
+# Optional extra tags.
+# tags = {
+#   owner = "platform-team"
+# }

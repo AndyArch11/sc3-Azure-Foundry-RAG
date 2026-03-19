@@ -158,6 +158,7 @@ module "agent_hosting" {
   query_top_k                = var.query_top_k
   query_default_temperature  = var.query_default_temperature
   query_eval_threshold       = var.query_eval_threshold
+  ingestion_job_image_tag    = var.ingestion_job_image_tag
   query_web_auth_token       = var.query_web_auth_token
   query_web_image_tag        = var.query_web_image_tag
   enable_ingestion_job       = var.enable_ingestion_job

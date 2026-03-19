@@ -1,5 +1,11 @@
 # Testing Strategy
 
+Operational convention:
+
+- Use `TARGET_ENV` when selecting environment-specific Terraform state and tfvars.
+- Run private-network tests only from a host with line of sight into the VNet.
+- Prefer immutable image tags and Terraform rollouts before executing smoke tests against a new revision.
+
 ## Unit Tests (Primary, Automated)
 
 Unit tests are designed to run in any CI environment because they do not require access to private Azure endpoints.
@@ -37,9 +43,28 @@ In larger enterprise environments with mature private networking, jumpbox access
 Run integration smoke tests from a private-network context (for example, jumpbox VM):
 
 ```bash
+TARGET_ENV="<env>"
+QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn)
+
 ./ops/scripts/run-query-web-integration-tests.sh \
-  "https://<query-web-fqdn>" \
+  "https://${QUERY_FQDN}" \
   "<optional-auth-token>"
+```
+
+Recommended pre-test rollout flow:
+
+```bash
+TARGET_ENV="<env>"
+QUERY_TAG="$(date +%Y%m%d%H%M)-<gitsha>"
+
+ENV="${TARGET_ENV}" IMAGE_TAG="${QUERY_TAG}" ./ops/scripts/build-push-query-web.sh
+
+terraform -chdir=infra/terraform apply \
+  -input=false \
+  -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
+  -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \
+  -var "query_web_image_tag=${QUERY_TAG}" \
+  -target=module.agent_hosting
 ```
 
 Environment variables supported by the test suite:
@@ -70,6 +95,7 @@ The suite validates:
 
 - `/health` and `/api/config`
 - conversation create/add/list/history endpoints
+- conversation rating and feedback persistence when enabled
 - optional `/api/ask` request when enabled
 
 ## Test Data

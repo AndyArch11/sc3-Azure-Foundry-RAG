@@ -1,5 +1,5 @@
 # Local extraction (used by --mode local)
-pypdf==6.8.0
+pypdf==6.9.1
 openpyxl==3.1.5
 
 # Azure SDK (used by --mode azure)

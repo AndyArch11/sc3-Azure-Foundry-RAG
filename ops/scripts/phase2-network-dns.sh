@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  cat <<'EOF'
+Usage:
+  ./ops/scripts/phase2-network-dns.sh <env> [plan|apply]
+
+Runs Phase 2 Terraform targets for foundation, network, DNS, and bastion/jumpbox.
+
+Defaults:
+  env    = dev
+  action = plan
+EOF
+  exit 0
+fi
+
 # Executes Phase 2 scoped Terraform plan/apply for foundation, network, DNS, and bastion.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

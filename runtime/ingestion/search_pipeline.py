@@ -50,7 +50,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
+from typing import Any, Optional, cast
 
 from azure.core.credentials import TokenCredential
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
@@ -412,7 +412,7 @@ def ensure_indexer(config: IngestionConfig, credential: TokenCredential) -> None
             image_action=BlobIndexerImageAction.GENERATE_NORMALIZED_IMAGES,
             # azure-search-documents 11.6.0 injects queryTimeout by default,
             # but Azure Blob indexers reject that property.
-            query_timeout=None,
+            query_timeout=cast(Any, None),
         )
     )
 

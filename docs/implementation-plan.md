@@ -4,11 +4,17 @@
 
 Build an end-to-end, private-network Azure AI Agent platform by code only, using Terraform for infrastructure and Python for runtime orchestration.
 
+Operational convention:
+
+- Use `TARGET_ENV` in runbooks and shell examples to refer to the selected environment.
+- Treat `infra/terraform/environments/<env>/<env>.tfvars` as the authoritative environment configuration.
+- Roll out runtime containers with immutable image tags through Terraform, rather than direct Container App image mutation.
+
 ## 2. Assumptions and Constraints
 
 - The tenant may be empty; all platform components are created through Terraform.
 - Where a free Azure tenant already includes a default subscription, that subscription is used.
-- Agent runtime is Azure-hosted AI Agent infrastructure (not self-managed Azure Container Apps for the agent runtime).
+- Agent capabilities are Azure-hosted AI Agent infrastructure, while supporting runtime services (ingestion and query web) are self-managed Azure Container Apps workloads.
 - Public network access is disabled for supported data and AI services.
 - Documentation and internal naming use UK English unless platform APIs require specific values.
 - Bastion and jumpbox are optional operational access patterns intended for standalone isolated deployments (for example sandbox Foundry validation) and for small or medium organisations without mature private network controls.
@@ -58,7 +64,7 @@ Build an end-to-end, private-network Azure AI Agent platform by code only, using
 - Private endpoint subnet and delegated agent subnet.
 - Storage account with blob container `grounding-data`.
 - Azure AI Search.
-- Azure AI Foundry resources and hosted agent runtime components.
+- Azure AI Foundry resources and hosted agent capability components.
 - Azure Cosmos DB.
 - Optional jumpbox VM with Bastion access for standalone/sandbox and SMB-style deployments.
 - Private DNS zones and conditional forwarder rules for:
@@ -87,10 +93,10 @@ Build an end-to-end, private-network Azure AI Agent platform by code only, using
   - Enforce private endpoint connectivity and disable public network exposure.
 4. Identity and access layer
   - Create user-assigned/system-assigned managed identities as needed.
-  - Apply least-privilege RBAC for agent runtime, ingestion, query, and operations.
+  - Apply least-privilege RBAC for agent runtime, ingestion, query, and operations, including Cosmos DB data-plane access.
 5. Runtime services layer
   - Implement ingestion and query workflows in Python runtime services.
-  - Add telemetry and test harnesses.
+  - Add telemetry, feedback persistence, and test harnesses.
 
 ## 6. Security Model
 
@@ -121,7 +127,7 @@ Build an end-to-end, private-network Azure AI Agent platform by code only, using
 1. Bootstrap
   - Remote state prerequisites and backend resources.
   - Optional standalone demo Key Vault for jumpbox public-key publish workflow (toggleable).
-  - Enterprise deployments are expected to replace this workflow with organization-managed key lifecycle controls at the publish integration point in phase automation.
+  - Enterprise deployments are expected to replace this workflow with organisation-managed key lifecycle controls at the publish integration point in phase automation.
 2. Root stack composition
   - Module orchestration from `infra/terraform/main.tf`.
 3. Module responsibilities
@@ -131,7 +137,7 @@ Build an end-to-end, private-network Azure AI Agent platform by code only, using
   - `data_services`: Storage, Search, Cosmos, and Foundry core resources.
   - `private_endpoints`: endpoint mappings and private DNS zone groups.
   - `identity`: managed identities and RBAC.
-  - `agent_hosting`: hosted agent runtime dependencies and bindings.
+  - `agent_hosting`: hosted agent capability dependencies and bindings, plus Container Apps runtime service hosting.
   - `bastion_jumpbox`: optional jumpbox VM and Bastion path for standalone/sandbox and SMB deployments.
   - `observability`: LAW, diagnostics, and monitoring baselines.
 
@@ -160,7 +166,7 @@ Build an end-to-end, private-network Azure AI Agent platform by code only, using
   - Configure hosted AI agent runtime components.
 5. Runtime workflows
   - Implement ingest and query workflows.
-  - Integrate default model configuration and evaluation path.
+  - Integrate default model configuration, conversation persistence, response ratings, and evaluation path.
   - Deliver local smoke workflow execution path and baseline runtime tests.
 6. Verification and hardening
   - Execute private-network integration tests.
@@ -175,8 +181,8 @@ Build an end-to-end, private-network Azure AI Agent platform by code only, using
 - Integration tests pass from private network execution location.
 - Baseline logs, traces, and metrics are visible in the observability stack.
 
-## 13. Non-Goals for Scaffold Stage
+## 13. Current Non-Goals
 
-- Full production-grade runtime implementation.
-- Full Terraform policy set and CI release workflow.
-- Complete runbooks for incident management.
+- Full Terraform policy-as-code stack and enterprise policy exemption workflow.
+- Full CI/CD release automation and promotion workflow.
+- Complete incident-response and on-call operational runbooks.

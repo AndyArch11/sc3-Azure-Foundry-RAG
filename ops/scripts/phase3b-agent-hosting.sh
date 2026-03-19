@@ -1,6 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  cat <<'EOF'
+Usage:
+  ENABLE_HOSTED_QUERY_AGENT_PREVIEW=true ./ops/scripts/phase3b-agent-hosting.sh <env> [plan|apply]
+
+Runs the optional preview-only hosted query agent deployment path.
+
+Defaults:
+  env    = dev
+  action = plan
+
+Note:
+  This path is disabled unless ENABLE_HOSTED_QUERY_AGENT_PREVIEW=true.
+EOF
+  exit 0
+fi
+
 # Deploys agent hosting module separately from Phase 3 core, because
 # hosted_query_agent uses a preview API (2025-04-01-preview) that can
 # be slow to respond. Resources here carry 30-minute timeouts.
@@ -35,6 +52,11 @@ BOOTSTRAP_VARS_FILE="${TF_DIR}/environments/${ENVIRONMENT}/bootstrap.generated.t
 
 if ! command -v terraform >/dev/null 2>&1; then
   echo "Terraform is required in PATH."
+  exit 1
+fi
+
+if ! command -v az >/dev/null 2>&1; then
+  echo "Azure CLI is required in PATH."
   exit 1
 fi
 

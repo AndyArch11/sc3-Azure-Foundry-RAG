@@ -39,11 +39,25 @@ The same identity is attached to the jumpbox VM for interactive ingestion runs.
 
 ## Image
 
-The job pulls from `<acr_login_server>/ingestion-runner:latest`.  
+The job image should be built and pushed with an immutable tag.  
 Build and push with:
 
 ```bash
-ENV=dev IMAGE_TAG=latest ./ops/scripts/build-push-ingestion.sh
+TARGET_ENV="<env>"
+ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-ingestion.sh
+```
+
+Then roll that exact tag into Terraform or update the job configuration explicitly so deployments remain reproducible.
+
+Example rollout:
+
+```bash
+terraform -chdir=infra/terraform apply \
+  -input=false \
+  -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
+  -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \
+  -var "ingestion_job_image_tag=<immutable-ingestion-tag>" \
+  -target=module.agent_hosting
 ```
 
 > **Note:** the script must run from inside the VNet (jumpbox or CI with VNet
@@ -52,21 +66,26 @@ ENV=dev IMAGE_TAG=latest ./ops/scripts/build-push-ingestion.sh
 ## Triggering
 
 ```bash
+TARGET_ENV="<env>"
+JOB_NAME=$(terraform -chdir=infra/terraform output -raw container_app_job_name)
+RESOURCE_GROUP=$(terraform -chdir=infra/terraform output -raw resource_group_name)
+QUERY_APP=$(terraform -chdir=infra/terraform output -raw query_web_app_name)
+
 # Index files already in blob storage (default args)
 az containerapp job start \
-	-n caj-ingestion-dev-aue-001 \
-	-g rg-ai-platform-dev
+  -n "${JOB_NAME}" \
+  -g "${RESOURCE_GROUP}"
 
 # Upload files and index in one step
 az containerapp job start \
-	-n caj-ingestion-dev-aue-001 \
-	-g rg-ai-platform-dev \
-	--args '--mode' 'azure' '--input-dir' '/path/to/files'
+  -n "${JOB_NAME}" \
+  -g "${RESOURCE_GROUP}" \
+  --args '--mode' 'azure' '--input-dir' '/path/to/files'
 
 # Query web app endpoint (private ingress)
 az containerapp show \
-  -n ca-rag-query-dev-aue-001 \
-  -g rg-ai-platform-dev \
+  -n "${QUERY_APP}" \
+  -g "${RESOURCE_GROUP}" \
   --query "properties.configuration.ingress.fqdn" -o tsv
 ```
 

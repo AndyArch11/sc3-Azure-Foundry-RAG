@@ -55,13 +55,13 @@ Added:
 Updated for security:
 - `jinja2==3.1.6` (was 3.1.5)
 - `requests==2.32.4` (was 2.32.3)
-- `pypdf==6.8.0` (was 5.4.0 in runtime/requirements.txt)
+- `pypdf==6.9.1` (was 5.4.0 in runtime/requirements.txt)
 
 ---
 
 ### 3. Testing
 
-#### [tests/unit/test_ingestion_extractors.py](tests/unit/test_ingestion_extractors.py) — NEW
+#### [tests/unit/test_ingestion_extractors.py](tests/unit/test_ingestion_extractors.py)
 
 **13 comprehensive tests** for document extraction:
 - **PDF Tests:** Extraction, multi-page handling, empty pages, ImportError fallback
@@ -69,7 +69,7 @@ Updated for security:
 - **File Discovery:** Supported extensions, sorting, recursion, empty directories
 - Uses in-memory PDF/Excel construction (pypdf.PdfWriter, openpyxl.Workbook) — no external fixtures needed
 
-#### [tests/unit/test_conversation_management.py](tests/unit/test_conversation_management.py) — NEW
+#### [tests/unit/test_conversation_management.py](tests/unit/test_conversation_management.py)
 
 **15 comprehensive tests** for conversation functionality:
 - **Data Models:** Message creation, session creation, role validation
@@ -84,7 +84,7 @@ Updated for security:
 
 ### 4. Documentation
 
-#### [docs/foundry-conversations.md](docs/foundry-conversations.md) — NEW
+#### [docs/foundry-conversations.md](docs/foundry-conversations.md)
 
 Comprehensive reference covering:
 - **Architecture:** Components, data model, session scoping
@@ -92,10 +92,10 @@ Comprehensive reference covering:
 - **API Endpoints:** Complete examples for conversation CRUD operations
 - **CosmosDB Schema:** Database/container structure, partition key strategy
 - **Session Scoping:** Per-user (auth), per-session (cookie), hybrid modes
-- **Security Considerations:** Authentication, data privacy, fallback behavior
+- **Security Considerations:** Authentication, data privacy, fallback behaviour
 - **Future Enhancements:** Threading, message editing, export, TTL, analytics
 
-#### [docs/foundry-setup-guide.md](docs/foundry-setup-guide.md) — NEW
+#### [docs/foundry-setup-guide.md](docs/foundry-setup-guide.md)
 
 Deployment checklist covering:
 - **Step 1:** Environment variable configuration with substitution guide
@@ -112,11 +112,11 @@ Deployment checklist covering:
 ## Architecture Diagram
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                    Query Web Container                        │
-├──────────────────────────────────────────────────────────────┤
+┌────────────────────────────────────────────────────────────────┐
+│                    Query Web Container                         │
+├────────────────────────────────────────────────────────────────┤
 │                                                                │
-│  User Request ──┬──→ /ask (Form)                              │
+│  User Request ──┬──→ /ask (Form)                               │
 │                 │    ├─ Load conversation history (if exists)  │
 │                 │    ├─ Hybrid search (vector + text)          │
 │                 │    └─ Foundry API chat completion            │
@@ -130,16 +130,16 @@ Deployment checklist covering:
 │                 └──→ /api/conversations/{user_id}/{conv_id}    │
 │                      └─ Fetch history from CosmosDB            │
 │                                                                │
-│  ┌────────────────────────────────────────────────────────┐   │
-│  │  Internal Components                                   │   │
-│  │                                                        │   │
-│  │  • DefaultAzureCredential → Managed Identity/CLI       │   │
-│  │  • ConversationSession (dataclass) → CosmosDB JSON     │   │
-│  │  • _chat_completion() → OpenAI SDK → Foundry API       │   │
-│  │  • _hybrid_search() → Azure Search (unchanged)         │   │
-│  │  • _evaluate() → Foundry reasoning model               │   │
-│  └────────────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────┘
+│   ┌────────────────────────────────────────────────────────┐   │
+│   │  Internal Components                                   │   │
+│   │                                                        │   │
+│   │  • DefaultAzureCredential → Managed Identity/CLI       │   │
+│   │  • ConversationSession (dataclass) → CosmosDB JSON     │   │
+│   │  • _chat_completion() → OpenAI SDK → Foundry API       │   │
+│   │  • _hybrid_search() → Azure Search                     │   │
+│   │  • _evaluate() → Foundry reasoning model               │   │
+│   └────────────────────────────────────────────────────────┘   │
+└────────────────────────────────────────────────────────────────┘
          ↓                    ↓                    ↓
     ┌─────────┐       ┌───────────────┐      ┌──────────────┐
     │ Foundry │       │   Azure       │      │   CosmosDB   │
@@ -238,12 +238,12 @@ POST /ask
 ## Deployment Checklist
 
 - [x] Updated `query_web/requirements.txt` with `openai` and `azure-cosmos`
-- [x] Fixed PyPDF vulnerability (updated to 6.8.0)
+- [x] Fixed PyPDF vulnerability (updated to 6.9.1)
 - [x] Fixed Jinja2 vulnerability (updated to 3.1.6)
 - [x] Fixed Requests vulnerability (updated to 2.32.4)
 - [x] Added conversation data models to `app.py`
 - [x] Updated `_chat_completion()` to use Foundry API
-- [x] Added CosmosDB client initialization
+- [x] Added CosmosDB client initialisation
 - [x] Added conversation CRUD endpoints
 - [x] Added conversation injection into RAG context
 - [x] Created comprehensive documentation
@@ -289,6 +289,7 @@ POST /ask
 6. **TTL Policies** — Archive conversations older than N days
 7. **Quota Enforcement** — Rate-limit conversations per user
 8. **Compliance** — Add conversation purge/retention policies
+9. **DLP** - Detect DLP patterns in conversation text and mask or block chat post
 
 ---
 

@@ -20,6 +20,7 @@ class ConversationSession:
     user_id: str  # Hashed auth_token or session identifier
     conversation_id: str  # Unique per conversation
     messages: list[ConversationMessage]  # Ordered message history
+    response_ratings: list[ResponseRating]  # User ratings + TODO notes for prior answers
     created_at: str  # ISO 8601 timestamp
     updated_at: str  # ISO 8601 timestamp
     evaluation_threshold: float  # Threshold for answer acceptability
@@ -33,6 +34,16 @@ class ConversationMessage:
     content: str  # Message text
     timestamp: str  # ISO 8601 timestamp
 ```
+
+  #### ResponseRating
+  ```python
+  @dataclass
+  class ResponseRating:
+    rating: int  # 1..5
+    todo: str  # Improvement note for future answers
+    assistant_timestamp: str  # Optional link to a specific assistant message
+    timestamp: str  # ISO 8601 timestamp
+  ```
 
 ## Environment Variables
 
@@ -139,6 +150,30 @@ auth_token=<optional-token>
 
 ---
 
+#### Add Response Rating/TODO Feedback
+```http
+POST /api/conversations/{conversation_id}/rating
+Content-Type: application/x-www-form-urlencoded
+
+user_id=<computed-user-id>
+rating=1..5
+todo=<improvement-note>
+assistant_timestamp=<optional-assistant-message-timestamp>
+auth_token=<optional-token>
+```
+
+**Response:**
+```json
+{
+  "ratings_count": 2,
+  "updated_at": "2026-03-19T10:22:14Z"
+}
+```
+
+This feedback is included in subsequent `/ask` calls for the same conversation as additional system context so the LLM can improve future responses.
+
+---
+
 #### Query with Conversation Context
 ```http
 POST /ask
@@ -152,11 +187,12 @@ session_id=<session-uuid>
 conversation_id=<conversation-uuid>
 ```
 
-The `/ask` endpoint now:
+The `/ask` endpoint:
 1. Loads prior conversation history if `session_id` and `conversation_id` are provided
 2. Injects previous messages into the RAG context
-3. Appends the user question and assistant response to the conversation history
-4. Persists the updated session to CosmosDB
+3. Injects recent user ratings/TODO feedback into system context for quality guidance
+4. Appends the user question and assistant response to the conversation history
+5. Persists the updated session to CosmosDB
 
 ---
 
@@ -189,7 +225,7 @@ response = client.chat.completions.create(
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "What is cybersecurity?"},
     ],
-    max_tokens=600,
+    max_completion_tokens=600,
     temperature=1.0,
 )
 ```
@@ -203,13 +239,13 @@ response = client.chat.completions.create(
 - **Database:** `rag-conversations`
 - **Container:** `conversations`
   - **Partition Key:** `/user_id`
-  - **Document ID:** `{user_id}#{conversation_id}`
+  - **Document ID:** `{user_id_sanitized}_{conversation_id_sanitized}`
 
 ### Document Structure
 
 ```json
 {
-  "id": "5a4b8d2e#f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "id": "5a4b8d2e_f47ac10b_58cc_4372_a567_0e02b2c3d479",
   "session_id": "550e8400-e29b-41d4-a716-446655440000",
   "user_id": "5a4b8d2e",
   "conversation_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
@@ -223,6 +259,14 @@ response = client.chat.completions.create(
       "role": "assistant",
       "content": "...",
       "timestamp": "2026-03-18T12:35:05Z"
+    }
+  ],
+  "response_ratings": [
+    {
+      "rating": 2,
+      "todo": "Include more concrete control mapping",
+      "assistant_timestamp": "2026-03-18T12:35:05Z",
+      "timestamp": "2026-03-18T12:36:00Z"
     }
   ],
   "created_at": "2026-03-18T12:34:56Z",
@@ -262,7 +306,7 @@ The app supports both scopes simultaneously:
 
 ## Security Considerations
 
-### Authentication & Authorization
+### Authentication & Authorisation
 
 - `DefaultAzureCredential` handles token acquisition (no credential storage in environment)
 - Optional `QUERY_WEB_AUTH_TOKEN` can gate conversation access
@@ -274,7 +318,7 @@ The app supports both scopes simultaneously:
 - Plan: Implement purge policies (e.g., TTL on messages > 30 days)
 - Consider: Data classification & encryption at rest
 
-### Fallback Behavior
+### Fallback Behaviour
 
 If CosmosDB is unavailable:
 - In-memory conversation tracking persists only for the current app instance

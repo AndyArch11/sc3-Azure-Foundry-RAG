@@ -96,7 +96,7 @@ resource "azurerm_container_app_job" "ingestion" {
   template {
     container {
       name   = "ingestion-runner"
-      image  = "${var.acr_login_server}/ingestion-runner:latest"
+      image  = "${var.acr_login_server}/ingestion-runner:${var.ingestion_job_image_tag}"
       cpu    = 1.0
       memory = "2Gi"
       args   = ["--mode", "azure", "--skip-upload"]

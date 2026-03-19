@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run integration smoke tests for query_web from a private-network location.
+# Run integration smoke tests for query web from a private-network-connected location.
 # Usage:
 #   ./ops/scripts/run-query-web-integration-tests.sh <base_url> [auth_token] [pytest args...]
 # Or via env:
@@ -19,6 +19,7 @@ Examples:
   ./ops/scripts/run-query-web-integration-tests.sh https://<fqdn>
   ./ops/scripts/run-query-web-integration-tests.sh https://<fqdn> <token> -k lifecycle
   QUERY_WEB_PREFLIGHT_ONLY=true ./ops/scripts/run-query-web-integration-tests.sh https://<fqdn>
+  QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn) && ./ops/scripts/run-query-web-integration-tests.sh "https://${QUERY_FQDN}"
 
 Env flags:
   QUERY_WEB_PREFLIGHT=true|false        # default: true
@@ -74,7 +75,7 @@ if [[ "${QUERY_WEB_PREFLIGHT,,}" == "true" || "${QUERY_WEB_PREFLIGHT}" == "1" ]]
   echo "== Preflight: DNS resolve ${HOST}"
   if ! getent ahosts "${HOST}" >/dev/null 2>&1; then
     echo "DNS resolution failed for ${HOST}."
-    echo "If this is a private-network-only endpoint, run from jump host or in-vnet runner."
+    echo "If this is a private-network-only endpoint, run from the jumpbox or another private-network-connected runner."
     exit 2
   fi
 

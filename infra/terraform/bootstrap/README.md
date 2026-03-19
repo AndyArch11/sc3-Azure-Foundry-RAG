@@ -7,8 +7,8 @@ Creates remote state storage, a bootstrap Key Vault, and minimal prerequisites f
 This stack creates:
 
 - Terraform state resource group
-- Storage account + `tfstate` container
-- Delete protection for backend storage via Terraform `prevent_destroy` and Azure management lock
+- Storage account + `tfstate` container (RBAC enabled, public network access enabled)
+  - Delete protection for backend storage via Terraform `prevent_destroy` and Azure management lock
 - Optional bootstrap Key Vault (RBAC enabled, public network access enabled)
 
 It then outputs values consumed by environment backend configuration.
@@ -47,4 +47,29 @@ Optional environment variables:
 The script updates `infra/terraform/environments/<env>/backend.hcl` with the generated state storage details.
 
 When `TF_ENABLE_BOOTSTRAP_KEY_VAULT=false`, bootstrap Key Vault creation and phase2 jumpbox key publish are both disabled.
-Enterprise implementations are expected to modify or replace the publish workflow in [ops/scripts/phase2-network-dns.sh](ops/scripts/phase2-network-dns.sh) to integrate with organization-owned key and secret lifecycle controls.
+Enterprise implementations are expected to modify or replace the publish workflow in [ops/scripts/phase2-network-dns.sh](ops/scripts/phase2-network-dns.sh) to integrate with organisation-owned key and secret lifecycle controls.
+
+## Teardown
+
+Destroy bootstrap only after the main environment stack has already been destroyed.
+
+Typical order:
+
+1. Destroy the root environment stack in `infra/terraform/`
+2. Remove backend protection controls
+3. Destroy the bootstrap stack in `infra/terraform/bootstrap/`
+
+Example bootstrap destroy:
+
+```bash
+terraform -chdir=infra/terraform/bootstrap destroy \
+  -input=false \
+  -var-file=terraform.tfvars
+```
+
+Before bootstrap destroy can remove the Terraform state storage account, you may need to explicitly remove:
+
+- the Terraform `prevent_destroy` protection on the backend storage resource
+- the Azure `CanNotDelete` management lock applied to the backend resource group or storage account
+
+This deliberate extra step is expected and prevents accidental removal of the Terraform backend while environments still depend on it.

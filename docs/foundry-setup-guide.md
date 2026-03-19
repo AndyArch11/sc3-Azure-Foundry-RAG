@@ -2,25 +2,25 @@
 
 ## Overview
 
-This guide covers deploying the new Azure Foundry API chat completion functionality and persistent conversation history via CosmosDB.
+This guide covers deploying Azure Foundry chat completion functionality and persistent conversation history via Cosmos DB for the query web application.
 
 ## Prerequisites
 
-- Azure Foundry account with:
+- Terraform-managed environment with:
   - Chat completion deployment (e.g., `gpt-5.1-chat`)
   - Embedding deployment (e.g., `text-embedding-ada-002`)
   - Evaluation/reasoning deployment (e.g., `gpt-4.1-mini`)
-- CosmosDB Serverless account (NoSQL API)
-- Service Principal or Managed Identity with roles:
+- Cosmos DB SQL API account, database, and container created by Terraform
+- Managed identity or operator identity with roles:
   - `Cognitive Services User` on Foundry account
-  - `Cosmos DB Built-in Data Contributor` on CosmosDB account
+  - `Cosmos DB Built-in Data Contributor` on Cosmos DB account
 - Python 3.12+
 
 ## Step 1: Update Environment Variables
 
-### Container App Environment
+### Query Web Container App Environment
 
-Add the following to the Container App's environment variables:
+The query web Container App receives these values from Terraform-managed environment variables:
 
 ```bash
 # Foundry API
@@ -28,7 +28,7 @@ AZURE_OPENAI_ENDPOINT=https://foundry-<suffix>.openai.azure.com/
 AZURE_SEARCH_ENDPOINT=https://srch-<suffix>.search.windows.net
 AZURE_SEARCH_INDEX_NAME=grounding-index
 
-# CosmosDB (Conversation Store)
+# Cosmos DB (conversation store)
 AZURE_COSMOS_ENDPOINT=https://cosmos-<suffix>.documents.azure.com:443/
 AZURE_COSMOS_DATABASE_NAME=rag-conversations
 AZURE_COSMOS_CONTAINER_NAME=conversations
@@ -39,196 +39,174 @@ ACCEPTABLE_SCORE_THRESHOLD=0.72
 QUERY_WEB_AUTH_TOKEN=<optional-auth-token>
 ```
 
-### Substitution
+### Resolve Values
 
 Replace `<suffix>` with your deployment suffix (e.g., "dev-eastus-abc123").
 
 Retrieve values from:
 ```bash
-# Get resource names
-az resource list -g rg-<suffix> --query "[].{Name:name, Type:type}" -o table
+TARGET_ENV="<env>"
+TF_DIR="infra/terraform"
 
-# Get CosmosDB endpoint
-az cosmosdb show -g rg-<suffix> -n cosmos-<suffix> --query documentEndpoint -o tsv
+terraform -chdir="${TF_DIR}" init \
+  -backend-config="environments/${TARGET_ENV}/backend.hcl"
 
-# Get CosmosDB key (if not using managed identity)
-az cosmosdb list-keys -g rg-<suffix> -n cosmos-<suffix> --query primaryMasterKey -o tsv
+RG_NAME=$(terraform -chdir="${TF_DIR}" output -raw resource_group_name)
+QUERY_FQDN=$(terraform -chdir="${TF_DIR}" output -raw query_web_fqdn)
+
+COSMOS_ENDPOINT=$(az cosmosdb list \
+  -g "${RG_NAME}" \
+  --query "[0].documentEndpoint" \
+  -o tsv)
+
+FOUNDRY_ENDPOINT=$(az cognitiveservices account list \
+  -g "${RG_NAME}" \
+  --query "[?kind=='AIServices'][0].properties.endpoint" \
+  -o tsv)
 ```
 
 ---
 
-## Step 2: Provision CosmosDB Database & Container
+## Step 2: Provision Cosmos DB Data Plane
 
-If not auto-provisioned via Terraform, create manually:
+The current Terraform stack creates the Cosmos DB SQL database and container automatically. Manual creation should only be used for one-off recovery or investigation.
 
-### Via Azure CLI
+Verify the data plane exists:
 
 ```bash
-COSMOS_ACCOUNT="cosmos-dev-eastus"
-RESOURCE_GROUP="rg-foundry-dev"
+TARGET_ENV="<env>"
+TF_DIR="infra/terraform"
 
-# Create database
-az cosmosdb sql database create \
-  -a "$COSMOS_ACCOUNT" \
-  -g "$RESOURCE_GROUP" \
+terraform -chdir="${TF_DIR}" init \
+  -backend-config="environments/${TARGET_ENV}/backend.hcl"
+
+RG_NAME=$(terraform -chdir="${TF_DIR}" output -raw resource_group_name)
+COSMOS_ACCOUNT=$(az cosmosdb list -g "${RG_NAME}" --query "[0].name" -o tsv)
+
+az cosmosdb sql database show \
+  -a "${COSMOS_ACCOUNT}" \
+  -g "${RG_NAME}" \
   -n "rag-conversations"
 
-# Create container (partitioned by user_id)
-az cosmosdb sql container create \
-  -a "$COSMOS_ACCOUNT" \
-  -g "$RESOURCE_GROUP" \
+az cosmosdb sql container show \
+  -a "${COSMOS_ACCOUNT}" \
+  -g "${RG_NAME}" \
   -d "rag-conversations" \
-  -n "conversations" \
-  --partition-key-path "/user_id" \
-  --throughput 400
+  -n "conversations"
 ```
 
-### Via Python SDK
-
-```python
-from azure.cosmos import CosmosClient
-from azure.identity import DefaultAzureCredential
-
-endpoint = "https://cosmos-dev-eastus.documents.azure.com:443/"
-credential = DefaultAzureCredential()
-
-client = CosmosClient(url=endpoint, credential=credential)
-db_client = client.create_database_if_not_exists(id="rag-conversations")
-container_client = db_client.create_container_if_not_exists(
-    id="conversations",
-    partition_key="/user_id",
-    offer_throughput=400,
-)
-print(f"Container created: {container_client.id}")
-```
+The application uses managed identity for runtime access. Do not add Cosmos account keys to the application configuration.
 
 ---
 
-## Step 3: Update query_web Dependencies
+## Step 3: Build And Roll Out Query Web
 
-### requirements.txt
-
-Ensure the following are included:
-
-```txt
-fastapi==0.115.6
-uvicorn==0.34.0
-jinja2==3.1.6
-python-multipart==0.0.22
-requests==2.32.4
-azure-identity==1.21.0
-azure-search-documents==11.6.0
-openai==1.51.0               # NEW: Foundry API via OpenAI SDK
-azure-cosmos==4.7.0          # NEW: Conversation persistence
-```
-
-### Build & Deploy
+Build and push from a Docker-capable host inside the VNet:
 
 ```bash
-cd query_web
-pip install -r requirements.txt
-docker build -t query-web:latest .
-docker push <acr>.azurecr.io/query-web:latest
+TARGET_ENV="<env>"
+QUERY_TAG="$(date +%Y%m%d%H%M)-<gitsha>"
 
-# Update Container App with new image
-az containerapp update \
-  --resource-group <rg> \
-  --name query-web-ca \
-  --image <acr>.azurecr.io/query-web:latest
+ENV="${TARGET_ENV}" IMAGE_TAG="${QUERY_TAG}" ./ops/scripts/build-push-query-web.sh
+
+terraform -chdir=infra/terraform apply \
+  -input=false \
+  -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
+  -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \
+  -var "query_web_image_tag=${QUERY_TAG}" \
+  -target=module.agent_hosting
 ```
+
+Query web dependencies of interest are in [query_web/requirements.txt](../query_web/requirements.txt).
 
 ---
 
 ## Step 4: Verify Deployment
 
+Resolve the application FQDN from Terraform:
+
+```bash
+TARGET_ENV="<env>"
+QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn)
+```
+
 ### Health Check
 
 ```bash
-curl https://<query-web-fqdn>/health
+curl "https://${QUERY_FQDN}/health"
 # Expected: {"status":"ok","service":"rag-query-web",...}
 ```
 
 ### Configuration Endpoint
 
 ```bash
-curl https://<query-web-fqdn>/api/config
+curl "https://${QUERY_FQDN}/api/config"
 # Expected: {..., "default_temperature": 1.0, ...}
 ```
 
-### Create a Conversation
+### Integration Smoke Test
 
 ```bash
-curl -X POST https://<query-web-fqdn>/api/conversations/new \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "auth_token=optional"
-# Expected:
-# {
-#   "session_id": "550e8400-e29b-41d4-a716-446655440000",
-#   "conversation_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-#   "user_id": "5a4b8d2e"
-# }
+QUERY_WEB_RUN_API_ASK=true \
+QUERY_WEB_REQUIRE_CONVERSATIONS=true \
+./ops/scripts/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
 ```
 
-### Query with Conversation Context
+### Create A Conversation
 
 ```bash
-curl -X POST https://<query-web-fqdn>/ask \
+curl -X POST "https://${QUERY_FQDN}/api/conversations/new" \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "question=What%20is%20cybersecurity?" \
-  -d "retrieve_k=5" \
-  -d "temperature=1.0" \
-  -d "session_id=550e8400-e29b-41d4-a716-446655440000" \
-  -d "conversation_id=f47ac10b-58cc-4372-a567-0e02b2c3d479"
+  -d "auth_token=<optional-auth-token>"
 ```
 
 ### View Conversation History
 
 ```bash
-USER_ID="5a4b8d2e"
-CONV_ID="f47ac10b-58cc-4372-a567-0e02b2c3d479"
+USER_ID="<user-id>"
+CONV_ID="<conversation-id>"
 
-curl "https://<query-web-fqdn>/api/conversations/$USER_ID/$CONV_ID?auth_token=optional"
+curl "https://${QUERY_FQDN}/api/conversations/${USER_ID}/${CONV_ID}?auth_token=<optional-auth-token>"
 ```
 
 ---
 
-## Step 5: Test with Python
+## Step 5: Test With Python
 
 ```python
 import requests
 from urllib.parse import urlencode
 
 BASE_URL = "https://<query-web-fqdn>"
+AUTH_TOKEN = ""
 
 # 1. Create conversation
 resp = requests.post(
     f"{BASE_URL}/api/conversations/new",
-    data={"auth_token": ""}
+    data={"auth_token": AUTH_TOKEN}
 )
 session = resp.json()
 conversation_id = session["conversation_id"]
 user_id = session["user_id"]
 print(f"Created conversation: {conversation_id}")
 
-# 2. Add a question
-query_data = {
-    "question": "What are the AESCSF controls?",
-    "retrieve_k": 5,
-    "temperature": 1.0,
-    "session_id": session["session_id"],
-    "conversation_id": conversation_id,
+# 2. Ask through the conversation message endpoint
+message_data = {
+    "message": "What are the AESCSF controls?",
+    "auth_token": AUTH_TOKEN,
 }
 
 resp = requests.post(
-    f"{BASE_URL}/ask",
-    data=urlencode(query_data),
+    f"{BASE_URL}/api/conversations/{conversation_id}/message",
+    data=urlencode(message_data),
     headers={"Content-Type": "application/x-www-form-urlencoded"}
 )
-print(f"Response: {resp.text}")
+print(f"Response: {resp.json()}")
 
 # 3. Fetch conversation history
 resp = requests.get(
-    f"{BASE_URL}/api/conversations/{user_id}/{conversation_id}"
+    f"{BASE_URL}/api/conversations/{user_id}/{conversation_id}",
+    params={"auth_token": AUTH_TOKEN},
 )
 history = resp.json()
 for msg in history["messages"]:
@@ -239,20 +217,20 @@ for msg in history["messages"]:
 
 ## Monitoring & Troubleshooting
 
-### Check CosmosDB Activity
+### Check Cosmos DB Activity
 
 ```bash
-az cosmosdb show -g rg-<suffix> -n cosmos-<suffix> \
+az cosmosdb show -g <resource-group> -n <cosmos-account-name> \
   --query "documentEndpoint" -o tsv
-# Then view metrics in Azure Portal → CosmosDB account → Metrics
+# Then view metrics in Azure Portal -> Cosmos DB account -> Metrics
 ```
 
 ### View Container App Logs
 
 ```bash
 az containerapp logs show \
-  -g rg-<suffix> \
-  -n query-web-ca \
+  -g <resource-group> \
+  -n <query-web-app-name> \
   --tail 50
 
 # Or via Log Analytics (if configured)
@@ -275,15 +253,15 @@ az monitor log-analytics query \
 
 ## Performance Tuning
 
-### CosmosDB Throughput
+### Cosmos DB Throughput
 
 For production workloads:
 
 ```bash
 # Recommended: 800-1000 RU/s for active conversation store
 az cosmosdb sql container throughput update \
-  -a "cosmos-prod" \
-  -g "rg-prod" \
+  -a "<cosmos-account-name>" \
+  -g "<resource-group>" \
   -d "rag-conversations" \
   -n "conversations" \
   --throughput 1000
@@ -306,7 +284,7 @@ container_client.replace_container(
 
 ## Security Hardening
 
-### 1. RBAC for CosmosDB
+### 1. RBAC for Cosmos DB
 
 ```bash
 # Grant Cosmos DB Built-in Data Contributor
@@ -324,7 +302,7 @@ Ensure private endpoints:
 
 ### 3. Data Encryption
 
-- At rest: `enableCMKEncryption` on CosmosDB (optional)
+- At rest: customer-managed keys can be added later if required by policy
 - In transit: TLS 1.2+ enforced
 
 ---
@@ -334,17 +312,23 @@ Ensure private endpoints:
 If issues arise:
 
 1. **Disable conversation history** (keep Foundry API):
-   - Remove `session_id` and `conversation_id` parameters from `/ask` form
+   - Stop using the conversation endpoints and fall back to single-turn `/api/ask` requests.
    - App continues to function for single-turn queries
 
-2. **Revert to previous requires.txt**:
+2. **Roll back query web image**:
    ```bash
-   git checkout HEAD^ -- query_web/requirements.txt
-   docker build -t query-web:rollback .
-   az containerapp update --image query-web:rollback
+   TARGET_ENV="<env>"
+   ROLLBACK_TAG="<previous-query-web-tag>"
+
+   terraform -chdir=infra/terraform apply \
+     -input=false \
+     -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
+     -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \
+     -var "query_web_image_tag=${ROLLBACK_TAG}" \
+     -target=module.agent_hosting
    ```
 
-3. **Preserve CosmosDB data**:
+3. **Preserve Cosmos DB data**:
    - Conversation documents auto-persisted with partition key `/user_id`
    - Can be recovered if service restarted
 
@@ -352,7 +336,7 @@ If issues arise:
 
 ## Next Steps
 
-- Monitor conversation patterns and usage via CosmosDB metrics
+- Monitor conversation patterns and usage via Cosmos DB metrics
 - Implement conversation search (full-text search on message content)
 - Add conversation export (download as Markdown)
 - Set up alerts for CosmosDB throttling and error rates

@@ -154,6 +154,12 @@ variable "enable_query_web_app" {
   default     = false
 }
 
+variable "ingestion_job_image_tag" {
+  type        = string
+  description = "Image tag for ingestion-runner in ACR."
+  default     = "latest"
+}
+
 variable "query_web_image_tag" {
   type        = string
   description = "Image tag for rag-query-web in ACR."

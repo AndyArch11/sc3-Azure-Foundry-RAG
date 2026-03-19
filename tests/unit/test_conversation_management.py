@@ -17,7 +17,9 @@ from azure.cosmos.exceptions import CosmosResourceNotFoundError
 
 from query_web.app import (
     ConversationMessage,
+    ResponseRating,
     ConversationSession,
+    _build_feedback_context,
     _get_user_id,
     _load_conversation,
     _save_conversation,
@@ -70,9 +72,28 @@ class TestConversationSession:
         assert doc["user_id"] == "user-456"
         assert doc["conversation_id"] == "conv-789"
         assert len(doc["messages"]) == 1
+        assert doc["response_ratings"] == []
         assert doc["messages"][0]["role"] == "user"
         assert doc["messages"][0]["content"] == "Q"
         assert doc["type"] == "conversation"
+
+    def test_session_rating_roundtrip(self) -> None:
+        session = ConversationSession(
+            session_id="sess-123",
+            user_id="user-456",
+            conversation_id="conv-789",
+        )
+        session.response_ratings.append(
+            ResponseRating(rating=2, todo="Add mitigation checklist", assistant_timestamp="t-assist")
+        )
+
+        doc = session.to_dict()
+        restored = ConversationSession.from_dict(doc)
+
+        assert len(restored.response_ratings) == 1
+        assert restored.response_ratings[0].rating == 2
+        assert restored.response_ratings[0].todo == "Add mitigation checklist"
+        assert restored.response_ratings[0].assistant_timestamp == "t-assist"
 
     def test_session_from_dict_roundtrip(self) -> None:
         original = ConversationSession(
@@ -232,3 +253,31 @@ class TestConversationMessageHistory:
         assert len(restored.messages) == 4
         restored_contents = [m.content for m in restored.messages]
         assert restored_contents == ["Q1", "A1", "Q2", "A2"]
+
+
+class TestConversationFeedbackContext:
+    """Test feedback context generation from ratings/TODO notes."""
+
+    def test_feedback_context_from_recent_ratings(self) -> None:
+        session = ConversationSession(
+            session_id="sess-123",
+            user_id="user-456",
+            conversation_id="conv-789",
+        )
+        session.response_ratings.append(ResponseRating(rating=4, todo="Keep concise"))
+        session.response_ratings.append(ResponseRating(rating=2, todo="Need stronger grounding"))
+
+        feedback = _build_feedback_context(session)
+
+        assert "Recent user feedback on prior answers:" in feedback
+        assert "rating=4/5; todo=Keep concise" in feedback
+        assert "rating=2/5; todo=Need stronger grounding" in feedback
+
+    def test_feedback_context_empty_when_no_ratings(self) -> None:
+        session = ConversationSession(
+            session_id="sess-123",
+            user_id="user-456",
+            conversation_id="conv-789",
+        )
+
+        assert _build_feedback_context(session) == ""

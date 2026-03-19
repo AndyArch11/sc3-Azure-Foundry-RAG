@@ -1,10 +1,10 @@
 # Hosted AI Cyber Safety Platform
 
-Infrastructure-as-Code and runtime scaffold for a privately secured Azure AI Agent platform.
+This repository provisions and operates a privately networked Azure AI Foundry solution for a cyber security target persona
 
 ## Scope
 
-- Uses Azure-hosted Agent Service (not self-managed Azure Container Apps for the agent runtime).
+- Uses Azure-hosted AI Agent capabilities, with supporting ingestion/query runtime services deployed on self-managed Azure Container Apps.
 - Deploys all platform resources via Terraform.
 - Secures data plane services by private endpoints with public network access disabled.
 - Supports ingestion and query agent workflows with configurable model defaults.
@@ -20,18 +20,22 @@ Infrastructure-as-Code and runtime scaffold for a privately secured Azure AI Age
 ## What This Repository Contains
 
 - Terraform runner container for deterministic infrastructure operations.
+  - Storage account for terraform state files
+  - Key Vault for jumpbox SSH secrets
 - Modular Terraform layout for foundation, network, data services, private endpoints, observability, and agent hosting.
 - Private networking model with:
   - VNet `/16`
   - Private endpoint subnet `/24`
   - Delegated agent subnet `/24`
   - Jumpbox subnet and Bastion host
+  - Sizes based on [BYO private virtual network](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/virtual-networks). Modify for actual needs.
 - Azure platform resources:
   - Storage account with blob container `grounding-data`
+  - Azure AI Foundry with project and models
   - Azure AI Search
-  - Azure AI Foundry resource and hosted agent runtime components
-  - Azure Cosmos DB
+  - Azure Cosmos DB for chat conversations
 - Private endpoint DNS zones and conditional forwarder guidance for:
+  - `privatelink.azurecr.io`
   - `privatelink.blob.core.windows.net`
   - `privatelink.cognitiveservices.azure.com`
   - `privatelink.documents.azure.com`
@@ -50,7 +54,9 @@ Infrastructure-as-Code and runtime scaffold for a privately secured Azure AI Age
 - `docs/` architecture, plans, and runbooks
 - `infra/terraform/` bootstrap, environments, and reusable modules
 - `ops/containers/terraform-runner/` Terraform execution container
-- `runtime/` application skeleton for API and workers
+- `ops/scripts/` shell scripts to bootstrap Terraform build environment, create Azure resources, and deploy and test containers.
+- `query_web/` Docker container config for query UI running in an Azure Container App
+- `runtime/` ingestion runtime and Docker container config for the Azure Container App job
 - `tests/` unit and integration tests
 
 ## Runtime Functional Targets
@@ -72,15 +78,29 @@ Infrastructure-as-Code and runtime scaffold for a privately secured Azure AI Age
 - If no subscription context is available in automation, deployment fails fast with explicit guidance.
 - Resource groups, networking, identities, and services are created by Terraform only.
 
+## Operator Checklist
+
+1. Set `TARGET_ENV` and update `infra/terraform/environments/<env>/<env>.tfvars`.
+2. Run `./ops/scripts/phase1-bootstrap.sh <env>`, `./ops/scripts/phase2-network-dns.sh <env> apply`, and `./ops/scripts/phase3-data-ai.sh <env> apply`.
+3. Build and push immutable ingestion and query image tags from a private-network-connected host.
+4. Roll out those image tags through Terraform against `module.agent_hosting`.
+5. Upload or ingest source documents and start the ingestion job.
+6. Run `./ops/scripts/run-query-web-integration-tests.sh "https://<query-web-fqdn>" "<optional-auth-token>"` from inside the private network.
+
 ## Quick Start
 
 1. Build the Terraform runner image:
    - `docker build -t tf-runner:local ops/containers/terraform-runner`
-2. If Docker is unavailable in your working container, install Terraform locally:
-  - `./ops/scripts/install-terraform-local.sh`
-3. Configure environment-specific Terraform variables in `infra/terraform/environments/dev/dev.tfvars`.
-4. Deploy bootstrap (state backend) first.
-5. Deploy platform stack in phased order documented in `docs/implementation-plan.md`.
+2. Or, if Docker is unavailable in your working environment, install Terraform locally:
+   - `./ops/scripts/install-terraform-local.sh`
+3. Choose an environment and update its tfvars file:
+   - `infra/terraform/environments/<env>/<env>.tfvars`
+4. Bootstrap remote state and supporting secrets:
+   - `./ops/scripts/phase1-bootstrap.sh <env>`
+5. Apply the core platform phases:
+   - `./ops/scripts/phase2-network-dns.sh <env> apply`
+   - `./ops/scripts/phase3-data-ai.sh <env> apply`
+6. Build, push, and roll out runtime images as described in the Deployment runbook below.
 
 ## Documentation Index
 
@@ -88,12 +108,153 @@ Infrastructure-as-Code and runtime scaffold for a privately secured Azure AI Age
 - Delivery slicing by phase: `docs/phases.md`
 - Testing policy and private-endpoint test execution: `docs/testing-strategy.md`
 - Logging and metrics baseline: `docs/observability.md`
+- Foundry setup and deployment prerequisites: `docs/foundry-setup-guide.md`
+- Conversation persistence and feedback flow: `docs/foundry-conversations.md`
 
 ## Current State
 
-This repository contains a working scaffold and delivery plan. Module-level implementation and runtime build-out continue in phased increments, with private networking and security controls treated as non-negotiable constraints.
+This repository contains deployable Terraform modules, a working ingestion runtime, a query web application with Foundry-backed conversations, and private-network integration tests. Delivery continues in phased increments, with private networking and security controls treated as non-negotiable constraints.
 
-## Runtime Progress
+## Runtime Ingestion
 
-- Initial PDF and Excel ingestion scaffold is now available under `runtime/ingestion/`.
+- PDF and Excel ingestion runtime is available under `runtime/ingestion/`.
 - Includes source extraction, deterministic chunking, and JSONL output generation for downstream search indexing.
+
+## Deployment
+
+In enterprise environments, deployment is normally automated through CI/CD and private-network-connected runners. The steps below are for manual operation where a pipeline is not yet in place.
+
+Set the target environment once and reuse it throughout the runbook:
+
+```bash
+TARGET_ENV="<env>"   # dev, test, or prod
+```
+
+### Preconditions
+
+1. Clone your fork or working repository and run commands from that clone.
+2. Authenticate to Azure with an identity that can provision and update the target environment.
+3. Use the environment-specific tfvars under `infra/terraform/environments/${TARGET_ENV}/` as the source of truth.
+4. Run private-endpoint validation, image builds, and runtime smoke tests from a Docker-capable host with line of sight into the VNet, typically the jumpbox.
+
+### Provision Infrastructure
+
+You can either use the Terraform runner container or install Terraform locally:
+
+- Build Terraform runner container:
+  - `docker build -t tf-runner:local ops/containers/terraform-runner`
+- Or install Terraform locally:
+  - `./ops/scripts/install-terraform-local.sh`
+
+Run the environment build scripts in order:
+
+1. `./ops/scripts/phase1-bootstrap.sh "${TARGET_ENV}"`
+2. `./ops/scripts/phase2-network-dns.sh "${TARGET_ENV}" apply`
+3. `./ops/scripts/phase3-data-ai.sh "${TARGET_ENV}" apply`
+4. Optional preview-only hosted agent path: `ENABLE_HOSTED_QUERY_AGENT_PREVIEW=true ./ops/scripts/phase3b-agent-hosting.sh "${TARGET_ENV}" apply`
+
+Run unit tests before releasing runtime changes:
+
+- `python3 -m pytest tests/unit -q`
+
+### Jumpbox Access
+
+For manual private-network operations, connect through Bastion to the jumpbox using:
+
+- private key secret: `jumpbox-admin-ssh-private-key-${TARGET_ENV}`
+- Key Vault resource group: `rg-tfstate-${TARGET_ENV}`
+- username: `azureuser`
+
+On the jumpbox:
+
+1. Clone or update your repository:
+   - `git pull --ff-only`
+2. Install Docker if required:
+   - `curl -fsSL https://get.docker.com | sudo sh`
+3. Install Terraform if required:
+   - `./ops/scripts/install-terraform-local.sh`
+4. Follow runtime setup guidance in [runtime/README.md](runtime/README.md) for Python and local tooling.
+
+The standard private-network deployment path uses the Container App ingestion and query services. The `phase3b-agent-hosting.sh` script is only for the preview hosted-query-agent path and is not required for the normal runtime deployment.
+
+### Deploy Ingestion Job Image
+
+Build and push the ingestion image from a Docker-capable host inside the VNet, typically the jumpbox:
+
+- `ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-ingestion.sh`
+
+The script prints a Terraform rollout command. Apply that exact image tag with Terraform, for example:
+
+```bash
+terraform -chdir=infra/terraform apply \
+  -input=false \
+  -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
+  -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \
+  -var "ingestion_job_image_tag=<immutable-ingestion-tag>" \
+  -target=module.agent_hosting
+```
+
+After rollout, use the ingestion workflow described in [runtime/README.md](runtime/README.md) to upload files and start the Container App Job.
+
+### Deploy Query Web Image
+
+Build and push the query web image from a Docker-capable host inside the VNet:
+
+- `ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-query-web.sh`
+
+Apply that exact image tag with Terraform:
+
+```bash
+terraform -chdir=infra/terraform apply \
+  -input=false \
+  -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
+  -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \
+  -var "query_web_image_tag=<immutable-query-web-tag>" \
+  -target=module.agent_hosting
+```
+
+### Validate Query Web Deployment
+
+Use the query web integration test runner from a private-network-connected host:
+
+```bash
+QUERY_WEB_RUN_API_ASK=true \
+QUERY_WEB_REQUIRE_CONVERSATIONS=true \
+./ops/scripts/run-query-web-integration-tests.sh "https://<query-web-fqdn>" "<optional-auth-token>"
+```
+
+See [runtime/README.md](runtime/README.md) for ingestion execution details and query endpoint usage.
+
+## Common Commands
+
+```bash
+# Select environment
+TARGET_ENV="<env>"
+
+# Bootstrap and core infra
+./ops/scripts/phase1-bootstrap.sh "${TARGET_ENV}"
+./ops/scripts/phase2-network-dns.sh "${TARGET_ENV}" apply
+./ops/scripts/phase3-data-ai.sh "${TARGET_ENV}" apply
+
+# Build and push immutable images from a private-network-connected host
+ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-ingestion.sh
+ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-query-web.sh
+
+# Roll out image tags through Terraform
+terraform -chdir=infra/terraform apply \
+  -input=false \
+  -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
+  -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \
+  -var "ingestion_job_image_tag=<immutable-ingestion-tag>" \
+  -var "query_web_image_tag=<immutable-query-web-tag>" \
+  -target=module.agent_hosting
+
+# Run unit tests
+python3 -m pytest tests/unit -q
+
+# Run query web integration tests from inside the private network
+QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn)
+QUERY_WEB_RUN_API_ASK=true \
+QUERY_WEB_REQUIRE_CONVERSATIONS=true \
+./ops/scripts/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
+```

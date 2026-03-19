@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  cat <<'EOF'
+Usage:
+  ./ops/scripts/phase3-data-ai.sh <env> [plan|apply]
+
+Runs Phase 3 Terraform targets for observability, data services, Foundry,
+private endpoints, and identity.
+
+Defaults:
+  env    = dev
+  action = plan
+EOF
+  exit 0
+fi
+
 # Executes Phase 3 scoped Terraform plan/apply for observability, data services,
 # Foundry, private endpoints, and identity.
 # Agent hosting (preview API) is deployed separately via phase3b-agent-hosting.sh.

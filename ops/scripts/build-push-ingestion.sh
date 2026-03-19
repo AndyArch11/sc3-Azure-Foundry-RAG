@@ -2,7 +2,7 @@
 # Build the ingestion-runner Docker image and push it to the environment's ACR.
 #
 # Usage:
-#   ENV=dev IMAGE_TAG=latest ./ops/scripts/build-push-ingestion.sh
+#   ENV=<env> IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-ingestion.sh
 #
 # Prerequisites:
 #   - Docker daemon running and authenticated to the registry
@@ -12,6 +12,24 @@
 # The script must run from inside the VNet (jumpbox or CI runner with VNet
 # injection) because the ACR has public_network_access_enabled = false.
 set -euo pipefail
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  cat <<'EOF'
+Usage:
+  ENV=<env> IMAGE_TAG=<immutable-tag> ./ops/scripts/build-push-ingestion.sh
+
+Builds and pushes the ingestion-runner image to the target environment ACR.
+
+Recommended follow-up rollout:
+  terraform -chdir=infra/terraform apply \
+    -input=false \
+    -var-file=environments/<env>/bootstrap.generated.tfvars \
+    -var-file=environments/<env>/<env>.tfvars \
+    -var ingestion_job_image_tag=<immutable-tag> \
+    -target=module.agent_hosting
+EOF
+  exit 0
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -30,7 +48,8 @@ RUNTIME_DIR="${REPO_ROOT}/runtime"
 ENV="${ENV:-dev}"
 LOCATION_SHORT="${LOCATION_SHORT:-aue}"
 INSTANCE="${INSTANCE:-001}"
-IMAGE_TAG="${IMAGE_TAG:-latest}"
+DEFAULT_TAG="$(date +%Y%m%d%H%M)-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo local)"
+IMAGE_TAG="${IMAGE_TAG:-${DEFAULT_TAG}}"
 IMAGE_REPOSITORY="ingestion-runner"
 RESOURCE_GROUP="${RESOURCE_GROUP:-rg-ai-platform-${ENV}}"
 
@@ -44,11 +63,22 @@ RESOURCE_GROUP="${RESOURCE_GROUP:-rg-ai-platform-${ENV}}"
 # ---------------------------------------------------------------------------
 TF_DIR="${REPO_ROOT}/infra/terraform"
 ACR_LOGIN_SERVER="${ACR_LOGIN_SERVER:-}"
+JOB_NAME="${JOB_NAME:-}"
 
 if [[ -z "${ACR_LOGIN_SERVER}" ]] && command -v terraform &>/dev/null; then
   pushd "${TF_DIR}" >/dev/null
+  JOB_NAME=$(terraform output -raw container_app_job_name 2>/dev/null || true)
+  RESOURCE_GROUP=$(terraform output -raw resource_group_name 2>/dev/null || true)
   ACR_LOGIN_SERVER=$(terraform output -raw acr_login_server 2>/dev/null || true)
   popd >/dev/null
+fi
+
+if [[ -z "${RESOURCE_GROUP}" ]]; then
+  RESOURCE_GROUP="rg-ai-platform-${ENV}"
+fi
+
+if [[ -z "${JOB_NAME}" ]]; then
+  JOB_NAME="caj-ingestion-${ENV}-${LOCATION_SHORT}-${INSTANCE}"
 fi
 
 if [[ -z "${ACR_LOGIN_SERVER}" ]]; then
@@ -64,6 +94,10 @@ echo ""
 echo "==> ACR:   ${ACR_LOGIN_SERVER}"
 echo "==> Image: ${FULL_IMAGE}"
 echo ""
+if [[ "${IMAGE_TAG}" == "latest" ]]; then
+  echo "WARNING: IMAGE_TAG=latest may cause stale revision rollouts in Container Apps."
+  echo "Prefer immutable tags, e.g. IMAGE_TAG=${DEFAULT_TAG}."
+fi
 
 # ---------------------------------------------------------------------------
 # Authenticate to ACR using the current Azure CLI identity.
@@ -89,13 +123,16 @@ docker push "${FULL_IMAGE}"
 echo ""
 echo "==> Done: ${FULL_IMAGE}"
 echo ""
+echo "==> Rollout command:"
+echo "terraform -chdir=${TF_DIR} apply -input=false -var-file=environments/${ENV}/bootstrap.generated.tfvars -var-file=environments/${ENV}/${ENV}.tfvars -var ingestion_job_image_tag=${IMAGE_TAG} -target=module.agent_hosting"
+echo ""
 echo "Trigger ingestion job (files already in blob storage):"
 echo "  az containerapp job start \\"
-echo "    -n caj-ingestion-${ENV}-aue-001 \\"
-echo "    -g rg-ai-platform-${ENV}"
+echo "    -n ${JOB_NAME} \\"
+echo "    -g ${RESOURCE_GROUP}"
 echo ""
 echo "Override to upload then index:"
 echo "  az containerapp job start \\"
-echo "    -n caj-ingestion-${ENV}-aue-001 \\"
-echo "    -g rg-ai-platform-${ENV} \\"
+echo "    -n ${JOB_NAME} \\"
+echo "    -g ${RESOURCE_GROUP} \\"
 echo "    --args '--mode' 'azure' '--input-dir' '/path/to/files'"

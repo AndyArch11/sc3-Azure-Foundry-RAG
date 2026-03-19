@@ -1,20 +1,18 @@
-# Runtime Scaffold
+# Runtime Guide
 
-This folder contains the document ingestion runtime.
+This folder contains the document ingestion runtime used by the platform's Container App Job and jumpbox workflows.
 
 ## Ingestion Modes
 
 Two modes are available under the same entry point.
 
-### `--mode local` (default)
+### `--mode local`
 
-Client-side extraction using `pypdf` and `openpyxl`.  Useful for unit testing
-and offline development.  Does not require Azure connectivity.
+Client-side extraction using `pypdf` and `openpyxl`. Use this for unit testing and offline development.
 
 ```bash
 cd runtime
 
-# Recommended: use an isolated virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -r requirements.txt
@@ -26,72 +24,53 @@ python3 -m ingestion.runner \
   --chunk-size 1200 \
   --chunk-overlap 200
 
-# Run tests (from runtime directory) via venv interpreter
 .venv/bin/python -m pytest ../tests
 ```
 
 Supported formats in local mode: `.pdf`, `.xlsx`, `.xlsm`, `.xltx`, `.xltm`
 
----
-
-### `--mode azure` (production)
+### `--mode azure`
 
 Server-side enrichment via the Azure AI Search indexer pipeline.
 
-**What it does:**
+What it does:
 
 1. Uploads source documents to the `grounding-data` blob container.
-2. Provisions the Search index, data source, skillset, and indexer if they
-   do not exist (idempotent — safe to re-run).
-3. Runs the indexer and waits for it to complete.
+2. Provisions the Search index, data source, skillset, and indexer if they do not exist.
+3. Runs the indexer and waits for completion.
 
-**Azure AI Search skills applied:**
+Applied Search skills:
 
 | Skill | Purpose |
 |---|---|
-| `DocumentExtractionSkill` | Extracts text and normalised page images from raw file data (PDF, DOCX, XLSX, PPTX, HTML…) |
-| `OcrSkill` | Runs OCR on normalised page images — handles scanned / image-only PDFs |
-| `MergeSkill` | Merges native extracted text with OCR text into a single body |
-| `SplitSkill` | Chunks the merged text into overlapping pages (configurable size / overlap) |
-| `AzureOpenAIEmbeddingSkill` | Generates a dense vector embedding per chunk using the configured deployment |
+| `DocumentExtractionSkill` | Extracts text and normalised page images from raw files |
+| `OcrSkill` | Adds OCR for scanned or image-only content |
+| `MergeSkill` | Combines native extraction with OCR output |
+| `SplitSkill` | Chunks merged text into overlapping pages |
+| `AzureOpenAIEmbeddingSkill` | Generates a vector embedding per chunk |
 
-Index projections produce **one Search document per chunk**, with stable chunk-level keys for idempotent re-indexing.
+Supported formats in azure mode: `.pdf`, `.docx`, `.doc`, `.xlsx`, `.xlsm`, `.xltx`, `.xltm`, `.pptx`, `.ppt`, `.html`
 
-**Supported formats in azure mode:**  
-`.pdf`, `.docx`, `.doc`, `.xlsx`, `.xlsm`, `.xltx`, `.xltm`, `.pptx`, `.ppt`, `.html`
+### `--mode reset`
 
----
-
-### `--mode reset` (on-demand data reset)
-
-Removes loaded indexed data without destroying Azure resources.
-
-**What it does:**
-
-1. Deletes all documents from the target Search index.
-2. Resets Search indexer state so unchanged blobs can be reprocessed.
-3. Optionally deletes all source blobs from the storage container.
-
-Examples:
+Removes indexed data without destroying Azure resources.
 
 ```bash
-# Reset only indexed documents (preserve source blobs)
+# Reset only indexed documents
 python3 -m ingestion.runner --mode reset
 
 # Reset indexed documents and purge source blobs
 python3 -m ingestion.runner --mode reset --purge-blobs
 ```
 
----
-
-## Required Environment Variables (azure mode)
+## Required Environment Variables For Azure Mode
 
 | Variable | Example | Notes |
 |---|---|---|
-| `AZURE_SEARCH_ENDPOINT` | `https://srch-dev-aue-001.search.windows.net` | From Terraform output |
-| `AZURE_OPENAI_ENDPOINT` | `https://foundry-dev-aue-001.openai.azure.com` | Foundry AI Services endpoint |
-| `AZURE_STORAGE_ACCOUNT_NAME` | `stdevaue001sys6yd` | From Terraform output |
-| `AZURE_STORAGE_RESOURCE_ID` | `/subscriptions/.../storageAccounts/stdevaue001sys6yd` | `az storage account show -g rg-ai-platform-dev -n <name> --query id -o tsv` |
+| `AZURE_SEARCH_ENDPOINT` | `https://srch-<env>-<location>-001.search.windows.net` | Prefer Terraform output |
+| `AZURE_OPENAI_ENDPOINT` | `https://foundry-<env>-<location>-001.openai.azure.com` | Foundry AI Services endpoint |
+| `AZURE_STORAGE_ACCOUNT_NAME` | `st<env><location><suffix>` | Prefer Terraform output |
+| `AZURE_STORAGE_RESOURCE_ID` | `/subscriptions/.../storageAccounts/<name>` | Resolve with Azure CLI |
 
 | Variable | Default | Notes |
 |---|---|---|
@@ -99,140 +78,122 @@ python3 -m ingestion.runner --mode reset --purge-blobs
 | `EMBEDDING_DEPLOYMENT_NAME` | `text-embedding-ada-002` | Must match deployed model name |
 | `EMBEDDING_DIMENSIONS` | `1536` | Match the embedding model |
 | `AZURE_STORAGE_CONTAINER_NAME` | `grounding-data` | Pre-provisioned by Terraform |
-| `AZURE_OPENAI_API_KEY` | _(unset)_ | Leave unset to use Search service managed identity |
-| `COGNITIVE_SERVICES_API_KEY` | _(unset)_ | Leave unset for free tier (20 enrichments/run); set for larger production runs |
+| `AZURE_OPENAI_API_KEY` | _(unset)_ | Leave unset for managed identity flow |
+| `COGNITIVE_SERVICES_API_KEY` | _(unset)_ | Optional for larger OCR/enrichment runs |
 | `CHUNK_SIZE` | `1200` | Characters per chunk |
 | `CHUNK_OVERLAP` | `200` | Overlap between adjacent chunks |
 
----
+## Prerequisites
 
-## Azure Mode Prerequisites
+### Terraform State And Core Platform
 
-### Terraform applies required
-
-All role assignments and compute resources are managed by Terraform.  Two
-sequential applies are needed because the Search service MI principal ID is not
-known until the first apply completes:
+Provision the target environment before running azure mode:
 
 ```bash
-cd infra/terraform
-
-# Apply 1: enable Search system-assigned identity, provision ACR,
-#          Container App Environment, attach MI to jumpbox
-terraform apply -var-file=environments/dev/bootstrap.generated.tfvars \
-                -var-file=environments/dev/dev.tfvars
-
-# Apply 2: create Search MI role assignments (principal ID now known)
-terraform apply -var-file=environments/dev/bootstrap.generated.tfvars \
-                -var-file=environments/dev/dev.tfvars
+./ops/scripts/phase1-bootstrap.sh <env>
+./ops/scripts/phase2-network-dns.sh <env> apply
+./ops/scripts/phase3-data-ai.sh <env> apply
 ```
 
-Resources provisioned:
+For runtime deployment, the environment tfvars usually need:
 
-| Resource | Name | Purpose |
-|---|---|---|
-| `azurerm_container_registry` (Premium) | `acr-dev-aue-001` | Private image registry |
-| `azurerm_container_app_environment` | `cae-dev-aue-001` | VNet-integrated Container Apps environment |
-| `azurerm_container_app_job` | `caj-ingestion-dev-aue-001` | Manually-triggered ingestion job (optional; gated by `enable_ingestion_job`) |
+- `enable_ingestion_job = true`
+- `enable_query_web_app = true`
 
-Roles assigned to the **user-assigned MI** (`id-agent-runtime-dev-aue-001`):
+`enable_ingestion_job` is intentionally separate so infrastructure can be created before the ingestion image exists in ACR.
 
-| Role | Scope | Purpose |
-|---|---|---|
-| `Storage Blob Data Contributor` | Storage account | Upload and read source files |
-| `Search Service Contributor` | Search service | Create or update the index, data source, skillset, and indexer |
-| `Search Index Data Contributor` | Search service | Write index documents |
-| `Cognitive Services User` | Foundry account | OCR skill enrichment |
-| `AcrPull` | Container registry | Pull ingestion image |
+### Private Network Constraint
 
-Roles assigned to the **Search service system-assigned MI**:
+All Azure resources are deployed with public network access disabled where supported.
 
-| Role | Scope | Purpose |
-|---|---|---|
-| `Storage Blob Data Reader` | Storage account | Blob indexer data source access |
-| `Cognitive Services OpenAI User` | Foundry account | Embedding skill (MI auth) |
+`--mode azure` must run from one of these locations:
 
-The user-assigned MI is also attached to the jumpbox VM, so `DefaultAzureCredential`
-resolves automatically when running ingestion interactively on the jumpbox.
+- Container App Job inside the VNet
+- Jumpbox reached through Bastion
+- CI runner with private network connectivity into the VNet
 
-`enable_ingestion_job` defaults to `false` so infra can deploy before the
-`ingestion-runner:latest` image exists in ACR.  After pushing the image from a
-VNet-connected runner, set `enable_ingestion_job = true` and apply again.
+## Quick Start For Azure Mode
 
-### Private network constraint
-
-All Azure resources have `public_network_access_enabled = false`.  
-**`--mode azure` cannot reach any endpoint from outside the VNet.**
-
-| Option | When to use |
-|---|---|
-| **Container App Job** (recommended) | Production; trigger via `az containerapp job start`; runs inside the VNet |
-| **Jumpbox** | Interactive dev/debug; SSH in via Azure Bastion; MI already attached |
-| **Dev IP exception** | Add a conditional IP-based firewall rule in Terraform (variable flag) for the dev machine |
-
----
-
-## Quick Start (azure mode)
+Run these commands from the repository root on a host that can reach the private endpoints.
 
 ```bash
-# Retrieve values from Terraform outputs
-SEARCH_EP=$(cd infra/terraform && terraform output -raw search_endpoint 2>/dev/null || \
-  az search service show -g rg-ai-platform-dev -n srch-dev-aue-001 --query "properties.endpoint" -o tsv)
+TARGET_ENV="<env>"   # dev, test, or prod
+TF_DIR="infra/terraform"
 
-STORAGE_NAME=$(cd infra/terraform && terraform output -raw storage_account_name 2>/dev/null || \
-  az storage account list -g rg-ai-platform-dev --query "[0].name" -o tsv)
+terraform -chdir="${TF_DIR}" init \
+  -backend-config="environments/${TARGET_ENV}/backend.hcl"
 
-STORAGE_ID=$(az storage account show -g rg-ai-platform-dev -n "$STORAGE_NAME" --query id -o tsv)
+RG_NAME=$(terraform -chdir="${TF_DIR}" output -raw resource_group_name)
+SEARCH_EP=$(terraform -chdir="${TF_DIR}" output -raw search_endpoint)
+STORAGE_NAME=$(terraform -chdir="${TF_DIR}" output -raw storage_account_name)
+STORAGE_ID=$(az storage account show -g "${RG_NAME}" -n "${STORAGE_NAME}" --query id -o tsv)
+FOUNDRY_EP=$(az cognitiveservices account list \
+  -g "${RG_NAME}" \
+  --query "[?kind=='AIServices'][0].properties.endpoint" \
+  -o tsv)
 
-FOUNDRY_EP="https://foundry-dev-aue-001.openai.azure.com"
-
-# Set env vars
-export AZURE_SEARCH_ENDPOINT="$SEARCH_EP"
-export AZURE_OPENAI_ENDPOINT="$FOUNDRY_EP"
-export AZURE_STORAGE_ACCOUNT_NAME="$STORAGE_NAME"
-export AZURE_STORAGE_RESOURCE_ID="$STORAGE_ID"
-
-# (Optional) use API key auth for embedding skill in sandbox
-export AZURE_OPENAI_API_KEY=$(az cognitiveservices account keys list \
-  -g rg-ai-platform-dev -n foundry-dev-aue-001 --query key1 -o tsv)
-
-# Run
 cd runtime
 python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -r requirements.txt
+
+export AZURE_SEARCH_ENDPOINT="${SEARCH_EP}"
+export AZURE_OPENAI_ENDPOINT="${FOUNDRY_EP}"
+export AZURE_STORAGE_ACCOUNT_NAME="${STORAGE_NAME}"
+export AZURE_STORAGE_RESOURCE_ID="${STORAGE_ID}"
+
 python3 -m ingestion.runner --mode azure --input-dir ./samples
-
-# Optional: verify tests from runtime directory
-
----
-
-## Container App Deployment (production)
-
-### 1. Build and push the image
-
-Run from inside the VNet (jumpbox or CI runner with VNet injection) because the
-ACR has no public access:
-
-```bash
-# From the jumpbox or a VNet-connected CI runner
-cd /path/to/sc3-Azure-Foundry-RAG
-chmod +x ops/scripts/build-push-ingestion.sh
-ENV=dev IMAGE_TAG=latest ./ops/scripts/build-push-ingestion.sh
-
-# Build and push the query web app image
-chmod +x ops/scripts/build-push-query-web.sh
-ENV=dev IMAGE_TAG=latest ./ops/scripts/build-push-query-web.sh
 ```
 
-The script resolves the ACR login server from `ACR_LOGIN_SERVER`, Terraform
-output, or the deterministic naming pattern `acr<env><location_short><instance>.azurecr.io`,
-then runs `docker build` + `docker push`.
-
-### 2. Upload source documents to blob storage
+If you need API-key-based embedding access for sandbox testing, resolve the Foundry account name first and then fetch a key:
 
 ```bash
-STORAGE_NAME=$(cd infra/terraform && terraform output -raw storage_account_name)
+FOUNDRY_NAME=$(az cognitiveservices account list \
+  -g "${RG_NAME}" \
+  --query "[?kind=='AIServices'][0].name" \
+  -o tsv)
+
+export AZURE_OPENAI_API_KEY=$(az cognitiveservices account keys list \
+  -g "${RG_NAME}" \
+  -n "${FOUNDRY_NAME}" \
+  --query key1 -o tsv)
+```
+
+## Runtime Image Rollout
+
+### Build And Push Images
+
+Run from a Docker-capable host inside the VNet, because ACR has no public access:
+
+```bash
+TARGET_ENV="<env>"
+INGESTION_TAG="$(date +%Y%m%d%H%M)-<gitsha>"
+QUERY_TAG="$(date +%Y%m%d%H%M)-<gitsha>"
+
+ENV="${TARGET_ENV}" IMAGE_TAG="${INGESTION_TAG}" ./ops/scripts/build-push-ingestion.sh
+ENV="${TARGET_ENV}" IMAGE_TAG="${QUERY_TAG}" ./ops/scripts/build-push-query-web.sh
+```
+
+Use immutable tags rather than `latest` so Container Apps revisions roll forward predictably and Terraform plans remain stable.
+
+### Roll Out The Images With Terraform
+
+The build scripts print rollout commands. A full manual example is:
+
+```bash
+terraform -chdir=infra/terraform apply \
+  -input=false \
+  -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
+  -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \
+  -var "ingestion_job_image_tag=${INGESTION_TAG}" \
+  -var "query_web_image_tag=${QUERY_TAG}" \
+  -target=module.agent_hosting
+```
+
+### Upload Documents To Blob Storage
+
+```bash
+STORAGE_NAME=$(terraform -chdir=infra/terraform output -raw storage_account_name)
 
 az storage blob upload-batch \
   --account-name "${STORAGE_NAME}" \
@@ -241,210 +202,111 @@ az storage blob upload-batch \
   --auth-mode login
 ```
 
-### 3. Deploy and trigger workloads
+### Trigger And Inspect The Ingestion Job
 
 ```bash
-# Ensure ingestion job + query web app are deployed
-cd infra/terraform
-terraform apply -input=false \
-  -var-file=environments/dev/bootstrap.generated.tfvars \
-  -var-file=environments/dev/dev.tfvars
-```
+RG_NAME=$(terraform -chdir=infra/terraform output -raw resource_group_name)
+JOB_NAME=$(terraform -chdir=infra/terraform output -raw container_app_job_name)
 
-Trigger ingestion job:
-
-```bash
-JOB_NAME=$(cd infra/terraform && terraform output -raw container_app_job_name)
-
-# Provision pipeline and index files already in blob (default args: --skip-upload)
 az containerapp job start \
   -n "${JOB_NAME}" \
-  -g rg-ai-platform-dev
+  -g "${RG_NAME}"
 
-# Or upload + index in one step by overriding the default args
-az containerapp job start \
-  -n "${JOB_NAME}" \
-  -g rg-ai-platform-dev \
-  --args '--mode' 'azure' '--input-dir' '/path/to/files'
-
-# Query web app details (private ingress)
-QUERY_APP=$(cd infra/terraform && terraform output -raw query_web_app_name)
-QUERY_FQDN=$(cd infra/terraform && terraform output -raw query_web_fqdn)
-
-echo "${QUERY_APP}"
-echo "https://${QUERY_FQDN}"
-
-# Optional auth gate token (if query_web_auth_token is set in tfvars)
-export QUERY_WEB_AUTH_TOKEN="<your-token>"
-```
-
-### 4. Check job status and logs
-
-```bash
-# List recent executions
 az containerapp job execution list \
   -n "${JOB_NAME}" \
-  -g rg-ai-platform-dev \
+  -g "${RG_NAME}" \
   --output table
-
-# Get details for the most recent execution
-EXEC_NAME=$(az containerapp job execution list \
-  -n "${JOB_NAME}" -g rg-ai-platform-dev \
-  --query "[0].name" -o tsv)
-
-az containerapp job execution show \
-  -n "${JOB_NAME}" \
-  -g rg-ai-platform-dev \
-  --job-execution-name "${EXEC_NAME}" \
-  -o yaml
-
-# Optional: stream current app logs (CLI support varies by extension version)
-az containerapp logs show \
-  -n "${JOB_NAME}" \
-  -g rg-ai-platform-dev \
-  --follow
 ```
 
-### 5. Verify deployed container and execution
+To upload and index in one step, override the default job arguments:
 
 ```bash
-# Confirm the pushed image tag exists in ACR
-az acr repository show-tags \
-  --name acrdevaue001 \
-  --repository ingestion-runner \
-  --top 10 \
-  --orderby time_desc \
-  -o table
-
-# Confirm the Container App Job is using the expected image
-az containerapp job show \
+az containerapp job start \
   -n "${JOB_NAME}" \
-  -g rg-ai-platform-dev \
-  --query "properties.template.containers[0].image" \
-  -o tsv
-
-# Confirm the latest execution status
-az containerapp job execution list \
-  -n "${JOB_NAME}" \
-  -g rg-ai-platform-dev \
-  --query "[0].{name:name,status:status,startTime:properties.startTime}" \
-  -o table
-
-# Confirm query web app image and ingress config
-az containerapp show \
-  -n "${QUERY_APP}" \
-  -g rg-ai-platform-dev \
-  --query "{image:properties.template.containers[0].image,fqdn:properties.configuration.ingress.fqdn,external:properties.configuration.ingress.external}" \
-  -o table
-
-# Confirm query runtime env (k, temperature, threshold, evaluator deployment)
-az containerapp show \
-  -n "${QUERY_APP}" \
-  -g rg-ai-platform-dev \
-  --query "properties.template.containers[0].env[?name=='SEARCH_TOP_K' || name=='DEFAULT_TEMPERATURE' || name=='ACCEPTABLE_SCORE_THRESHOLD' || name=='EVALUATOR_DEPLOYMENT_NAME']"
-
-# Test the JSON API endpoint from inside the restricted network
-curl -sS "https://${QUERY_FQDN}/api/ask" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "question": "What cyber-security guidance is most relevant to secure-by-design delivery?",
-    "retrieve_k": 5,
-    "temperature": 1.0,
-    "auth_token": "'"${QUERY_WEB_AUTH_TOKEN:-}"'"
-  }' | jq
-
-# Inspect effective non-secret runtime configuration
-curl -sS "https://${QUERY_FQDN}/api/config" | jq
-
-# View log events
-LAW_ID=$(az monitor log-analytics workspace show \
-  -g rg-ai-platform-dev -n law-dev-aue-001 --query customerId -o tsv)
-
-echo "$LAW_ID"
-
-az monitor log-analytics query \
-  --workspace "$LAW_ID" \
-  --analytics-query "search \"caj-ingestion-dev-aue-001-0icdgtt\" | where TimeGenerated > ago(6h) | sort by TimeGenerated desc | take 200" \
-  -o table
+  -g "${RG_NAME}" \
+  --args '--mode' 'azure' '--input-dir' '/path/to/files'
 ```
 
-### Troubleshooting CLI mismatches
+### Validate The Query Web App
 
 ```bash
-# Managed identity login on newer Azure CLI versions:
-# --username is no longer supported for MI login.
-az login --identity --client-id <user-assigned-mi-client-id>
+QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn)
 
-# Some CLI/extension versions do not support:
-#   az containerapp logs show --execution <name>
-# Use job execution APIs instead:
-EXEC_NAME=$(az containerapp job execution list \
-  -n "${JOB_NAME}" -g rg-ai-platform-dev \
-  --query "[0].name" -o tsv)
-
-az containerapp job execution show \
-  -n "${JOB_NAME}" \
-  -g rg-ai-platform-dev \
-  --job-execution-name "${EXEC_NAME}" \
-  -o yaml
+QUERY_WEB_RUN_API_ASK=true \
+QUERY_WEB_REQUIRE_CONVERSATIONS=true \
+./ops/scripts/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
 ```
 
----
+If `query_web_auth_token` is configured in tfvars, pass the same token to the integration runner and any direct `curl` calls.
 
-## Jumpbox (interactive)
+## Jumpbox Workflow
 
-The jumpbox VM has the `id-agent-runtime-dev-aue-001` managed identity attached,
-so no credentials or `AZURE_CLIENT_ID` are needed — `DefaultAzureCredential`
-picks up the single user-assigned MI automatically.
+The jumpbox VM is provisioned on Ubuntu 22.04 and has the runtime user-assigned managed identity attached, so `DefaultAzureCredential` works without extra client ID configuration.
+
+### Connect Through Bastion
 
 ```bash
-# SSH in via Azure Bastion (Standard/Premium SKU required for native client tunnel)
 az network bastion ssh \
-  --name bas-dev-aue-001 \
-  --resource-group rg-ai-platform-dev \
+  --name bas-<env>-<location>-001 \
+  --resource-group rg-ai-platform-<env> \
   --target-resource-id <jumpbox-vm-id> \
   --auth-type ssh-key \
   --username azureuser \
   --ssh-key ~/.ssh/id_ed25519
+```
 
-# On the jumpbox — install Azure CLI, Python 3.12, and clone the repo (first time only)
+### Prepare The Jumpbox
 
-# 1. Azure CLI (not installed by default on Ubuntu 22.04)
+```bash
 curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+curl -fsSL https://get.docker.com | sudo sh
 
-# 2. Python 3.12 — not in default Ubuntu 22.04 repos; add the deadsnakes PPA
-sudo apt-get update && sudo apt-get install -y software-properties-common
+sudo apt-get update
+sudo apt-get install -y software-properties-common
 sudo add-apt-repository ppa:deadsnakes/ppa -y
-sudo apt-get update && sudo apt-get install -y python3.12 python3.12-venv python3-pip git
-sudo git clone https://github.com/AndyArch11/sc3-Azure-Foundry-RAG /opt/sc3-ingestion
-sudo chown -R azureuser:azureuser /opt/sc3-ingestion
-cd /opt/sc3-ingestion/runtime
-# Use python3.12 explicitly — python3 may default to 3.10 on Ubuntu 22.04
-python3.12 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+sudo apt-get update
+sudo apt-get install -y python3.12 python3.12-venv python3-pip git
+```
 
-# Login with VM managed identity
+### Run Ingestion Interactively On The Jumpbox
+
+```bash
+git clone <your-repo-url> /opt/sc3-ingestion
+cd /opt/sc3-ingestion/runtime
+
+cd /opt/sc3-ingestion
+./ops/scripts/install-terraform-local.sh
+cd runtime
+
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+
 az login --identity
 
-# Set env vars (no credentials — MI handles auth)
-export AZURE_SEARCH_ENDPOINT="https://srch-dev-aue-001.search.windows.net"
-export AZURE_OPENAI_ENDPOINT="https://foundry-dev-aue-001.openai.azure.com"
-export AZURE_STORAGE_ACCOUNT_NAME=$(az storage account list -g rg-ai-platform-dev --query "[0].name" -o tsv)
-export AZURE_STORAGE_RESOURCE_ID=$(az storage account show -g rg-ai-platform-dev -n "$AZURE_STORAGE_ACCOUNT_NAME" --query id -o tsv)
+TARGET_ENV="<env>"
+TF_DIR="../infra/terraform"
 
-# Upload samples and index
-python3 -m ingestion.runner --mode azure --input-dir ./samples
+terraform -chdir="${TF_DIR}" init \
+  -backend-config="environments/${TARGET_ENV}/backend.hcl"
 
-# Or just re-index (files already in blob)
+RG_NAME=$(terraform -chdir="${TF_DIR}" output -raw resource_group_name)
+SEARCH_EP=$(terraform -chdir="${TF_DIR}" output -raw search_endpoint)
+STORAGE_NAME=$(terraform -chdir="${TF_DIR}" output -raw storage_account_name)
+STORAGE_ID=$(az storage account show -g "${RG_NAME}" -n "${STORAGE_NAME}" --query id -o tsv)
+FOUNDRY_EP=$(az cognitiveservices account list \
+  -g "${RG_NAME}" \
+  --query "[?kind=='AIServices'][0].properties.endpoint" \
+  -o tsv)
 
-# Reset indexed data on demand (keeps Azure resources)
-python3 -m ingestion.runner --mode reset
+export AZURE_SEARCH_ENDPOINT="${SEARCH_EP}"
+export AZURE_OPENAI_ENDPOINT="${FOUNDRY_EP}"
+export AZURE_STORAGE_ACCOUNT_NAME="${STORAGE_NAME}"
+export AZURE_STORAGE_RESOURCE_ID="${STORAGE_ID}"
 
-# Reset indexed data and source blobs
-python3 -m ingestion.runner --mode reset --purge-blobs
+python -m ingestion.runner --mode azure --input-dir ./samples
+python -m ingestion.runner --mode reset
+python -m ingestion.runner --mode reset --purge-blobs
 
-
-```
 .venv/bin/python -m pytest ../tests
 ```
-

@@ -85,12 +85,22 @@ class ConversationMessage:
 
 
 @dataclass
+class ResponseRating:
+    """User rating and TODO feedback for a prior assistant response."""
+    rating: int  # 1..5
+    todo: str = ""
+    assistant_timestamp: str = ""
+    timestamp: str = field(default_factory=_utc_now_iso)
+
+
+@dataclass
 class ConversationSession:
     """Conversation session stored in CosmosDB."""
     session_id: str
     user_id: str  # auth_token hash or session token
     conversation_id: str  # unique per conversation
     messages: list[ConversationMessage] = field(default_factory=list)
+    response_ratings: list[ResponseRating] = field(default_factory=list)
     created_at: str = field(default_factory=_utc_now_iso)
     updated_at: str = field(default_factory=_utc_now_iso)
     evaluation_threshold: float = 0.72
@@ -104,6 +114,15 @@ class ConversationSession:
             "user_id": self.user_id,
             "conversation_id": self.conversation_id,
             "messages": [{"role": m.role, "content": m.content, "timestamp": m.timestamp} for m in self.messages],
+            "response_ratings": [
+                {
+                    "rating": r.rating,
+                    "todo": r.todo,
+                    "assistant_timestamp": r.assistant_timestamp,
+                    "timestamp": r.timestamp,
+                }
+                for r in self.response_ratings
+            ],
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "evaluation_threshold": self.evaluation_threshold,
@@ -116,11 +135,21 @@ class ConversationSession:
             ConversationMessage(role=m["role"], content=m["content"], timestamp=m.get("timestamp", _utc_now_iso()))
             for m in data.get("messages", [])
         ]
+        response_ratings = [
+            ResponseRating(
+                rating=int(r.get("rating", 0)),
+                todo=str(r.get("todo", "")),
+                assistant_timestamp=str(r.get("assistant_timestamp", "")),
+                timestamp=r.get("timestamp", _utc_now_iso()),
+            )
+            for r in data.get("response_ratings", [])
+        ]
         return ConversationSession(
             session_id=data["session_id"],
             user_id=data["user_id"],
             conversation_id=data["conversation_id"],
             messages=messages,
+            response_ratings=response_ratings,
             created_at=data.get("created_at", _utc_now_iso()),
             updated_at=data.get("updated_at", _utc_now_iso()),
             evaluation_threshold=data.get("evaluation_threshold", 0.72),
@@ -238,6 +267,19 @@ def _save_conversation(session: ConversationSession) -> None:
     except Exception as exc:
         raise RuntimeError(f"Conversation persistence write failed: {exc}") from exc
 
+
+def _build_feedback_context(session: ConversationSession, limit: int = 5) -> str:
+    """Build short feedback context from recent user ratings/TODO notes."""
+    if not session.response_ratings:
+        return ""
+
+    lines: list[str] = []
+    for rating in session.response_ratings[-limit:]:
+        todo_text = rating.todo.strip() or "No TODO provided"
+        lines.append(f"- rating={rating.rating}/5; todo={todo_text}")
+
+    return "Recent user feedback on prior answers:\n" + "\n".join(lines)
+
 def _cognitive_token() -> str:
     return credential.get_token("https://cognitiveservices.azure.com/.default").token
 
@@ -343,7 +385,13 @@ def _evaluate(question: str, context: str, answer: str) -> dict[str, Any]:
     return _parse_eval(raw)
 
 
-def _run_rag(question: str, retrieve_k: int, temperature: float) -> dict[str, Any]:
+def _run_rag(
+    question: str,
+    retrieve_k: int,
+    temperature: float,
+    conversation_history: list[ConversationMessage] | None = None,
+    feedback_context: str = "",
+) -> dict[str, Any]:
     started = time.perf_counter()
     chunks, retrieval_timings = _hybrid_search(question, retrieve_k=retrieve_k)
 
@@ -369,8 +417,25 @@ def _run_rag(question: str, retrieve_k: int, temperature: float) -> dict[str, An
         for c in chunks
     )
 
-    messages = [
-        {"role": "system", "content": CYBER_PERSONA_PROMPT},
+    messages = [{"role": "system", "content": CYBER_PERSONA_PROMPT}]
+
+    if feedback_context.strip():
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Use this user feedback to improve quality and relevance while staying grounded in retrieved context.\n"
+                    f"{feedback_context}"
+                ),
+            }
+        )
+
+    if conversation_history:
+        for m in conversation_history:
+            if m.role in ("user", "assistant"):
+                messages.append({"role": m.role, "content": m.content})
+
+    messages.append(
         {
             "role": "user",
             "content": (
@@ -379,11 +444,8 @@ def _run_rag(question: str, retrieve_k: int, temperature: float) -> dict[str, An
                 f"{context}\n\n"
                 "Respond in markdown with short, practical cyber-security guidance and cite source names inline."
             ),
-        },
-    ]
-    # Add conversation history if available
-    if hasattr(_run_rag, "_current_messages") and _run_rag._current_messages:  # type: ignore
-        messages = _run_rag._current_messages + messages  # type: ignore
+        }
+    )
 
     t_llm = time.perf_counter()
     answer = _chat_completion(messages, deployment=config.query_deployment, temperature=temperature)
@@ -512,6 +574,15 @@ def get_conversation_history(user_id: str, conversation_id: str, auth_token: str
                 {"role": m.role, "content": m.content, "timestamp": m.timestamp}
                 for m in session.messages
             ],
+            "response_ratings": [
+                {
+                    "rating": r.rating,
+                    "todo": r.todo,
+                    "assistant_timestamp": r.assistant_timestamp,
+                    "timestamp": r.timestamp,
+                }
+                for r in session.response_ratings
+            ],
         })
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -567,6 +638,50 @@ def add_message_to_conversation(
             "timestamp": session.messages[-1].timestamp,
             "updated_at": session.updated_at,
         })
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.post("/api/conversations/{conversation_id}/rating")
+def add_response_rating(
+    conversation_id: str,
+    user_id: str = Form(...),
+    rating: int = Form(...),
+    todo: str = Form(default=""),
+    assistant_timestamp: str = Form(default=""),
+    auth_token: str = Form(""),
+) -> JSONResponse:
+    """Store user rating/TODO feedback for a prior assistant response."""
+    if not _is_authorized(auth_token):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    if rating < 1 or rating > 5:
+        return JSONResponse({"error": "rating must be between 1 and 5"}, status_code=400)
+
+    try:
+        session = _load_conversation(user_id, conversation_id)
+
+        if assistant_timestamp:
+            has_target = any(m.role == "assistant" and m.timestamp == assistant_timestamp for m in session.messages)
+            if not has_target:
+                return JSONResponse({"error": "assistant message not found for assistant_timestamp"}, status_code=404)
+
+        session.response_ratings.append(
+            ResponseRating(
+                rating=rating,
+                todo=todo.strip(),
+                assistant_timestamp=assistant_timestamp.strip(),
+            )
+        )
+        session.updated_at = _utc_now_iso()
+        _save_conversation(session)
+
+        return JSONResponse(
+            {
+                "ratings_count": len(session.response_ratings),
+                "updated_at": session.updated_at,
+            }
+        )
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
@@ -641,18 +756,22 @@ def ask(
     temperature = max(0, min(1.0, temperature))
 
     try:
-        # Inject conversation history into RAG context if available
-        if session and session.messages:
-            prev_messages = [m for m in session.messages if m.role in ("user", "assistant")]
-            _run_rag._current_messages = prev_messages  # type: ignore
-        
-        result = _run_rag(question=question, retrieve_k=retrieve_k, temperature=temperature)
+        conversation_history = session.messages if session else []
+        feedback_context = _build_feedback_context(session) if session else ""
+
+        result = _run_rag(
+            question=question,
+            retrieve_k=retrieve_k,
+            temperature=temperature,
+            conversation_history=conversation_history,
+            feedback_context=feedback_context,
+        )
         
         # Add user and assistant messages to conversation history
         if session:
             session.messages.append(ConversationMessage(role="user", content=question))
             session.messages.append(ConversationMessage(role="assistant", content=result["answer"]))
-            session.updated_at = datetime.utcnow().isoformat()
+            session.updated_at = _utc_now_iso()
             _save_conversation(session)
         
         error = ""

@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  cat <<'EOF'
+Usage:
+  ./ops/scripts/phase1-bootstrap.sh <env>
+
+Bootstraps remote Terraform state and writes:
+  - infra/terraform/environments/<env>/backend.hcl
+  - infra/terraform/environments/<env>/bootstrap.generated.tfvars
+
+Supported environments:
+  dev, test, prod
+EOF
+  exit 0
+fi
+
 # Runs bootstrap Terraform and updates backend.hcl for the selected environment.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

@@ -4,7 +4,7 @@ resource "azurerm_cognitive_account" "foundry" {
   resource_group_name           = var.resource_group_name
   kind                          = "AIServices"
   sku_name                      = "S0"
-  public_network_access_enabled = true
+  public_network_access_enabled = false
   custom_subdomain_name         = "foundry-${var.suffix}"
   project_management_enabled    = true
   tags                          = var.tags
@@ -140,7 +140,7 @@ resource "azapi_resource" "foundry_project" {
 # Required for secured standard-agent capability host operations.
 resource "azurerm_role_assignment" "project_storage_account_contributor" {
   scope                            = var.storage_account_id
-  role_definition_name             = "Storage Account Contributor"
+  role_definition_name             = "Storage Blob Data Contributor"
   principal_id                     = azapi_resource.foundry_project.output.identity.principalId
   skip_service_principal_aad_check = true
 }
@@ -269,6 +269,9 @@ resource "azapi_resource" "project_capability_host" {
   name                      = "caphostproj"
   parent_id                 = azapi_resource.foundry_project.id
   schema_validation_enabled = false
+
+  # If intermittent RBAC propagation failures return, add an explicit time_sleep
+  # between role assignments and this resource.
 
   depends_on = [
     azapi_resource.account_capability_host,

@@ -285,3 +285,110 @@ def test_api_ask_optionally_runs(
     assert "error" in body
     if body.get("error"):
         raise AssertionError(f"/api/ask returned error: {body['error']}")
+
+
+def test_conversation_rating_todo_and_follow_up_ask(
+    base_url: str,
+    session: requests.Session,
+    timeout_s: float,
+    config_payload: dict[str, Any],
+    auth_token: str,
+    conversation_api_state: dict[str, Any],
+    conversation_seed: dict[str, str],
+) -> None:
+    if not _bool_env("QUERY_WEB_RUN_API_ASK", default=False):
+        pytest.skip("QUERY_WEB_RUN_API_ASK is false; skipping rating+follow-up /ask integration call.")
+
+    _require_auth_token_if_enabled(config_payload, auth_token)
+    _require_conversation_api(conversation_api_state)
+
+    # Seed an assistant message so rating can target a specific response timestamp.
+    assistant_seed = f"assistant-seed-{int(time.time())}"
+    seed_resp = session.post(
+        f"{base_url}/api/conversations/{conversation_seed['conversation_id']}/message",
+        data={
+            "user_id": conversation_seed["user_id"],
+            "role": "assistant",
+            "content": assistant_seed,
+            "auth_token": auth_token,
+        },
+        timeout=timeout_s,
+    )
+    seed_payload = _get_json(seed_resp)
+    assistant_timestamp = str(seed_payload.get("timestamp", "")).strip()
+    assert assistant_timestamp
+
+    # Submit a rating + TODO feedback for that assistant response.
+    todo_text = f"todo-improve-grounding-{int(time.time())}"
+    rating_resp = session.post(
+        f"{base_url}/api/conversations/{conversation_seed['conversation_id']}/rating",
+        data={
+            "user_id": conversation_seed["user_id"],
+            "rating": 2,
+            "todo": todo_text,
+            "assistant_timestamp": assistant_timestamp,
+            "auth_token": auth_token,
+        },
+        timeout=timeout_s,
+    )
+    rating_payload = _get_json(rating_resp)
+    assert int(rating_payload.get("ratings_count", 0)) >= 1
+
+    history_before_resp = session.get(
+        f"{base_url}/api/conversations/{conversation_seed['user_id']}/{conversation_seed['conversation_id']}",
+        params={"auth_token": auth_token},
+        timeout=timeout_s,
+    )
+    history_before_payload = _get_json(history_before_resp)
+    messages_before = history_before_payload.get("messages")
+    assert isinstance(messages_before, list)
+    before_count = len(messages_before)
+    ratings_before = history_before_payload.get("response_ratings")
+    assert isinstance(ratings_before, list)
+    assert any(
+        isinstance(r, dict)
+        and int(r.get("rating", 0)) == 2
+        and r.get("todo") == todo_text
+        and r.get("assistant_timestamp") == assistant_timestamp
+        for r in ratings_before
+    )
+
+    # Ask follow-up in same conversation so server can include ratings/TODO context.
+    follow_up = f"Follow-up security question {int(time.time())}?"
+    ask_resp = session.post(
+        f"{base_url}/ask",
+        data={
+            "question": follow_up,
+            "retrieve_k": int(os.getenv("QUERY_WEB_TEST_RETRIEVE_K", "3")),
+            "temperature": float(os.getenv("QUERY_WEB_TEST_TEMPERATURE", "1.0")),
+            "auth_token": auth_token,
+            "session_id": conversation_seed["session_id"],
+            "conversation_id": conversation_seed["conversation_id"],
+        },
+        timeout=max(timeout_s, 90.0),
+    )
+    if ask_resp.status_code >= 400:
+        raise AssertionError(
+            f"HTTP {ask_resp.status_code} for {ask_resp.request.method} {ask_resp.url}. "
+            f"Response body: {ask_resp.text.strip()}"
+        )
+
+    history_after_resp = session.get(
+        f"{base_url}/api/conversations/{conversation_seed['user_id']}/{conversation_seed['conversation_id']}",
+        params={"auth_token": auth_token},
+        timeout=timeout_s,
+    )
+    history_after_payload = _get_json(history_after_resp)
+    messages_after = history_after_payload.get("messages")
+    assert isinstance(messages_after, list)
+    assert len(messages_after) >= before_count + 2
+    assert any(isinstance(m, dict) and m.get("content") == follow_up for m in messages_after)
+    ratings_after = history_after_payload.get("response_ratings")
+    assert isinstance(ratings_after, list)
+    assert any(
+        isinstance(r, dict)
+        and int(r.get("rating", 0)) == 2
+        and r.get("todo") == todo_text
+        and r.get("assistant_timestamp") == assistant_timestamp
+        for r in ratings_after
+    )

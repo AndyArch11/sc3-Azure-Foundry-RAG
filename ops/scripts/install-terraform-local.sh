@@ -3,6 +3,22 @@ set -euo pipefail
 
 # Installs Terraform locally on Linux when Docker is not available.
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  cat <<'EOF'
+Usage:
+  ./ops/scripts/install-terraform-local.sh [terraform_version]
+
+Installs Terraform on Linux using the official HashiCorp release archive.
+
+Defaults:
+  terraform_version = 1.14.7
+
+Optional environment variables:
+  INSTALL_DIR  Install destination (default: /usr/local/bin)
+EOF
+  exit 0
+fi
+
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "This installer currently supports Linux only."
   exit 1

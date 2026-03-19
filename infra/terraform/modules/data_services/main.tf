@@ -10,6 +10,7 @@ resource "azurerm_storage_account" "this" {
   location                        = var.location
   account_tier                    = "Standard"
   account_replication_type        = "LRS"
+  shared_access_key_enabled       = false
   public_network_access_enabled   = false
   allow_nested_items_to_be_public = false
   min_tls_version                 = "TLS1_2"
@@ -42,6 +43,7 @@ resource "azurerm_cosmosdb_account" "this" {
   resource_group_name           = var.resource_group_name
   offer_type                    = "Standard"
   kind                          = "GlobalDocumentDB"
+  local_authentication_disabled = true
   public_network_access_enabled = false
 
   consistency_policy {

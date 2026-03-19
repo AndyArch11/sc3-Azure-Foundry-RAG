@@ -12,3 +12,13 @@ azure_bastion_subnet_cidr    = "10.40.4.0/26"
 jumpbox_admin_ssh_public_key = "<set-me-ssh-public-key>"
 jumpbox_vm_size              = "Standard_B4as_v2"
 enable_model_deployments     = false
+enable_ingestion_job         = false
+enable_query_web_app         = false
+ingestion_job_image_tag      = "latest" # Set to an immutable tag during deployment.
+query_web_image_tag          = "latest" # Set to an immutable tag during deployment.
+search_index_name            = "grounding-index"
+query_top_k                  = 5
+query_default_temperature    = 1.0
+query_eval_threshold         = 0.72
+# Optional shared token for query web app auth gate.
+# query_web_auth_token       = "change-me"
