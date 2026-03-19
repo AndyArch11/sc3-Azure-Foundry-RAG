@@ -306,7 +306,7 @@ def _chat_completion(messages: list[dict[str, str]], deployment: str, temperatur
     response = client.chat.completions.create(
         model=deployment,
         messages=messages,
-        max_tokens=600,
+        max_completion_tokens=600,
         temperature=temperature,
         timeout=timeout,
     )
@@ -488,17 +488,20 @@ def get_conversation_history(user_id: str, conversation_id: str, auth_token: str
     if not _is_authorized(auth_token):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     
-    session = _load_conversation(user_id, conversation_id)
-    return JSONResponse({
-        "session_id": session.session_id,
-        "conversation_id": session.conversation_id,
-        "created_at": session.created_at,
-        "updated_at": session.updated_at,
-        "messages": [
-            {"role": m.role, "content": m.content, "timestamp": m.timestamp}
-            for m in session.messages
-        ],
-    })
+    try:
+        session = _load_conversation(user_id, conversation_id)
+        return JSONResponse({
+            "session_id": session.session_id,
+            "conversation_id": session.conversation_id,
+            "created_at": session.created_at,
+            "updated_at": session.updated_at,
+            "messages": [
+                {"role": m.role, "content": m.content, "timestamp": m.timestamp}
+                for m in session.messages
+            ],
+        })
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 @app.post("/api/conversations/new")
@@ -511,18 +514,21 @@ def create_conversation(auth_token: str = Form("")) -> JSONResponse:
     conversation_id = str(uuid.uuid4())
     user_id = _get_user_id(auth_token, session_id)
     
-    session = ConversationSession(
-        session_id=session_id,
-        user_id=user_id,
-        conversation_id=conversation_id,
-    )
-    _save_conversation(session)
-    
-    return JSONResponse({
-        "session_id": session_id,
-        "conversation_id": conversation_id,
-        "user_id": user_id,
-    })
+    try:
+        session = ConversationSession(
+            session_id=session_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
+        _save_conversation(session)
+
+        return JSONResponse({
+            "session_id": session_id,
+            "conversation_id": conversation_id,
+            "user_id": user_id,
+        })
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 @app.post("/api/conversations/{conversation_id}/message")
@@ -537,16 +543,19 @@ def add_message_to_conversation(
     if not _is_authorized(auth_token):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     
-    session = _load_conversation(user_id, conversation_id)
-    session.messages.append(ConversationMessage(role=role, content=content))
-    session.updated_at = datetime.utcnow().isoformat()
-    _save_conversation(session)
-    
-    return JSONResponse({
-        "message_id": len(session.messages),
-        "timestamp": session.messages[-1].timestamp,
-        "updated_at": session.updated_at,
-    })
+    try:
+        session = _load_conversation(user_id, conversation_id)
+        session.messages.append(ConversationMessage(role=role, content=content))
+        session.updated_at = _utc_now_iso()
+        _save_conversation(session)
+
+        return JSONResponse({
+            "message_id": len(session.messages),
+            "timestamp": session.messages[-1].timestamp,
+            "updated_at": session.updated_at,
+        })
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:

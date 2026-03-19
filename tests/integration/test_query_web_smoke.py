@@ -52,7 +52,12 @@ def session(verify_tls: bool) -> requests.Session:
 
 
 def _get_json(response: requests.Response) -> dict[str, Any]:
-    response.raise_for_status()
+    if response.status_code >= 400:
+        body = response.text.strip()
+        raise AssertionError(
+            f"HTTP {response.status_code} for {response.request.method} {response.url}. "
+            f"Response body: {body}"
+        )
     payload = response.json()
     if not isinstance(payload, dict):
         raise AssertionError("Expected JSON object response")

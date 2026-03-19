@@ -11,6 +11,14 @@ variable "search_service_principal_id" {
   description = "Principal ID of the Search service system-assigned managed identity."
   default     = null
 }
+variable "cosmos_database_name" {
+  type        = string
+  description = "Cosmos DB SQL database name for conversation persistence."
+}
+variable "cosmos_container_name" {
+  type        = string
+  description = "Cosmos DB SQL container name for conversation persistence."
+}
 variable "tags" {
   type    = map(string)
   default = {}
