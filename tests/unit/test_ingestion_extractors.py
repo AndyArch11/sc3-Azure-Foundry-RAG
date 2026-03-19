@@ -64,7 +64,9 @@ def _make_excel_bytes(sheets: dict[str, list[list]]) -> bytes:
     from openpyxl import Workbook
 
     wb = Workbook()
-    wb.remove(wb.active)  # remove default blank sheet
+    active = wb.active
+    if active is not None:
+        wb.remove(active)  # remove default blank sheet
     for sheet_name, rows in sheets.items():
         ws = wb.create_sheet(title=sheet_name)
         for row in rows:

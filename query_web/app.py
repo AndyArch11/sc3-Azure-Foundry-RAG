@@ -4,7 +4,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import requests
 from azure.identity import DefaultAzureCredential
@@ -19,6 +19,16 @@ from pydantic import BaseModel, Field
 import uuid
 from dataclasses import field
 from datetime import UTC, datetime
+
+if TYPE_CHECKING:
+    from openai.types.chat import ChatCompletionMessageParam
+
+try:
+    from azure.cosmos.exceptions import CosmosResourceNotFoundError as _CosmosResourceNotFoundError
+except Exception:
+    _CosmosResourceNotFoundError = Exception
+
+CosmosResourceNotFoundError: type[Exception] = _CosmosResourceNotFoundError
 
 
 def _utc_now_iso() -> str:
@@ -158,7 +168,6 @@ search_client = SearchClient(
 # Initialize CosmosDB client
 try:
     from azure.cosmos import CosmosClient
-    from azure.cosmos.exceptions import CosmosResourceNotFoundError
     cosmos_client = CosmosClient(url=config.cosmos_endpoint, credential=credential)
     cosmos_db = cosmos_client.get_database_client(config.cosmos_database_name)
     conversations_container = cosmos_db.get_container_client(config.cosmos_container_name)
@@ -305,10 +314,11 @@ def _chat_completion(messages: list[dict[str, str]], deployment: str, temperatur
         api_version="2024-08-01-preview",
         azure_endpoint=config.openai_endpoint,
     )
+    typed_messages = cast("list[ChatCompletionMessageParam]", messages)
     
     response = client.chat.completions.create(
         model=deployment,
-        messages=messages,
+        messages=typed_messages,
         max_completion_tokens=600,
         temperature=temperature,
         timeout=timeout,
