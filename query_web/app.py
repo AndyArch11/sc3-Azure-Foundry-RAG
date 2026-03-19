@@ -86,8 +86,10 @@ class ConversationSession:
     evaluation_threshold: float = 0.72
 
     def to_dict(self) -> dict[str, Any]:
+        # Sanitize ID by replacing hyphens from UUIDs with underscores for Cosmos compatibility
+        sanitized_id = f"{self.user_id.replace('-', '_')}_{self.conversation_id.replace('-', '_')}"
         return {
-            "id": f"{self.user_id}-{self.conversation_id}",
+            "id": sanitized_id,
             "session_id": self.session_id,
             "user_id": self.user_id,
             "conversation_id": self.conversation_id,
@@ -202,7 +204,8 @@ def _load_conversation(user_id: str, conversation_id: str) -> ConversationSessio
             conversation_id=conversation_id,
         )
     
-    doc_id = f"{user_id}-{conversation_id}"
+    # Sanitize ID by replacing hyphens from UUIDs with underscores for Cosmos compatibility
+    doc_id = f"{user_id.replace('-', '_')}_{conversation_id.replace('-', '_')}"
     try:
         doc = conversations_container.read_item(item=doc_id, partition_key=user_id)
         return ConversationSession.from_dict(doc)
