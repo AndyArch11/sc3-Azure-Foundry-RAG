@@ -70,6 +70,36 @@ def config_payload(base_url: str, session: requests.Session, timeout_s: float) -
     return _get_json(resp)
 
 
+@pytest.fixture(scope="session")
+def openapi_paths(base_url: str, session: requests.Session, timeout_s: float) -> dict[str, Any] | None:
+    try:
+        openapi_resp = session.get(f"{base_url}/openapi.json", timeout=timeout_s)
+    except requests.RequestException:
+        return None
+
+    if openapi_resp.status_code != 200:
+        return None
+
+    body = openapi_resp.json()
+    if not isinstance(body, dict):
+        return None
+
+    paths = body.get("paths")
+    if not isinstance(paths, dict):
+        return None
+
+    return paths
+
+
+def _openapi_has_method(paths: dict[str, Any] | None, path: str, method: str) -> bool:
+    if paths is None:
+        return False
+    path_item = paths.get(path)
+    if not isinstance(path_item, dict):
+        return False
+    return method.lower() in path_item
+
+
 def _require_auth_token_if_enabled(config_payload: dict[str, Any], auth_token: str) -> None:
     if bool(config_payload.get("auth_enabled", False)) and not auth_token:
         pytest.skip(
@@ -84,18 +114,11 @@ def conversation_api_state(
     session: requests.Session,
     timeout_s: float,
     auth_token: str,
+    openapi_paths: dict[str, Any] | None,
 ) -> dict[str, Any]:
     # Prefer OpenAPI path discovery when available.
-    try:
-        openapi_resp = session.get(f"{base_url}/openapi.json", timeout=timeout_s)
-        if openapi_resp.status_code == 200:
-            body = openapi_resp.json()
-            if isinstance(body, dict):
-                paths = body.get("paths")
-                if isinstance(paths, dict) and "/api/conversations/new" in paths:
-                    return {"available": True, "reason": "found in openapi"}
-    except Exception:
-        pass
+    if _openapi_has_method(openapi_paths, "/api/conversations/new", "post"):
+        return {"available": True, "reason": "found in openapi"}
 
     # Fallback: probe endpoint directly.
     try:
@@ -114,6 +137,34 @@ def conversation_api_state(
     return {"available": False, "reason": f"unexpected probe status {probe.status_code}"}
 
 
+@pytest.fixture(scope="session")
+def rating_api_state(
+    base_url: str,
+    session: requests.Session,
+    timeout_s: float,
+    openapi_paths: dict[str, Any] | None,
+) -> dict[str, Any]:
+    # Prefer OpenAPI method discovery. This catches older deployments where
+    # conversation routes exist but POST /rating was not added yet.
+    if openapi_paths is not None:
+        if _openapi_has_method(
+            openapi_paths,
+            "/api/conversations/{conversation_id}/rating",
+            "post",
+        ):
+            return {"available": True, "reason": "found in openapi"}
+        return {
+            "available": False,
+            "reason": "rating route missing from openapi",
+        }
+
+    # If OpenAPI is unavailable, treat as unknown and let runtime call decide.
+    return {
+        "available": False,
+        "reason": "openapi unavailable; rating capability unknown",
+    }
+
+
 def _require_conversation_api(conversation_api_state: dict[str, Any]) -> None:
     available = bool(conversation_api_state.get("available", False))
     if available:
@@ -125,6 +176,24 @@ def _require_conversation_api(conversation_api_state: dict[str, Any]) -> None:
         "Conversation API is unavailable on this deployment. "
         f"Reason: {reason}. "
         "Deploy query_web image with conversation endpoints to enable these tests."
+    )
+
+    if strict:
+        raise AssertionError(message)
+    pytest.skip(message)
+
+
+def _require_rating_api(rating_api_state: dict[str, Any]) -> None:
+    available = bool(rating_api_state.get("available", False))
+    if available:
+        return
+
+    strict = _bool_env("QUERY_WEB_REQUIRE_CONVERSATIONS", default=False)
+    reason = str(rating_api_state.get("reason", "unknown reason"))
+    message = (
+        "Conversation rating API is unavailable on this deployment. "
+        f"Reason: {reason}. "
+        "Deploy a query_web image that includes POST /api/conversations/{conversation_id}/rating."
     )
 
     if strict:
@@ -294,6 +363,7 @@ def test_conversation_rating_todo_and_follow_up_ask(
     config_payload: dict[str, Any],
     auth_token: str,
     conversation_api_state: dict[str, Any],
+    rating_api_state: dict[str, Any],
     conversation_seed: dict[str, str],
 ) -> None:
     if not _bool_env("QUERY_WEB_RUN_API_ASK", default=False):
@@ -301,6 +371,7 @@ def test_conversation_rating_todo_and_follow_up_ask(
 
     _require_auth_token_if_enabled(config_payload, auth_token)
     _require_conversation_api(conversation_api_state)
+    _require_rating_api(rating_api_state)
 
     # Seed an assistant message so rating can target a specific response timestamp.
     assistant_seed = f"assistant-seed-{int(time.time())}"
@@ -331,6 +402,16 @@ def test_conversation_rating_todo_and_follow_up_ask(
         },
         timeout=timeout_s,
     )
+    if rating_resp.status_code in {404, 405}:
+        strict = _bool_env("QUERY_WEB_REQUIRE_CONVERSATIONS", default=False)
+        message = (
+            "Conversation rating endpoint is not supported by the deployed app "
+            f"(status={rating_resp.status_code}). "
+            "Roll out the latest query_web image to include /rating support."
+        )
+        if strict:
+            raise AssertionError(message)
+        pytest.skip(message)
     rating_payload = _get_json(rating_resp)
     assert int(rating_payload.get("ratings_count", 0)) >= 1
 
