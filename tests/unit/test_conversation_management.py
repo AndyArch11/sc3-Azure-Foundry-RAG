@@ -10,7 +10,7 @@ os.environ.setdefault("AZURE_COSMOS_DATABASE_NAME", "rag-conversations")
 os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 
 import pytest
-from datetime import datetime
+import datetime
 from unittest.mock import Mock, patch, MagicMock, AsyncMock
 from azure.cosmos.exceptions import CosmosResourceNotFoundError
 
@@ -161,11 +161,11 @@ class TestConversationLoadSave:
             "user_id": "user-456",
             "conversation_id": "conv-789",
             "messages": [
-                {"role": "user", "content": "Q", "timestamp": datetime.utcnow().isoformat()},
-                {"role": "assistant", "content": "A", "timestamp": datetime.utcnow().isoformat()},
+                {"role": "user", "content": "Q", "timestamp": datetime.datetime.now(datetime.UTC).isoformat()},
+                {"role": "assistant", "content": "A", "timestamp": datetime.datetime.now(datetime.UTC).isoformat()},
             ],
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.datetime.now(datetime.UTC).isoformat(),
+            "updated_at": datetime.datetime.now(datetime.UTC).isoformat(),
             "type": "conversation",
         }
         
