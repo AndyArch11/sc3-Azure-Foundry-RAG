@@ -15,7 +15,7 @@ cd runtime
 
 python3 -m venv .venv
 source .venv/bin/activate
-python3 -m pip install -r requirements.txt
+python3 -m pip install -r ../requirements-dev.txt
 
 python3 -m ingestion.runner \
   --mode local \
@@ -24,7 +24,7 @@ python3 -m ingestion.runner \
   --chunk-size 1200 \
   --chunk-overlap 200
 
-.venv/bin/python -m pytest ../tests
+.venv/bin/python -m pytest ../tests/unit -q
 ```
 
 Supported formats in local mode: `.pdf`, `.xlsx`, `.xlsm`, `.xltx`, `.xltm`
@@ -259,30 +259,36 @@ az network bastion ssh \
 
 ```bash
 curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-curl -fsSL https://get.docker.com | sudo sh
-
-sudo apt-get update
-sudo apt-get install -y software-properties-common
-sudo add-apt-repository ppa:deadsnakes/ppa -y
-sudo apt-get update
-sudo apt-get install -y python3.12 python3.12-venv python3-pip git
 ```
+
+Then run the repository bootstrap script:
+
+```bash
+git clone <your-repo-url> /opt/sc3-ingestion
+cd /opt/sc3-ingestion
+
+./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --run-unit-tests
+```
+
+The script installs Docker, Python 3.12, Azure CLI, git, unzip, and other required OS packages, creates `runtime/.venv`, installs `requirements-dev.txt`, and optionally runs `./ops/scripts/install-terraform-local.sh`. It then authenticates with the managed identity, runs the unit test suite, and prints a smoke-check report across all installed components.
+
+Flags that are not passed are reported as skipped in the smoke report rather than causing failures, so you can run a subset (for example, if Azure CLI is pre-installed by your base image):
 
 ### Run Ingestion Interactively On The Jumpbox
 
 ```bash
 git clone <your-repo-url> /opt/sc3-ingestion
-cd /opt/sc3-ingestion/runtime
-
 cd /opt/sc3-ingestion
-./ops/scripts/install-terraform-local.sh
+
+# Full setup with Terraform, Azure CLI, managed identity login, and unit tests.
+./ops/scripts/configure-jumpbox.sh \
+  --install-terraform \
+  --install-azure-cli \
+  --az-login-identity \
+  --run-unit-tests
+
 cd runtime
-
-python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
-
-az login --identity
 
 TARGET_ENV="<env>"
 TF_DIR="../infra/terraform"
@@ -308,5 +314,21 @@ python -m ingestion.runner --mode azure --input-dir ./samples
 python -m ingestion.runner --mode reset
 python -m ingestion.runner --mode reset --purge-blobs
 
-.venv/bin/python -m pytest ../tests
+.venv/bin/python -m pytest ../tests/unit -q
 ```
+
+Use `requirements.txt` when you only need the ingestion runtime. Use `../requirements-dev.txt` when you also want to run the repository unit tests from the same environment, because those tests import both `runtime/` and `query_web/` modules.
+
+If Docker is managed separately or not needed, use:
+
+```bash
+./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --run-unit-tests --skip-docker
+```
+
+If you only need the ingestion runtime dependencies (no query-web or pytest), use:
+
+```bash
+./ops/scripts/configure-jumpbox.sh --runtime-only
+```
+
+Every component that is not installed by the options you pass is reported as `SKIP` in the smoke report rather than `FAIL`, so you can run any subset of flags safely.

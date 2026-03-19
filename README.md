@@ -155,7 +155,7 @@ Run the environment build scripts in order:
 
 Run unit tests before releasing runtime changes:
 
-- `python3 -m pytest tests/unit -q`
+- `python3 -m pip install -r requirements-dev.txt && python3 -m pytest tests/unit -q`
 
 ### Jumpbox Access
 
@@ -169,11 +169,8 @@ On the jumpbox:
 
 1. Clone or update your repository:
    - `git pull --ff-only`
-2. Install Docker if required:
-   - `curl -fsSL https://get.docker.com | sudo sh`
-3. Install Terraform if required:
-   - `./ops/scripts/install-terraform-local.sh`
-4. Follow runtime setup guidance in [runtime/README.md](runtime/README.md) for Python and local tooling.
+2. Run the jumpbox bootstrap helper:
+   - `./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --run-unit-tests`
 
 The standard private-network deployment path uses the Container App ingestion and query services. The `phase3b-agent-hosting.sh` script is only for the preview hosted-query-agent path and is not required for the normal runtime deployment.
 
@@ -250,6 +247,7 @@ terraform -chdir=infra/terraform apply \
   -target=module.agent_hosting
 
 # Run unit tests
+python3 -m pip install -r requirements-dev.txt
 python3 -m pytest tests/unit -q
 
 # Run query web integration tests from inside the private network

@@ -1,0 +1,4 @@
+# Shared local/test dependencies for repository-level pytest runs.
+-r runtime/requirements.txt
+-r query_web/requirements.txt
+pytest==8.3.5
