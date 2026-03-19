@@ -56,11 +56,13 @@ module "observability" {
 }
 
 module "data_services" {
-  source              = "./modules/data_services"
-  resource_group_name = module.foundation.resource_group_name
-  location            = var.location
-  suffix              = local.naming_suffix
-  tags                = local.tags
+  source                = "./modules/data_services"
+  resource_group_name   = module.foundation.resource_group_name
+  location              = var.location
+  suffix                = local.naming_suffix
+  cosmos_database_name  = var.cosmos_database_name
+  cosmos_container_name = var.cosmos_container_name
+  tags                  = local.tags
 }
 
 module "foundry" {
@@ -141,6 +143,9 @@ module "agent_hosting" {
   agent_runtime_principal_id = module.identity.agent_runtime_principal_id
   azure_search_endpoint      = "https://${module.data_services.search_service_name}.search.windows.net"
   azure_openai_endpoint      = "https://${module.foundry.foundry_account_name}.openai.azure.com"
+  azure_cosmos_endpoint      = "https://${module.data_services.cosmosdb_account_name}.documents.azure.com:443/"
+  cosmos_database_name       = var.cosmos_database_name
+  cosmos_container_name      = var.cosmos_container_name
   storage_account_name       = module.data_services.storage_account_name
   storage_account_id         = module.data_services.storage_account_id
   search_index_name          = var.search_index_name

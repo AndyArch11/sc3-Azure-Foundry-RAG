@@ -1,66 +1,66 @@
 # Container App Environment — VNet-integrated on the delegated agent subnet.
 # Workload Profiles mode enables the Consumption profile (serverless, pay-per-use).
 resource "azurerm_container_app_environment" "this" {
-	name                           = "cae-${var.suffix}"
-	location                       = var.location
-	resource_group_name            = var.resource_group_name
-	infrastructure_resource_group_name = "ME_cae-${var.suffix}_${var.resource_group_name}_${var.location}"
-	log_analytics_workspace_id     = var.log_analytics_workspace_id
-	infrastructure_subnet_id       = var.delegated_agent_subnet_id
-	internal_load_balancer_enabled = true
-	tags                           = var.tags
+  name                               = "cae-${var.suffix}"
+  location                           = var.location
+  resource_group_name                = var.resource_group_name
+  infrastructure_resource_group_name = "ME_cae-${var.suffix}_${var.resource_group_name}_${var.location}"
+  log_analytics_workspace_id         = var.log_analytics_workspace_id
+  infrastructure_subnet_id           = var.delegated_agent_subnet_id
+  internal_load_balancer_enabled     = true
+  tags                               = var.tags
 
-	workload_profile {
-		name                  = "Consumption"
-		workload_profile_type = "Consumption"
-	}
+  workload_profile {
+    name                  = "Consumption"
+    workload_profile_type = "Consumption"
+  }
 }
 
 # Container Apps Environment with internal ingress requires an explicit private DNS zone
 # to resolve internal FQDNs on the VNet.
 resource "azurerm_private_dns_zone" "container_apps" {
-	name                = azurerm_container_app_environment.this.default_domain
-	resource_group_name = var.resource_group_name
+  name                = azurerm_container_app_environment.this.default_domain
+  resource_group_name = var.resource_group_name
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "container_apps" {
-	name                  = "link-cae-to-vnet"
-	resource_group_name   = azurerm_private_dns_zone.container_apps.resource_group_name
-	private_dns_zone_name = azurerm_private_dns_zone.container_apps.name
-	virtual_network_id    = var.vnet_id
+  name                  = "link-cae-to-vnet"
+  resource_group_name   = azurerm_private_dns_zone.container_apps.resource_group_name
+  private_dns_zone_name = azurerm_private_dns_zone.container_apps.name
+  virtual_network_id    = var.vnet_id
 }
 
 # Container Apps internal load balancer IP (fixed for internal ingress deployments).
 locals {
-	cae_internal_lb_ip = "10.20.5.176"
+  cae_internal_lb_ip = "10.20.5.176"
 }
 
 # DNS A records for internal Container Apps — point to the CAE's internal load balancer.
 resource "azurerm_private_dns_a_record" "ingestion_job" {
-	name                = "caj-ingestion-${var.suffix}.internal"
-	zone_name           = azurerm_private_dns_zone.container_apps.name
-	resource_group_name = azurerm_private_dns_zone.container_apps.resource_group_name
-	ttl                 = 300
-	records             = [local.cae_internal_lb_ip]
+  name                = "caj-ingestion-${var.suffix}.internal"
+  zone_name           = azurerm_private_dns_zone.container_apps.name
+  resource_group_name = azurerm_private_dns_zone.container_apps.resource_group_name
+  ttl                 = 300
+  records             = [local.cae_internal_lb_ip]
 }
 
 resource "azurerm_private_dns_a_record" "query_web" {
-	count               = var.enable_query_web_app ? 1 : 0
-	name                = "ca-rag-query-${var.suffix}.internal"
-	zone_name           = azurerm_private_dns_zone.container_apps.name
-	resource_group_name = azurerm_private_dns_zone.container_apps.resource_group_name
-	ttl                 = 300
-	records             = [local.cae_internal_lb_ip]
+  count               = var.enable_query_web_app ? 1 : 0
+  name                = "ca-rag-query-${var.suffix}.internal"
+  zone_name           = azurerm_private_dns_zone.container_apps.name
+  resource_group_name = azurerm_private_dns_zone.container_apps.resource_group_name
+  ttl                 = 300
+  records             = [local.cae_internal_lb_ip]
 }
 
 # VNet-scoped ingress hostname (external=true on an internal CAE).
 resource "azurerm_private_dns_a_record" "query_web_vnet" {
-	count               = var.enable_query_web_app ? 1 : 0
-	name                = "ca-rag-query-${var.suffix}"
-	zone_name           = azurerm_private_dns_zone.container_apps.name
-	resource_group_name = azurerm_private_dns_zone.container_apps.resource_group_name
-	ttl                 = 300
-	records             = [local.cae_internal_lb_ip]
+  count               = var.enable_query_web_app ? 1 : 0
+  name                = "ca-rag-query-${var.suffix}"
+  zone_name           = azurerm_private_dns_zone.container_apps.name
+  resource_group_name = azurerm_private_dns_zone.container_apps.resource_group_name
+  ttl                 = 300
+  records             = [local.cae_internal_lb_ip]
 }
 
 # Container App Job — manually triggered ingestion runner.
@@ -69,70 +69,70 @@ resource "azurerm_private_dns_a_record" "query_web_vnet" {
 #   az containerapp job start -n <name> -g <rg> \
 #     --args '--mode' 'azure' '--input-dir' '/path/to/files'
 resource "azurerm_container_app_job" "ingestion" {
-	count                        = var.enable_ingestion_job ? 1 : 0
-	name                         = "caj-ingestion-${var.suffix}"
-	location                     = var.location
-	resource_group_name          = var.resource_group_name
-	container_app_environment_id = azurerm_container_app_environment.this.id
-	workload_profile_name        = "Consumption"
-	replica_timeout_in_seconds   = 3600
-	replica_retry_limit          = 1
+  count                        = var.enable_ingestion_job ? 1 : 0
+  name                         = "caj-ingestion-${var.suffix}"
+  location                     = var.location
+  resource_group_name          = var.resource_group_name
+  container_app_environment_id = azurerm_container_app_environment.this.id
+  workload_profile_name        = "Consumption"
+  replica_timeout_in_seconds   = 3600
+  replica_retry_limit          = 1
 
-	manual_trigger_config {
-		parallelism              = 1
-		replica_completion_count = 1
-	}
+  manual_trigger_config {
+    parallelism              = 1
+    replica_completion_count = 1
+  }
 
-	identity {
-		type         = "UserAssigned"
-		identity_ids = [var.agent_runtime_identity_id]
-	}
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [var.agent_runtime_identity_id]
+  }
 
-	registry {
-		server   = var.acr_login_server
-		identity = var.agent_runtime_identity_id
-	}
+  registry {
+    server   = var.acr_login_server
+    identity = var.agent_runtime_identity_id
+  }
 
-	template {
-		container {
-			name   = "ingestion-runner"
-			image  = "${var.acr_login_server}/ingestion-runner:latest"
-			cpu    = 1.0
-			memory = "2Gi"
-			args   = ["--mode", "azure", "--skip-upload"]
+  template {
+    container {
+      name   = "ingestion-runner"
+      image  = "${var.acr_login_server}/ingestion-runner:latest"
+      cpu    = 1.0
+      memory = "2Gi"
+      args   = ["--mode", "azure", "--skip-upload"]
 
-			env {
-				name  = "AZURE_CLIENT_ID"
-				value = var.agent_runtime_client_id
-			}
-			env {
-				name  = "AZURE_SEARCH_ENDPOINT"
-				value = var.azure_search_endpoint
-			}
-			env {
-				name  = "AZURE_OPENAI_ENDPOINT"
-				value = var.azure_openai_endpoint
-			}
-			env {
-				name  = "AZURE_STORAGE_ACCOUNT_NAME"
-				value = var.storage_account_name
-			}
-			env {
-				name  = "AZURE_STORAGE_RESOURCE_ID"
-				value = var.storage_account_id
-			}
-			env {
-				name  = "EMBEDDING_DEPLOYMENT_NAME"
-				value = var.embedding_deployment_name
-			}
-			env {
-				name  = "EMBEDDING_DIMENSIONS"
-				value = tostring(var.embedding_dimensions)
-			}
-		}
-	}
+      env {
+        name  = "AZURE_CLIENT_ID"
+        value = var.agent_runtime_client_id
+      }
+      env {
+        name  = "AZURE_SEARCH_ENDPOINT"
+        value = var.azure_search_endpoint
+      }
+      env {
+        name  = "AZURE_OPENAI_ENDPOINT"
+        value = var.azure_openai_endpoint
+      }
+      env {
+        name  = "AZURE_STORAGE_ACCOUNT_NAME"
+        value = var.storage_account_name
+      }
+      env {
+        name  = "AZURE_STORAGE_RESOURCE_ID"
+        value = var.storage_account_id
+      }
+      env {
+        name  = "EMBEDDING_DEPLOYMENT_NAME"
+        value = var.embedding_deployment_name
+      }
+      env {
+        name  = "EMBEDDING_DIMENSIONS"
+        value = tostring(var.embedding_dimensions)
+      }
+    }
+  }
 
-	tags = var.tags
+  tags = var.tags
 }
 
 # Allow the agent runtime MI to start (and stop) the ingestion job.
@@ -145,106 +145,118 @@ resource "azurerm_role_assignment" "ingestion_job_contributor" {
 }
 
 resource "azurerm_container_app" "query_web" {
-	count                        = var.enable_query_web_app ? 1 : 0
-	name                         = "ca-rag-query-${var.suffix}"
-	resource_group_name          = var.resource_group_name
-	container_app_environment_id = azurerm_container_app_environment.this.id
-	revision_mode                = "Single"
+  count                        = var.enable_query_web_app ? 1 : 0
+  name                         = "ca-rag-query-${var.suffix}"
+  resource_group_name          = var.resource_group_name
+  container_app_environment_id = azurerm_container_app_environment.this.id
+  revision_mode                = "Single"
 
-	identity {
-		type         = "UserAssigned"
-		identity_ids = [var.agent_runtime_identity_id]
-	}
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [var.agent_runtime_identity_id]
+  }
 
-	registry {
-		server   = var.acr_login_server
-		identity = var.agent_runtime_identity_id
-	}
+  registry {
+    server   = var.acr_login_server
+    identity = var.agent_runtime_identity_id
+  }
 
-	dynamic "secret" {
-		for_each = var.query_web_auth_token != "" ? [1] : []
-		content {
-			name  = "query-web-auth-token"
-			value = var.query_web_auth_token
-		}
-	}
+  dynamic "secret" {
+    for_each = var.query_web_auth_token != "" ? [1] : []
+    content {
+      name  = "query-web-auth-token"
+      value = var.query_web_auth_token
+    }
+  }
 
-	ingress {
-		external_enabled = true
-		target_port      = 8080
-		transport        = "auto"
+  ingress {
+    external_enabled = true
+    target_port      = 8080
+    transport        = "auto"
 
-		traffic_weight {
-			latest_revision = true
-			percentage      = 100
-		}
-	}
+    traffic_weight {
+      latest_revision = true
+      percentage      = 100
+    }
+  }
 
-	template {
-		min_replicas = 1
+  template {
+    min_replicas = 1
 
-		container {
-			name   = "rag-query-web"
-			image  = "${var.acr_login_server}/rag-query-web:${var.query_web_image_tag}"
-			cpu    = 1.0
-			memory = "2Gi"
+    container {
+      name   = "rag-query-web"
+      image  = "${var.acr_login_server}/rag-query-web:${var.query_web_image_tag}"
+      cpu    = 1.0
+      memory = "2Gi"
 
-			env {
-				name  = "AZURE_CLIENT_ID"
-				value = var.agent_runtime_client_id
-			}
-			env {
-				name  = "AZURE_SEARCH_ENDPOINT"
-				value = var.azure_search_endpoint
-			}
-			env {
-				name  = "AZURE_OPENAI_ENDPOINT"
-				value = var.azure_openai_endpoint
-			}
-			env {
-				name  = "AZURE_SEARCH_INDEX_NAME"
-				value = var.search_index_name
-			}
-			env {
-				name  = "EMBEDDING_DEPLOYMENT_NAME"
-				value = var.embedding_deployment_name
-			}
-			env {
-				name  = "QUERY_DEPLOYMENT_NAME"
-				value = var.query_deployment_name
-			}
-			env {
-				name  = "EVALUATOR_DEPLOYMENT_NAME"
-				value = var.evaluator_deployment_name
-			}
-			env {
-				name  = "SEARCH_TOP_K"
-				value = tostring(var.query_top_k)
-			}
-			env {
-				name  = "DEFAULT_TEMPERATURE"
-				value = tostring(var.query_default_temperature)
-			}
-			env {
-				name  = "ACCEPTABLE_SCORE_THRESHOLD"
-				value = tostring(var.query_eval_threshold)
-			}
-			dynamic "env" {
-				for_each = var.query_web_auth_token != "" ? [1] : []
-				content {
-					name        = "QUERY_WEB_AUTH_TOKEN"
-					secret_name = "query-web-auth-token"
-				}
-			}
-		}
-	}
+      env {
+        name  = "AZURE_CLIENT_ID"
+        value = var.agent_runtime_client_id
+      }
+      env {
+        name  = "AZURE_SEARCH_ENDPOINT"
+        value = var.azure_search_endpoint
+      }
+      env {
+        name  = "AZURE_OPENAI_ENDPOINT"
+        value = var.azure_openai_endpoint
+      }
+      env {
+        name  = "AZURE_COSMOS_ENDPOINT"
+        value = var.azure_cosmos_endpoint
+      }
+      env {
+        name  = "AZURE_COSMOS_DATABASE_NAME"
+        value = var.cosmos_database_name
+      }
+      env {
+        name  = "AZURE_COSMOS_CONTAINER_NAME"
+        value = var.cosmos_container_name
+      }
+      env {
+        name  = "AZURE_SEARCH_INDEX_NAME"
+        value = var.search_index_name
+      }
+      env {
+        name  = "EMBEDDING_DEPLOYMENT_NAME"
+        value = var.embedding_deployment_name
+      }
+      env {
+        name  = "QUERY_DEPLOYMENT_NAME"
+        value = var.query_deployment_name
+      }
+      env {
+        name  = "EVALUATOR_DEPLOYMENT_NAME"
+        value = var.evaluator_deployment_name
+      }
+      env {
+        name  = "SEARCH_TOP_K"
+        value = tostring(var.query_top_k)
+      }
+      env {
+        name  = "DEFAULT_TEMPERATURE"
+        value = tostring(var.query_default_temperature)
+      }
+      env {
+        name  = "ACCEPTABLE_SCORE_THRESHOLD"
+        value = tostring(var.query_eval_threshold)
+      }
+      dynamic "env" {
+        for_each = var.query_web_auth_token != "" ? [1] : []
+        content {
+          name        = "QUERY_WEB_AUTH_TOKEN"
+          secret_name = "query-web-auth-token"
+        }
+      }
+    }
+  }
 
-	tags = var.tags
+  tags = var.tags
 }
 
 resource "azurerm_role_assignment" "query_web_contributor" {
-	count                = var.enable_query_web_app ? 1 : 0
-	scope                = azurerm_container_app.query_web[0].id
-	role_definition_name = "Contributor"
-	principal_id         = var.agent_runtime_principal_id
+  count                = var.enable_query_web_app ? 1 : 0
+  scope                = azurerm_container_app.query_web[0].id
+  role_definition_name = "Contributor"
+  principal_id         = var.agent_runtime_principal_id
 }

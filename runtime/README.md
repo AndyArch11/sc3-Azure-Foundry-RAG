@@ -349,7 +349,7 @@ curl -sS "https://${QUERY_FQDN}/api/ask" \
   -d '{
     "question": "What cyber-security guidance is most relevant to secure-by-design delivery?",
     "retrieve_k": 5,
-    "temperature": 0.2,
+    "temperature": 1.0,
     "auth_token": "'"${QUERY_WEB_AUTH_TOKEN:-}"'"
   }' | jq
 

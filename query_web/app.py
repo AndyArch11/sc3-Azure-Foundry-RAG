@@ -16,6 +16,9 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 
+import uuid
+from dataclasses import field
+from datetime import datetime
 @dataclass(frozen=True)
 class QueryConfig:
     search_endpoint: str
@@ -29,6 +32,9 @@ class QueryConfig:
     evaluation_threshold: float
     auth_token: str
 
+    cosmos_endpoint: str
+    cosmos_database_name: str
+    cosmos_container_name: str
 
 def _require_env(name: str) -> str:
     value = os.getenv(name)
@@ -49,8 +55,58 @@ def load_config() -> QueryConfig:
         default_temperature=float(os.getenv("DEFAULT_TEMPERATURE", "1")),
         evaluation_threshold=float(os.getenv("ACCEPTABLE_SCORE_THRESHOLD", "0.72")),
         auth_token=os.getenv("QUERY_WEB_AUTH_TOKEN", "").strip(),
+        cosmos_endpoint=_require_env("AZURE_COSMOS_ENDPOINT"),
+        cosmos_database_name=_require_env("AZURE_COSMOS_DATABASE_NAME"),
+        cosmos_container_name=_require_env("AZURE_COSMOS_CONTAINER_NAME"),
     )
 
+@dataclass
+class ConversationMessage:
+    """A single message in a conversation."""
+    role: str  # "user" or "assistant"
+    content: str
+    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+
+@dataclass
+class ConversationSession:
+    """Conversation session stored in CosmosDB."""
+    session_id: str
+    user_id: str  # auth_token hash or session token
+    conversation_id: str  # unique per conversation
+    messages: list[ConversationMessage] = field(default_factory=list)
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    evaluation_threshold: float = 0.72
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": f"{self.user_id}#{self.conversation_id}",
+            "session_id": self.session_id,
+            "user_id": self.user_id,
+            "conversation_id": self.conversation_id,
+            "messages": [{"role": m.role, "content": m.content, "timestamp": m.timestamp} for m in self.messages],
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "evaluation_threshold": self.evaluation_threshold,
+            "type": "conversation",
+        }
+
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "ConversationSession":
+        messages = [
+            ConversationMessage(role=m["role"], content=m["content"], timestamp=m.get("timestamp", datetime.utcnow().isoformat()))
+            for m in data.get("messages", [])
+        ]
+        return ConversationSession(
+            session_id=data["session_id"],
+            user_id=data["user_id"],
+            conversation_id=data["conversation_id"],
+            messages=messages,
+            created_at=data.get("created_at", datetime.utcnow().isoformat()),
+            updated_at=data.get("updated_at", datetime.utcnow().isoformat()),
+            evaluation_threshold=data.get("evaluation_threshold", 0.72),
+        )
 
 CYBER_PERSONA_PROMPT = (
     "You are a Cyber Security Assistant. Answer questions related to cyber safety, "
@@ -91,6 +147,19 @@ search_client = SearchClient(
     credential=credential,
 )
 
+# Initialize CosmosDB client
+try:
+    from azure.cosmos import CosmosClient
+    cosmos_client = CosmosClient(url=config.cosmos_endpoint, credential=credential)
+    cosmos_db = cosmos_client.get_database_client(config.cosmos_database_name)
+    conversations_container = cosmos_db.get_container_client(config.cosmos_container_name)
+except (ImportError, Exception) as exc:
+    # If CosmosDB is unavailable, continue with in-memory conversation tracking
+    cosmos_client = None
+    conversations_container = None
+    import logging
+    logging.warning(f"CosmosDB unavailable: {exc}. Conversations will not be persisted.")
+
 
 class AskRequest(BaseModel):
     question: str
@@ -107,6 +176,47 @@ class AskResponse(BaseModel):
     metrics: dict[str, float] | None
     error: str
 
+
+def _get_user_id(auth_token: str, session_id: str) -> str:
+    """Generate a stable user identifier from auth token or session ID."""
+    import hashlib
+    if auth_token.strip():
+        return hashlib.sha256(auth_token.encode()).hexdigest()[:16]
+    return session_id[:16]
+
+
+def _load_conversation(user_id: str, conversation_id: str) -> ConversationSession:
+    """Load conversation from CosmosDB or create new one."""
+    if not conversations_container:
+        # Fallback to in-memory new conversation
+        return ConversationSession(
+            session_id=str(uuid.uuid4()),
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
+    
+    doc_id = f"{user_id}#{conversation_id}"
+    try:
+        doc = conversations_container.read_item(item=doc_id, partition_key=user_id)
+        return ConversationSession.from_dict(doc)
+    except Exception:
+        # Conversation doesn't exist yet
+        return ConversationSession(
+            session_id=str(uuid.uuid4()),
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
+
+
+def _save_conversation(session: ConversationSession) -> None:
+    """Save conversation to CosmosDB."""
+    if not conversations_container:
+        return
+    try:
+        conversations_container.upsert_item(session.to_dict())
+    except Exception as exc:
+        import logging
+        logging.error(f"Failed to save conversation: {exc}")
 
 def _cognitive_token() -> str:
     return credential.get_token("https://cognitiveservices.azure.com/.default").token
@@ -172,26 +282,27 @@ def _hybrid_search(question: str, retrieve_k: int) -> tuple[list[dict[str, Any]]
 
 
 def _chat_completion(messages: list[dict[str, str]], deployment: str, temperature: float, timeout: int = 45) -> str:
-    token = _cognitive_token()
-    url = (
-        f"{config.openai_endpoint}/openai/deployments/"
-        f"{deployment}/chat/completions?api-version=2025-01-01-preview"
+    """Call Azure Foundry chat completion API using the OpenAI Python SDK."""
+    try:
+        from openai import AzureOpenAI
+    except ImportError as exc:
+        raise RuntimeError("openai package is required for Foundry API integration") from exc
+    
+    # Use Foundry API via Azure SDK
+    client = AzureOpenAI(
+        api_key=credential.get_token("https://cognitiveservices.azure.com/.default").token,
+        api_version="2024-08-01-preview",
+        azure_endpoint=config.openai_endpoint,
     )
-    # Note: gpt-5.1+ models only accept the server default temperature (1).
-    # temperature is intentionally omitted to support both classic and reasoning-class models.
-    body: dict[str, Any] = {
-        "messages": messages,
-        "max_completion_tokens": 600,
-    }
-    response = requests.post(
-        url,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json=body,
+    
+    response = client.chat.completions.create(
+        model=deployment,
+        messages=messages,
+        max_tokens=600,
+        temperature=temperature,
         timeout=timeout,
     )
-    response.raise_for_status()
-    payload = response.json()
-    return (payload["choices"][0]["message"]["content"] or "").strip()
+    return (response.choices[0].message.content or "").strip()
 
 
 def _evaluate(question: str, context: str, answer: str) -> dict[str, Any]:
@@ -249,6 +360,9 @@ def _run_rag(question: str, retrieve_k: int, temperature: float) -> dict[str, An
             ),
         },
     ]
+    # Add conversation history if available
+    if hasattr(_run_rag, "_current_messages") and _run_rag._current_messages:  # type: ignore
+        messages = _run_rag._current_messages + messages  # type: ignore
 
     t_llm = time.perf_counter()
     answer = _chat_completion(messages, deployment=config.query_deployment, temperature=temperature)
@@ -340,6 +454,92 @@ def api_config() -> JSONResponse:
     )
 
 
+@app.get("/api/conversations/{user_id}")
+def get_conversations(user_id: str, auth_token: str = "") -> JSONResponse:
+    """List all conversations for a user."""
+    if not _is_authorized(auth_token):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    
+    if not conversations_container:
+        return JSONResponse({"conversations": []})
+    
+    try:
+        query = "SELECT c.session_id, c.conversation_id, c.created_at, c.updated_at, c.messages FROM c WHERE c.user_id = @user_id AND c.type = 'conversation' ORDER BY c.updated_at DESC"
+        items = list(conversations_container.query_items(
+            query=query,
+            parameters=[{"name": "@user_id", "value": user_id}],
+        ))
+        return JSONResponse({"conversations": items})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.get("/api/conversations/{user_id}/{conversation_id}")
+def get_conversation_history(user_id: str, conversation_id: str, auth_token: str = "") -> JSONResponse:
+    """Get full conversation history."""
+    if not _is_authorized(auth_token):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    
+    session = _load_conversation(user_id, conversation_id)
+    return JSONResponse({
+        "session_id": session.session_id,
+        "conversation_id": session.conversation_id,
+        "created_at": session.created_at,
+        "updated_at": session.updated_at,
+        "messages": [
+            {"role": m.role, "content": m.content, "timestamp": m.timestamp}
+            for m in session.messages
+        ],
+    })
+
+
+@app.post("/api/conversations/new")
+def create_conversation(auth_token: str = Form("")) -> JSONResponse:
+    """Create a new conversation session."""
+    if not _is_authorized(auth_token):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    
+    session_id = str(uuid.uuid4())
+    conversation_id = str(uuid.uuid4())
+    user_id = _get_user_id(auth_token, session_id)
+    
+    session = ConversationSession(
+        session_id=session_id,
+        user_id=user_id,
+        conversation_id=conversation_id,
+    )
+    _save_conversation(session)
+    
+    return JSONResponse({
+        "session_id": session_id,
+        "conversation_id": conversation_id,
+        "user_id": user_id,
+    })
+
+
+@app.post("/api/conversations/{conversation_id}/message")
+def add_message_to_conversation(
+    conversation_id: str,
+    user_id: str = Form(...),
+    role: str = Form(...),
+    content: str = Form(...),
+    auth_token: str = Form(""),
+) -> JSONResponse:
+    """Add a message to a conversation and optionally get a response."""
+    if not _is_authorized(auth_token):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    
+    session = _load_conversation(user_id, conversation_id)
+    session.messages.append(ConversationMessage(role=role, content=content))
+    session.updated_at = datetime.utcnow().isoformat()
+    _save_conversation(session)
+    
+    return JSONResponse({
+        "message_id": len(session.messages),
+        "timestamp": session.messages[-1].timestamp,
+        "updated_at": session.updated_at,
+    })
+
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
@@ -372,7 +572,15 @@ def ask(
     retrieve_k: int = Form(...),
     temperature: float = Form(...),
     auth_token: str = Form(""),
+    session_id: str = Form(default=""),
+    conversation_id: str = Form(default=""),
 ) -> HTMLResponse:
+    # Initialize conversation tracking if provided
+    session = None
+    if session_id and conversation_id:
+        user_id = _get_user_id(auth_token, session_id)
+        session = _load_conversation(user_id, conversation_id)
+    
     if not _is_authorized(auth_token):
         return templates.TemplateResponse(
             request,
@@ -393,15 +601,30 @@ def ask(
                 "query_deployment": config.query_deployment,
                 "evaluation_threshold": config.evaluation_threshold,
                 "auth_enabled": bool(config.auth_token),
+                "session_id": session_id,
+                "conversation_id": conversation_id,
             },
             status_code=401,
         )
 
     retrieve_k = max(1, min(20, retrieve_k))
-    temperature = max(1.0, min(1.0, temperature))
+    temperature = max(0, min(1.0, temperature))
 
     try:
+        # Inject conversation history into RAG context if available
+        if session and session.messages:
+            prev_messages = [m for m in session.messages if m.role in ("user", "assistant")]
+            _run_rag._current_messages = prev_messages  # type: ignore
+        
         result = _run_rag(question=question, retrieve_k=retrieve_k, temperature=temperature)
+        
+        # Add user and assistant messages to conversation history
+        if session:
+            session.messages.append(ConversationMessage(role="user", content=question))
+            session.messages.append(ConversationMessage(role="assistant", content=result["answer"]))
+            session.updated_at = datetime.utcnow().isoformat()
+            _save_conversation(session)
+        
         error = ""
     except Exception as exc:
         result = {
@@ -432,6 +655,8 @@ def ask(
             "query_deployment": config.query_deployment,
             "evaluation_threshold": config.evaluation_threshold,
             "auth_enabled": bool(config.auth_token),
+            "session_id": session_id,
+            "conversation_id": conversation_id,
         },
     )
 

@@ -17,7 +17,7 @@ enable_query_web_app         = true
 query_web_image_tag          = "latest"
 search_index_name            = "grounding-index"
 query_top_k                  = 5
-query_default_temperature    = 0.2
+query_default_temperature    = 1.0
 query_eval_threshold         = 0.72
 # Optional shared token for query web app auth gate.
 # query_web_auth_token       = "change-me"

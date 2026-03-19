@@ -90,42 +90,42 @@ variable "jumpbox_vm_size" {
 
 variable "embedding_model" {
   type = object({
-    name    = string
-    version = string
+    name     = string
+    version  = string
     capacity = optional(number, 10)
   })
   description = "Embedding model deployment name and version."
   default = {
-    name    = "text-embedding-ada-002"
-    version = "2"
+    name     = "text-embedding-ada-002"
+    version  = "2"
     capacity = 10
   }
 }
 
 variable "query_model" {
   type = object({
-    name    = string
-    version = string
+    name     = string
+    version  = string
     capacity = optional(number, 1)
   })
   description = "Query model deployment name and version."
   default = {
-    name    = "gpt-5.1-chat"
-    version = "2025-11-13"
+    name     = "gpt-5.1-chat"
+    version  = "2025-11-13"
     capacity = 1
   }
 }
 
 variable "evaluation_model" {
   type = object({
-    name    = string
-    version = string
+    name     = string
+    version  = string
     capacity = optional(number, 1)
   })
   description = "Evaluation model deployment name and version."
   default = {
-    name    = "gpt-4.1-mini"
-    version = "2025-04-14"
+    name     = "gpt-4.1-mini"
+    version  = "2025-04-14"
     capacity = 1
   }
 }
@@ -166,6 +166,18 @@ variable "search_index_name" {
   default     = "grounding-index"
 }
 
+variable "cosmos_database_name" {
+  type        = string
+  description = "Cosmos DB SQL database name used by query web conversation persistence."
+  default     = "rag-conversations"
+}
+
+variable "cosmos_container_name" {
+  type        = string
+  description = "Cosmos DB SQL container name used by query web conversation persistence."
+  default     = "conversations"
+}
+
 variable "query_top_k" {
   type        = number
   description = "Number of chunks to retrieve for hybrid search in query web app."
@@ -174,8 +186,8 @@ variable "query_top_k" {
 
 variable "query_default_temperature" {
   type        = number
-  description = "Default generation temperature for query web app."
-  default     = 0.2
+  description = "Default generation temperature for query web app. Modify subject to model capabilities and tuning. Some models may ignore this value or not work with certain temperature settings."
+  default     = 1.0
 }
 
 variable "query_eval_threshold" {
