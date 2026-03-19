@@ -12,6 +12,7 @@ os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 import pytest
 from datetime import datetime
 from unittest.mock import Mock, patch, MagicMock, AsyncMock
+from azure.cosmos.exceptions import CosmosResourceNotFoundError
 
 
 from query_web.app import (
@@ -158,7 +159,7 @@ class TestConversationLoadSave:
     def test_load_conversation_not_found_returns_new(self) -> None:
         """If CosmosDB read raises exception, return new session."""
         mock_container = MagicMock()
-        mock_container.read_item.side_effect = Exception("Not found")
+        mock_container.read_item.side_effect = CosmosResourceNotFoundError(message="Not found")
         
         with patch("query_web.app.conversations_container", mock_container):
             session = _load_conversation("user-123", "conv-456")

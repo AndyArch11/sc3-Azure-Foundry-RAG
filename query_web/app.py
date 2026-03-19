@@ -18,7 +18,13 @@ from pydantic import BaseModel, Field
 
 import uuid
 from dataclasses import field
-from datetime import datetime
+from datetime import UTC, datetime
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
 @dataclass(frozen=True)
 class QueryConfig:
     search_endpoint: str
@@ -65,7 +71,7 @@ class ConversationMessage:
     """A single message in a conversation."""
     role: str  # "user" or "assistant"
     content: str
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = field(default_factory=_utc_now_iso)
 
 
 @dataclass
@@ -75,8 +81,8 @@ class ConversationSession:
     user_id: str  # auth_token hash or session token
     conversation_id: str  # unique per conversation
     messages: list[ConversationMessage] = field(default_factory=list)
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=_utc_now_iso)
+    updated_at: str = field(default_factory=_utc_now_iso)
     evaluation_threshold: float = 0.72
 
     def to_dict(self) -> dict[str, Any]:
@@ -95,7 +101,7 @@ class ConversationSession:
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "ConversationSession":
         messages = [
-            ConversationMessage(role=m["role"], content=m["content"], timestamp=m.get("timestamp", datetime.utcnow().isoformat()))
+            ConversationMessage(role=m["role"], content=m["content"], timestamp=m.get("timestamp", _utc_now_iso()))
             for m in data.get("messages", [])
         ]
         return ConversationSession(
@@ -103,8 +109,8 @@ class ConversationSession:
             user_id=data["user_id"],
             conversation_id=data["conversation_id"],
             messages=messages,
-            created_at=data.get("created_at", datetime.utcnow().isoformat()),
-            updated_at=data.get("updated_at", datetime.utcnow().isoformat()),
+            created_at=data.get("created_at", _utc_now_iso()),
+            updated_at=data.get("updated_at", _utc_now_iso()),
             evaluation_threshold=data.get("evaluation_threshold", 0.72),
         )
 
@@ -150,6 +156,7 @@ search_client = SearchClient(
 # Initialize CosmosDB client
 try:
     from azure.cosmos import CosmosClient
+    from azure.cosmos.exceptions import CosmosResourceNotFoundError
     cosmos_client = CosmosClient(url=config.cosmos_endpoint, credential=credential)
     cosmos_db = cosmos_client.get_database_client(config.cosmos_database_name)
     conversations_container = cosmos_db.get_container_client(config.cosmos_container_name)
@@ -199,13 +206,15 @@ def _load_conversation(user_id: str, conversation_id: str) -> ConversationSessio
     try:
         doc = conversations_container.read_item(item=doc_id, partition_key=user_id)
         return ConversationSession.from_dict(doc)
-    except Exception:
+    except CosmosResourceNotFoundError:
         # Conversation doesn't exist yet
         return ConversationSession(
             session_id=str(uuid.uuid4()),
             user_id=user_id,
             conversation_id=conversation_id,
         )
+    except Exception as exc:
+        raise RuntimeError(f"Conversation persistence read failed: {exc}") from exc
 
 
 def _save_conversation(session: ConversationSession) -> None:
@@ -213,10 +222,9 @@ def _save_conversation(session: ConversationSession) -> None:
     if not conversations_container:
         return
     try:
-        conversations_container.upsert_item(session.to_dict())
+        conversations_container.upsert_item(session.to_dict(), partition_key=session.user_id)
     except Exception as exc:
-        import logging
-        logging.error(f"Failed to save conversation: {exc}")
+        raise RuntimeError(f"Conversation persistence write failed: {exc}") from exc
 
 def _cognitive_token() -> str:
     return credential.get_token("https://cognitiveservices.azure.com/.default").token
