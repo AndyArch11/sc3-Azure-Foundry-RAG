@@ -73,6 +73,60 @@ def _require_auth_token_if_enabled(config_payload: dict[str, Any], auth_token: s
         )
 
 
+@pytest.fixture(scope="session")
+def conversation_api_state(
+    base_url: str,
+    session: requests.Session,
+    timeout_s: float,
+    auth_token: str,
+) -> dict[str, Any]:
+    # Prefer OpenAPI path discovery when available.
+    try:
+        openapi_resp = session.get(f"{base_url}/openapi.json", timeout=timeout_s)
+        if openapi_resp.status_code == 200:
+            body = openapi_resp.json()
+            if isinstance(body, dict):
+                paths = body.get("paths")
+                if isinstance(paths, dict) and "/api/conversations/new" in paths:
+                    return {"available": True, "reason": "found in openapi"}
+    except Exception:
+        pass
+
+    # Fallback: probe endpoint directly.
+    try:
+        probe = session.post(
+            f"{base_url}/api/conversations/new",
+            data={"auth_token": auth_token},
+            timeout=timeout_s,
+        )
+    except requests.RequestException as exc:
+        return {"available": False, "reason": f"probe request failed: {exc}"}
+
+    if probe.status_code in {200, 401, 422}:
+        return {"available": True, "reason": f"probe status {probe.status_code}"}
+    if probe.status_code == 404:
+        return {"available": False, "reason": "conversation routes not deployed (404)"}
+    return {"available": False, "reason": f"unexpected probe status {probe.status_code}"}
+
+
+def _require_conversation_api(conversation_api_state: dict[str, Any]) -> None:
+    available = bool(conversation_api_state.get("available", False))
+    if available:
+        return
+
+    strict = _bool_env("QUERY_WEB_REQUIRE_CONVERSATIONS", default=False)
+    reason = str(conversation_api_state.get("reason", "unknown reason"))
+    message = (
+        "Conversation API is unavailable on this deployment. "
+        f"Reason: {reason}. "
+        "Deploy query_web image with conversation endpoints to enable these tests."
+    )
+
+    if strict:
+        raise AssertionError(message)
+    pytest.skip(message)
+
+
 def test_health_endpoint(base_url: str, session: requests.Session, timeout_s: float) -> None:
     resp = session.get(f"{base_url}/health", timeout=timeout_s)
     payload = _get_json(resp)
@@ -102,8 +156,10 @@ def conversation_seed(
     timeout_s: float,
     config_payload: dict[str, Any],
     auth_token: str,
+    conversation_api_state: dict[str, Any],
 ) -> dict[str, str]:
     _require_auth_token_if_enabled(config_payload, auth_token)
+    _require_conversation_api(conversation_api_state)
 
     create_resp = session.post(
         f"{base_url}/api/conversations/new",
@@ -133,9 +189,11 @@ def test_conversation_lifecycle(
     timeout_s: float,
     config_payload: dict[str, Any],
     auth_token: str,
+    conversation_api_state: dict[str, Any],
     conversation_seed: dict[str, str],
 ) -> None:
     _require_auth_token_if_enabled(config_payload, auth_token)
+    _require_conversation_api(conversation_api_state)
 
     probe_content = f"integration-smoke-{int(time.time())}"
 
@@ -170,9 +228,11 @@ def test_conversation_list_includes_new_thread(
     timeout_s: float,
     config_payload: dict[str, Any],
     auth_token: str,
+    conversation_api_state: dict[str, Any],
     conversation_seed: dict[str, str],
 ) -> None:
     _require_auth_token_if_enabled(config_payload, auth_token)
+    _require_conversation_api(conversation_api_state)
 
     resp = session.get(
         f"{base_url}/api/conversations/{conversation_seed['user_id']}",

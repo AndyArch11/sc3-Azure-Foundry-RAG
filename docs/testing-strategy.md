@@ -52,6 +52,7 @@ Environment variables supported by the test suite:
 - `QUERY_WEB_TEST_QUESTION` (default: `What is secure-by-design?`)
 - `QUERY_WEB_TEST_RETRIEVE_K` (default: `3`)
 - `QUERY_WEB_TEST_TEMPERATURE` (default: `1.0`)
+- `QUERY_WEB_REQUIRE_CONVERSATIONS` (default: `false`; when `true`, missing conversation routes fail instead of skip)
 
 Runner preflight flags:
 
