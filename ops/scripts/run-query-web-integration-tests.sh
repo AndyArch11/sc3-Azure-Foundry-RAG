@@ -45,10 +45,21 @@ export QUERY_WEB_PREFLIGHT_ONLY="${QUERY_WEB_PREFLIGHT_ONLY:-false}"
 
 PYTEST_ARGS=("$@")
 
-if [[ -x "${ROOT_DIR}/runtime/.venv/bin/pytest" ]]; then
-  PYTEST_BIN="${ROOT_DIR}/runtime/.venv/bin/pytest"
+PYTEST_CMD=()
+if [[ -x "${ROOT_DIR}/runtime/.venv/bin/python" ]] \
+  && "${ROOT_DIR}/runtime/.venv/bin/python" -m pytest --version >/dev/null 2>&1; then
+  PYTEST_CMD=("${ROOT_DIR}/runtime/.venv/bin/python" -m pytest)
+elif command -v pytest >/dev/null 2>&1; then
+  PYTEST_CMD=(pytest)
+elif command -v python3 >/dev/null 2>&1 && python3 -m pytest --version >/dev/null 2>&1; then
+  PYTEST_CMD=(python3 -m pytest)
+elif command -v python >/dev/null 2>&1 && python -m pytest --version >/dev/null 2>&1; then
+  PYTEST_CMD=(python -m pytest)
 else
-  PYTEST_BIN="pytest"
+  echo "Unable to find pytest in this environment."
+  echo "Install it in your active venv, for example:"
+  echo "  python -m pip install pytest requests"
+  exit 4
 fi
 
 echo "Running query_web integration tests against: ${QUERY_WEB_BASE_URL}"
@@ -81,4 +92,4 @@ if [[ "${QUERY_WEB_PREFLIGHT_ONLY,,}" == "true" || "${QUERY_WEB_PREFLIGHT_ONLY}"
   exit 0
 fi
 
-"${PYTEST_BIN}" tests/integration/test_query_web_smoke.py -m "integration and private_network" -v "${PYTEST_ARGS[@]}"
+"${PYTEST_CMD[@]}" tests/integration/test_query_web_smoke.py -m "integration and private_network" -v "${PYTEST_ARGS[@]}"
