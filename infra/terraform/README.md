@@ -58,3 +58,54 @@ If bootstrap destroy is blocked, first remove any Terraform `prevent_destroy` gu
 ## Future Considerations
 
 - If Foundry project capability host creation intermittently fails after role assignment changes, consider adding an explicit short `time_sleep` dependency between role assignments and capability host resources to absorb AAD/RBAC propagation delay.
+
+## Known Terraform Behaviors (Do Not Re-Debug)
+
+### 1) Persistent drift on query web Container App workload profile
+
+Symptom during plan:
+
+- `module.agent_hosting.azurerm_container_app.query_web[0]` shows `workload_profile_name = "Consumption" -> null`
+- Plan remains `0 to add, 1 to change, 0 to destroy` even after successful apply.
+
+What is happening:
+
+- Azure Container Apps keeps `workloadProfileName` as `Consumption` for apps created in a Consumption workload profile environment.
+- In this configuration, the field behaves as create-time/immutable from Terraform and Azure CLI perspective.
+- Repeated apply attempts can report success but the field remains `Consumption` in Azure.
+
+How to treat it:
+
+- Treat this as known cosmetic drift unless you intentionally plan to recreate the Container App.
+- Do not spend additional cycles trying to force this field to `null` in-place.
+
+Verification command:
+
+- `az containerapp show -n ca-rag-query-<suffix> -g <resource-group> --query properties.workloadProfileName -o tsv`
+
+### 2) Hardened storage account requires Azure AD auth in Terraform provider
+
+Symptom during plan/refresh:
+
+- `403` with message similar to `Key based authentication is not permitted on this storage account`.
+
+Required fix:
+
+- Ensure provider uses Azure AD auth by setting `storage_use_azuread = true` in the `azurerm` provider.
+
+### 3) Stale remote state lock after interrupted apply
+
+Symptom:
+
+- `Error acquiring the state lock` with a lock ID and `OperationTypeApply`.
+
+Recovery:
+
+1. Confirm no active Terraform process.
+2. Force unlock using the lock ID from the error:
+   - `terraform -chdir=infra/terraform force-unlock -force <LOCK_ID>`
+
+Notes:
+
+- Prefer normal locking for day-to-day runs.
+- Use `-lock=false` only as a short-lived recovery workaround.
