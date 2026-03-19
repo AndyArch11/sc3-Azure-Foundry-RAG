@@ -225,7 +225,7 @@ def _save_conversation(session: ConversationSession) -> None:
     if not conversations_container:
         return
     try:
-        conversations_container.upsert_item(session.to_dict(), partition_key=session.user_id)
+        conversations_container.upsert_item(session.to_dict())
     except Exception as exc:
         raise RuntimeError(f"Conversation persistence write failed: {exc}") from exc
 

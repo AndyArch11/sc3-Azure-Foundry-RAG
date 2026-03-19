@@ -65,7 +65,7 @@ class TestConversationSession:
         session.messages.append(ConversationMessage(role="user", content="Q"))
         
         doc = session.to_dict()
-        assert doc["id"] == "user-456#conv-789"
+        assert doc["id"] == "user_456_conv_789"
         assert doc["session_id"] == "sess-123"
         assert doc["user_id"] == "user-456"
         assert doc["conversation_id"] == "conv-789"
@@ -181,7 +181,7 @@ class TestConversationLoadSave:
             mock_container.upsert_item.assert_called_once()
             call_args = mock_container.upsert_item.call_args
             saved_doc = call_args[0][0]  # First positional argument
-            assert saved_doc["id"] == "user-456#conv-789"
+            assert saved_doc["id"] == "user_456_conv_789"
             assert len(saved_doc["messages"]) == 1
 
     def test_save_conversation_noop_if_no_container(self) -> None:
