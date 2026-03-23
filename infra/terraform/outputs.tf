@@ -3,7 +3,7 @@ output "resource_group_name" {
 }
 
 output "vnet_id" {
-  value = module.network.vnet_id
+  value = local.use_byol_network ? var.byol_vnet_id : try(module.network[0].vnet_id, null)
 }
 
 output "search_endpoint" {

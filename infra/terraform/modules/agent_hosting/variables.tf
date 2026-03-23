@@ -36,6 +36,17 @@ variable "enable_query_web_app" {
   description = "Whether to create the internal query web Container App."
   default     = false
 }
+variable "query_web_public_endpoint" {
+  type        = bool
+  description = <<-EOT
+    Expose the query web app on a public (internet-facing) endpoint instead of the
+    internal VNet load balancer. When true, the Container App Environment is created
+    with internal_load_balancer_enabled = false — this is a CREATION-LEVEL flag.
+    Changing it after the environment exists requires destroying and re-creating the
+    environment and all hosted apps.
+  EOT
+  default     = false
+}
 variable "tags" {
   type    = map(string)
   default = {}

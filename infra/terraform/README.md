@@ -109,3 +109,20 @@ Notes:
 
 - Prefer normal locking for day-to-day runs.
 - Use `-lock=false` only as a short-lived recovery workaround.
+
+### 4) Query web public endpoint toggle is creation-level
+
+Symptom during plan after changing `query_web_public_endpoint`:
+
+- Plan shows replacement of `module.agent_hosting.azurerm_container_app_environment.this`
+- Dependent Container Apps resources also plan for recreation.
+
+What is happening:
+
+- `query_web_public_endpoint` maps to CAE `internal_load_balancer_enabled`.
+- In Azure Container Apps, changing load balancer mode is a create-time change.
+
+How to treat it:
+
+- Decide endpoint mode (`private` vs `public`) before first production deployment.
+- Treat post-deployment mode changes as deliberate replacement operations.

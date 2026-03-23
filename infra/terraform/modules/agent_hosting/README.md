@@ -9,7 +9,7 @@ App Job for the ingestion runner.
 |---|---|---|
 | `azurerm_container_app_environment` | `cae-<suffix>` | VNet-integrated CAE on the agent-delegated subnet |
 | `azurerm_container_app_job` | `caj-ingestion-<suffix>` | Manually-triggered ingestion pipeline job (created when `enable_ingestion_job = true`) |
-| `azurerm_container_app` | `ca-rag-query-<suffix>` | Internal browser-accessible query web app (created when `enable_query_web_app = true`) |
+| `azurerm_container_app` | `ca-rag-query-<suffix>` | Browser-accessible query web app (created when `enable_query_web_app = true`; ingress exposure controlled by `query_web_public_endpoint`) |
 
 The query web app provides:
 - Hybrid retrieval (keyword + vector)
@@ -22,8 +22,15 @@ The query web app provides:
 
 The environment is attached to `snet-container-apps` (dedicated and delegated
 to `Microsoft.App/environments`, `10.20.5.0/24` in dev).  
-`internal_load_balancer_enabled = true` means no public ingress — all traffic
-is private-network only.
+By default, `query_web_public_endpoint = false` and
+`internal_load_balancer_enabled = true`, which means no public ingress.
+
+Set `query_web_public_endpoint = true` to use an internet-facing endpoint for
+query web while keeping VNet integration for private dependencies.
+
+> **Creation-level behavior:** switching `query_web_public_endpoint` after
+> deployment changes the CAE load balancer mode and requires replacing the
+> Container App Environment and hosted apps.
 
 ## Identity
 
@@ -82,7 +89,7 @@ az containerapp job start \
   -g "${RESOURCE_GROUP}" \
   --args '--mode' 'azure' '--input-dir' '/path/to/files'
 
-# Query web app endpoint (private ingress)
+# Query web app endpoint (private or public based on query_web_public_endpoint)
 az containerapp show \
   -n "${QUERY_APP}" \
   -g "${RESOURCE_GROUP}" \

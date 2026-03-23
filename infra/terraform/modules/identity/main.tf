@@ -44,17 +44,15 @@ resource "azurerm_role_assignment" "foundry_project_manager" {
 }
 
 # Search service system-assigned MI — required for blob indexer and embedding skill.
-# count guard: principal_id is null until the first apply enables the identity;
-# a second apply creates the role assignments once the value is known.
+# principal_id may be unknown during plan, but Terraform can still plan these
+# resources and resolve the value during apply.
 resource "azurerm_role_assignment" "search_mi_storage_blob_reader" {
-  count                = var.search_service_principal_id != null ? 1 : 0
   scope                = var.scope_ids.storage
   role_definition_name = "Storage Blob Data Reader"
   principal_id         = var.search_service_principal_id
 }
 
 resource "azurerm_role_assignment" "search_mi_openai_user" {
-  count                = var.search_service_principal_id != null ? 1 : 0
   scope                = var.scope_ids.foundry
   role_definition_name = "Cognitive Services OpenAI User"
   principal_id         = var.search_service_principal_id

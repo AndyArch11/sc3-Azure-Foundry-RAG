@@ -7,8 +7,13 @@ resource "azurerm_container_app_environment" "this" {
   infrastructure_resource_group_name = "ME_cae-${var.suffix}_${var.resource_group_name}_${var.location}"
   log_analytics_workspace_id         = var.log_analytics_workspace_id
   infrastructure_subnet_id           = var.delegated_agent_subnet_id
-  internal_load_balancer_enabled     = true
+  internal_load_balancer_enabled     = !var.query_web_public_endpoint
   tags                               = var.tags
+
+  # CREATION-LEVEL: changing query_web_public_endpoint re-creates this environment.
+  lifecycle {
+    ignore_changes = []
+  }
 
   workload_profile {
     name                  = "Consumption"
@@ -16,17 +21,19 @@ resource "azurerm_container_app_environment" "this" {
   }
 }
 
-# Container Apps Environment with internal ingress requires an explicit private DNS zone
-# to resolve internal FQDNs on the VNet.
+# Private DNS zone is only required for internal (VNet-only) environments.
+# Public environments resolve via Azure-managed public DNS.
 resource "azurerm_private_dns_zone" "container_apps" {
+  count               = var.query_web_public_endpoint ? 0 : 1
   name                = azurerm_container_app_environment.this.default_domain
   resource_group_name = var.resource_group_name
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "container_apps" {
+  count                 = var.query_web_public_endpoint ? 0 : 1
   name                  = "link-cae-to-vnet"
-  resource_group_name   = azurerm_private_dns_zone.container_apps.resource_group_name
-  private_dns_zone_name = azurerm_private_dns_zone.container_apps.name
+  resource_group_name   = azurerm_private_dns_zone.container_apps[0].resource_group_name
+  private_dns_zone_name = azurerm_private_dns_zone.container_apps[0].name
   virtual_network_id    = var.vnet_id
 }
 
@@ -36,29 +43,31 @@ locals {
 }
 
 # DNS A records for internal Container Apps — point to the CAE's internal load balancer.
+# Not needed when the environment has a public endpoint.
 resource "azurerm_private_dns_a_record" "ingestion_job" {
+  count               = var.query_web_public_endpoint ? 0 : 1
   name                = "caj-ingestion-${var.suffix}.internal"
-  zone_name           = azurerm_private_dns_zone.container_apps.name
-  resource_group_name = azurerm_private_dns_zone.container_apps.resource_group_name
+  zone_name           = azurerm_private_dns_zone.container_apps[0].name
+  resource_group_name = azurerm_private_dns_zone.container_apps[0].resource_group_name
   ttl                 = 300
   records             = [local.cae_internal_lb_ip]
 }
 
 resource "azurerm_private_dns_a_record" "query_web" {
-  count               = var.enable_query_web_app ? 1 : 0
+  count               = (var.enable_query_web_app && !var.query_web_public_endpoint) ? 1 : 0
   name                = "ca-rag-query-${var.suffix}.internal"
-  zone_name           = azurerm_private_dns_zone.container_apps.name
-  resource_group_name = azurerm_private_dns_zone.container_apps.resource_group_name
+  zone_name           = azurerm_private_dns_zone.container_apps[0].name
+  resource_group_name = azurerm_private_dns_zone.container_apps[0].resource_group_name
   ttl                 = 300
   records             = [local.cae_internal_lb_ip]
 }
 
 # VNet-scoped ingress hostname (external=true on an internal CAE).
 resource "azurerm_private_dns_a_record" "query_web_vnet" {
-  count               = var.enable_query_web_app ? 1 : 0
+  count               = (var.enable_query_web_app && !var.query_web_public_endpoint) ? 1 : 0
   name                = "ca-rag-query-${var.suffix}"
-  zone_name           = azurerm_private_dns_zone.container_apps.name
-  resource_group_name = azurerm_private_dns_zone.container_apps.resource_group_name
+  zone_name           = azurerm_private_dns_zone.container_apps[0].name
+  resource_group_name = azurerm_private_dns_zone.container_apps[0].resource_group_name
   ttl                 = 300
   records             = [local.cae_internal_lb_ip]
 }

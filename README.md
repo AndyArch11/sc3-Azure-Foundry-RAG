@@ -122,7 +122,7 @@ This repository contains deployable Terraform modules, a working ingestion runti
 
 ## Deployment
 
-In enterprise environments, deployment is normally automated through CI/CD and private-network-connected runners. The steps below are for manual operation where a pipeline is not yet in place.
+In enterprise environments, deployment is normally automated through CI/CD and private-network-connected runners. The steps below are for manual operation where a pipeline is not yet in place. The provided instructions assumes running from a Linux environment using a shell CLI such as Bash.
 
 Set the target environment once and reuse it throughout the runbook:
 
@@ -133,7 +133,7 @@ TARGET_ENV="<env>"   # dev, test, or prod
 ### Preconditions
 
 1. Clone your fork or working repository and run commands from that clone.
-2. Authenticate to Azure with an identity that can provision and update the target environment.
+2. Authenticate to Azure with an identity that can provision and update the target environment `az login`.
 3. Use the environment-specific tfvars under `infra/terraform/environments/${TARGET_ENV}/` as the source of truth.
 4. Run private-endpoint validation, image builds, and runtime smoke tests from a Docker-capable host with line of sight into the VNet, typically the jumpbox.
 
@@ -146,12 +146,23 @@ You can either use the Terraform runner container or install Terraform locally:
 - Or install Terraform locally:
   - `./ops/scripts/install-terraform-local.sh`
 
-Run the environment build scripts in order:
+Login to Azure
+- `az login`
 
-1. `./ops/scripts/phase1-bootstrap.sh "${TARGET_ENV}"`
-2. `./ops/scripts/phase2-network-dns.sh "${TARGET_ENV}" apply`
-3. `./ops/scripts/phase3-data-ai.sh "${TARGET_ENV}" apply`
-4. Optional preview-only hosted agent path: `ENABLE_HOSTED_QUERY_AGENT_PREVIEW=true ./ops/scripts/phase3b-agent-hosting.sh "${TARGET_ENV}" apply`
+Deployment assumes that a target Azure subscription has already been created. Select target subscription to set target context for scripts.
+- `az account set --subscription "target-subscription-name"`
+
+Run the environment build scripts in order (can take over 1 hour to provision the Azure resources):
+
+1. Create Azure resources required to support Terraform:
+  - `./ops/scripts/phase1-bootstrap.sh "${TARGET_ENV}"`
+2. Create Azure resources required to secure solution by private network (not required if bringing your own network, run phase 3 instead):
+  - `./ops/scripts/phase2-network-dns.sh "${TARGET_ENV}" apply`
+  - N.B. Run this script twice, the second time to apply linkages to resources created in the first run.
+3. Optional Create Foundry related Azure resources (only required if BYOL network resources or wanting the jumpbox/bastion host):
+  - `./ops/scripts/phase3-data-ai.sh "${TARGET_ENV}" apply`
+4. Optional preview-only hosted agent path (ignore this step unless wanting to play with hosted agents - untested code): 
+  - `ENABLE_HOSTED_QUERY_AGENT_PREVIEW=true ./ops/scripts/phase3b-agent-hosting.sh "${TARGET_ENV}" apply`
 
 Run unit tests before releasing runtime changes:
 
@@ -161,24 +172,36 @@ Run unit tests before releasing runtime changes:
 
 For manual private-network operations, connect through Bastion to the jumpbox using:
 
-- private key secret: `jumpbox-admin-ssh-private-key-${TARGET_ENV}`
-- Key Vault resource group: `rg-tfstate-${TARGET_ENV}`
+- Authentication Type: SSH Private Key from Azure Key Vault
 - username: `azureuser`
+- Key Vault resource group: `rg-tfstate-${TARGET_ENV}`
+- Key Vault: `kvtfstatehv0ksh`
+- private key secret: `jumpbox-admin-ssh-private-key-${TARGET_ENV}`
 
 On the jumpbox:
 
 1. Clone or update your repository:
-   - `git pull --ff-only`
-2. Run the jumpbox bootstrap helper:
-   - `./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --run-unit-tests`
+   - Intitial Clone: `git clone [NAME-OF-REPO]`
+   - Subsequent Pull: `git pull --ff-only`
+2. Change directory into downloaded repo: `cd sc3-Azure-Foundry-RAG/`
+3. Run the jumpbox bootstrap helper:
+   - `sudo ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --run-unit-tests`
 
 The standard private-network deployment path uses the Container App ingestion and query services. The `phase3b-agent-hosting.sh` script is only for the preview hosted-query-agent path and is not required for the normal runtime deployment.
+
+Set the target environment on the jumpbox
+
+```bash
+TARGET_ENV="<env>"   # dev, test, or prod
+```
+
+Log into Azure: `az login --identity`
 
 ### Deploy Ingestion Job Image
 
 Build and push the ingestion image from a Docker-capable host inside the VNet, typically the jumpbox:
 
-- `ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-ingestion.sh`
+- `ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-ingestion.sh`
 
 The script prints a Terraform rollout command. Apply that exact image tag with Terraform, for example:
 

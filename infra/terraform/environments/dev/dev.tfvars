@@ -14,6 +14,7 @@ jumpbox_vm_size              = "Standard_B2as_v2"
 enable_model_deployments     = true
 enable_ingestion_job         = true
 enable_query_web_app         = true
+query_web_public_endpoint    = true # Set true for public query web ingress. Creation-level: switching later requires CAE replacement.
 ingestion_job_image_tag      = "latest" # On deployment of container, this tag will be pulled from ACR. For local testing, set to "local" and ensure image is built locally with same tag (eg 202603190340-localfix).
 query_web_image_tag          = "latest" # On deployment of container, this tag will be pulled from ACR. For local testing, set to "local" and ensure image is built locally with same tag (eg 202603190340-localfix).
 search_index_name            = "grounding-index"
@@ -22,3 +23,12 @@ query_default_temperature    = 1.0
 query_eval_threshold         = 0.72
 # Optional shared token for query web app auth gate.
 # query_web_auth_token       = "change-me"
+
+# Bring-Your-Own-Network (BYOL): uncomment and set these to use pre-existing network infrastructure.
+# Leave empty to create network via phase2-network-dns.sh.
+# byol_vnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet"
+# byol_container_apps_subnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/container-apps"
+# byol_private_endpoint_subnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/private-endpoints"
+# byol_agent_subnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/agent"
+# byol_jumpbox_subnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/jumpbox"
+# byol_azure_bastion_subnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/AzureBastionSubnet"

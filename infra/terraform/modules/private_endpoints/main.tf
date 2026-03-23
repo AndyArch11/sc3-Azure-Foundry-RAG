@@ -32,7 +32,10 @@ locals {
     acr = {
       resource_id      = var.acr_id
       subresource_name = "registry"
-      zone_names       = ["privatelink.azurecr.io"]
+      zone_names = [
+        "privatelink.azurecr.io",
+        "privatelink.${lower(var.location)}.data.azurecr.io"
+      ]
     }
   }
 }

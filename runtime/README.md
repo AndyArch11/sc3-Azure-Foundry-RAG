@@ -13,7 +13,7 @@ Client-side extraction using `pypdf` and `openpyxl`. Use this for unit testing a
 ```bash
 cd runtime
 
-python3 -m venv .venv
+sudo python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -r ../requirements-dev.txt
 
@@ -99,8 +99,13 @@ For runtime deployment, the environment tfvars usually need:
 
 - `enable_ingestion_job = true`
 - `enable_query_web_app = true`
+- `query_web_public_endpoint = false` (default private endpoint) or `true` (public endpoint)
 
 `enable_ingestion_job` is intentionally separate so infrastructure can be created before the ingestion image exists in ACR.
+
+`query_web_public_endpoint` is a creation-level setting because it changes the
+Container App Environment load balancer mode. Switching it later requires
+re-creating the Container App Environment and hosted apps.
 
 ### Private Network Constraint
 

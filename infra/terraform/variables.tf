@@ -154,6 +154,17 @@ variable "enable_query_web_app" {
   default     = false
 }
 
+variable "query_web_public_endpoint" {
+  type        = bool
+  description = <<-EOT
+    Expose the query web app on a public (internet-facing) endpoint.
+    When true, the Container App Environment uses an external load balancer and
+    the private DNS zone is omitted. This is a CREATION-LEVEL flag — changing it
+    after deployment requires destroying and re-creating the Container App Environment.
+  EOT
+  default     = false
+}
+
 variable "ingestion_job_image_tag" {
   type        = string
   description = "Image tag for ingestion-runner in ACR."
@@ -207,6 +218,40 @@ variable "query_web_auth_token" {
   description = "Optional shared token to gate query web app access. Leave empty to disable app-level auth."
   default     = ""
   sensitive   = true
+}
+
+# Bring-Your-Own-Network (BYOL): optional pre-created network resource IDs.
+# If provided, phase 2 (network creation) can be skipped entirely.
+# Leave empty (default) to create network resources via phase 2.
+variable "byol_vnet_id" {
+  type        = string
+  description = "Optional: resource ID of pre-existing VNet. If provided, network/DNS creation is skipped."
+  default     = ""
+}
+variable "byol_container_apps_subnet_id" {
+  type        = string
+  description = "Optional: resource ID of pre-existing Container Apps subnet (delegated to Microsoft.App/environments)."
+  default     = ""
+}
+variable "byol_private_endpoint_subnet_id" {
+  type        = string
+  description = "Optional: resource ID of pre-existing private endpoint subnet."
+  default     = ""
+}
+variable "byol_agent_subnet_id" {
+  type        = string
+  description = "Optional: resource ID of pre-existing agent subnet (delegated to Microsoft.CognitiveServices)."
+  default     = ""
+}
+variable "byol_jumpbox_subnet_id" {
+  type        = string
+  description = "Optional: resource ID of pre-existing jumpbox subnet."
+  default     = ""
+}
+variable "byol_azure_bastion_subnet_id" {
+  type        = string
+  description = "Optional: resource ID of pre-existing Azure Bastion subnet."
+  default     = ""
 }
 
 variable "tags" {

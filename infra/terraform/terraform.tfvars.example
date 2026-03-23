@@ -25,6 +25,7 @@ jumpbox_vm_size              = "Standard_B2as_v2"
 enable_model_deployments     = true
 enable_ingestion_job         = true
 enable_query_web_app         = true
+query_web_public_endpoint    = false # Set true to expose query web publicly. Creation-level: changing later requires CAE replacement.
 
 search_index_name            = "grounding-index"
 query_top_k                  = 5
@@ -55,6 +56,16 @@ query_eval_threshold         = 0.72
 #   version  = "2025-04-14"
 #   capacity = 1
 # }
+
+# Bring-Your-Own-Network (BYOL): Optional pre-created network resource IDs.
+# Leave these empty (default) to create network via phase2-network-dns.sh.
+# Populate them to skip phase 2 and deploy Foundry components into a pre-existing network.
+# byol_vnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet"
+# byol_container_apps_subnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/container-apps"
+# byol_private_endpoint_subnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/private-endpoints"
+# byol_agent_subnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/agent"
+# byol_jumpbox_subnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/jumpbox"
+# byol_azure_bastion_subnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/AzureBastionSubnet"
 
 # Optional extra tags.
 # tags = {

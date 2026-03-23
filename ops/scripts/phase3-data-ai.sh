@@ -7,7 +7,22 @@ Usage:
   ./ops/scripts/phase3-data-ai.sh <env> [plan|apply]
 
 Runs Phase 3 Terraform targets for observability, data services, Foundry,
-private endpoints, and identity.
+private endpoints, identity, and bastion/jumpbox.
+
+The bastion and jumpbox live here (not phase 2) because they depend on the
+identity module which provides the runtime managed identity.
+
+USAGE SCENARIOS:
+
+1. Standard path (phase 2 creates network):
+   Run phase2-network-dns.sh first, then phase3-data-ai.sh.
+
+2. BYOL path (bring-your-own-network):
+   Skip phase 2 entirely. Set byol_* variables for network resource IDs in tfvars or as -var options,
+   then run only phase3-data-ai.sh to deploy Foundry components into your pre-existing network.
+   Note: bastion/jumpbox are NOT created in BYOL mode.
+
+Agent hosting is deployed separately via phase3b-agent-hosting.sh.
 
 Defaults:
   env    = dev
@@ -17,7 +32,7 @@ EOF
 fi
 
 # Executes Phase 3 scoped Terraform plan/apply for observability, data services,
-# Foundry, private endpoints, and identity.
+# Foundry, private endpoints, identity, and bastion/jumpbox.
 # Agent hosting (preview API) is deployed separately via phase3b-agent-hosting.sh.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -72,6 +87,7 @@ TARGET_ARGS=(
   "-target=module.foundry"
   "-target=module.private_endpoints"
   "-target=module.identity"
+  "-target=module.bastion_jumpbox"
 )
 
 EXTRA_VAR_FILE_ARGS=()

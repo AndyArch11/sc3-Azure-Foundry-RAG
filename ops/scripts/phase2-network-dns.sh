@@ -6,7 +6,11 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 Usage:
   ./ops/scripts/phase2-network-dns.sh <env> [plan|apply]
 
-Runs Phase 2 Terraform targets for foundation, network, DNS, and bastion/jumpbox.
+Runs Phase 2 Terraform targets for foundation, network, and DNS.
+
+This phase is OPTIONAL if you have pre-existing network infrastructure.
+To use bring-your-own-network (BYOL), set byol_* variables in your tfvars or
+pass them as -var options, then skip this phase and run phase3-data-ai.sh directly.
 
 Defaults:
   env    = dev
@@ -68,7 +72,6 @@ TARGET_ARGS=(
   "-target=module.foundation"
   "-target=module.network"
   "-target=module.dns"
-  "-target=module.bastion_jumpbox"
 )
 
 EXTRA_VAR_FILE_ARGS=()

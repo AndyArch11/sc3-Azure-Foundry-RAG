@@ -11,6 +11,15 @@ locals {
   bootstrap_key_vault_resource_group_name = trimspace(var.bootstrap_key_vault_resource_group_name) != "" ? var.bootstrap_key_vault_resource_group_name : "rg-tfstate-${var.environment}"
   jumpbox_ssh_public_key_secret_name      = trimspace(var.jumpbox_ssh_public_key_secret_name) != "" ? var.jumpbox_ssh_public_key_secret_name : "jumpbox-admin-ssh-public-key-${var.environment}"
   use_key_vault_jumpbox_key               = (trimspace(var.jumpbox_admin_ssh_public_key) == "" || trimspace(var.jumpbox_admin_ssh_public_key) == "<set-me-ssh-public-key>") && trimspace(var.bootstrap_key_vault_name) != ""
+
+  # BYOL (Bring-Your-Own-Network): use provided IDs if supplied, otherwise use module outputs.
+  use_byol_network           = trimspace(var.byol_vnet_id) != ""
+  vnet_id                    = local.use_byol_network ? var.byol_vnet_id : module.network[0].vnet_id
+  container_apps_subnet_id   = local.use_byol_network ? var.byol_container_apps_subnet_id : module.network[0].container_apps_subnet_id
+  private_endpoint_subnet_id = local.use_byol_network ? var.byol_private_endpoint_subnet_id : module.network[0].private_endpoint_subnet_id
+  agent_subnet_id            = local.use_byol_network ? var.byol_agent_subnet_id : module.network[0].agent_subnet_id
+  jumpbox_subnet_id          = local.use_byol_network ? var.byol_jumpbox_subnet_id : module.network[0].jumpbox_subnet_id
+  azure_bastion_subnet_id    = local.use_byol_network ? var.byol_azure_bastion_subnet_id : module.network[0].azure_bastion_subnet_id
 }
 
 data "azurerm_key_vault" "bootstrap" {
@@ -26,6 +35,7 @@ data "azurerm_key_vault_secret" "jumpbox_admin_ssh_public_key" {
 }
 
 module "network" {
+  count                        = local.use_byol_network ? 0 : 1
   source                       = "./modules/network"
   resource_group_name          = module.foundation.resource_group_name
   location                     = var.location
@@ -40,10 +50,11 @@ module "network" {
 }
 
 module "dns" {
+  count               = local.use_byol_network ? 0 : 1
   source              = "./modules/dns"
   resource_group_name = module.foundation.resource_group_name
   location            = var.location
-  vnet_id             = module.network.vnet_id
+  vnet_id             = local.vnet_id
   tags                = local.tags
 }
 
@@ -70,7 +81,7 @@ module "foundry" {
   resource_group_name       = module.foundation.resource_group_name
   location                  = var.location
   suffix                    = local.naming_suffix
-  delegated_agent_subnet_id = module.network.agent_subnet_id
+  delegated_agent_subnet_id = local.agent_subnet_id
   storage_account_id        = module.data_services.storage_account_id
   storage_account_name      = module.data_services.storage_account_name
   search_service_id         = module.data_services.search_service_id
@@ -88,8 +99,8 @@ module "private_endpoints" {
   source                     = "./modules/private_endpoints"
   resource_group_name        = module.foundation.resource_group_name
   location                   = var.location
-  private_endpoint_subnet_id = module.network.private_endpoint_subnet_id
-  private_dns_zone_ids       = module.dns.private_dns_zone_ids
+  private_endpoint_subnet_id = local.private_endpoint_subnet_id
+  private_dns_zone_ids       = local.use_byol_network ? {} : module.dns[0].private_dns_zone_ids
   storage_account_id         = module.data_services.storage_account_id
   search_service_id          = module.data_services.search_service_id
   cosmosdb_account_id        = module.data_services.cosmosdb_account_id
@@ -119,11 +130,12 @@ module "identity" {
 }
 
 module "bastion_jumpbox" {
+  count                        = local.use_byol_network ? 0 : 1
   source                       = "./modules/bastion_jumpbox"
   resource_group_name          = module.foundation.resource_group_name
   location                     = var.location
-  jumpbox_subnet_id            = module.network.jumpbox_subnet_id
-  azure_bastion_subnet_id      = module.network.azure_bastion_subnet_id
+  jumpbox_subnet_id            = local.jumpbox_subnet_id
+  azure_bastion_subnet_id      = local.azure_bastion_subnet_id
   suffix                       = local.naming_suffix
   jumpbox_admin_ssh_public_key = local.use_key_vault_jumpbox_key ? data.azurerm_key_vault_secret.jumpbox_admin_ssh_public_key[0].value : var.jumpbox_admin_ssh_public_key
   jumpbox_vm_size              = var.jumpbox_vm_size
@@ -136,8 +148,8 @@ module "agent_hosting" {
   resource_group_name        = module.foundation.resource_group_name
   location                   = var.location
   suffix                     = local.naming_suffix
-  delegated_agent_subnet_id  = module.network.container_apps_subnet_id
-  vnet_id                    = module.network.vnet_id
+  delegated_agent_subnet_id  = local.container_apps_subnet_id
+  vnet_id                    = local.vnet_id
   log_analytics_workspace_id = module.observability.log_analytics_workspace_id
   acr_login_server           = module.data_services.acr_login_server
   agent_runtime_identity_id  = module.identity.agent_runtime_identity_id
@@ -163,6 +175,7 @@ module "agent_hosting" {
   query_web_image_tag        = var.query_web_image_tag
   enable_ingestion_job       = var.enable_ingestion_job
   enable_query_web_app       = var.enable_query_web_app
+  query_web_public_endpoint  = var.query_web_public_endpoint
   tags                       = local.tags
 }
 
