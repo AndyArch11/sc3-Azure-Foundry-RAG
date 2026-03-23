@@ -172,8 +172,8 @@ Run from a Docker-capable host inside the VNet, because ACR has no public access
 
 ```bash
 TARGET_ENV="<env>"
-INGESTION_TAG="$(date +%Y%m%d%H%M)-<gitsha>"
-QUERY_TAG="$(date +%Y%m%d%H%M)-<gitsha>"
+INGESTION_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)"
+QUERY_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)"
 
 ENV="${TARGET_ENV}" IMAGE_TAG="${INGESTION_TAG}" ./ops/scripts/build-push-ingestion.sh
 ENV="${TARGET_ENV}" IMAGE_TAG="${QUERY_TAG}" ./ops/scripts/build-push-query-web.sh

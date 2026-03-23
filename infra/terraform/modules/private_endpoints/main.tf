@@ -34,7 +34,7 @@ locals {
       subresource_name = "registry"
       zone_names = [
         "privatelink.azurecr.io",
-        "privatelink.${lower(var.location)}.data.azurecr.io"
+        "${lower(var.location)}.data.privatelink.azurecr.io"
       ]
     }
   }

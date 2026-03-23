@@ -98,13 +98,31 @@
     .metric .k { font-size: .8rem; color: var(--muted); }
     .metric .v { font-weight: 700; }
     code { background: #f3f4f6; padding: 1px 4px; border-radius: 4px; }
+    .chat-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .chat-header h3 { margin: 0; }
+    .chat-thread { display: flex; flex-direction: column; gap: 10px; max-height: 420px; overflow-y: auto; padding-right: 4px; }
+    .chat-turn { display: flex; flex-direction: column; gap: 6px; }
+    .chat-bubble { padding: 9px 13px; border-radius: 10px; max-width: 92%; line-height: 1.45; white-space: pre-wrap; }
+    .chat-bubble.user   { background: #e8f5f3; border: 1px solid #a7d7d0; align-self: flex-end; }
+    .chat-bubble.assistant { background: #f9fafb; border: 1px solid var(--border); align-self: flex-start; }
+    .chat-meta { font-size: .75rem; color: var(--muted); margin-bottom: 3px; }
+    .btn-secondary { background: #6b7280; margin-top: 0; padding: 5px 11px; font-size: .82rem; }
   </style>
 </head>
 <body>
   <div class="wrap">
+    <script id="server-data" type="application/json">{"question": {{ question | tojson }}, "answer": {{ answer | tojson }}}</script>
     <div class="card">
       <h1>RAG Query Console</h1>
       <p class="muted">Private-network cyber-security assistant using hybrid search over your indexed content.</p>
+
+      <div id="conversation-wrapper" class="source" style="display:none">
+        <div class="chat-header">
+          <h3>Conversation</h3>
+          <button type="button" class="btn-secondary" onclick="newConversation()">New Conversation</button>
+        </div>
+        <div id="conversation-thread" class="chat-thread"></div>
+      </div>
 
       <form method="post" action="/ask">
         <label for="question"><strong>Question</strong></label>
@@ -124,18 +142,13 @@
             <input id="auth_token" name="auth_token" type="password" value="{{ auth_token or '' }}" {% if not auth_enabled %}disabled{% endif %} />
           </div>
         </div>
+        <input type="hidden" name="session_id" id="session_id_field" value="{{ session_id or '' }}" />
+        <input type="hidden" name="conversation_id" id="conversation_id_field" value="{{ conversation_id or '' }}" />
         <button type="submit">Ask</button>
       </form>
 
       {% if error %}
       <p style="color:#b91c1c"><strong>Error:</strong> {{ error }}</p>
-      {% endif %}
-
-      {% if answer %}
-      <div class="source">
-        <h3>Answer</h3>
-        <div class="answer">{{ answer }}</div>
-      </div>
       {% endif %}
 
       {% if evaluation %}
@@ -179,8 +192,82 @@
       </div>
       {% endif %}
 
+      {% if answer and not session_id %}
+      <div class="source">
+        <h3>Answer</h3>
+        <div class="answer">{{ answer }}</div>
+      </div>
+      {% endif %}
+
       <p class="muted">Index: <code>{{ index_name }}</code> | Embedding: <code>{{ embedding_deployment }}</code> | Query: <code>{{ query_deployment }}</code> | Threshold: <code>{{ evaluation_threshold }}</code></p>
     </div>
   </div>
+<script>
+  const SESSION_KEY = 'rag_conversation';
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function loadSession() {
+    try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); }
+    catch { return null; }
+  }
+
+  function saveSession(s) {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
+  }
+
+  function newConversation() {
+    sessionStorage.removeItem(SESSION_KEY);
+    window.location.href = '/';
+  }
+
+  function renderThread(turns) {
+    const wrapper = document.getElementById('conversation-wrapper');
+    const thread = document.getElementById('conversation-thread');
+    if (!turns.length) { wrapper.style.display = 'none'; return; }
+    wrapper.style.display = '';
+    thread.innerHTML = turns.map(t =>
+      `<div class="chat-turn">
+        <div class="chat-bubble user"><div class="chat-meta">You</div>${escHtml(t.q)}</div>
+        <div class="chat-bubble assistant"><div class="chat-meta">Assistant</div>${escHtml(t.a)}</div>
+      </div>`
+    ).join('');
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    let session = loadSession();
+    if (!session) {
+      session = {
+        session_id: crypto.randomUUID(),
+        conversation_id: crypto.randomUUID(),
+        turns: []
+      };
+      saveSession(session);
+    }
+
+    document.getElementById('session_id_field').value = session.session_id;
+    document.getElementById('conversation_id_field').value = session.conversation_id;
+
+    // Append the server-rendered response to local history (if this was a POST)
+    const _sd = JSON.parse(document.getElementById('server-data').textContent);
+    const serverQ = _sd.question;
+    const serverA = _sd.answer;
+    if (serverQ && serverA) {
+      // Avoid duplicating the last turn if the page was refreshed
+      const last = session.turns[session.turns.length - 1];
+      if (!last || last.q !== serverQ || last.a !== serverA) {
+        session.turns.push({ q: serverQ, a: serverA });
+        saveSession(session);
+      }
+    }
+
+    renderThread(session.turns);
+  });
+</script>
 </body>
 </html>

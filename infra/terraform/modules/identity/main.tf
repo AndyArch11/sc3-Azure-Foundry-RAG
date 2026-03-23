@@ -1,3 +1,5 @@
+data "azurerm_client_config" "current" {}
+
 resource "azurerm_user_assigned_identity" "agent_runtime" {
   name                = "id-agent-runtime-${var.suffix}"
   location            = var.location
@@ -56,6 +58,13 @@ resource "azurerm_role_assignment" "search_mi_openai_user" {
   scope                = var.scope_ids.foundry
   role_definition_name = "Cognitive Services OpenAI User"
   principal_id         = var.search_service_principal_id
+}
+
+# Allow jumpbox diagnostics queries (private endpoints, DNS zones, etc.)
+resource "azurerm_role_assignment" "agent_runtime_network_reader" {
+  scope                = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${var.resource_group_name}"
+  role_definition_name = "Reader"
+  principal_id         = azurerm_user_assigned_identity.agent_runtime.principal_id
 }
 
 # Agent runtime MI — AcrPull for Container App Job image pull;
