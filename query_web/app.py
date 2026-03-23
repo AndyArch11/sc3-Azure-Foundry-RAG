@@ -706,6 +706,9 @@ def home(request: Request) -> HTMLResponse:
             "query_deployment": config.query_deployment,
             "evaluation_threshold": config.evaluation_threshold,
             "auth_enabled": bool(config.auth_token),
+            "user_id": "",
+            "session_id": "",
+            "conversation_id": "",
         },
     )
 
@@ -720,10 +723,9 @@ def ask(
     session_id: str = Form(default=""),
     conversation_id: str = Form(default=""),
 ) -> HTMLResponse:
-    # Initialize conversation tracking if provided
+    user_id = _get_user_id(auth_token, session_id)
     session = None
     if session_id and conversation_id:
-        user_id = _get_user_id(auth_token, session_id)
         session = _load_conversation(user_id, conversation_id)
     
     if not _is_authorized(auth_token):
@@ -746,6 +748,7 @@ def ask(
                 "query_deployment": config.query_deployment,
                 "evaluation_threshold": config.evaluation_threshold,
                 "auth_enabled": bool(config.auth_token),
+                "user_id": user_id,
                 "session_id": session_id,
                 "conversation_id": conversation_id,
             },
@@ -804,6 +807,7 @@ def ask(
             "query_deployment": config.query_deployment,
             "evaluation_threshold": config.evaluation_threshold,
             "auth_enabled": bool(config.auth_token),
+            "user_id": user_id,
             "session_id": session_id,
             "conversation_id": conversation_id,
         },

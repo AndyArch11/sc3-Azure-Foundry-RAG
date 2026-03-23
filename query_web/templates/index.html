@@ -107,14 +107,30 @@
     .chat-bubble.assistant { background: #f9fafb; border: 1px solid var(--border); align-self: flex-start; }
     .chat-meta { font-size: .75rem; color: var(--muted); margin-bottom: 3px; }
     .btn-secondary { background: #6b7280; margin-top: 0; padding: 5px 11px; font-size: .82rem; }
+    .past-conv-list { list-style: none; padding: 0; margin: 8px 0 0; max-height: 220px; overflow-y: auto; }
+    .past-conv-item { padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 5px; cursor: pointer; font-size: .85rem; }
+    .past-conv-item:hover, .past-conv-item.active { background: #f0faf8; border-color: var(--accent); }
+    .past-conv-date { font-size: .75rem; color: var(--muted); }
+    .past-conv-preview { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <script id="server-data" type="application/json">{"question": {{ question | tojson }}, "answer": {{ answer | tojson }}}</script>
+    <script id="server-data" type="application/json">{"question": {{ question | tojson }}, "answer": {{ answer | tojson }}, "user_id": {{ user_id | tojson }}}</script>
     <div class="card">
-      <h1>RAG Query Console</h1>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+        <h1 style="margin-bottom:2px">RAG Query Console</h1>
+        <button type="button" class="btn-secondary" id="show-past-btn" style="display:none;white-space:nowrap;margin-left:12px" onclick="togglePastConversations()">Past Conversations</button>
+      </div>
       <p class="muted">Private-network cyber-security assistant using hybrid search over your indexed content.</p>
+
+      <div id="past-conv-panel" class="source" style="display:none">
+        <div class="chat-header">
+          <h3>Past Conversations</h3>
+          <button type="button" class="btn-secondary" onclick="togglePastConversations()">Close</button>
+        </div>
+        <ul id="past-conv-list" class="past-conv-list"></ul>
+      </div>
 
       <div id="conversation-wrapper" class="source" style="display:none">
         <div class="chat-header">
@@ -203,7 +219,7 @@
     </div>
   </div>
 <script>
-  const SESSION_KEY = 'rag_conversation';
+  const SESSION_KEY = 'rag_session';
 
   function escHtml(s) {
     return String(s)
@@ -211,17 +227,28 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  function escAttr(s) {
+    return String(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
   function loadSession() {
-    try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); }
+    try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); }
     catch { return null; }
   }
 
   function saveSession(s) {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    localStorage.setItem(SESSION_KEY, JSON.stringify(s));
   }
 
   function newConversation() {
-    sessionStorage.removeItem(SESSION_KEY);
+    const s = loadSession() || {};
+    saveSession({
+      session_id: s.session_id || crypto.randomUUID(),
+      conversation_id: crypto.randomUUID(),
+      user_id: s.user_id || '',
+      auth_token: s.auth_token || '',
+      turns: []
+    });
     window.location.href = '/';
   }
 
@@ -239,29 +266,111 @@
     thread.scrollTop = thread.scrollHeight;
   }
 
+  function togglePastConversations() {
+    const panel = document.getElementById('past-conv-panel');
+    if (panel.style.display === 'none') {
+      panel.style.display = '';
+      loadPastConversations();
+    } else {
+      panel.style.display = 'none';
+    }
+  }
+
+  function loadPastConversations() {
+    const session = loadSession();
+    const list = document.getElementById('past-conv-list');
+    if (!session || !session.user_id) {
+      list.innerHTML = '<li style="color:var(--muted);font-size:.85rem;padding:4px 0">Submit a question first to enable conversation history.</li>';
+      return;
+    }
+    list.innerHTML = '<li style="color:var(--muted);font-size:.85rem;padding:4px 0">Loading…</li>';
+    fetch('/api/conversations/' + encodeURIComponent(session.user_id) + '?auth_token=' + encodeURIComponent(session.auth_token || ''))
+      .then(r => r.json())
+      .then(data => {
+        const convs = data.conversations || [];
+        if (!convs.length) {
+          list.innerHTML = '<li style="color:var(--muted);font-size:.85rem;padding:4px 0">No past conversations found.</li>';
+          return;
+        }
+        list.innerHTML = convs.map(c => {
+          const firstMsg = (c.messages || []).find(m => m.role === 'user');
+          const preview = firstMsg ? firstMsg.content.slice(0, 100) : '(empty)';
+          const date = new Date(c.updated_at || c.created_at).toLocaleString();
+          const isCurrent = c.conversation_id === (loadSession() || {}).conversation_id;
+          return `<li class="past-conv-item${isCurrent ? ' active' : ''}" onclick="selectConversation('${escAttr(c.conversation_id)}')">` +
+            `<div class="past-conv-date">${escHtml(date)}${isCurrent ? ' (current)' : ''}</div>` +
+            `<div class="past-conv-preview">${escHtml(preview)}</div></li>`;
+        }).join('');
+      })
+      .catch(() => {
+        list.innerHTML = '<li style="color:#b91c1c;font-size:.85rem;padding:4px 0">Failed to load conversations.</li>';
+      });
+  }
+
+  function selectConversation(convId) {
+    const session = loadSession();
+    if (!session || !session.user_id) return;
+    fetch('/api/conversations/' + encodeURIComponent(session.user_id) + '/' + encodeURIComponent(convId) +
+          '?auth_token=' + encodeURIComponent(session.auth_token || ''))
+      .then(r => r.json())
+      .then(data => {
+        const msgs = data.messages || [];
+        const turns = [];
+        for (let i = 0; i + 1 < msgs.length; i++) {
+          if (msgs[i].role === 'user' && msgs[i + 1].role === 'assistant') {
+            turns.push({ q: msgs[i].content, a: msgs[i + 1].content });
+            i++;
+          }
+        }
+        session.conversation_id = convId;
+        session.turns = turns;
+        saveSession(session);
+        document.getElementById('conversation_id_field').value = convId;
+        document.getElementById('past-conv-panel').style.display = 'none';
+        renderThread(turns);
+      })
+      .catch(e => console.error('Failed to load conversation:', e));
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
+    const sd = JSON.parse(document.getElementById('server-data').textContent);
+
     let session = loadSession();
     if (!session) {
-      session = {
-        session_id: crypto.randomUUID(),
-        conversation_id: crypto.randomUUID(),
-        turns: []
-      };
+      session = { session_id: crypto.randomUUID(), conversation_id: crypto.randomUUID(), user_id: '', auth_token: '', turns: [] };
       saveSession(session);
+    }
+
+    // Persist user_id returned by server after a POST
+    if (sd.user_id) {
+      session.user_id = sd.user_id;
+      saveSession(session);
+    }
+
+    // Persist auth token for cross-session API calls
+    const authField = document.getElementById('auth_token');
+    if (authField) {
+      if (authField.value) {
+        session.auth_token = authField.value;
+        saveSession(session);
+      } else if (session.auth_token) {
+        authField.value = session.auth_token;
+      }
+    }
+
+    // Show Past Conversations button once we know who the user is
+    if (session.user_id) {
+      document.getElementById('show-past-btn').style.display = '';
     }
 
     document.getElementById('session_id_field').value = session.session_id;
     document.getElementById('conversation_id_field').value = session.conversation_id;
 
-    // Append the server-rendered response to local history (if this was a POST)
-    const _sd = JSON.parse(document.getElementById('server-data').textContent);
-    const serverQ = _sd.question;
-    const serverA = _sd.answer;
-    if (serverQ && serverA) {
-      // Avoid duplicating the last turn if the page was refreshed
+    // Append the server-rendered response to local history
+    if (sd.question && sd.answer) {
       const last = session.turns[session.turns.length - 1];
-      if (!last || last.q !== serverQ || last.a !== serverA) {
-        session.turns.push({ q: serverQ, a: serverA });
+      if (!last || last.q !== sd.question || last.a !== sd.answer) {
+        session.turns.push({ q: sd.question, a: sd.answer });
         saveSession(session);
       }
     }
