@@ -28,11 +28,50 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 APP_DIR="${REPO_ROOT}/query_web"
 TF_DIR="${REPO_ROOT}/infra/terraform"
 
-if ! command -v docker &>/dev/null || ! docker info &>/dev/null 2>&1; then
-  echo "ERROR: Docker is not installed or the daemon is not running." >&2
-  echo "Install Docker: curl -fsSL https://get.docker.com | sudo sh" >&2
+DOCKER_CMD=(docker)
+
+_require_docker_access() {
+  if ! command -v docker &>/dev/null; then
+    echo "ERROR: Docker is not installed." >&2
+    echo "Install Docker: curl -fsSL https://get.docker.com | sudo sh" >&2
+    exit 1
+  fi
+
+  if docker info >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local docker_info_error
+  docker_info_error="$(docker info 2>&1 || true)"
+
+  if grep -qiE "permission denied|/var/run/docker\.sock|got permission denied" <<<"${docker_info_error}"; then
+    if command -v sudo >/dev/null 2>&1 && sudo -n docker info >/dev/null 2>&1; then
+      DOCKER_CMD=(sudo -n docker)
+      echo "INFO: Docker requires elevated access in this shell; using 'sudo -n docker'."
+      return 0
+    fi
+
+    echo "ERROR: Docker is installed, but this shell cannot access /var/run/docker.sock." >&2
+    echo "If Docker was just installed by configure-jumpbox.sh, run 'newgrp docker' or re-login." >&2
+    echo "Raw docker info error:" >&2
+    echo "${docker_info_error}" >&2
+    exit 1
+  fi
+
+  if grep -qi "cannot connect to the docker daemon" <<<"${docker_info_error}"; then
+    echo "ERROR: Docker daemon is not running or not reachable." >&2
+    echo "Raw docker info error:" >&2
+    echo "${docker_info_error}" >&2
+    exit 1
+  fi
+
+  echo "ERROR: Docker preflight failed." >&2
+  echo "Raw docker info error:" >&2
+  echo "${docker_info_error}" >&2
   exit 1
-fi
+}
+
+_require_docker_access
 
 if ! command -v az &>/dev/null; then
   echo "ERROR: Azure CLI (az) is required." >&2
@@ -135,8 +174,8 @@ _assert_private_acr_resolution "${ACR_LOGIN_SERVER}"
 _assert_private_acr_data_endpoint_if_enabled "${ACR_LOGIN_SERVER%%.*}"
 az acr login --name "${ACR_LOGIN_SERVER%%.*}"
 
-docker build --platform linux/amd64 --tag "${FULL_IMAGE}" "${APP_DIR}"
-docker push "${FULL_IMAGE}"
+"${DOCKER_CMD[@]}" build --platform linux/amd64 --tag "${FULL_IMAGE}" "${APP_DIR}"
+"${DOCKER_CMD[@]}" push "${FULL_IMAGE}"
 
 echo "==> Done: ${FULL_IMAGE}"
 echo "==> Rollout command:"

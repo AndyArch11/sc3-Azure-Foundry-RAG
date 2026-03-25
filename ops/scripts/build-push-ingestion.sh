@@ -33,15 +33,57 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Fail early with a helpful message if Docker is not available.
-if ! command -v docker &>/dev/null || ! docker info &>/dev/null 2>&1; then
-  echo "ERROR: Docker is not installed or the daemon is not running." >&2
-  echo "" >&2
-  echo "Install Docker on Ubuntu:" >&2
-  echo "  curl -fsSL https://get.docker.com | sudo sh" >&2
-  echo "  sudo usermod -aG docker \$USER && newgrp docker" >&2
+DOCKER_CMD=(docker)
+
+_require_docker_access() {
+  if ! command -v docker &>/dev/null; then
+    echo "ERROR: Docker is not installed." >&2
+    echo "" >&2
+    echo "Install Docker on Ubuntu:" >&2
+    echo "  curl -fsSL https://get.docker.com | sudo sh" >&2
+    echo "  sudo usermod -aG docker \$USER && newgrp docker" >&2
+    exit 1
+  fi
+
+  if docker info >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local docker_info_error
+  docker_info_error="$(docker info 2>&1 || true)"
+
+  if grep -qiE "permission denied|/var/run/docker\.sock|got permission denied" <<<"${docker_info_error}"; then
+    if command -v sudo >/dev/null 2>&1 && sudo -n docker info >/dev/null 2>&1; then
+      DOCKER_CMD=(sudo -n docker)
+      echo "INFO: Docker requires elevated access in this shell; using 'sudo -n docker'."
+      return 0
+    fi
+
+    echo "ERROR: Docker is installed, but this shell cannot access /var/run/docker.sock." >&2
+    echo "" >&2
+    echo "If Docker was just installed by configure-jumpbox.sh, refresh group membership:" >&2
+    echo "  newgrp docker" >&2
+    echo "  # or log out and log back in" >&2
+    echo "" >&2
+    echo "Raw docker info error:" >&2
+    echo "${docker_info_error}" >&2
+    exit 1
+  fi
+
+  if grep -qi "cannot connect to the docker daemon" <<<"${docker_info_error}"; then
+    echo "ERROR: Docker daemon is not running or not reachable." >&2
+    echo "Raw docker info error:" >&2
+    echo "${docker_info_error}" >&2
+    exit 1
+  fi
+
+  echo "ERROR: Docker preflight failed." >&2
+  echo "Raw docker info error:" >&2
+  echo "${docker_info_error}" >&2
   exit 1
-fi
+}
+
+_require_docker_access
 
 if ! command -v az &>/dev/null; then
   echo "ERROR: Azure CLI (az) is required." >&2
@@ -180,7 +222,7 @@ az acr login --name "${ACR_LOGIN_SERVER%%.*}"
 # Build (linux/amd64 matches the Container App runtime).
 # ---------------------------------------------------------------------------
 echo "==> Building Docker image (context: ${RUNTIME_DIR})…"
-docker build \
+"${DOCKER_CMD[@]}" build \
   --platform linux/amd64 \
   --tag "${FULL_IMAGE}" \
   "${RUNTIME_DIR}"
@@ -189,7 +231,7 @@ docker build \
 # Push
 # ---------------------------------------------------------------------------
 echo "==> Pushing image to ACR…"
-docker push "${FULL_IMAGE}"
+"${DOCKER_CMD[@]}" push "${FULL_IMAGE}"
 
 echo ""
 echo "==> Done: ${FULL_IMAGE}"

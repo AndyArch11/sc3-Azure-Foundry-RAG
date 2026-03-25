@@ -141,6 +141,11 @@ TARGET_ENV="<env>"   # dev, test, or prod
 
 You can either use the Terraform runner container or install Terraform locally:
 
+1. Clone or update your repository:
+   - Intitial Clone: `git clone [NAME-OF-REPO]`
+   - Subsequent Pull: `git pull --ff-only`
+2. Change directory into downloaded repo: `cd sc3-Azure-Foundry-RAG/`
+
 - Build Terraform runner container:
   - `docker build -t tf-runner:local ops/containers/terraform-runner`
 - Or install Terraform locally:
@@ -164,9 +169,16 @@ Run the environment build scripts in order (can take over 1 hour to provision th
 4. Optional preview-only hosted agent path (ignore this step unless wanting to play with hosted agents - untested code): 
   - `ENABLE_HOSTED_QUERY_AGENT_PREVIEW=true ./ops/scripts/phase3b-agent-hosting.sh "${TARGET_ENV}" apply`
 
+#### Optional install verification
+
+ - `/usr/local/py-utils/bin/virtualenv -p /usr/bin/python3.13 runtime/.venv`
+ - `source runtim/.venv/bin/activate`
+ - `python3 -m pip install --upgrade pip`
+ - `python3 -m pip install -r requirements-dev.txt`
+
 Run unit tests before releasing runtime changes:
 
-- `python3 -m pip install -r requirements-dev.txt && python3 -m pytest tests/unit -q`
+- `python3 -m pytest tests/unit -q`
 
 ### Jumpbox Access
 
