@@ -172,7 +172,7 @@ Run the environment build scripts in order (can take over 1 hour to provision th
 #### Optional install verification
 
  - `/usr/local/py-utils/bin/virtualenv -p /usr/bin/python3.13 runtime/.venv`
- - `source runtim/.venv/bin/activate`
+ - `source runtime/.venv/bin/activate`
  - `python3 -m pip install --upgrade pip`
  - `python3 -m pip install -r requirements-dev.txt`
 
