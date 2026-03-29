@@ -18,6 +18,9 @@ query_web_public_endpoint    = true # Set true for public query web ingress. Cre
 ingestion_job_image_tag      = "202603231210-ccf1b68" # Immutable tag. Update when a new ingestion image is pushed.
 query_web_image_tag          = "202603231505-1a38698" # Immutable tag. Update when a new query-web image is pushed.
 search_index_name            = "grounding-index"
+# Optional overrides for globally-unique resource names (use when 409 name collisions occur).
+search_service_name_override = "srch-dev-aue-20260329"
+foundry_account_name_override = "foundry-dev-aue-20260329"
 query_top_k                  = 5
 query_default_temperature    = 1.0
 query_eval_threshold         = 0.72

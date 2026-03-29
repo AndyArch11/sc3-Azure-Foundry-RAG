@@ -1,6 +1,11 @@
 variable "resource_group_name" { type = string }
 variable "location" { type = string }
 variable "suffix" { type = string }
+variable "foundry_account_name_override" {
+  type        = string
+  description = "Optional explicit Foundry/Cognitive account name override. Leave empty to use foundry-<suffix>."
+  default     = ""
+}
 variable "delegated_agent_subnet_id" { type = string }
 variable "storage_account_id" { type = string }
 variable "storage_account_name" { type = string }

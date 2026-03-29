@@ -18,6 +18,9 @@ query_web_public_endpoint    = false # Set true for public query web ingress. Cr
 ingestion_job_image_tag      = "latest" # Set to an immutable tag during deployment.
 query_web_image_tag          = "latest" # Set to an immutable tag during deployment.
 search_index_name            = "grounding-index"
+# Optional overrides for globally-unique resource names (use when 409 name collisions occur).
+# search_service_name_override = "srch-test-aue-20260329"
+# foundry_account_name_override = "foundry-test-aue-20260329"
 query_top_k                  = 5
 query_default_temperature    = 1.0
 query_eval_threshold         = 0.72

@@ -24,7 +24,7 @@ resource "azurerm_storage_container" "grounding_data" {
 }
 
 resource "azurerm_search_service" "this" {
-  name                          = "srch-${var.suffix}"
+  name                          = trimspace(var.search_service_name_override) != "" ? var.search_service_name_override : "srch-${var.suffix}"
   resource_group_name           = var.resource_group_name
   location                      = var.location
   sku                           = "standard"

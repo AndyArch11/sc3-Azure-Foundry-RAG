@@ -163,7 +163,6 @@ Run the environment build scripts in order (can take over 1 hour to provision th
   - `./ops/scripts/phase1-bootstrap.sh "${TARGET_ENV}"`
 2. Create Azure resources required to secure solution by private network (not required if bringing your own network, run phase 3 instead):
   - `./ops/scripts/phase2-network-dns.sh "${TARGET_ENV}" apply`
-  - N.B. Run this script twice, the second time to apply linkages to resources created in the first run.
 3. Optional Create Foundry related Azure resources (only required if BYOL network resources or wanting the jumpbox/bastion host):
   - `./ops/scripts/phase3-data-ai.sh "${TARGET_ENV}" apply`
 4. Optional preview-only hosted agent path (ignore this step unless wanting to play with hosted agents - untested code): 

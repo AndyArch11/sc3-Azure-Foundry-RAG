@@ -71,6 +71,7 @@ module "data_services" {
   resource_group_name   = module.foundation.resource_group_name
   location              = var.location
   suffix                = local.naming_suffix
+  search_service_name_override = var.search_service_name_override
   cosmos_database_name  = var.cosmos_database_name
   cosmos_container_name = var.cosmos_container_name
   tags                  = local.tags
@@ -81,6 +82,7 @@ module "foundry" {
   resource_group_name       = module.foundation.resource_group_name
   location                  = var.location
   suffix                    = local.naming_suffix
+  foundry_account_name_override = var.foundry_account_name_override
   delegated_agent_subnet_id = local.agent_subnet_id
   storage_account_id        = module.data_services.storage_account_id
   storage_account_name      = module.data_services.storage_account_name

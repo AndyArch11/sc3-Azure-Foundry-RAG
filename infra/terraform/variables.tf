@@ -183,6 +183,18 @@ variable "search_index_name" {
   default     = "grounding-index"
 }
 
+variable "search_service_name_override" {
+  type        = string
+  description = "Optional explicit Azure AI Search service name override. Leave empty to use srch-<environment>-<location_short>-<instance>."
+  default     = ""
+}
+
+variable "foundry_account_name_override" {
+  type        = string
+  description = "Optional explicit Foundry/Cognitive account name override. Leave empty to use foundry-<environment>-<location_short>-<instance>."
+  default     = ""
+}
+
 variable "cosmos_database_name" {
   type        = string
   description = "Cosmos DB SQL database name used by query web conversation persistence."
