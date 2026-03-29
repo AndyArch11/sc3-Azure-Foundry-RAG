@@ -73,7 +73,7 @@ if [[ "${ENABLE_HOSTED_QUERY_AGENT_PREVIEW:-false}" != "true" ]]; then
 fi
 
 echo "==> Initialising Terraform root stack"
-terraform -chdir="${TF_DIR}" init -backend-config="${BACKEND_FILE}"
+terraform -chdir="${TF_DIR}" init -reconfigure -backend-config="${BACKEND_FILE}"
 
 TARGET_ARGS=(
   "-target=module.agent_hosting"

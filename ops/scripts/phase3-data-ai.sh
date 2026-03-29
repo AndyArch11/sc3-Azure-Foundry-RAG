@@ -79,7 +79,7 @@ if ! az account show >/dev/null 2>&1; then
 fi
 
 echo "==> Initialising Terraform root stack"
-terraform -chdir="${TF_DIR}" init -backend-config="${BACKEND_FILE}"
+terraform -chdir="${TF_DIR}" init -reconfigure -backend-config="${BACKEND_FILE}"
 
 TARGET_ARGS=(
   "-target=module.observability"
