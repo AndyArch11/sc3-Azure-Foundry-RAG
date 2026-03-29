@@ -11,6 +11,11 @@ variable "search_service_principal_id" {
   description = "Principal ID of the Search service system-assigned managed identity."
   default     = null
 }
+variable "terraform_state_storage_account_id" {
+  type        = string
+  description = "Optional bootstrap Terraform state storage account resource ID for backend RBAC assignment."
+  default     = ""
+}
 variable "cosmos_database_name" {
   type        = string
   description = "Cosmos DB SQL database name for conversation persistence."

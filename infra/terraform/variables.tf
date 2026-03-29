@@ -71,6 +71,18 @@ variable "bootstrap_key_vault_name" {
   default     = ""
 }
 
+variable "bootstrap_state_storage_account_name" {
+  type        = string
+  description = "Optional bootstrap Terraform state storage account name used to grant jumpbox/runtime identity backend access."
+  default     = ""
+}
+
+variable "bootstrap_state_storage_account_resource_group_name" {
+  type        = string
+  description = "Optional resource group name for bootstrap Terraform state storage account. Defaults to rg-tfstate-<environment> when unset."
+  default     = ""
+}
+
 variable "bootstrap_key_vault_resource_group_name" {
   type        = string
   description = "Optional bootstrap Key Vault resource group name. Defaults to rg-tfstate-<environment> when unset."

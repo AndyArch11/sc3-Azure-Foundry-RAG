@@ -9,8 +9,10 @@ data "azurerm_client_config" "current" {}
 
 locals {
   bootstrap_key_vault_resource_group_name = trimspace(var.bootstrap_key_vault_resource_group_name) != "" ? var.bootstrap_key_vault_resource_group_name : "rg-tfstate-${var.environment}"
+  bootstrap_state_storage_account_resource_group_name = trimspace(var.bootstrap_state_storage_account_resource_group_name) != "" ? var.bootstrap_state_storage_account_resource_group_name : "rg-tfstate-${var.environment}"
   jumpbox_ssh_public_key_secret_name      = trimspace(var.jumpbox_ssh_public_key_secret_name) != "" ? var.jumpbox_ssh_public_key_secret_name : "jumpbox-admin-ssh-public-key-${var.environment}"
   use_key_vault_jumpbox_key               = (trimspace(var.jumpbox_admin_ssh_public_key) == "" || trimspace(var.jumpbox_admin_ssh_public_key) == "<set-me-ssh-public-key>") && trimspace(var.bootstrap_key_vault_name) != ""
+  use_bootstrap_state_storage             = trimspace(var.bootstrap_state_storage_account_name) != ""
 
   # BYOL (Bring-Your-Own-Network): use provided IDs if supplied, otherwise use module outputs.
   use_byol_network           = trimspace(var.byol_vnet_id) != ""
@@ -20,6 +22,12 @@ locals {
   agent_subnet_id            = local.use_byol_network ? var.byol_agent_subnet_id : module.network[0].agent_subnet_id
   jumpbox_subnet_id          = local.use_byol_network ? var.byol_jumpbox_subnet_id : module.network[0].jumpbox_subnet_id
   azure_bastion_subnet_id    = local.use_byol_network ? var.byol_azure_bastion_subnet_id : module.network[0].azure_bastion_subnet_id
+}
+
+data "azurerm_storage_account" "bootstrap_state" {
+  count               = local.use_bootstrap_state_storage ? 1 : 0
+  name                = var.bootstrap_state_storage_account_name
+  resource_group_name = local.bootstrap_state_storage_account_resource_group_name
 }
 
 data "azurerm_key_vault" "bootstrap" {
@@ -118,6 +126,7 @@ module "identity" {
   suffix                         = local.naming_suffix
   deployment_principal_object_id = data.azurerm_client_config.current.object_id
   search_service_principal_id    = module.data_services.search_service_principal_id
+  terraform_state_storage_account_id = local.use_bootstrap_state_storage ? data.azurerm_storage_account.bootstrap_state[0].id : ""
   cosmos_database_name           = var.cosmos_database_name
   cosmos_container_name          = var.cosmos_container_name
   scope_ids = {

@@ -85,14 +85,17 @@ container_name       = "${STATE_CONTAINER}"
 key                  = "${BACKEND_KEY}"
 EOF
 
+cat > "${GENERATED_BOOTSTRAP_VARS_FILE}" <<EOF
+bootstrap_state_storage_account_name = "${STATE_SA}"
+bootstrap_state_storage_account_resource_group_name = "${STATE_RG}"
+EOF
+
 if [[ -n "${STATE_KEY_VAULT}" ]]; then
-  cat > "${GENERATED_BOOTSTRAP_VARS_FILE}" <<EOF
+  cat >> "${GENERATED_BOOTSTRAP_VARS_FILE}" <<EOF
 bootstrap_key_vault_name = "${STATE_KEY_VAULT}"
 bootstrap_key_vault_resource_group_name = "${STATE_RG}"
 jumpbox_ssh_public_key_secret_name = "jumpbox-admin-ssh-public-key-${ENVIRONMENT}"
 EOF
-else
-  rm -f "${GENERATED_BOOTSTRAP_VARS_FILE}"
 fi
 
 echo "==> Updated backend configuration: ${BACKEND_FILE}"
@@ -105,6 +108,7 @@ if [[ -n "${STATE_KEY_VAULT}" ]]; then
   echo "   bootstrap_vars_file=${GENERATED_BOOTSTRAP_VARS_FILE}"
 else
   echo "   key_vault_name=<disabled>"
+  echo "   bootstrap_vars_file=${GENERATED_BOOTSTRAP_VARS_FILE}"
 fi
 
 echo "==> Phase 1 bootstrap completed successfully"

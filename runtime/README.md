@@ -303,8 +303,10 @@ Then run the repository bootstrap script:
 git clone <your-repo-url> /opt/sc3-ingestion
 cd /opt/sc3-ingestion
 
-./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --run-unit-tests
+./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --az-login-client-id "<agent-runtime-uami-client-id>" --run-unit-tests
 ```
+
+If exactly one user-assigned managed identity is attached to the VM, `--az-login-client-id` can be omitted and the script auto-discovers it.
 
 The script installs Docker, Python 3.12, Azure CLI, git, unzip, and other required OS packages, creates `runtime/.venv`, installs `requirements-dev.txt`, and optionally runs `./ops/scripts/install-terraform-local.sh`. It then authenticates with the managed identity, runs the unit test suite, and prints a smoke-check report across all installed components.
 
@@ -322,6 +324,14 @@ cd /opt/sc3-ingestion
   --install-azure-cli \
   --az-login-identity \
   --run-unit-tests
+
+# Use this only when multiple UAMIs are attached and you must force one identity.
+# ./ops/scripts/configure-jumpbox.sh \
+#   --install-terraform \
+#   --install-azure-cli \
+#   --az-login-identity \
+#   --az-login-client-id "<agent-runtime-uami-client-id>" \
+#   --run-unit-tests
 
 cd runtime
 source .venv/bin/activate

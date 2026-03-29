@@ -72,13 +72,15 @@ Options:
                            after az login. Supported env: dev, test, prod.
   --install-azure-cli       Install Azure CLI via the Microsoft apt repository
   --az-login-identity       Run 'az login --identity' after setup (requires managed identity)
+  --az-login-client-id <id> Client ID for user-assigned managed identity used with --az-login-identity.
+                           If omitted, the script attempts auto-discovery from Azure IMDS.
   --run-unit-tests          Run 'pytest tests/unit -q' after setup
   --skip-docker             Skip Docker installation
   --skip-apt-update         Skip apt-get update and package installation
 
 Examples:
   ./ops/scripts/configure-jumpbox.sh --install-terraform
-  ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --init-terraform-backend dev --run-unit-tests
+  ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --az-login-client-id <client-id> --init-terraform-backend dev --run-unit-tests
   ./ops/scripts/configure-jumpbox.sh --repo-dir /opt/sc3-ingestion --install-terraform
   ./ops/scripts/configure-jumpbox.sh --runtime-only
 EOF
@@ -99,6 +101,7 @@ TERRAFORM_VERSION=""
 INIT_TERRAFORM_BACKEND_ENV=""
 INSTALL_AZURE_CLI="false"
 AZ_LOGIN_IDENTITY="false"
+AZ_LOGIN_CLIENT_ID=""
 RUN_UNIT_TESTS="false"
 SKIP_DOCKER="false"
 SKIP_APT_UPDATE="false"
@@ -139,6 +142,10 @@ while [[ $# -gt 0 ]]; do
     --az-login-identity)
       AZ_LOGIN_IDENTITY="true"
       shift
+      ;;
+    --az-login-client-id)
+      AZ_LOGIN_CLIENT_ID="$2"
+      shift 2
       ;;
     --run-unit-tests)
       RUN_UNIT_TESTS="true"
@@ -215,6 +222,11 @@ if [[ "${AZ_LOGIN_IDENTITY}" == "true" && "${INSTALL_AZURE_CLI}" != "true" ]]; t
     error "--az-login-identity requires Azure CLI. Add --install-azure-cli or install it first."
     exit 1
   fi
+fi
+
+if [[ -n "${AZ_LOGIN_CLIENT_ID}" && "${AZ_LOGIN_IDENTITY}" != "true" ]]; then
+  error "--az-login-client-id requires --az-login-identity"
+  exit 1
 fi
 
 if command -v sudo >/dev/null 2>&1; then
@@ -361,8 +373,69 @@ az_login() {
     return
   fi
 
-  info "Authenticating with managed identity (az login --identity)"
-  az login --identity
+  _discover_uami_client_ids() {
+    local imds_url="http://169.254.169.254/metadata/identity/info?api-version=2018-02-01"
+    local payload
+    payload="$(curl -fsS -H Metadata:true "${imds_url}" 2>/dev/null || true)"
+    if [[ -z "${payload}" ]]; then
+      return 0
+    fi
+
+    python3 - <<'PY' <<<"${payload}"
+import json
+import sys
+
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+
+identity = data.get("identity", {}) if isinstance(data, dict) else {}
+user_assigned = identity.get("userAssignedIdentities", [])
+
+if isinstance(user_assigned, dict):
+    # Some API shapes may return a dict keyed by resource ID.
+    values = user_assigned.values()
+elif isinstance(user_assigned, list):
+    values = user_assigned
+else:
+    values = []
+
+for item in values:
+    if not isinstance(item, dict):
+        continue
+    client_id = item.get("clientId") or item.get("client_id")
+    if isinstance(client_id, str) and client_id.strip():
+        print(client_id.strip())
+PY
+  }
+
+  if [[ -n "${AZ_LOGIN_CLIENT_ID}" ]]; then
+    info "Authenticating with user-assigned managed identity (az login --identity --username ${AZ_LOGIN_CLIENT_ID})"
+    az login --identity --username "${AZ_LOGIN_CLIENT_ID}"
+  else
+    local discovered_client_ids=()
+    while IFS= read -r line; do
+      [[ -n "${line}" ]] && discovered_client_ids+=("${line}")
+    done < <(_discover_uami_client_ids)
+
+    if [[ ${#discovered_client_ids[@]} -eq 1 ]]; then
+      AZ_LOGIN_CLIENT_ID="${discovered_client_ids[0]}"
+      info "Auto-detected user-assigned managed identity client ID: ${AZ_LOGIN_CLIENT_ID}"
+      info "Authenticating with user-assigned managed identity (az login --identity --username ${AZ_LOGIN_CLIENT_ID})"
+      az login --identity --username "${AZ_LOGIN_CLIENT_ID}"
+    elif [[ ${#discovered_client_ids[@]} -gt 1 ]]; then
+      error "Multiple user-assigned managed identities detected on this VM. Provide --az-login-client-id explicitly."
+      echo "Discovered client IDs:"
+      for cid in "${discovered_client_ids[@]}"; do
+        echo "  - ${cid}"
+      done
+      exit 1
+    else
+      info "Authenticating with managed identity (az login --identity)"
+      az login --identity
+    fi
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -546,4 +619,5 @@ echo "   terraform=$( [[ "${INSTALL_TERRAFORM}" == "true" ]] && echo installed |
 echo "   terraform-backend=$( [[ -n "${INIT_TERRAFORM_BACKEND_ENV}" ]] && echo "init:${INIT_TERRAFORM_BACKEND_ENV}" || echo skipped )"
 echo "   azure-cli=$( [[ "${INSTALL_AZURE_CLI}" == "true" ]] && echo installed || echo skipped )"
 echo "   az-login=$( [[ "${AZ_LOGIN_IDENTITY}" == "true" ]] && echo done || echo skipped )"
+echo "   az-login-client-id=$( [[ -n "${AZ_LOGIN_CLIENT_ID}" ]] && echo "${AZ_LOGIN_CLIENT_ID}" || echo auto )"
 echo "   unit-tests=$( [[ "${RUN_UNIT_TESTS}" == "true" ]] && echo run || echo skipped )"

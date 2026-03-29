@@ -194,21 +194,25 @@ For manual private-network operations, connect through Bastion to the jumpbox us
 On the jumpbox:
 
 1. Set the target environment for the current shell session:
-   - `TARGET_ENV="<env>"   # dev, test, or prod`
+  - `TARGET_ENV="<env>"   # dev, test, or prod`
 2. Clone or update your repository:
-   - Intitial Clone: `git clone [NAME-OF-REPO]`
-   - Subsequent Pull: `git pull --ff-only`
+  - Intitial Clone: `git clone [NAME-OF-REPO]`
+  - Subsequent Pull: `git pull --ff-only`
 3. Change directory into downloaded repo: `cd sc3-Azure-Foundry-RAG/`
-4. Run the jumpbox bootstrap helper:
+4. Run the jumpbox bootstrap helper (default path; auto-discovers a single attached UAMI):
   - `sudo ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --init-terraform-backend "${TARGET_ENV}" --run-unit-tests`
+5. If the VM has multiple user-assigned identities, pass the intended client ID explicitly:
+  - `sudo ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --az-login-client-id "<agent-runtime-uami-client-id>" --init-terraform-backend "${TARGET_ENV}" --run-unit-tests`
 
 The standard private-network deployment path uses the Container App ingestion and query services. The `phase3b-agent-hosting.sh` script is only for the preview hosted-query-agent path and is not required for the normal runtime deployment.
 
-This should have already been taken care of by the configure-jumpbox.sh script, but if needing to reset th login:
+This should have already been taken care of by the configure-jumpbox.sh script, but if needing to reset the login:
 
 ```bash
 az account clear
 az login --identity
+# If multiple UAMIs are attached, provide one explicitly:
+# az login --identity --username "<agent-runtime-uami-client-id>"
 ```
 
 ### Deploy Ingestion Job Image

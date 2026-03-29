@@ -92,3 +92,19 @@ resource "azurerm_role_assignment" "log_analytics_workspace_reader" {
   role_definition_name = "Reader"
   principal_id         = azurerm_user_assigned_identity.agent_runtime.principal_id
 }
+
+# Optional backend-state permissions so jumpbox/runtime identity can run
+# terraform init/apply against the central azurerm backend account.
+resource "azurerm_role_assignment" "terraform_state_reader" {
+  count                = trimspace(var.terraform_state_storage_account_id) != "" ? 1 : 0
+  scope                = var.terraform_state_storage_account_id
+  role_definition_name = "Reader"
+  principal_id         = azurerm_user_assigned_identity.agent_runtime.principal_id
+}
+
+resource "azurerm_role_assignment" "terraform_state_blob_data_contributor" {
+  count                = trimspace(var.terraform_state_storage_account_id) != "" ? 1 : 0
+  scope                = var.terraform_state_storage_account_id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_user_assigned_identity.agent_runtime.principal_id
+}
