@@ -219,7 +219,7 @@ az login --identity
 
 Build and push the ingestion image from a Docker-capable host inside the VNet, typically the jumpbox:
 
-- `ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-ingestion.sh`
+- `sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-ingestion.sh`
 - Update `ingestion_job_image_tag` in `infra/terraform/environments/<env>/<env>.tfvars` with `<immutable-ingestion-tag>` container tag
 
 The script prints a Terraform rollout command. Apply that exact image tag with Terraform, for example:
@@ -239,7 +239,7 @@ After rollout, use the ingestion workflow described in [runtime/README.md](runti
 
 Build and push the query web image from a Docker-capable host inside the VNet:
 
-- `ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-query-web.sh`
+- `sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-query-web.sh`
 - Update `query_web_image_tag` in `infra/terraform/environments/<env>/<env>.tfvars` with `<immutable-query-web-tag>` container tag
 
 Apply that exact image tag with Terraform:
