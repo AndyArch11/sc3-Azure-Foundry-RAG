@@ -404,9 +404,36 @@ init_terraform_backend() {
 
   local tf_dir="${REPO_DIR}/infra/terraform"
   local backend_file="${tf_dir}/environments/${INIT_TERRAFORM_BACKEND_ENV}/backend.hcl"
+  local backend_rg=""
+  local backend_sa=""
 
   if [[ ! -f "${backend_file}" ]]; then
     error "Backend config not found: ${backend_file}. Run phase1-bootstrap.sh ${INIT_TERRAFORM_BACKEND_ENV} first."
+    exit 1
+  fi
+
+  backend_rg="$(sed -nE 's/^[[:space:]]*resource_group_name[[:space:]]*=[[:space:]]*"([^"]+)"[[:space:]]*$/\1/p' "${backend_file}" | head -n 1)"
+  backend_sa="$(sed -nE 's/^[[:space:]]*storage_account_name[[:space:]]*=[[:space:]]*"([^"]+)"[[:space:]]*$/\1/p' "${backend_file}" | head -n 1)"
+
+  if [[ -z "${backend_rg}" || -z "${backend_sa}" ]]; then
+    error "Unable to parse backend config values from ${backend_file}."
+    exit 1
+  fi
+
+  if ! az storage account show --name "${backend_sa}" --resource-group "${backend_rg}" --only-show-errors -o none >/dev/null 2>&1; then
+    local sub_id
+    local assignee
+    sub_id="$(az account show --query id -o tsv 2>/dev/null || true)"
+    assignee="$(az account show --query user.name -o tsv 2>/dev/null || true)"
+
+    error "Current identity cannot read Terraform backend storage account '${backend_sa}' in resource group '${backend_rg}'."
+    echo "Grant RBAC on scope /subscriptions/${sub_id}/resourceGroups/${backend_rg}/providers/Microsoft.Storage/storageAccounts/${backend_sa} and retry."
+    echo "Recommended roles for Terraform backend access:"
+    echo "  - Reader"
+    echo "  - Storage Blob Data Contributor"
+    if [[ -n "${assignee}" ]]; then
+      echo "Current az account user.name: ${assignee}"
+    fi
     exit 1
   fi
 
