@@ -220,6 +220,12 @@ variable "query_web_auth_token" {
   sensitive   = true
 }
 
+variable "query_web_required_group_object_id" {
+  type        = string
+  description = "Optional Entra ID security group object ID required to access query web app. Leave empty to disable group-based app auth."
+  default     = ""
+}
+
 # Bring-Your-Own-Network (BYOL): optional pre-created network resource IDs.
 # If provided, phase 2 (network creation) can be skipped entirely.
 # Leave empty (default) to create network resources via phase 2.

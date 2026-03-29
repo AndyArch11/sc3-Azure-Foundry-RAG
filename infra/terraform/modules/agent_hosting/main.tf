@@ -257,6 +257,13 @@ resource "azurerm_container_app" "query_web" {
           secret_name = "query-web-auth-token"
         }
       }
+      dynamic "env" {
+        for_each = var.query_web_required_group_object_id != "" ? [1] : []
+        content {
+          name  = "QUERY_WEB_REQUIRED_GROUP_OBJECT_ID"
+          value = var.query_web_required_group_object_id
+        }
+      }
     }
   }
 

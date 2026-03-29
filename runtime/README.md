@@ -63,6 +63,36 @@ python3 -m ingestion.runner --mode reset
 python3 -m ingestion.runner --mode reset --purge-blobs
 ```
 
+## Controls Pipeline (Pre-parsed Standards)
+
+Pre-parsed control records (for example Essential Eight requirement JSONL) should be
+loaded into a dedicated Search index, separate from the evidence chunk index.
+
+Use the controls runner:
+
+```bash
+cd runtime
+source .venv/bin/activate
+
+# Parse only (writes JSONL to ./parsed-controls)
+python3 -m ingestion.controls_runner --mode parse --framework essential_eight
+
+# Publish an existing JSONL file to the controls index
+python3 -m ingestion.controls_runner --mode publish \
+  --input-jsonl ../parsed-controls/essential_eight_november-2023.jsonl
+
+# End-to-end parse + ensure index + publish
+python3 -m ingestion.controls_runner --mode parse-and-publish \
+  --framework essential_eight
+```
+
+Controls index environment variables:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `AZURE_SEARCH_ENDPOINT` | _(required)_ | Same Search service used by evidence index |
+| `AZURE_SEARCH_CONTROLS_INDEX_NAME` | `controls-index` | Dedicated index for requirement records |
+
 ## Required Environment Variables For Azure Mode
 
 | Variable | Example | Notes |
@@ -82,6 +112,7 @@ python3 -m ingestion.runner --mode reset --purge-blobs
 | `COGNITIVE_SERVICES_API_KEY` | _(unset)_ | Optional for larger OCR/enrichment runs |
 | `CHUNK_SIZE` | `1200` | Characters per chunk |
 | `CHUNK_OVERLAP` | `200` | Overlap between adjacent chunks |
+| `QUERY_WEB_REQUIRED_GROUP_OBJECT_ID` | _(unset)_ | Optional Entra security group object ID required by query web app |
 
 ## Prerequisites
 

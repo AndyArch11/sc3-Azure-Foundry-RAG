@@ -55,6 +55,15 @@
       box-sizing: border-box;
       font: inherit;
     }
+    .field select {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px;
+      box-sizing: border-box;
+      font: inherit;
+      background: #fff;
+    }
     textarea {
       width: 100%;
       min-height: 96px;
@@ -112,6 +121,12 @@
     .past-conv-item:hover, .past-conv-item.active { background: #f0faf8; border-color: var(--accent); }
     .past-conv-date { font-size: .75rem; color: var(--muted); }
     .past-conv-preview { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    details.guidance-detail { margin-top: 4px; }
+    details.guidance-detail > summary { cursor: pointer; color: var(--accent); font-size: .85rem; }
+    .guidance-preview { color: var(--text); }
+    details.requirement-detail { margin-top: 4px; }
+    details.requirement-detail > summary { cursor: pointer; color: var(--accent); font-size: .85rem; }
+    .requirement-preview { color: var(--text); }
   </style>
 </head>
 <body>
@@ -154,6 +169,13 @@
             <input id="temperature" name="temperature" type="number" min="0" max="1" step="0.05" value="{{ temperature }}" />
           </div>
           <div class="field">
+            <label for="controls_semantic">Controls ranking</label>
+            <select id="controls_semantic" name="controls_semantic">
+              <option value="0" {% if not controls_semantic %}selected{% endif %}>Keyword ranking</option>
+              <option value="1" {% if controls_semantic %}selected{% endif %}>Semantic ranking</option>
+            </select>
+          </div>
+          <div class="field">
             <label for="auth_token">Access token{% if not auth_enabled %} (disabled){% endif %}</label>
             <input id="auth_token" name="auth_token" type="password" value="{{ auth_token or '' }}" {% if not auth_enabled %}disabled{% endif %} />
           </div>
@@ -190,8 +212,50 @@
           <div class="metric"><div class="k">Total</div><div class="v">{{ '%.3f'|format(metrics.total_s) }} s</div></div>
           <div class="metric"><div class="k">Embedding</div><div class="v">{{ '%.3f'|format(metrics.embedding_s) }} s</div></div>
           <div class="metric"><div class="k">Search</div><div class="v">{{ '%.3f'|format(metrics.search_s) }} s</div></div>
+          <div class="metric"><div class="k">Controls search</div><div class="v">{{ '%.3f'|format(metrics.controls_search_s|default(0.0)) }} s</div></div>
+          <div class="metric"><div class="k">Controls mode</div><div class="v">{% if metrics.controls_semantic_enabled|default(0.0) >= 0.5 %}semantic{% else %}keyword{% endif %}</div></div>
           <div class="metric"><div class="k">Evaluator</div><div class="v">{{ '%.3f'|format(metrics.evaluator_s) }} s</div></div>
         </div>
+      </div>
+      {% endif %}
+
+      {% if controls_results %}
+      <div class="source">
+        <h3>Retrieved Controls (Top {{ controls_results|length }})</h3>
+        {% for c in controls_results %}
+          <p>
+            <strong>{{ loop.index }}.</strong>
+            <span class="muted">
+              {{ c.framework }} {{ c.framework_version }}
+              {% if c.maturity_level is not none %}| ML{{ c.maturity_level }}{% endif %}
+              {% if c.control_family %}| {{ c.control_family }}{% endif %}
+              | score={{ '%.4f'|format(c.score) }}
+            </span><br />
+            {% if c.requirement_id %}<strong>ID:</strong> {{ c.requirement_id }}<br />{% endif %}
+            <strong>Requirement:</strong>
+            {% if c.requirement_text|length > 420 %}
+              <span class="requirement-preview">{{ c.requirement_text[:420] }}...</span>
+              <details class="requirement-detail">
+                <summary>Show full requirement</summary>
+                <div>{{ c.requirement_text }}</div>
+              </details>
+            {% else %}
+              {{ c.requirement_text }}
+            {% endif %}
+            {% if c.guidance_text %}
+              <br /><strong>Guidance:</strong>
+              {% if c.guidance_text|length > 420 %}
+                <span class="guidance-preview">{{ c.guidance_text[:420] }}...</span>
+                <details class="guidance-detail">
+                  <summary>Show full guidance</summary>
+                  <div>{{ c.guidance_text }}</div>
+                </details>
+              {% else %}
+                {{ c.guidance_text }}
+              {% endif %}
+            {% endif %}
+          </p>
+        {% endfor %}
       </div>
       {% endif %}
 

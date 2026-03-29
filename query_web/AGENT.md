@@ -35,6 +35,7 @@ terraform -chdir=infra/terraform apply \
 - `AZURE_SEARCH_ENDPOINT`, `AZURE_OPENAI_ENDPOINT`, `AZURE_COSMOS_ENDPOINT`
 - `AZURE_COSMOS_DATABASE_NAME`, `AZURE_COSMOS_CONTAINER_NAME`
 - Optional: `QUERY_WEB_AUTH_TOKEN`
+- Optional: `QUERY_WEB_REQUIRED_GROUP_OBJECT_ID` (Entra security group object ID)
 
 ## Conversation Persistence Guardrails
 

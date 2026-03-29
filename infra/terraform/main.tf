@@ -172,6 +172,7 @@ module "agent_hosting" {
   query_eval_threshold       = var.query_eval_threshold
   ingestion_job_image_tag    = var.ingestion_job_image_tag
   query_web_auth_token       = var.query_web_auth_token
+  query_web_required_group_object_id = var.query_web_required_group_object_id
   query_web_image_tag        = var.query_web_image_tag
   enable_ingestion_job       = var.enable_ingestion_job
   enable_query_web_app       = var.enable_query_web_app

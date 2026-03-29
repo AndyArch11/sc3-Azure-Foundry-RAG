@@ -24,6 +24,11 @@ variable "query_top_k" { type = number }
 variable "query_default_temperature" { type = number }
 variable "query_eval_threshold" { type = number }
 variable "query_web_auth_token" { type = string }
+variable "query_web_required_group_object_id" {
+  type        = string
+  description = "Optional Entra ID security group object ID required by query web app."
+  default     = ""
+}
 variable "ingestion_job_image_tag" { type = string }
 variable "query_web_image_tag" { type = string }
 variable "enable_ingestion_job" {

@@ -17,6 +17,7 @@ The query web app provides:
 - Evaluator scoring with one retry when score is below threshold
 - Runtime controls for Top-K and temperature
 - Optional shared-token auth gate via `query_web_auth_token`
+- Optional Entra group gate via `query_web_required_group_object_id`
 
 ## Networking
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import time
@@ -39,14 +40,19 @@ def _utc_now_iso() -> str:
 class QueryConfig:
     search_endpoint: str
     search_index_name: str
+    controls_index_name: str
     openai_endpoint: str
     embedding_deployment: str
     query_deployment: str
     evaluator_deployment: str
     search_top_k: int
+    controls_top_k: int
+    controls_semantic_default: bool
+    controls_semantic_configuration_name: str
     default_temperature: float
     evaluation_threshold: float
     auth_token: str
+    required_group_object_id: str
 
     cosmos_endpoint: str
     cosmos_database_name: str
@@ -59,18 +65,39 @@ def _require_env(name: str) -> str:
     return value
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _form_bool(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    text = value.strip().lower()
+    if not text:
+        return default
+    return text in {"1", "true", "yes", "on"}
+
+
 def load_config() -> QueryConfig:
     return QueryConfig(
         search_endpoint=_require_env("AZURE_SEARCH_ENDPOINT"),
         search_index_name=os.getenv("AZURE_SEARCH_INDEX_NAME", "grounding-index"),
+        controls_index_name=os.getenv("AZURE_SEARCH_CONTROLS_INDEX_NAME", "controls-index"),
         openai_endpoint=_require_env("AZURE_OPENAI_ENDPOINT"),
         embedding_deployment=os.getenv("EMBEDDING_DEPLOYMENT_NAME", "text-embedding-ada-002"),
         query_deployment=os.getenv("QUERY_DEPLOYMENT_NAME", "gpt-5.1-chat"),
         evaluator_deployment=os.getenv("EVALUATOR_DEPLOYMENT_NAME", "gpt-4.1-mini"),
         search_top_k=int(os.getenv("SEARCH_TOP_K", "5")),
+        controls_top_k=int(os.getenv("CONTROLS_TOP_K", "4")),
+        controls_semantic_default=_env_bool("CONTROLS_SEMANTIC_DEFAULT", default=False),
+        controls_semantic_configuration_name=os.getenv("AZURE_SEARCH_CONTROLS_SEMANTIC_CONFIG", "controls-semantic"),
         default_temperature=float(os.getenv("DEFAULT_TEMPERATURE", "1")),
         evaluation_threshold=float(os.getenv("ACCEPTABLE_SCORE_THRESHOLD", "0.72")),
         auth_token=os.getenv("QUERY_WEB_AUTH_TOKEN", "").strip(),
+        required_group_object_id=os.getenv("QUERY_WEB_REQUIRED_GROUP_OBJECT_ID", "").strip(),
         cosmos_endpoint=_require_env("AZURE_COSMOS_ENDPOINT"),
         cosmos_database_name=_require_env("AZURE_COSMOS_DATABASE_NAME"),
         cosmos_container_name=_require_env("AZURE_COSMOS_CONTAINER_NAME"),
@@ -194,6 +221,12 @@ search_client = SearchClient(
     credential=credential,
 )
 
+controls_search_client = SearchClient(
+    endpoint=config.search_endpoint,
+    index_name=config.controls_index_name,
+    credential=credential,
+)
+
 # Initialize CosmosDB client
 try:
     from azure.cosmos import CosmosClient
@@ -213,11 +246,13 @@ class AskRequest(BaseModel):
     retrieve_k: int = Field(default=5, ge=1, le=20)
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
     auth_token: str = ""
+    controls_semantic: bool | None = None
 
 
 class AskResponse(BaseModel):
     answer: str
     results: list[dict[str, Any]]
+    controls_results: list[dict[str, Any]] = []
     evaluation: dict[str, Any] | None
     iterations: int | None
     metrics: dict[str, float] | None
@@ -285,9 +320,83 @@ def _cognitive_token() -> str:
 
 
 def _is_authorized(auth_token: str) -> bool:
-    if not config.auth_token:
+    # Legacy shared token auth (optional)
+    if config.auth_token and auth_token.strip() != config.auth_token:
+        return False
+
+    # Entra group auth (optional): when configured, the request must include
+    # an authenticated principal header with the required group claim.
+    if not config.required_group_object_id:
         return True
-    return auth_token.strip() == config.auth_token
+
+    return False
+
+
+def _groups_from_client_principal_header(encoded_principal: str) -> set[str]:
+    """Extract Entra group object IDs from X-MS-CLIENT-PRINCIPAL header.
+
+    Expected shape is the platform-auth principal object with a ``claims`` array.
+    """
+    if not encoded_principal:
+        return set()
+
+    try:
+        padded = encoded_principal + "=" * (-len(encoded_principal) % 4)
+        decoded = base64.b64decode(padded).decode("utf-8")
+        principal = json.loads(decoded)
+    except Exception:
+        return set()
+
+    groups: set[str] = set()
+    claims = principal.get("claims", []) if isinstance(principal, dict) else []
+    if not isinstance(claims, list):
+        return set()
+
+    for claim in claims:
+        if not isinstance(claim, dict):
+            continue
+        typ = str(claim.get("typ", "")).lower()
+        val = str(claim.get("val", "")).strip()
+        if not val:
+            continue
+        if typ in {
+            "groups",
+            "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups",
+        }:
+            groups.add(val)
+
+    return groups
+
+
+def _is_authorized_request(auth_token: str, request: Request | None) -> bool:
+    # Legacy shared token auth (optional)
+    if config.auth_token and auth_token.strip() != config.auth_token:
+        return False
+
+    # Entra group auth (optional)
+    required_group = config.required_group_object_id
+    if not required_group:
+        return True
+
+    if request is None:
+        return False
+
+    encoded_principal = request.headers.get("x-ms-client-principal", "")
+    groups = _groups_from_client_principal_header(encoded_principal)
+
+    # Fallback for platforms that provide flattened groups header.
+    if not groups:
+        header_groups = request.headers.get("x-ms-client-principal-groups", "")
+        if header_groups:
+            groups = {g.strip() for g in header_groups.split(",") if g.strip()}
+
+    return required_group in groups
+
+
+def _unauthorized_message() -> str:
+    if config.required_group_object_id:
+        return "Unauthorized. User is not in the required Entra ID security group."
+    return "Unauthorized. Provide a valid access token."
 
 
 def _embed_query(question: str) -> list[float]:
@@ -343,6 +452,73 @@ def _hybrid_search(question: str, retrieve_k: int) -> tuple[list[dict[str, Any]]
     return items, timings
 
 
+def _controls_search(
+    question: str,
+    retrieve_k: int,
+    *,
+    use_semantic: bool,
+) -> tuple[list[dict[str, Any]], dict[str, float]]:
+    """Retrieve requirement records from the dedicated controls index.
+
+    This path is intentionally resilient: if the controls index does not exist yet
+    or fields are unavailable, it returns an empty result set rather than failing
+    the end-user query experience.
+    """
+    timings: dict[str, float] = {}
+
+    timings["controls_semantic_enabled"] = 1.0 if use_semantic else 0.0
+
+    t0 = time.perf_counter()
+    try:
+        search_kwargs: dict[str, Any] = {
+            "search_text": question,
+            "top": retrieve_k,
+            "select": [
+                "requirement_id",
+                "framework",
+                "framework_version",
+                "control_family",
+                "maturity_level",
+                "requirement_text",
+                "guidance_text",
+                "source_uri",
+            ],
+        }
+        if use_semantic:
+            search_kwargs["query_type"] = "semantic"
+            search_kwargs["semantic_configuration_name"] = config.controls_semantic_configuration_name
+
+        results = controls_search_client.search(**search_kwargs)
+    except Exception:
+        timings["controls_search_s"] = round(time.perf_counter() - t0, 3)
+        return [], timings
+
+    timings["controls_search_s"] = round(time.perf_counter() - t0, 3)
+
+    items: list[dict[str, Any]] = []
+    for r in results:
+        score = r.get("@search.score")
+        requirement_text = (r.get("requirement_text") or "").strip()
+        guidance_text = (r.get("guidance_text") or "").strip()
+        if not requirement_text:
+            continue
+        items.append(
+            {
+                "requirement_id": r.get("requirement_id") or "",
+                "framework": r.get("framework") or "",
+                "framework_version": r.get("framework_version") or "",
+                "control_family": r.get("control_family") or "",
+                "maturity_level": r.get("maturity_level"),
+                "requirement_text": requirement_text,
+                "guidance_text": guidance_text,
+                "source_uri": r.get("source_uri") or "",
+                "score": float(score) if score is not None else 0.0,
+            }
+        )
+
+    return items, timings
+
+
 def _chat_completion(messages: list[dict[str, str]], deployment: str, temperature: float, timeout: int = 45) -> str:
     """Call Azure Foundry chat completion API using the OpenAI Python SDK."""
     try:
@@ -389,20 +565,28 @@ def _run_rag(
     question: str,
     retrieve_k: int,
     temperature: float,
+    controls_semantic: bool,
     conversation_history: list[ConversationMessage] | None = None,
     feedback_context: str = "",
 ) -> dict[str, Any]:
     started = time.perf_counter()
     chunks, retrieval_timings = _hybrid_search(question, retrieve_k=retrieve_k)
+    controls, controls_timings = _controls_search(
+        question,
+        retrieve_k=config.controls_top_k,
+        use_semantic=controls_semantic,
+    )
 
-    if not chunks:
+    if not chunks and not controls:
         return {
             "answer": "No relevant chunks were found in the index.",
             "results": [],
+            "controls_results": [],
             "evaluation": {"acceptable": False, "score": 0.0, "reason": "No search context returned."},
             "iterations": 1,
             "metrics": {
                 **retrieval_timings,
+                **controls_timings,
                 "rag_retrieval_s": round(retrieval_timings.get("embedding_s", 0.0) + retrieval_timings.get("search_s", 0.0), 3),
                 "llm_reply_s": 0.0,
                 "evaluator_s": 0.0,
@@ -412,10 +596,29 @@ def _run_rag(
             },
         }
 
-    context = "\n\n".join(
+    evidence_context = "\n\n".join(
         f"Source: {c['source_name']}\nExcerpt: {c['content'][:1500]}"
         for c in chunks
     )
+
+    controls_context = "\n\n".join(
+        (
+            f"Requirement ID: {c['requirement_id']}\n"
+            f"Framework: {c['framework']} {c['framework_version']}\n"
+            f"Control Family: {c['control_family']}\n"
+            f"Maturity Level: {c['maturity_level']}\n"
+            f"Requirement: {c['requirement_text'][:1200]}\n"
+            f"Guidance: {c['guidance_text'][:800]}"
+        )
+        for c in controls
+    )
+
+    context_sections: list[str] = []
+    if controls_context:
+        context_sections.append("Controls context (authoritative requirements):\n" + controls_context)
+    if evidence_context:
+        context_sections.append("Evidence context (implementation artifacts):\n" + evidence_context)
+    context = "\n\n".join(context_sections)
 
     messages = [{"role": "system", "content": CYBER_PERSONA_PROMPT}]
 
@@ -492,6 +695,7 @@ def _run_rag(
 
     metrics = {
         **retrieval_timings,
+        **controls_timings,
         "rag_retrieval_s": rag_retrieval_s,
         "llm_reply_s": llm_reply_s,
         "evaluator_s": evaluator_s,
@@ -503,6 +707,7 @@ def _run_rag(
     return {
         "answer": answer,
         "results": chunks,
+        "controls_results": controls,
         "evaluation": evaluation,
         "iterations": iterations,
         "metrics": metrics,
@@ -516,7 +721,10 @@ def health() -> JSONResponse:
             "status": "ok",
             "service": "rag-query-web",
             "index": config.search_index_name,
+            "controls_index": config.controls_index_name,
+            "controls_semantic_default": config.controls_semantic_default,
             "auth_enabled": bool(config.auth_token),
+            "entra_group_auth_enabled": bool(config.required_group_object_id),
         }
     )
 
@@ -526,21 +734,26 @@ def api_config() -> JSONResponse:
     return JSONResponse(
         {
             "search_index_name": config.search_index_name,
+            "controls_index_name": config.controls_index_name,
             "embedding_deployment": config.embedding_deployment,
             "query_deployment": config.query_deployment,
             "evaluator_deployment": config.evaluator_deployment,
             "default_top_k": config.search_top_k,
+            "controls_top_k": config.controls_top_k,
+            "controls_semantic_default": config.controls_semantic_default,
+            "controls_semantic_configuration_name": config.controls_semantic_configuration_name,
             "default_temperature": config.default_temperature,
             "evaluation_threshold": config.evaluation_threshold,
             "auth_enabled": bool(config.auth_token),
+            "entra_group_auth_enabled": bool(config.required_group_object_id),
         }
     )
 
 
 @app.get("/api/conversations/{user_id}")
-def get_conversations(user_id: str, auth_token: str = "") -> JSONResponse:
+def get_conversations(request: Request, user_id: str, auth_token: str = "") -> JSONResponse:
     """List all conversations for a user."""
-    if not _is_authorized(auth_token):
+    if not _is_authorized_request(auth_token, request):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     
     if not conversations_container:
@@ -558,9 +771,9 @@ def get_conversations(user_id: str, auth_token: str = "") -> JSONResponse:
 
 
 @app.get("/api/conversations/{user_id}/{conversation_id}")
-def get_conversation_history(user_id: str, conversation_id: str, auth_token: str = "") -> JSONResponse:
+def get_conversation_history(request: Request, user_id: str, conversation_id: str, auth_token: str = "") -> JSONResponse:
     """Get full conversation history."""
-    if not _is_authorized(auth_token):
+    if not _is_authorized_request(auth_token, request):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     
     try:
@@ -589,9 +802,9 @@ def get_conversation_history(user_id: str, conversation_id: str, auth_token: str
 
 
 @app.post("/api/conversations/new")
-def create_conversation(auth_token: str = Form("")) -> JSONResponse:
+def create_conversation(request: Request, auth_token: str = Form("")) -> JSONResponse:
     """Create a new conversation session."""
-    if not _is_authorized(auth_token):
+    if not _is_authorized_request(auth_token, request):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     
     session_id = str(uuid.uuid4())
@@ -617,6 +830,7 @@ def create_conversation(auth_token: str = Form("")) -> JSONResponse:
 
 @app.post("/api/conversations/{conversation_id}/message")
 def add_message_to_conversation(
+    request: Request,
     conversation_id: str,
     user_id: str = Form(...),
     role: str = Form(...),
@@ -624,7 +838,7 @@ def add_message_to_conversation(
     auth_token: str = Form(""),
 ) -> JSONResponse:
     """Add a message to a conversation and optionally get a response."""
-    if not _is_authorized(auth_token):
+    if not _is_authorized_request(auth_token, request):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     
     try:
@@ -644,6 +858,7 @@ def add_message_to_conversation(
 
 @app.post("/api/conversations/{conversation_id}/rating")
 def add_response_rating(
+    request: Request,
     conversation_id: str,
     user_id: str = Form(...),
     rating: int = Form(...),
@@ -652,7 +867,7 @@ def add_response_rating(
     auth_token: str = Form(""),
 ) -> JSONResponse:
     """Store user rating/TODO feedback for a prior assistant response."""
-    if not _is_authorized(auth_token):
+    if not _is_authorized_request(auth_token, request):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
 
     if rating < 1 or rating > 5:
@@ -687,6 +902,9 @@ def add_response_rating(
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
+    if not _is_authorized_request("", request):
+        return HTMLResponse(content=_unauthorized_message(), status_code=401)
+
     return templates.TemplateResponse(
         request,
         "index.html",
@@ -694,12 +912,14 @@ def home(request: Request) -> HTMLResponse:
             "question": "",
             "answer": "",
             "results": [],
+            "controls_results": [],
             "error": "",
             "evaluation": None,
             "metrics": None,
             "iterations": None,
             "retrieve_k": config.search_top_k,
             "temperature": config.default_temperature,
+            "controls_semantic": config.controls_semantic_default,
             "auth_token": "",
             "index_name": config.search_index_name,
             "embedding_deployment": config.embedding_deployment,
@@ -719,16 +939,15 @@ def ask(
     question: str = Form(...),
     retrieve_k: int = Form(...),
     temperature: float = Form(...),
+    controls_semantic: str = Form(""),
     auth_token: str = Form(""),
     session_id: str = Form(default=""),
     conversation_id: str = Form(default=""),
 ) -> HTMLResponse:
     user_id = _get_user_id(auth_token, session_id)
     session = None
-    if session_id and conversation_id:
-        session = _load_conversation(user_id, conversation_id)
-    
-    if not _is_authorized(auth_token):
+
+    if not _is_authorized_request(auth_token, request):
         return templates.TemplateResponse(
             request,
             "index.html",
@@ -736,12 +955,14 @@ def ask(
                 "question": question,
                 "answer": "",
                 "results": [],
-                "error": "Unauthorized. Provide a valid access token.",
+                "controls_results": [],
+                "error": _unauthorized_message(),
                 "evaluation": None,
                 "metrics": None,
                 "iterations": None,
                 "retrieve_k": retrieve_k,
                 "temperature": temperature,
+                "controls_semantic": _form_bool(controls_semantic, default=config.controls_semantic_default),
                 "auth_token": "",
                 "index_name": config.search_index_name,
                 "embedding_deployment": config.embedding_deployment,
@@ -755,8 +976,12 @@ def ask(
             status_code=401,
         )
 
+    if session_id and conversation_id:
+        session = _load_conversation(user_id, conversation_id)
+
     retrieve_k = max(1, min(20, retrieve_k))
     temperature = max(0, min(1.0, temperature))
+    controls_semantic_enabled = _form_bool(controls_semantic, default=config.controls_semantic_default)
 
     try:
         conversation_history = session.messages if session else []
@@ -766,6 +991,7 @@ def ask(
             question=question,
             retrieve_k=retrieve_k,
             temperature=temperature,
+            controls_semantic=controls_semantic_enabled,
             conversation_history=conversation_history,
             feedback_context=feedback_context,
         )
@@ -782,6 +1008,7 @@ def ask(
         result = {
             "answer": "",
             "results": [],
+            "controls_results": [],
             "evaluation": None,
             "metrics": None,
             "iterations": None,
@@ -795,12 +1022,14 @@ def ask(
             "question": question,
             "answer": result["answer"],
             "results": result["results"],
+            "controls_results": result.get("controls_results", []),
             "error": error,
             "evaluation": result["evaluation"],
             "metrics": result["metrics"],
             "iterations": result["iterations"],
             "retrieve_k": retrieve_k,
             "temperature": temperature,
+            "controls_semantic": controls_semantic_enabled,
             "auth_token": auth_token,
             "index_name": config.search_index_name,
             "embedding_deployment": config.embedding_deployment,
@@ -815,26 +1044,28 @@ def ask(
 
 
 @app.post("/api/ask", response_model=AskResponse)
-def ask_api(payload: AskRequest) -> AskResponse:
+def ask_api(request: Request, payload: AskRequest) -> AskResponse:
     question = payload.question.strip()
     if not question:
         return AskResponse(
             answer="",
             results=[],
+            controls_results=[],
             evaluation=None,
             iterations=None,
             metrics=None,
             error="Question must not be empty.",
         )
 
-    if not _is_authorized(payload.auth_token):
+    if not _is_authorized_request(payload.auth_token, request):
         return AskResponse(
             answer="",
             results=[],
+            controls_results=[],
             evaluation=None,
             iterations=None,
             metrics=None,
-            error="Unauthorized. Provide a valid access token.",
+            error=_unauthorized_message(),
         )
 
     try:
@@ -842,10 +1073,16 @@ def ask_api(payload: AskRequest) -> AskResponse:
             question=question,
             retrieve_k=payload.retrieve_k,
             temperature=payload.temperature,
+            controls_semantic=(
+                payload.controls_semantic
+                if payload.controls_semantic is not None
+                else config.controls_semantic_default
+            ),
         )
         return AskResponse(
             answer=result["answer"],
             results=result["results"],
+            controls_results=result.get("controls_results", []),
             evaluation=result["evaluation"],
             iterations=result["iterations"],
             metrics=result["metrics"],
@@ -855,6 +1092,7 @@ def ask_api(payload: AskRequest) -> AskResponse:
         return AskResponse(
             answer="",
             results=[],
+            controls_results=[],
             evaluation=None,
             iterations=None,
             metrics=None,
