@@ -67,6 +67,9 @@ Options:
   --runtime-only            Install runtime/requirements.txt instead of requirements-dev.txt
   --install-terraform       Run ops/scripts/install-terraform-local.sh
   --terraform-version <ver> Terraform version passed to install-terraform-local.sh
+  --init-terraform-backend <env>
+                           Run 'terraform init -backend-config=infra/terraform/environments/<env>/backend.hcl'
+                           after az login. Supported env: dev, test, prod.
   --install-azure-cli       Install Azure CLI via the Microsoft apt repository
   --az-login-identity       Run 'az login --identity' after setup (requires managed identity)
   --run-unit-tests          Run 'pytest tests/unit -q' after setup
@@ -75,7 +78,7 @@ Options:
 
 Examples:
   ./ops/scripts/configure-jumpbox.sh --install-terraform
-  ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --run-unit-tests
+  ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --init-terraform-backend dev --run-unit-tests
   ./ops/scripts/configure-jumpbox.sh --repo-dir /opt/sc3-ingestion --install-terraform
   ./ops/scripts/configure-jumpbox.sh --runtime-only
 EOF
@@ -93,6 +96,7 @@ PYTHON_VERSION="3.12"
 INSTALL_RUNTIME_ONLY="false"
 INSTALL_TERRAFORM="false"
 TERRAFORM_VERSION=""
+INIT_TERRAFORM_BACKEND_ENV=""
 INSTALL_AZURE_CLI="false"
 AZ_LOGIN_IDENTITY="false"
 RUN_UNIT_TESTS="false"
@@ -122,6 +126,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --terraform-version)
       TERRAFORM_VERSION="$2"
+      shift 2
+      ;;
+    --init-terraform-backend)
+      INIT_TERRAFORM_BACKEND_ENV="$2"
       shift 2
       ;;
     --install-azure-cli)
@@ -188,6 +196,17 @@ fi
 if [[ -n "${TERRAFORM_VERSION}" && "${INSTALL_TERRAFORM}" != "true" ]]; then
   error "--terraform-version requires --install-terraform"
   exit 1
+fi
+
+if [[ -n "${INIT_TERRAFORM_BACKEND_ENV}" ]]; then
+  case "${INIT_TERRAFORM_BACKEND_ENV}" in
+    dev|test|prod)
+      ;;
+    *)
+      error "--init-terraform-backend must be one of: dev, test, prod"
+      exit 1
+      ;;
+  esac
 fi
 
 if [[ "${AZ_LOGIN_IDENTITY}" == "true" && "${INSTALL_AZURE_CLI}" != "true" ]]; then
@@ -360,6 +379,42 @@ run_unit_tests() {
 }
 
 # ---------------------------------------------------------------------------
+# TERRAFORM BACKEND INIT
+# ---------------------------------------------------------------------------
+init_terraform_backend() {
+  if [[ -z "${INIT_TERRAFORM_BACKEND_ENV}" ]]; then
+    warn "Terraform backend init skipped (use --init-terraform-backend <env> to enable)"
+    return
+  fi
+
+  if ! command -v terraform >/dev/null 2>&1; then
+    error "Terraform is required for backend init. Add --install-terraform or install it first."
+    exit 1
+  fi
+
+  if ! command -v az >/dev/null 2>&1; then
+    error "Azure CLI is required for backend init. Add --install-azure-cli or install it first."
+    exit 1
+  fi
+
+  if ! az account show >/dev/null 2>&1; then
+    error "Azure CLI is not authenticated. Use --az-login-identity or run az login before backend init."
+    exit 1
+  fi
+
+  local tf_dir="${REPO_DIR}/infra/terraform"
+  local backend_file="${tf_dir}/environments/${INIT_TERRAFORM_BACKEND_ENV}/backend.hcl"
+
+  if [[ ! -f "${backend_file}" ]]; then
+    error "Backend config not found: ${backend_file}. Run phase1-bootstrap.sh ${INIT_TERRAFORM_BACKEND_ENV} first."
+    exit 1
+  fi
+
+  info "Initialising Terraform backend for ${INIT_TERRAFORM_BACKEND_ENV}"
+  terraform -chdir="${tf_dir}" init -reconfigure -backend-config="${backend_file}"
+}
+
+# ---------------------------------------------------------------------------
 # SMOKE TESTS — verify every component after setup
 # ---------------------------------------------------------------------------
 run_smoke_tests() {
@@ -413,6 +468,15 @@ run_smoke_tests() {
     smoke_record "terraform" "FAIL"
   fi
 
+  # Terraform backend init status
+  if [[ -z "${INIT_TERRAFORM_BACKEND_ENV}" ]]; then
+    smoke_record "terraform backend init" "SKIP"
+  elif [[ -d "${REPO_DIR}/infra/terraform/.terraform" ]]; then
+    smoke_record "terraform backend init" "PASS"
+  else
+    smoke_record "terraform backend init" "FAIL"
+  fi
+
   # azure-cosmos importable (key dependency for the conversation management tests)
   if "${VENV_DIR}/bin/python" -c "import azure.cosmos" >/dev/null 2>&1; then
     smoke_record "azure-cosmos (importable)" "PASS"
@@ -442,6 +506,7 @@ install_azure_cli
 install_terraform
 setup_venv
 az_login
+init_terraform_backend
 run_unit_tests
 run_smoke_tests
 
@@ -451,6 +516,7 @@ echo "   python=${PYTHON_BIN}"
 echo "   venv=${VENV_DIR}"
 echo "   requirements=${REQUIREMENTS_FILE}"
 echo "   terraform=$( [[ "${INSTALL_TERRAFORM}" == "true" ]] && echo installed || echo skipped )"
+echo "   terraform-backend=$( [[ -n "${INIT_TERRAFORM_BACKEND_ENV}" ]] && echo "init:${INIT_TERRAFORM_BACKEND_ENV}" || echo skipped )"
 echo "   azure-cli=$( [[ "${INSTALL_AZURE_CLI}" == "true" ]] && echo installed || echo skipped )"
 echo "   az-login=$( [[ "${AZ_LOGIN_IDENTITY}" == "true" ]] && echo done || echo skipped )"
 echo "   unit-tests=$( [[ "${RUN_UNIT_TESTS}" == "true" ]] && echo run || echo skipped )"

@@ -197,7 +197,7 @@ On the jumpbox:
    - Subsequent Pull: `git pull --ff-only`
 2. Change directory into downloaded repo: `cd sc3-Azure-Foundry-RAG/`
 3. Run the jumpbox bootstrap helper:
-   - `sudo ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --run-unit-tests`
+  - `sudo ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --init-terraform-backend "${TARGET_ENV}" --run-unit-tests`
 
 The standard private-network deployment path uses the Container App ingestion and query services. The `phase3b-agent-hosting.sh` script is only for the preview hosted-query-agent path and is not required for the normal runtime deployment.
 
