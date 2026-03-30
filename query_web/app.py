@@ -559,9 +559,9 @@ def _controls_search(
 ) -> tuple[list[dict[str, Any]], dict[str, float]]:
     """Retrieve requirement records from the dedicated controls index.
 
-    This path is intentionally resilient: if the controls index does not exist yet
-    or fields are unavailable, it returns an empty result set rather than failing
-    the end-user query experience.
+    This path is intentionally resilient: if the controls index does not exist yet,
+    fields are unavailable, or semantic search is not supported, it gracefully falls
+    back to keyword search or returns empty results rather than failing the query.
     """
     timings: dict[str, float] = {}
 
@@ -588,9 +588,30 @@ def _controls_search(
             search_kwargs["semantic_configuration_name"] = config.controls_semantic_configuration_name
 
         results = controls_search_client.search(**search_kwargs)
-    except Exception:
-        timings["controls_search_s"] = round(time.perf_counter() - t0, 3)
-        return [], timings
+    except Exception as e:
+        # If semantic search fails (e.g., FeatureNotSupportedInService), retry with keyword search
+        if use_semantic and "SemanticQueriesNotAvailable" in str(e):
+            try:
+                results = controls_search_client.search(
+                    search_text=question,
+                    top=retrieve_k,
+                    select=[
+                        "requirement_id",
+                        "framework",
+                        "framework_version",
+                        "control_family",
+                        "maturity_level",
+                        "requirement_text",
+                        "guidance_text",
+                        "source_uri",
+                    ],
+                )
+            except Exception:
+                timings["controls_search_s"] = round(time.perf_counter() - t0, 3)
+                return [], timings
+        else:
+            timings["controls_search_s"] = round(time.perf_counter() - t0, 3)
+            return [], timings
 
     timings["controls_search_s"] = round(time.perf_counter() - t0, 3)
 
