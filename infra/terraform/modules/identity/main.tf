@@ -93,6 +93,14 @@ resource "azurerm_role_assignment" "log_analytics_workspace_reader" {
   principal_id         = azurerm_user_assigned_identity.agent_runtime.principal_id
 }
 
+# Required by azurerm when managing Container App Environment wired to Log Analytics;
+# provider reads workspace shared keys via Microsoft.OperationalInsights/workspaces/sharedKeys/action.
+resource "azurerm_role_assignment" "log_analytics_contributor" {
+  scope                = var.scope_ids.log_analytics
+  role_definition_name = "Log Analytics Contributor"
+  principal_id         = azurerm_user_assigned_identity.agent_runtime.principal_id
+}
+
 # Optional backend-state permissions so jumpbox/runtime identity can run
 # terraform init/apply against the central azurerm backend account.
 resource "azurerm_role_assignment" "terraform_state_reader" {
