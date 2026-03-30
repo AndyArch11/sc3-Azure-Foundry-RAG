@@ -67,6 +67,14 @@ resource "azurerm_role_assignment" "agent_runtime_network_reader" {
   principal_id         = azurerm_user_assigned_identity.agent_runtime.principal_id
 }
 
+# Jumpbox terraform execution needs write permissions for agent hosting resources
+# (for example Microsoft.App/managedEnvironments/write).
+resource "azurerm_role_assignment" "agent_runtime_rg_contributor" {
+  scope                = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${var.resource_group_name}"
+  role_definition_name = "Contributor"
+  principal_id         = azurerm_user_assigned_identity.agent_runtime.principal_id
+}
+
 # Agent runtime MI — AcrPull for Container App Job image pull;
 # AcrPush for jumpbox / CI build-and-push workflow.
 resource "azurerm_role_assignment" "acr_pull" {
