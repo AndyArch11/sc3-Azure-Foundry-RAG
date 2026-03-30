@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
@@ -332,23 +333,43 @@ def _is_authorized(auth_token: str) -> bool:
     return False
 
 
-def _groups_from_client_principal_header(encoded_principal: str) -> set[str]:
-    """Extract Entra group object IDs from X-MS-CLIENT-PRINCIPAL header.
+def _normalize_object_id(value: str) -> str:
+    return value.strip().lower()
 
-    Expected shape is the platform-auth principal object with a ``claims`` array.
-    """
+
+def _split_group_values(raw_value: str) -> set[str]:
+    return {
+        _normalize_object_id(part)
+        for part in re.split(r"[,;\s]+", raw_value)
+        if part.strip()
+    }
+
+
+def _decode_client_principal(encoded_principal: str) -> dict[str, Any] | None:
     if not encoded_principal:
-        return set()
+        return None
 
     try:
         padded = encoded_principal + "=" * (-len(encoded_principal) % 4)
         decoded = base64.b64decode(padded).decode("utf-8")
         principal = json.loads(decoded)
     except Exception:
+        return None
+
+    return principal if isinstance(principal, dict) else None
+
+
+def _groups_from_client_principal_header(encoded_principal: str) -> set[str]:
+    """Extract Entra group object IDs from X-MS-CLIENT-PRINCIPAL header.
+
+    Expected shape is the platform-auth principal object with a ``claims`` array.
+    """
+    principal = _decode_client_principal(encoded_principal)
+    if not principal:
         return set()
 
     groups: set[str] = set()
-    claims = principal.get("claims", []) if isinstance(principal, dict) else []
+    claims = principal.get("claims", [])
     if not isinstance(claims, list):
         return set()
 
@@ -363,9 +384,85 @@ def _groups_from_client_principal_header(encoded_principal: str) -> set[str]:
             "groups",
             "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups",
         }:
-            groups.add(val)
+            groups.update(_split_group_values(val))
 
     return groups
+
+
+def _principal_has_group_overage(encoded_principal: str) -> bool:
+    principal = _decode_client_principal(encoded_principal)
+    if not principal:
+        return False
+
+    claims = principal.get("claims", [])
+    if not isinstance(claims, list):
+        return False
+
+    overage_claim_types = {
+        "hasgroups",
+        "_claim_names",
+        "_claim_sources",
+        "http://schemas.microsoft.com/claims/groups.link",
+    }
+
+    for claim in claims:
+        if not isinstance(claim, dict):
+            continue
+        typ = str(claim.get("typ", "")).lower()
+        if typ in overage_claim_types:
+            return True
+
+    return False
+
+
+def _request_groups(request: Request | None) -> set[str]:
+    if request is None:
+        return set()
+
+    encoded_principal = request.headers.get("x-ms-client-principal", "")
+    groups = _groups_from_client_principal_header(encoded_principal)
+    if groups:
+        return groups
+
+    header_groups = request.headers.get("x-ms-client-principal-groups", "")
+    if header_groups:
+        return _split_group_values(header_groups)
+
+    return set()
+
+
+def _group_auth_failure_message(request: Request | None) -> str:
+    if request is None:
+        return "Unauthorized. Request context unavailable for Entra ID group validation."
+
+    encoded_principal = request.headers.get("x-ms-client-principal", "")
+    flattened_groups = request.headers.get("x-ms-client-principal-groups", "")
+    has_principal_context = bool(
+        encoded_principal
+        or flattened_groups
+        or request.headers.get("x-ms-client-principal-id")
+        or request.headers.get("x-ms-client-principal-name")
+    )
+
+    if not has_principal_context:
+        return (
+            "Unauthorized. No Entra ID principal headers were forwarded to the app. "
+            "Complete platform sign-in first; an InPrivate session is fine only if it completes that auth flow."
+        )
+
+    if _principal_has_group_overage(encoded_principal):
+        return (
+            "Unauthorized. The signed-in Entra ID token did not include inline group claims "
+            "(group overage). The current app gate requires concrete group IDs in platform auth headers."
+        )
+
+    if not _request_groups(request):
+        return (
+            "Unauthorized. An authenticated Entra ID principal reached the app, "
+            "but no group claims were forwarded in the platform headers."
+        )
+
+    return "Unauthorized. User is not in the required Entra ID security group."
 
 
 def _is_authorized_request(auth_token: str, request: Request | None) -> bool:
@@ -381,21 +478,13 @@ def _is_authorized_request(auth_token: str, request: Request | None) -> bool:
     if request is None:
         return False
 
-    encoded_principal = request.headers.get("x-ms-client-principal", "")
-    groups = _groups_from_client_principal_header(encoded_principal)
-
-    # Fallback for platforms that provide flattened groups header.
-    if not groups:
-        header_groups = request.headers.get("x-ms-client-principal-groups", "")
-        if header_groups:
-            groups = {g.strip() for g in header_groups.split(",") if g.strip()}
-
-    return required_group in groups
+    groups = _request_groups(request)
+    return _normalize_object_id(required_group) in groups
 
 
-def _unauthorized_message() -> str:
+def _unauthorized_message(request: Request | None = None) -> str:
     if config.required_group_object_id:
-        return "Unauthorized. User is not in the required Entra ID security group."
+        return _group_auth_failure_message(request)
     return "Unauthorized. Provide a valid access token."
 
 
@@ -754,8 +843,8 @@ def api_config() -> JSONResponse:
 def get_conversations(request: Request, user_id: str, auth_token: str = "") -> JSONResponse:
     """List all conversations for a user."""
     if not _is_authorized_request(auth_token, request):
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-    
+        return JSONResponse({"error": _unauthorized_message(request)}, status_code=401)
+
     if not conversations_container:
         return JSONResponse({"conversations": []})
     
@@ -774,8 +863,8 @@ def get_conversations(request: Request, user_id: str, auth_token: str = "") -> J
 def get_conversation_history(request: Request, user_id: str, conversation_id: str, auth_token: str = "") -> JSONResponse:
     """Get full conversation history."""
     if not _is_authorized_request(auth_token, request):
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-    
+        return JSONResponse({"error": _unauthorized_message(request)}, status_code=401)
+
     try:
         session = _load_conversation(user_id, conversation_id)
         return JSONResponse({
@@ -805,8 +894,8 @@ def get_conversation_history(request: Request, user_id: str, conversation_id: st
 def create_conversation(request: Request, auth_token: str = Form("")) -> JSONResponse:
     """Create a new conversation session."""
     if not _is_authorized_request(auth_token, request):
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-    
+        return JSONResponse({"error": _unauthorized_message(request)}, status_code=401)
+
     session_id = str(uuid.uuid4())
     conversation_id = str(uuid.uuid4())
     user_id = _get_user_id(auth_token, session_id)
@@ -839,8 +928,8 @@ def add_message_to_conversation(
 ) -> JSONResponse:
     """Add a message to a conversation and optionally get a response."""
     if not _is_authorized_request(auth_token, request):
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-    
+        return JSONResponse({"error": _unauthorized_message(request)}, status_code=401)
+
     try:
         session = _load_conversation(user_id, conversation_id)
         session.messages.append(ConversationMessage(role=role, content=content))
@@ -868,7 +957,7 @@ def add_response_rating(
 ) -> JSONResponse:
     """Store user rating/TODO feedback for a prior assistant response."""
     if not _is_authorized_request(auth_token, request):
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        return JSONResponse({"error": _unauthorized_message(request)}, status_code=401)
 
     if rating < 1 or rating > 5:
         return JSONResponse({"error": "rating must be between 1 and 5"}, status_code=400)
@@ -903,7 +992,7 @@ def add_response_rating(
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
     if not _is_authorized_request("", request):
-        return HTMLResponse(content=_unauthorized_message(), status_code=401)
+        return HTMLResponse(content=_unauthorized_message(request), status_code=401)
 
     return templates.TemplateResponse(
         request,
@@ -956,7 +1045,7 @@ def ask(
                 "answer": "",
                 "results": [],
                 "controls_results": [],
-                "error": _unauthorized_message(),
+                "error": _unauthorized_message(request),
                 "evaluation": None,
                 "metrics": None,
                 "iterations": None,
@@ -1065,7 +1154,7 @@ def ask_api(request: Request, payload: AskRequest) -> AskResponse:
             evaluation=None,
             iterations=None,
             metrics=None,
-            error=_unauthorized_message(),
+            error=_unauthorized_message(request),
         )
 
     try:
