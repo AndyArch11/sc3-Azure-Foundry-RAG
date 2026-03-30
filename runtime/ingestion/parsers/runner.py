@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # Registry of supported frameworks.
 # Each entry maps a CLI name → factory callable that accepts fetch_guidance kwarg.
 def _build_registry():
-    from runtime.ingestion.parsers.essential_eight import (  # noqa: PLC0415
+    from .essential_eight import (  # noqa: PLC0415
         EssentialEightParser,
         FRAMEWORK_VERSION,
         _slugify,

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def _build_parser_registry() -> dict[str, dict]:
-    from runtime.ingestion.parsers.essential_eight import (  # noqa: PLC0415
+    from .parsers.essential_eight import (  # noqa: PLC0415
         EssentialEightParser,
         FRAMEWORK_VERSION,
         _slugify,
