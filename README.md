@@ -212,7 +212,7 @@ The standard private-network deployment path uses the Container App ingestion an
 
 Use a split operational model for standard private-network deployments:
 
-- External/admin Entra bootstrap (app registration + runtime UAMI app ownership): `./ops/scripts/rollout-query-web-entra.sh "${TARGET_ENV}" apply`
+- External/admin Entra bootstrap (app registration + runtime UAMI app ownership + Microsoft Graph `Application.ReadWrite.OwnedBy`): `./ops/scripts/rollout-query-web-entra.sh "${TARGET_ENV}" apply`
 - Jumpbox rollout (non-RBAC app resources only): `sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply --ingestion-tag "<immutable-ingestion-tag>" --query-web-tag "<immutable-query-web-tag>" --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
 - Admin RBAC reconciliation (privileged identity only, run from admin workstation/CI runner): `./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply`
 
@@ -230,7 +230,7 @@ This should have already been taken care of by the configure-jumpbox.sh script, 
 az account clear
 az login --identity
 # If multiple UAMIs are attached, provide one explicitly:
-# az login --identity --username "<agent-runtime-uami-client-id>"
+# az login --identity --object-id "<agent-runtime-uami-object-id>"
 ```
 
 ### Deploy Ingestion Job Image
@@ -348,7 +348,7 @@ ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build
 ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-query-web.sh
 
 # External/admin: create the Entra app registration used by query web EasyAuth
-# and assign runtime UAMI as app owner (least privilege for jumpbox credential rotation)
+# and grant the least-privilege permission bundle needed for jumpbox credential rotation
 ./ops/scripts/rollout-query-web-entra.sh "${TARGET_ENV}" apply
 # If UAMI auto-discovery fails, pass the object ID explicitly:
 # ./ops/scripts/rollout-query-web-entra.sh "${TARGET_ENV}" apply --runtime-uami-principal-id "<uami-object-id>"

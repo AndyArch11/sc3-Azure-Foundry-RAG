@@ -11,7 +11,8 @@ Runs the EXTERNAL/ADMIN Entra rollout path for query web auth resources only.
 What this script does:
   - targets azuread_application.query_web
   - optionally targets azuread_application_redirect_uris.query_web
-  - grants app ownership to the runtime managed identity (least privilege for jumpbox credential rotation)
+  - grants app ownership to the runtime managed identity
+  - grants Microsoft Graph Application.ReadWrite.OwnedBy to the runtime managed identity
   - forces enable_hosted_query_agent_preview=false
   - bypasses bootstrap Key Vault lookup paths unrelated to Entra rollout
 
@@ -174,6 +175,33 @@ else
     az ad app owner add --id "${APP_CLIENT_ID}" --owner-object-id "${RUNTIME_UAMI_OBJECT_ID}" >/dev/null
   else
     echo "==> Runtime UAMI already owns app ${APP_CLIENT_ID}; skipping owner assignment"
+  fi
+
+  GRAPH_SP_ID="$(az ad sp show --id 00000003-0000-0000-c000-000000000000 --query id -o tsv 2>/dev/null || true)"
+  GRAPH_APP_ROLE_ID="$(az ad sp show --id 00000003-0000-0000-c000-000000000000 \
+    --query "appRoles[?value=='Application.ReadWrite.OwnedBy' && contains(allowedMemberTypes, 'Application')].id | [0]" -o tsv 2>/dev/null || true)"
+
+  if [[ -z "${GRAPH_SP_ID}" || -z "${GRAPH_APP_ROLE_ID}" ]]; then
+    echo "Unable to resolve Microsoft Graph service principal or Application.ReadWrite.OwnedBy app role ID."
+    exit 1
+  fi
+
+  GRAPH_ROLE_MATCH_COUNT="$(az rest \
+    --method GET \
+    --uri "https://graph.microsoft.com/v1.0/servicePrincipals/${RUNTIME_UAMI_OBJECT_ID}/appRoleAssignments" \
+    --query "value[?resourceId=='${GRAPH_SP_ID}' && appRoleId=='${GRAPH_APP_ROLE_ID}'] | length(@)" \
+    -o tsv 2>/dev/null || echo "0")"
+
+  if [[ "${GRAPH_ROLE_MATCH_COUNT}" == "0" ]]; then
+    echo "==> Granting Microsoft Graph Application.ReadWrite.OwnedBy to runtime UAMI (${RUNTIME_UAMI_OBJECT_ID})"
+    az rest \
+      --method POST \
+      --uri "https://graph.microsoft.com/v1.0/servicePrincipals/${RUNTIME_UAMI_OBJECT_ID}/appRoleAssignments" \
+      --headers 'Content-Type=application/json' \
+      --body "{\"principalId\":\"${RUNTIME_UAMI_OBJECT_ID}\",\"resourceId\":\"${GRAPH_SP_ID}\",\"appRoleId\":\"${GRAPH_APP_ROLE_ID}\"}" \
+      >/dev/null
+  else
+    echo "==> Runtime UAMI already has Microsoft Graph Application.ReadWrite.OwnedBy; skipping app role assignment"
   fi
 fi
 

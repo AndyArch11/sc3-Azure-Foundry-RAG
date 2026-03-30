@@ -132,9 +132,9 @@ if [[ ${AZ_CRED_RC} -ne 0 ]]; then
   cat /tmp/query-web-easyauth-credential.err
   echo ""
   echo "This jumpbox identity needs Entra permissions to manage app credentials."
-  echo "Grant one of the following to the jumpbox/runtime identity:"
-  echo "  - Ownership on this app registration, or"
-  echo "  - Directory role with app credential write rights (for example Application Administrator)."
+  echo "For managed identity / app-only Azure CLI auth, grant one of the following:"
+  echo "  - App ownership on this app registration AND Microsoft Graph Application.ReadWrite.OwnedBy"
+  echo "  - Directory role with app credential write rights (for example Application Administrator)"
   echo ""
   echo "Fallback: run app credential creation from external admin context, then set Key Vault secret from jumpbox."
   exit 1
