@@ -118,7 +118,14 @@ TF_SAFETY_ARGS=(
 )
 
 TARGET_ARGS=(
-  "-target=module.agent_hosting"
+  "-target=module.agent_hosting.azurerm_container_app_environment.this"
+  "-target=module.agent_hosting.azurerm_private_dns_zone.container_apps"
+  "-target=module.agent_hosting.azurerm_private_dns_zone_virtual_network_link.container_apps"
+  "-target=module.agent_hosting.azurerm_private_dns_a_record.ingestion_job"
+  "-target=module.agent_hosting.azurerm_private_dns_a_record.query_web"
+  "-target=module.agent_hosting.azurerm_private_dns_a_record.query_web_vnet"
+  "-target=module.agent_hosting.azurerm_container_app_job.ingestion"
+  "-target=module.agent_hosting.azurerm_container_app.query_web"
 )
 
 if [[ "${ACTION}" == "plan" ]]; then
