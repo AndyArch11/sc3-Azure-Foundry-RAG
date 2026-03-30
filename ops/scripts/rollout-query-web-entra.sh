@@ -4,13 +4,14 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/rollout-query-web-entra.sh <env> [plan|apply] [--include-redirect-uri]
+  ./ops/scripts/rollout-query-web-entra.sh <env> [plan|apply] [--include-redirect-uri] [--runtime-uami-principal-id <object-id>]
 
 Runs the EXTERNAL/ADMIN Entra rollout path for query web auth resources only.
 
 What this script does:
   - targets azuread_application.query_web
   - optionally targets azuread_application_redirect_uris.query_web
+  - grants app ownership to the runtime managed identity (least privilege for jumpbox credential rotation)
   - forces enable_hosted_query_agent_preview=false
   - bypasses bootstrap Key Vault lookup paths unrelated to Entra rollout
 
@@ -18,6 +19,7 @@ Examples:
   ./ops/scripts/rollout-query-web-entra.sh dev plan
   ./ops/scripts/rollout-query-web-entra.sh dev apply
   ./ops/scripts/rollout-query-web-entra.sh dev apply --include-redirect-uri
+  ./ops/scripts/rollout-query-web-entra.sh dev apply --runtime-uami-principal-id "<uami-object-id>"
 EOF
   exit 0
 fi
@@ -49,12 +51,17 @@ case "${ACTION}" in
 esac
 
 INCLUDE_REDIRECT_URI="false"
+RUNTIME_UAMI_PRINCIPAL_ID=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --include-redirect-uri)
       INCLUDE_REDIRECT_URI="true"
       shift
+      ;;
+    --runtime-uami-principal-id)
+      RUNTIME_UAMI_PRINCIPAL_ID="${2:-}"
+      shift 2
       ;;
     *)
       echo "Unknown argument: $1"
@@ -132,6 +139,42 @@ else
     -auto-approve \
     -var-file="${VAR_FILE}" \
     "${TARGET_ARGS[@]}"
+
+  APP_CLIENT_ID="$(terraform -chdir="${TF_DIR}" output -raw query_web_entra_client_id 2>/dev/null || true)"
+  RUNTIME_UAMI_OBJECT_ID="${RUNTIME_UAMI_PRINCIPAL_ID}"
+
+  if [[ -z "${RUNTIME_UAMI_OBJECT_ID}" ]]; then
+    RUNTIME_UAMI_OBJECT_ID="$(terraform -chdir="${TF_DIR}" output -raw agent_runtime_principal_id 2>/dev/null || true)"
+  fi
+
+  if [[ -z "${RUNTIME_UAMI_OBJECT_ID}" ]]; then
+    RESOURCE_GROUP_NAME="$(terraform -chdir="${TF_DIR}" output -raw resource_group_name 2>/dev/null || true)"
+    if [[ -n "${RESOURCE_GROUP_NAME}" ]]; then
+      MATCHING_UAMI_COUNT="$(az identity list -g "${RESOURCE_GROUP_NAME}" \
+        --query "[?starts_with(name,'id-agent-runtime-')] | length(@)" -o tsv 2>/dev/null || echo "0")"
+      if [[ "${MATCHING_UAMI_COUNT}" == "1" ]]; then
+        RUNTIME_UAMI_OBJECT_ID="$(az identity list -g "${RESOURCE_GROUP_NAME}" \
+          --query "[?starts_with(name,'id-agent-runtime-')][0].principalId" -o tsv 2>/dev/null || true)"
+      fi
+    fi
+  fi
+
+  if [[ -z "${APP_CLIENT_ID}" || -z "${RUNTIME_UAMI_OBJECT_ID}" ]]; then
+    echo "Unable to resolve app client ID and/or runtime UAMI principal ID for ownership assignment."
+    echo "App: '${APP_CLIENT_ID}'  UAMI principal: '${RUNTIME_UAMI_OBJECT_ID}'"
+    echo "Re-run with: --runtime-uami-principal-id <object-id>"
+    exit 1
+  fi
+
+  OWNER_MATCH_COUNT="$(az ad app owner list --id "${APP_CLIENT_ID}" \
+    --query "[?id=='${RUNTIME_UAMI_OBJECT_ID}'] | length(@)" -o tsv 2>/dev/null || echo "0")"
+
+  if [[ "${OWNER_MATCH_COUNT}" == "0" ]]; then
+    echo "==> Granting app ownership to runtime UAMI (${RUNTIME_UAMI_OBJECT_ID})"
+    az ad app owner add --id "${APP_CLIENT_ID}" --owner-object-id "${RUNTIME_UAMI_OBJECT_ID}" >/dev/null
+  else
+    echo "==> Runtime UAMI already owns app ${APP_CLIENT_ID}; skipping owner assignment"
+  fi
 fi
 
 echo "==> External Entra rollout ${ACTION} completed for ${ENVIRONMENT}"

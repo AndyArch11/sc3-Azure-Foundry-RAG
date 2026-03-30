@@ -49,3 +49,7 @@ output "app_secrets_key_vault_name" {
 output "app_secrets_key_vault_id" {
   value = try(module.app_secrets[0].key_vault_id, null)
 }
+
+output "agent_runtime_principal_id" {
+  value = module.identity.agent_runtime_principal_id
+}

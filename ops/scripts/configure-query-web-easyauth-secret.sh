@@ -117,12 +117,28 @@ fi
 END_DATE="$(date -u -d "+${VALID_DAYS} days" +"%Y-%m-%dT%H:%M:%SZ")"
 
 echo "==> Creating Entra app credential for app ${APP_CLIENT_ID}"
+set +e
 NEW_SECRET_VALUE="$(az ad app credential reset \
   --id "${APP_CLIENT_ID}" \
   --append \
   --display-name "${CREDENTIAL_DISPLAY_NAME}" \
   --end-date "${END_DATE}" \
-  --query password -o tsv)"
+  --query password -o tsv 2>/tmp/query-web-easyauth-credential.err)"
+AZ_CRED_RC=$?
+set -e
+
+if [[ ${AZ_CRED_RC} -ne 0 ]]; then
+  echo "Failed to create Entra app credential for app ${APP_CLIENT_ID}."
+  cat /tmp/query-web-easyauth-credential.err
+  echo ""
+  echo "This jumpbox identity needs Entra permissions to manage app credentials."
+  echo "Grant one of the following to the jumpbox/runtime identity:"
+  echo "  - Ownership on this app registration, or"
+  echo "  - Directory role with app credential write rights (for example Application Administrator)."
+  echo ""
+  echo "Fallback: run app credential creation from external admin context, then set Key Vault secret from jumpbox."
+  exit 1
+fi
 
 if [[ -z "${NEW_SECRET_VALUE}" ]]; then
   echo "Failed to create Entra app credential."
