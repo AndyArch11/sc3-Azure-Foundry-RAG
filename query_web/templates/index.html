@@ -134,6 +134,12 @@
     details.requirement-detail { margin-top: 4px; }
     details.requirement-detail > summary { cursor: pointer; color: var(--accent); font-size: .85rem; }
     .requirement-preview { color: var(--text); }
+    .rating-widget { display:flex; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap; }
+    .rating-stars { display:flex; gap:1px; }
+    .rating-stars button { background:none; border:none; cursor:pointer; font-size:1.3rem; color:#ccc; padding:0 2px; line-height:1; transition:color .1s; }
+    .rating-stars button.lit { color:#f59e0b; }
+    .rating-todo { flex:1; min-width:140px; font-size:0.82rem; padding:4px 7px; border:1px solid var(--border); border-radius:4px; background:var(--bg); color:var(--text); }
+    .rating-done { font-size:0.82rem; color:#16a34a; }
   </style>
 </head>
 <body>
@@ -323,15 +329,65 @@
     window.location.href = '/';
   }
 
+  function mdRender(text) {
+    if (typeof marked !== 'undefined') return marked.parse(text || '', { breaks: true, gfm: true });
+    return '<pre style="white-space:pre-wrap">' + escHtml(text) + '</pre>';
+  }
+
+  function setRating(btn, turnIdx, stars) {
+    const widget = document.querySelector('.rating-widget[data-turn="' + turnIdx + '"]');
+    if (!widget) return;
+    widget.dataset.rating = stars;
+    widget.querySelectorAll('.rating-stars button').forEach((b, i) => b.classList.toggle('lit', i < stars));
+  }
+
+  function submitRating(turnIdx) {
+    const session = loadSession();
+    if (!session || !session.conversation_id) { alert('No active conversation.'); return; }
+    const widget = document.querySelector('.rating-widget[data-turn="' + turnIdx + '"]');
+    const rating = parseInt(widget.dataset.rating || '0', 10);
+    if (!rating) { alert('Please select a star rating first.'); return; }
+    const todo = widget.querySelector('.rating-todo').value.trim();
+    const turn = (session.turns || [])[turnIdx];
+    const body = new URLSearchParams({
+      user_id: session.user_id || '',
+      rating: rating,
+      todo: todo,
+      assistant_timestamp: (turn && turn.a_ts) || '',
+      auth_token: session.auth_token || '',
+    });
+    fetch('/api/conversations/' + encodeURIComponent(session.conversation_id) + '/rating', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) { alert('Rating failed: ' + data.error); return; }
+      widget.innerHTML = '<span class="rating-done">&#10003; Rated ' + rating + '★' + (todo ? ' — ' + escHtml(todo) : '') + '</span>';
+    })
+    .catch(() => alert('Failed to submit rating.'));
+  }
+
   function renderThread(turns) {
     const wrapper = document.getElementById('conversation-wrapper');
     const thread = document.getElementById('conversation-thread');
     if (!turns.length) { wrapper.style.display = 'none'; return; }
     wrapper.style.display = '';
-    thread.innerHTML = turns.map(t =>
+    thread.innerHTML = turns.map((t, i) =>
       `<div class="chat-turn">
         <div class="chat-bubble user"><div class="chat-meta">You</div>${escHtml(t.q)}</div>
-        <div class="chat-bubble assistant"><div class="chat-meta">Assistant</div>${escHtml(t.a)}</div>
+        <div class="chat-bubble assistant">
+          <div class="chat-meta">Assistant</div>
+          <div class="answer">${mdRender(t.a)}</div>
+          <div class="rating-widget" data-turn="${i}">
+            <div class="rating-stars">${[1,2,3,4,5].map(s =>
+              `<button type="button" onclick="setRating(this,${i},${s})" title="${s} star${s>1?'s':''}">&#9733;</button>`
+            ).join('')}</div>
+            <input type="text" class="rating-todo" placeholder="Optional improvement note…" />
+            <button type="button" class="btn-secondary" style="font-size:.8rem;padding:3px 10px" onclick="submitRating(${i})">Rate</button>
+          </div>
+        </div>
       </div>`
     ).join('');
     thread.scrollTop = thread.scrollHeight;
@@ -389,7 +445,7 @@
         const turns = [];
         for (let i = 0; i + 1 < msgs.length; i++) {
           if (msgs[i].role === 'user' && msgs[i + 1].role === 'assistant') {
-            turns.push({ q: msgs[i].content, a: msgs[i + 1].content });
+            turns.push({ q: msgs[i].content, a: msgs[i + 1].content, a_ts: msgs[i + 1].timestamp || '' });
             i++;
           }
         }
@@ -449,20 +505,15 @@
     renderThread(session.turns);
   });
 </script>
-<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js" crossorigin="anonymous"></script>
 <script>
+  // Render static answer block (non-session / first load)
   (function () {
     const el = document.getElementById('answer-md');
     if (!el) return;
     const raw = el.getAttribute('data-raw') || '';
     if (!raw) return;
-    if (typeof marked !== 'undefined') {
-      el.innerHTML = marked.parse(raw, { breaks: true, gfm: true });
-    } else {
-      // Fallback: plain pre-wrapped text if CDN fails to load.
-      el.style.whiteSpace = 'pre-wrap';
-      el.textContent = raw;
-    }
+    el.innerHTML = mdRender(raw);
   })();
 </script>
 </body>
