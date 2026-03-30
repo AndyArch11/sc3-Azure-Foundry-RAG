@@ -10,6 +10,10 @@ output "search_endpoint" {
   value = "https://${module.data_services.search_service_name}.search.windows.net"
 }
 
+output "openai_endpoint" {
+  value = "https://${module.foundry.foundry_account_name}.openai.azure.com"
+}
+
 output "storage_account_name" {
   value = module.data_services.storage_account_name
 }

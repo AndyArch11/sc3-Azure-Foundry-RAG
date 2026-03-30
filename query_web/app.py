@@ -551,77 +551,30 @@ def _hybrid_search(question: str, retrieve_k: int) -> tuple[list[dict[str, Any]]
     return items, timings
 
 
-def _controls_search(
-    question: str,
-    retrieve_k: int,
-    *,
-    use_semantic: bool,
-) -> tuple[list[dict[str, Any]], dict[str, float]]:
-    """Retrieve requirement records from the dedicated controls index.
+def _fetch_controls(search_text: str, retrieve_k: int, use_semantic: bool) -> list[dict[str, Any]]:
+    """Execute a controls-index search and return hydrated items.
 
-    This path is intentionally resilient: if the controls index does not exist yet,
-    fields are unavailable, or semantic search is not supported, it gracefully falls
-    back to keyword search or returns empty results rather than failing the query.
+    Raises exceptions on error so callers can decide how to handle them.
     """
-    timings: dict[str, float] = {}
-
-    timings["controls_semantic_enabled"] = 1.0 if use_semantic else 0.0
-
-    t0 = time.perf_counter()
-    try:
-        search_kwargs: dict[str, Any] = {
-            "search_text": question,
-            "top": retrieve_k,
-            "select": [
-                "requirement_id",
-                "framework",
-                "framework_version",
-                "control_family",
-                "maturity_level",
-                "requirement_text",
-                "guidance_text",
-                "source_uri",
-            ],
-        }
-        if use_semantic:
-            search_kwargs["query_type"] = "semantic"
-            search_kwargs["semantic_configuration_name"] = config.controls_semantic_configuration_name
-
-        results = controls_search_client.search(**search_kwargs)
-    except Exception as e:
-        # If semantic search fails (e.g., FeatureNotSupportedInService), retry with keyword search
-        if use_semantic and "SemanticQueriesNotAvailable" in str(e):
-            try:
-                results = controls_search_client.search(
-                    search_text=question,
-                    top=retrieve_k,
-                    select=[
-                        "requirement_id",
-                        "framework",
-                        "framework_version",
-                        "control_family",
-                        "maturity_level",
-                        "requirement_text",
-                        "guidance_text",
-                        "source_uri",
-                    ],
-                )
-            except Exception:
-                timings["controls_search_s"] = round(time.perf_counter() - t0, 3)
-                return [], timings
-        else:
-            timings["controls_search_s"] = round(time.perf_counter() - t0, 3)
-            return [], timings
-
-    timings["controls_search_s"] = round(time.perf_counter() - t0, 3)
+    _SELECT = [
+        "requirement_id", "framework", "framework_version", "control_family",
+        "maturity_level", "requirement_text", "guidance_text", "source_uri",
+    ]
+    search_kwargs: dict[str, Any] = {
+        "search_text": search_text,
+        "top": retrieve_k,
+        "select": _SELECT,
+    }
+    if use_semantic:
+        search_kwargs["query_type"] = "semantic"
+        search_kwargs["semantic_configuration_name"] = config.controls_semantic_configuration_name
 
     items: list[dict[str, Any]] = []
-    for r in results:
-        score = r.get("@search.score")
+    for r in controls_search_client.search(**search_kwargs):
         requirement_text = (r.get("requirement_text") or "").strip()
-        guidance_text = (r.get("guidance_text") or "").strip()
         if not requirement_text:
             continue
+        score = r.get("@search.score")
         items.append(
             {
                 "requirement_id": r.get("requirement_id") or "",
@@ -630,12 +583,42 @@ def _controls_search(
                 "control_family": r.get("control_family") or "",
                 "maturity_level": r.get("maturity_level"),
                 "requirement_text": requirement_text,
-                "guidance_text": guidance_text,
+                "guidance_text": (r.get("guidance_text") or "").strip(),
                 "source_uri": r.get("source_uri") or "",
                 "score": float(score) if score is not None else 0.0,
             }
         )
+    return items
 
+
+def _controls_search(
+    question: str,
+    retrieve_k: int,
+    *,
+    use_semantic: bool,
+) -> tuple[list[dict[str, Any]], dict[str, float]]:
+    """Retrieve requirement records from the dedicated controls index.
+
+    Resilient: falls back from semantic to keyword on FeatureNotSupported, and
+    returns empty results (not an exception) for any other search failure so the
+    query can still proceed with grounding-index context alone.
+    """
+    timings: dict[str, float] = {}
+    timings["controls_semantic_enabled"] = 1.0 if use_semantic else 0.0
+
+    t0 = time.perf_counter()
+    try:
+        items = _fetch_controls(question, retrieve_k, use_semantic)
+    except Exception as e:
+        # Fall back to keyword search when semantic is unavailable on this tier.
+        if use_semantic and "SemanticQueriesNotAvailable" in str(e):
+            try:
+                items = _fetch_controls(question, retrieve_k, use_semantic=False)
+            except Exception:
+                items = []
+        else:
+            items = []
+    timings["controls_search_s"] = round(time.perf_counter() - t0, 3)
     return items, timings
 
 
@@ -845,6 +828,27 @@ def health() -> JSONResponse:
             "controls_semantic_default": config.controls_semantic_default,
             "auth_enabled": bool(config.auth_token),
             "entra_group_auth_enabled": bool(config.required_group_object_id),
+        }
+    )
+
+
+@app.get("/api/index-status")
+def index_status() -> JSONResponse:
+    """Diagnostic endpoint — returns document counts and reachability for both indexes."""
+    def _probe(client: SearchClient, index_name: str) -> dict[str, Any]:
+        try:
+            pager = client.search(search_text="*", top=1, include_total_count=True)
+            results = list(pager)
+            # get_count() is on the pager object, available after first iteration
+            count = pager.get_count() if hasattr(pager, "get_count") else ("1+" if results else 0)
+            return {"reachable": True, "document_count": count}
+        except Exception as exc:
+            return {"reachable": False, "error": str(exc)}
+
+    return JSONResponse(
+        {
+            "grounding_index": {"name": config.search_index_name, **_probe(search_client, config.search_index_name)},
+            "controls_index": {"name": config.controls_index_name, **_probe(controls_search_client, config.controls_index_name)},
         }
     )
 
