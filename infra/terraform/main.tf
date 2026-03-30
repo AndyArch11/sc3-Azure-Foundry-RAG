@@ -189,5 +189,10 @@ module "agent_hosting" {
   enable_query_web_app       = var.enable_query_web_app
   query_web_public_endpoint  = var.query_web_public_endpoint
   tags                       = local.tags
+
+  depends_on = [
+    module.private_endpoints,
+    module.identity
+  ]
 }
 

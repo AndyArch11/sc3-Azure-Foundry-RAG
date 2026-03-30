@@ -1,7 +1,6 @@
 locals {
   private_dns_zones = [
     "privatelink.azurecr.io",
-    "privatelink.${lower(var.location)}.data.azurecr.io",
     "privatelink.blob.core.windows.net",
     "privatelink.cognitiveservices.azure.com",
     "privatelink.documents.azure.com",
