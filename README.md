@@ -84,7 +84,7 @@ This repository provisions and operates a privately networked Azure AI Foundry s
 2. Run `./ops/scripts/phase1-bootstrap.sh <env>`, `./ops/scripts/phase2-network-dns.sh <env> apply`, and `./ops/scripts/phase3-data-ai.sh <env> apply`.
 3. Build and push immutable ingestion and query image tags from a private-network-connected host.
 4. Roll out those image tags through Terraform against `module.agent_hosting`.
-5. Upload or ingest source documents and start the ingestion job.
+5. Upload or ingest source documents, start the ingestion job, and load control data (for example Essential Eight) into the controls index.
 6. Run `./ops/scripts/run-query-web-integration-tests.sh "https://<query-web-fqdn>" "<optional-auth-token>"` from inside the private network.
 
 ## Quick Start
@@ -251,6 +251,35 @@ If RBAC resources need reconciliation after rollout, run:
 
 After rollout, use the ingestion workflow described in [runtime/README.md](runtime/README.md) to upload files and start the Container App Job.
 
+### Load Control Data
+
+After the ingestion job has indexed evidence documents, load framework control requirements (for example Essential Eight or AESCSF) into the dedicated controls index.
+
+The sample source files in `runtime/samples/` include the Essential Eight Maturity Model PDF and the AESCSF Framework Core workbook. Run the controls pipeline from inside the private network (jumpbox or CI runner) with the Search endpoint exported:
+
+```bash
+TARGET_ENV="<env>"
+TF_DIR="infra/terraform"
+
+SEARCH_EP=$(terraform -chdir="${TF_DIR}" output -raw search_endpoint)
+export AZURE_SEARCH_ENDPOINT="${SEARCH_EP}"
+
+cd runtime
+source .venv/bin/activate
+
+# Parse the Essential Eight PDF and publish to the controls index in one step
+python3 -m ingestion.controls_runner \
+  --mode parse-and-publish \
+  --framework essential_eight
+
+# Or publish a pre-parsed JSONL file directly
+python3 -m ingestion.controls_runner \
+  --mode publish \
+  --input-jsonl ../parsed-controls/essential_eight_november-2023.jsonl
+```
+
+See [runtime/README.md](runtime/README.md) for the full controls pipeline reference, supported frameworks, available modes (`parse`, `publish`, `parse-and-publish`), and controls index environment variables.
+
 ### Deploy Query Web Image
 
 Build and push the query web image from a Docker-capable host inside the VNet:
@@ -301,11 +330,19 @@ sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
 # Do not run from jumpbox UAMI context unless that identity can manage role assignments.
 ./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply
 
+# Load Essential Eight control data into the controls index (run from inside private network)
+SEARCH_EP=$(terraform -chdir=infra/terraform output -raw search_endpoint)
+export AZURE_SEARCH_ENDPOINT="${SEARCH_EP}"
+cd runtime && source .venv/bin/activate
+python3 -m ingestion.controls_runner --mode parse-and-publish --framework essential_eight
+cd ..
+
 # Run unit tests
 python3 -m pip install -r requirements-dev.txt
 python3 -m pytest tests/unit -q
 
 # Run query web integration tests from inside the private network
+# N.B. This will fail with auth issues when the query form is secured by a security group and the script is run from the jumpbox.
 QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn)
 QUERY_WEB_RUN_API_ASK=true \
 QUERY_WEB_REQUIRE_CONVERSATIONS=true \

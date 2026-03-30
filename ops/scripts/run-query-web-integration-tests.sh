@@ -39,6 +39,20 @@ fi
 
 : "${QUERY_WEB_BASE_URL:?QUERY_WEB_BASE_URL is required. Pass arg1 or set env var.}"
 
+# Accept either base URL (https://host) or a common endpoint URL
+# (https://host/ask, /api/ask, /health) and normalize to base URL.
+if [[ "${QUERY_WEB_BASE_URL}" =~ ^(https?://[^/]+)(/.*)$ ]]; then
+  _origin="${BASH_REMATCH[1]}"
+  _path="${BASH_REMATCH[2]}"
+  case "${_path%/}" in
+    /ask|/api/ask|/health)
+      echo "INFO: Normalising QUERY_WEB_BASE_URL from endpoint URL to base URL: ${_origin}"
+      QUERY_WEB_BASE_URL="${_origin}"
+      export QUERY_WEB_BASE_URL
+      ;;
+  esac
+fi
+
 export QUERY_WEB_TIMEOUT_S="${QUERY_WEB_TIMEOUT_S:-30}"
 export QUERY_WEB_RUN_API_ASK="${QUERY_WEB_RUN_API_ASK:-false}"
 export QUERY_WEB_PREFLIGHT="${QUERY_WEB_PREFLIGHT:-true}"

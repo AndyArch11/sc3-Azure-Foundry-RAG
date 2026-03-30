@@ -98,6 +98,12 @@ The suite validates:
 - conversation rating and feedback persistence when enabled
 - optional `/api/ask` request when enabled
 
+Future task:
+
+- Add non-interactive Entra bearer-token integration tests for group-gated query web access.
+- Current group gating relies on platform principal headers and is not directly testable with managed identity-only jumpbox execution.
+- Extend query web auth/test harness to support JWT claim validation (groups claim) so CI/private-runner tests can verify Entra security group enforcement without manual user session context.
+
 ## Test Data
 
 - Small sanitised PDF fixtures.
