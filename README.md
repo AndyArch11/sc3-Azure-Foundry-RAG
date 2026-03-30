@@ -255,7 +255,14 @@ After rollout, use the ingestion workflow described in [runtime/README.md](runti
 
 After the ingestion job has indexed evidence documents, load framework control requirements (for example Essential Eight or AESCSF) into the dedicated controls index.
 
-The sample source files in `runtime/samples/` include the Essential Eight Maturity Model PDF and the AESCSF Framework Core workbook. Run the controls pipeline from inside the private network (jumpbox or CI runner) with the Search endpoint exported:
+Use the controls runner from inside the private network (jumpbox or CI runner) with the Search endpoint exported. The runner supports four modes:
+
+- `parse` writes framework records to JSONL under `./parsed-controls`
+- `publish` uploads an existing JSONL file into the controls index
+- `parse-and-publish` performs both steps in one command
+- `ensure-index` creates or updates the dedicated controls index without uploading records
+
+For Essential Eight, the parser fetches the current ASD framework content directly and writes the parsed requirement records to a versioned JSONL file.
 
 ```bash
 TARGET_ENV="<env>"
@@ -267,18 +274,29 @@ export AZURE_SEARCH_ENDPOINT="${SEARCH_EP}"
 cd runtime
 source .venv/bin/activate
 
-# Parse the Essential Eight PDF and publish to the controls index in one step
+# Parse the Essential Eight framework into ./parsed-controls only
+python3 -m ingestion.controls_runner \
+  --mode parse \
+  --framework essential_eight
+
+# Create or update the controls index only
+python3 -m ingestion.controls_runner \
+  --mode ensure-index
+
+# Parse and publish Essential Eight in one step
 python3 -m ingestion.controls_runner \
   --mode parse-and-publish \
   --framework essential_eight
 
-# Or publish a pre-parsed JSONL file directly
+# Publish an existing JSONL file directly
 python3 -m ingestion.controls_runner \
   --mode publish \
   --input-jsonl ../parsed-controls/essential_eight_november-2023.jsonl
 ```
 
-See [runtime/README.md](runtime/README.md) for the full controls pipeline reference, supported frameworks, available modes (`parse`, `publish`, `parse-and-publish`), and controls index environment variables.
+Add `--no-guidance` if you want the parser to skip supplementary guidance fetches while building the JSONL output.
+
+See [runtime/README.md](runtime/README.md) for the full controls pipeline reference, supported frameworks, runner options, and controls index environment variables.
 
 ### Deploy Query Web Image
 
@@ -330,7 +348,7 @@ sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
 # Do not run from jumpbox UAMI context unless that identity can manage role assignments.
 ./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply
 
-# Load Essential Eight control data into the controls index (run from inside private network)
+# Parse and publish Essential Eight control data into the controls index (run from inside private network)
 SEARCH_EP=$(terraform -chdir=infra/terraform output -raw search_endpoint)
 export AZURE_SEARCH_ENDPOINT="${SEARCH_EP}"
 cd runtime && source .venv/bin/activate
