@@ -10,7 +10,8 @@ Runs the EXTERNAL/ADMIN Entra rollout path for query web auth resources only.
 
 What this script does:
   - targets azuread_application.query_web
-  - optionally targets azuread_application_redirect_uris.query_web
+  - automatically targets azuread_application_redirect_uris.query_web when query web FQDN already exists
+  - optionally forces redirect URI target with --include-redirect-uri
   - grants app ownership to the runtime managed identity
   - grants Microsoft Graph Application.ReadWrite.OwnedBy to the runtime managed identity
   - forces enable_hosted_query_agent_preview=false
@@ -117,7 +118,14 @@ TARGET_ARGS=(
   "-target=azuread_application.query_web"
 )
 
-if [[ "${INCLUDE_REDIRECT_URI}" == "true" ]]; then
+QUERY_WEB_FQDN="$(terraform -chdir="${TF_DIR}" output -raw query_web_fqdn 2>/dev/null || true)"
+
+if [[ "${INCLUDE_REDIRECT_URI}" == "true" || -n "${QUERY_WEB_FQDN}" ]]; then
+  if [[ -n "${QUERY_WEB_FQDN}" ]]; then
+    echo "==> Query web FQDN detected (${QUERY_WEB_FQDN}); including redirect URI target"
+  else
+    echo "==> Including redirect URI target"
+  fi
   TARGET_ARGS+=("-target=azuread_application_redirect_uris.query_web")
 fi
 

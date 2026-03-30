@@ -506,6 +506,11 @@ def _embed_query(question: str) -> list[float]:
 
 
 def _hybrid_search(question: str, retrieve_k: int) -> tuple[list[dict[str, Any]], dict[str, float]]:
+    """hybrid search over documents.
+    
+    This path is resilient: if the grounding-index does not exist yet (e.g., ingestion
+    not yet run), it returns an empty result set rather than failing the query.
+    """
     timings: dict[str, float] = {}
 
     t0 = time.perf_counter()
@@ -519,25 +524,30 @@ def _hybrid_search(question: str, retrieve_k: int) -> tuple[list[dict[str, Any]]
     )
 
     t1 = time.perf_counter()
-    results = search_client.search(
-        search_text=question,
-        vector_queries=[vector_query],
-        top=retrieve_k,
-        select=["content", "source_name", "source_path"],
-    )
-    timings["search_s"] = round(time.perf_counter() - t1, 3)
-
-    items: list[dict[str, Any]] = []
-    for r in results:
-        score = r.get("@search.score")
-        items.append(
-            {
-                "content": (r.get("content") or "").strip(),
-                "source_name": r.get("source_name") or "unknown",
-                "source_path": r.get("source_path") or "",
-                "score": float(score) if score is not None else 0.0,
-            }
+    try:
+        results = search_client.search(
+            search_text=question,
+            vector_queries=[vector_query],
+            top=retrieve_k,
+            select=["content", "source_name", "source_path"],
         )
+        items: list[dict[str, Any]] = []
+        for r in results:
+            score = r.get("@search.score")
+            items.append(
+                {
+                    "content": (r.get("content") or "").strip(),
+                    "source_name": r.get("source_name") or "unknown",
+                    "source_path": r.get("source_path") or "",
+                    "score": float(score) if score is not None else 0.0,
+                }
+            )
+    except Exception:
+        # Grounding-index may not exist if document ingestion hasn't run yet.
+        # Gracefully return empty results so query can proceed with controls-only.
+        items = []
+    
+    timings["search_s"] = round(time.perf_counter() - t1, 3)
     return items, timings
 
 

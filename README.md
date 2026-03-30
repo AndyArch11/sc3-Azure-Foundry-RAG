@@ -212,7 +212,7 @@ The standard private-network deployment path uses the Container App ingestion an
 
 Use a split operational model for standard private-network deployments:
 
-- External/admin Entra bootstrap (app registration + runtime UAMI app ownership + Microsoft Graph `Application.ReadWrite.OwnedBy`): `./ops/scripts/rollout-query-web-entra.sh "${TARGET_ENV}" apply`
+- External/admin Entra bootstrap (app registration + reply URL when FQDN exists + runtime UAMI app ownership + Microsoft Graph `Application.ReadWrite.OwnedBy`): `./ops/scripts/rollout-query-web-entra.sh "${TARGET_ENV}" apply`
 - Jumpbox rollout (non-RBAC app resources only): `sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply --ingestion-tag "<immutable-ingestion-tag>" --query-web-tag "<immutable-query-web-tag>" --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
 - Admin RBAC reconciliation (privileged identity only, run from admin workstation/CI runner): `./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply`
 

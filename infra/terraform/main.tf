@@ -186,7 +186,7 @@ resource "azuread_application" "query_web" {
     # (depends on the Container App FQDN that is only known after apply).
     implicit_grant {
       access_token_issuance_enabled = false
-      id_token_issuance_enabled     = false
+      id_token_issuance_enabled     = true
     }
   }
 }
