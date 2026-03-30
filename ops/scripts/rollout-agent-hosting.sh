@@ -88,7 +88,10 @@ if ! az account show >/dev/null 2>&1; then
 fi
 
 echo "==> Initialising Terraform root stack"
-terraform -chdir="${TF_DIR}" init -reconfigure -backend-config="${BACKEND_FILE}"
+terraform -chdir="${TF_DIR}" init \
+  -reconfigure \
+  -backend-config="${BACKEND_FILE}" \
+  -backend-config="use_azuread_auth=true"
 
 EXTRA_VAR_FILE_ARGS=()
 if [[ -f "${BOOTSTRAP_VARS_FILE}" ]]; then
