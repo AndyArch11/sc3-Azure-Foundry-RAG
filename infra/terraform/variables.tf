@@ -250,6 +250,12 @@ variable "query_web_required_group_object_id" {
   default     = ""
 }
 
+variable "query_web_entra_client_secret_key_vault_secret_id" {
+  type        = string
+  description = "Key Vault secret ID containing the Entra app client secret used by Container App EasyAuth. Populated during jumpbox rollout."
+  default     = ""
+}
+
 # Bring-Your-Own-Network (BYOL): optional pre-created network resource IDs.
 # If provided, phase 2 (network creation) can be skipped entirely.
 # Leave empty (default) to create network resources via phase 2.

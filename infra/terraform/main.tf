@@ -154,6 +154,39 @@ module "bastion_jumpbox" {
   tags                         = local.tags
 }
 
+# --- Entra app registration for query_web EasyAuth ---
+# Created automatically when enable_query_web_app = true so operators don't
+# need to pre-create an app registration manually.
+#
+# Client secret creation/rotation is intentionally handled outside Terraform
+# (for example from jumpbox), then stored in a private Key Vault. Terraform
+# receives only a Key Vault secret ID and never the secret value.
+
+resource "azuread_application" "query_web" {
+  count        = var.enable_query_web_app ? 1 : 0
+  display_name = "app-rag-query-${local.naming_suffix}"
+
+  sign_in_audience        = "AzureADMyOrg"
+  group_membership_claims = ["SecurityGroup"]
+
+  web {
+    # Redirect URIs are managed by azuread_application_redirect_uris below
+    # (depends on the Container App FQDN that is only known after apply).
+    implicit_grant {
+      access_token_issuance_enabled = false
+      id_token_issuance_enabled     = false
+    }
+  }
+}
+
+# Set the EasyAuth callback URI after the Container App FQDN is known.
+resource "azuread_application_redirect_uris" "query_web" {
+  count          = var.enable_query_web_app ? 1 : 0
+  application_id = azuread_application.query_web[0].id
+  type           = "Web"
+  redirect_uris  = ["https://${module.agent_hosting.query_web_fqdn}/.auth/login/aad/callback"]
+}
+
 module "agent_hosting" {
   source                     = "./modules/agent_hosting"
   resource_group_name        = module.foundation.resource_group_name
@@ -181,9 +214,12 @@ module "agent_hosting" {
   query_top_k                = var.query_top_k
   query_default_temperature  = var.query_default_temperature
   query_eval_threshold       = var.query_eval_threshold
+  query_web_entra_client_secret_key_vault_secret_id = var.query_web_entra_client_secret_key_vault_secret_id
   ingestion_job_image_tag    = var.ingestion_job_image_tag
   query_web_auth_token       = var.query_web_auth_token
   query_web_required_group_object_id = var.query_web_required_group_object_id
+  query_web_entra_client_id     = try(azuread_application.query_web[0].client_id, "")
+  entra_tenant_id               = data.azurerm_client_config.current.tenant_id
   query_web_image_tag        = var.query_web_image_tag
   enable_ingestion_job       = var.enable_ingestion_job
   enable_query_web_app       = var.enable_query_web_app

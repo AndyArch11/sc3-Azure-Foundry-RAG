@@ -4,7 +4,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/rollout-agent-hosting.sh <env> [plan|apply] [--ingestion-tag <tag>] [--query-web-tag <tag>]
+  ./ops/scripts/rollout-agent-hosting.sh <env> [plan|apply] [--ingestion-tag <tag>] [--query-web-tag <tag>] [--entra-secret-kv <kv-name>] [--entra-secret-name <secret-name>]
 
 Runs the STANDARD (non-preview) rollout for module.agent_hosting only.
 
@@ -17,6 +17,7 @@ What this script does:
 Examples:
   ./ops/scripts/rollout-agent-hosting.sh dev apply
   ./ops/scripts/rollout-agent-hosting.sh dev apply --ingestion-tag 202603292354-8115700 --query-web-tag 202603292347-8115700
+  ./ops/scripts/rollout-agent-hosting.sh dev apply --query-web-tag 202603292347-8115700 --entra-secret-kv kv-app-secrets-dev
 EOF
   exit 0
 fi
@@ -49,6 +50,8 @@ esac
 
 INGESTION_TAG=""
 QUERY_WEB_TAG=""
+ENTRA_SECRET_KV=""
+ENTRA_SECRET_NAME=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,6 +61,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --query-web-tag)
       QUERY_WEB_TAG="${2:-}"
+      shift 2
+      ;;
+    --entra-secret-kv)
+      ENTRA_SECRET_KV="${2:-}"
+      shift 2
+      ;;
+    --entra-secret-name)
+      ENTRA_SECRET_NAME="${2:-}"
       shift 2
       ;;
     *)
@@ -112,12 +123,32 @@ if [[ -n "${QUERY_WEB_TAG}" ]]; then
   EXTRA_VAR_ARGS+=("-var=query_web_image_tag=${QUERY_WEB_TAG}")
 fi
 
+if [[ -n "${ENTRA_SECRET_KV}" ]]; then
+  if [[ -z "${ENTRA_SECRET_NAME}" ]]; then
+    ENTRA_SECRET_NAME="query-web-entra-client-secret-${ENVIRONMENT}"
+  fi
+
+  echo "==> Resolving Entra EasyAuth secret ID from Key Vault (${ENTRA_SECRET_KV}/${ENTRA_SECRET_NAME})"
+  ENTRA_SECRET_ID="$(az keyvault secret show \
+    --vault-name "${ENTRA_SECRET_KV}" \
+    --name "${ENTRA_SECRET_NAME}" \
+    --query id -o tsv)"
+
+  if [[ -z "${ENTRA_SECRET_ID}" ]]; then
+    echo "Failed to resolve Key Vault secret ID for ${ENTRA_SECRET_KV}/${ENTRA_SECRET_NAME}."
+    exit 1
+  fi
+
+  EXTRA_VAR_ARGS+=("-var=query_web_entra_client_secret_key_vault_secret_id=${ENTRA_SECRET_ID}")
+fi
+
 TF_SAFETY_ARGS=(
   "-parallelism=1"
   "-lock-timeout=5m"
 )
 
 TARGET_ARGS=(
+  "-target=azuread_application.query_web"
   "-target=module.agent_hosting.azurerm_container_app_environment.this"
   "-target=module.agent_hosting.azurerm_private_dns_zone.container_apps"
   "-target=module.agent_hosting.azurerm_private_dns_zone_virtual_network_link.container_apps"
@@ -126,6 +157,8 @@ TARGET_ARGS=(
   "-target=module.agent_hosting.azurerm_private_dns_a_record.query_web_vnet"
   "-target=module.agent_hosting.azurerm_container_app_job.ingestion"
   "-target=module.agent_hosting.azurerm_container_app.query_web"
+  "-target=module.agent_hosting.azapi_resource.query_web_auth"
+  "-target=azuread_application_redirect_uris.query_web"
 )
 
 if [[ "${ACTION}" == "plan" ]]; then

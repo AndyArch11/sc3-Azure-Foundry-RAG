@@ -45,6 +45,16 @@ That identity has the following roles (managed by `modules/identity`):
 
 The same identity is attached to the jumpbox VM for interactive ingestion runs.
 
+For Entra EasyAuth on query web, the app registration is Terraform-managed at
+the root stack, while the client secret is expected to be created or rotated
+from jumpbox and stored in a private Key Vault. Use:
+
+```bash
+sudo ./ops/scripts/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" \
+  --key-vault-name "<private-kv-name>" \
+  --secret-name "query-web-entra-client-secret-${TARGET_ENV}"
+```
+
 ## Image
 
 The job image should be built and pushed with an immutable tag.  
@@ -61,7 +71,9 @@ Example rollout:
 
 ```bash
 sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
-  --ingestion-tag "<immutable-ingestion-tag>"
+  --ingestion-tag "<immutable-ingestion-tag>" \
+  --entra-secret-kv "<private-kv-name>" \
+  --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 ```
 
 If RBAC role assignments need reconciliation, run from an admin identity:

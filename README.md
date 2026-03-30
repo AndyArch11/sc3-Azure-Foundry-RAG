@@ -203,12 +203,14 @@ On the jumpbox:
   - `sudo ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --init-terraform-backend "${TARGET_ENV}" --run-unit-tests`
 5. If the VM has multiple user-assigned identities, pass the intended client ID explicitly:
   - `sudo ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --az-login-client-id "<agent-runtime-uami-client-id>" --init-terraform-backend "${TARGET_ENV}" --run-unit-tests`
+6. If using Entra group-gated query web auth, create or rotate the EasyAuth app credential and store it in your private Key Vault:
+  - `sudo ./ops/scripts/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" --key-vault-name "<private-kv-name>" --secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
 
 The standard private-network deployment path uses the Container App ingestion and query services. The `phase3b-agent-hosting.sh` script is only for the preview hosted-query-agent path and is not required for the normal runtime deployment.
 
 Use a split operational model for standard private-network deployments:
 
-- Jumpbox rollout (non-RBAC app resources only): `sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply --ingestion-tag "<immutable-ingestion-tag>" --query-web-tag "<immutable-query-web-tag>"`
+- Jumpbox rollout (non-RBAC app resources only): `sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply --ingestion-tag "<immutable-ingestion-tag>" --query-web-tag "<immutable-query-web-tag>" --entra-secret-kv "<private-kv-name>" --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
 - Admin RBAC reconciliation (privileged identity only, run from admin workstation/CI runner): `./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply`
 
 This avoids permission failures when jumpbox identities cannot manage role assignments.
@@ -309,7 +311,9 @@ Roll out the query web image from jumpbox:
 
 ```bash
 sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
-  --query-web-tag "<immutable-query-web-tag>"
+  --query-web-tag "<immutable-query-web-tag>" \
+  --entra-secret-kv "<private-kv-name>" \
+  --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 ```
 
 ### Validate Query Web Deployment
@@ -342,7 +346,9 @@ ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build
 # Roll out app image tags from jumpbox (non-RBAC resources)
 sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --ingestion-tag "<immutable-ingestion-tag>" \
-  --query-web-tag "<immutable-query-web-tag>"
+  --query-web-tag "<immutable-query-web-tag>" \
+  --entra-secret-kv "<private-kv-name>" \
+  --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 
 # Reconcile RBAC role assignments from admin context (local admin shell or CI)
 # Do not run from jumpbox UAMI context unless that identity can manage role assignments.

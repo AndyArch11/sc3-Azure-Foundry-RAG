@@ -37,3 +37,7 @@ output "query_web_app_name" {
 output "query_web_fqdn" {
   value = module.agent_hosting.query_web_fqdn
 }
+
+output "query_web_entra_client_id" {
+  value = try(azuread_application.query_web[0].client_id, null)
+}

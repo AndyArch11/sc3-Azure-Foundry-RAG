@@ -52,6 +52,24 @@ variable "query_web_public_endpoint" {
   EOT
   default     = false
 }
+variable "query_web_entra_client_id" {
+  type        = string
+  description = "Entra ID app registration client ID for Container App EasyAuth. Required when query_web_required_group_object_id is non-empty."
+  default     = ""
+}
+
+variable "query_web_entra_client_secret_key_vault_secret_id" {
+  type        = string
+  description = "Key Vault secret ID containing Entra ID app registration client secret for Container App EasyAuth."
+  default     = ""
+}
+
+variable "entra_tenant_id" {
+  type        = string
+  description = "Entra (Azure AD) tenant ID, used to build the OpenID Connect issuer URL for EasyAuth."
+  default     = ""
+}
+
 variable "tags" {
   type    = map(string)
   default = {}

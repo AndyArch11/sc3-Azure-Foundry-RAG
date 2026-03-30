@@ -267,6 +267,16 @@ resource "azurerm_container_app" "query_web" {
     }
   }
 
+  # Secret for Container App EasyAuth via Key Vault reference.
+  dynamic "secret" {
+    for_each = var.query_web_entra_client_secret_key_vault_secret_id != "" ? [1] : []
+    content {
+      name                = "entra-auth-client-secret"
+      key_vault_secret_id = var.query_web_entra_client_secret_key_vault_secret_id
+      identity            = var.agent_runtime_identity_id
+    }
+  }
+
   tags = var.tags
 }
 
@@ -275,4 +285,48 @@ resource "azurerm_role_assignment" "query_web_contributor" {
   scope                = azurerm_container_app.query_web[0].id
   role_definition_name = "Contributor"
   principal_id         = var.agent_runtime_principal_id
+}
+
+# Container App built-in authentication (EasyAuth) — injects x-ms-client-principal headers
+# so the app can gate access by Entra ID group membership without implementing OAuth itself.
+# Only provisioned when both query_web_entra_client_id and
+# query_web_entra_client_secret_key_vault_secret_id are set.
+# Requires an Entra ID app registration with:
+#   - Redirect URI set to https://<query-web-fqdn>/.auth/login/aad/callback
+#   - Group membership claims enabled (groupMembershipClaims: SecurityGroup in the manifest)
+resource "azapi_resource" "query_web_auth" {
+  count     = (var.enable_query_web_app && var.query_web_entra_client_id != "" && var.query_web_entra_client_secret_key_vault_secret_id != "") ? 1 : 0
+  type      = "Microsoft.App/containerApps/authConfigs@2024-03-01"
+  name      = "current"
+  parent_id = azurerm_container_app.query_web[0].id
+
+  body = {
+    properties = {
+      platform = {
+        enabled        = true
+        runtimeVersion = "~1"
+      }
+      globalValidation = {
+        unauthenticatedClientAction = "RedirectToLoginPage"
+        excludedPaths               = ["/health"]
+      }
+      identityProviders = {
+        azureActiveDirectory = {
+          enabled = true
+          registration = {
+            clientId                = var.query_web_entra_client_id
+            clientSecretSettingName = "entra-auth-client-secret"
+            openIdIssuer            = "https://login.microsoftonline.com/${var.entra_tenant_id}/v2.0"
+          }
+          validation = {
+            allowedAudiences = ["api://${var.query_web_entra_client_id}"]
+          }
+        }
+      }
+      login = {
+        preserveUrlFragmentsForLogins = false
+        tokenStore                    = { enabled = false }
+      }
+    }
+  }
 }
