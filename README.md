@@ -210,6 +210,7 @@ The standard private-network deployment path uses the Container App ingestion an
 
 Use a split operational model for standard private-network deployments:
 
+- External/admin Entra bootstrap (app registration only): `./ops/scripts/rollout-query-web-entra.sh "${TARGET_ENV}" apply`
 - Jumpbox rollout (non-RBAC app resources only): `sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply --ingestion-tag "<immutable-ingestion-tag>" --query-web-tag "<immutable-query-web-tag>" --entra-secret-kv "<private-kv-name>" --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
 - Admin RBAC reconciliation (privileged identity only, run from admin workstation/CI runner): `./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply`
 
@@ -342,6 +343,9 @@ TARGET_ENV="<env>"
 # Build and push immutable images from a private-network-connected host
 ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-ingestion.sh
 ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-query-web.sh
+
+# External/admin: create the Entra app registration used by query web EasyAuth
+./ops/scripts/rollout-query-web-entra.sh "${TARGET_ENV}" apply
 
 # Roll out app image tags from jumpbox (non-RBAC resources)
 sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \

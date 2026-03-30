@@ -10,6 +10,7 @@ Runs the STANDARD (non-preview) rollout for module.agent_hosting only.
 
 What this script does:
   - targets module.agent_hosting only
+  - skips state refresh (avoids Entra app-registration read permissions on jumpbox identities)
   - forces enable_hosted_query_agent_preview=false
   - bypasses bootstrap Key Vault lookup paths that are unrelated to agent_hosting
   - optionally overrides image tags for ingestion/query-web
@@ -148,7 +149,6 @@ TF_SAFETY_ARGS=(
 )
 
 TARGET_ARGS=(
-  "-target=azuread_application.query_web"
   "-target=module.agent_hosting.azurerm_container_app_environment.this"
   "-target=module.agent_hosting.azurerm_private_dns_zone.container_apps"
   "-target=module.agent_hosting.azurerm_private_dns_zone_virtual_network_link.container_apps"
@@ -158,13 +158,13 @@ TARGET_ARGS=(
   "-target=module.agent_hosting.azurerm_container_app_job.ingestion"
   "-target=module.agent_hosting.azurerm_container_app.query_web"
   "-target=module.agent_hosting.azapi_resource.query_web_auth"
-  "-target=azuread_application_redirect_uris.query_web"
 )
 
 if [[ "${ACTION}" == "plan" ]]; then
   echo "==> Running standard agent_hosting plan (${ENVIRONMENT})"
   terraform -chdir="${TF_DIR}" plan \
     -input=false \
+    -refresh=false \
     "${TF_SAFETY_ARGS[@]}" \
     "${EXTRA_VAR_FILE_ARGS[@]}" \
     "${EXTRA_VAR_ARGS[@]}" \
@@ -174,6 +174,7 @@ else
   echo "==> Running standard agent_hosting apply (${ENVIRONMENT})"
   terraform -chdir="${TF_DIR}" apply \
     -input=false \
+    -refresh=false \
     "${TF_SAFETY_ARGS[@]}" \
     "${EXTRA_VAR_FILE_ARGS[@]}" \
     "${EXTRA_VAR_ARGS[@]}" \
