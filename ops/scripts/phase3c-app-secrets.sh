@@ -4,25 +4,13 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/phase3-data-ai.sh <env> [plan|apply]
+  ./ops/scripts/phase3c-app-secrets.sh <env> [plan|apply]
 
-Runs Phase 3 Terraform targets for observability, data services, Foundry,
-private endpoints, identity, and bastion/jumpbox.
+Runs a focused Terraform plan/apply for the private app-secrets Key Vault path.
 
-The bastion and jumpbox live here (not phase 2) because they depend on the
-identity module which provides the runtime managed identity.
-
-USAGE SCENARIOS:
-
-1. Standard path (phase 2 creates network):
-   Run phase2-network-dns.sh first, then phase3-data-ai.sh.
-
-2. BYOL path (bring-your-own-network):
-   Skip phase 2 entirely. Set byol_* variables for network resource IDs in tfvars or as -var options,
-   then run only phase3-data-ai.sh to deploy Foundry components into your pre-existing network.
-   Note: bastion/jumpbox are NOT created in BYOL mode.
-
-Agent hosting is deployed separately via phase3b-agent-hosting.sh.
+What this deploys:
+  - module.identity (runtime managed identity role wiring)
+  - module.app_secrets (private Key Vault + private endpoint + DNS link)
 
 Defaults:
   env    = dev
@@ -30,10 +18,6 @@ Defaults:
 EOF
   exit 0
 fi
-
-# Executes Phase 3 scoped Terraform plan/apply for observability, data services,
-# Foundry, private endpoints, identity, and bastion/jumpbox.
-# Agent hosting (preview API) is deployed separately via phase3b-agent-hosting.sh.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TF_DIR="${ROOT_DIR}/infra/terraform"
@@ -82,13 +66,8 @@ echo "==> Initialising Terraform root stack"
 terraform -chdir="${TF_DIR}" init -reconfigure -backend-config="${BACKEND_FILE}"
 
 TARGET_ARGS=(
-  "-target=module.observability"
-  "-target=module.data_services"
-  "-target=module.foundry"
-  "-target=module.private_endpoints"
   "-target=module.identity"
   "-target=module.app_secrets"
-  "-target=module.bastion_jumpbox"
 )
 
 EXTRA_VAR_FILE_ARGS=()
@@ -96,14 +75,13 @@ if [[ -f "${BOOTSTRAP_VARS_FILE}" ]]; then
   EXTRA_VAR_FILE_ARGS+=("-var-file=${BOOTSTRAP_VARS_FILE}")
 fi
 
-# Safety-first defaults: serialise graph execution and wait for state lock.
 TF_SAFETY_ARGS=(
   "-parallelism=1"
   "-lock-timeout=5m"
 )
 
 if [[ "${ACTION}" == "plan" ]]; then
-  echo "==> Running Phase 3 plan (${ENVIRONMENT})"
+  echo "==> Running Phase 3c app-secrets plan (${ENVIRONMENT})"
   terraform -chdir="${TF_DIR}" plan \
     -input=false \
     "${TF_SAFETY_ARGS[@]}" \
@@ -111,7 +89,7 @@ if [[ "${ACTION}" == "plan" ]]; then
     -var-file="${VAR_FILE}" \
     "${TARGET_ARGS[@]}"
 else
-  echo "==> Running Phase 3 apply (${ENVIRONMENT})"
+  echo "==> Running Phase 3c app-secrets apply (${ENVIRONMENT})"
   terraform -chdir="${TF_DIR}" apply \
     -input=false \
     "${TF_SAFETY_ARGS[@]}" \
@@ -121,4 +99,4 @@ else
     "${TARGET_ARGS[@]}"
 fi
 
-echo "==> Phase 3 ${ACTION} completed for ${ENVIRONMENT}"
+echo "==> Phase 3c ${ACTION} completed for ${ENVIRONMENT}"

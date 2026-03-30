@@ -220,8 +220,10 @@ If Entra group-gated query web auth is enabled, first create or rotate the
 EasyAuth app credential and write it to your private Key Vault:
 
 ```bash
+# Run once per environment to provision private app-secrets Key Vault + PE:
+./ops/scripts/phase3c-app-secrets.sh "${TARGET_ENV}" apply
+
 sudo ./ops/scripts/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" \
-  --key-vault-name "<private-kv-name>" \
   --secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 ```
 
@@ -229,7 +231,7 @@ sudo ./ops/scripts/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" \
 sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --ingestion-tag "${INGESTION_TAG}" \
   --query-web-tag "${QUERY_TAG}" \
-  --entra-secret-kv "<private-kv-name>" \
+  --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" \
   --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 ```
 

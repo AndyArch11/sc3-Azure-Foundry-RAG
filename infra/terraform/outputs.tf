@@ -41,3 +41,11 @@ output "query_web_fqdn" {
 output "query_web_entra_client_id" {
   value = try(azuread_application.query_web[0].client_id, null)
 }
+
+output "app_secrets_key_vault_name" {
+  value = try(module.app_secrets[0].key_vault_name, null)
+}
+
+output "app_secrets_key_vault_id" {
+  value = try(module.app_secrets[0].key_vault_id, null)
+}

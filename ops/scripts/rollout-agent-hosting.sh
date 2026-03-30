@@ -14,6 +14,7 @@ What this script does:
   - forces enable_hosted_query_agent_preview=false
   - bypasses bootstrap Key Vault lookup paths that are unrelated to agent_hosting
   - optionally overrides image tags for ingestion/query-web
+  - can resolve Entra EasyAuth secret ID from a private Key Vault
 
 Examples:
   ./ops/scripts/rollout-agent-hosting.sh dev apply

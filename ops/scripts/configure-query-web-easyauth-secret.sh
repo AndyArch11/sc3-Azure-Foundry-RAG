@@ -67,11 +67,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "${KEY_VAULT_NAME}" ]]; then
-  echo "--key-vault-name is required."
-  exit 1
-fi
-
 if ! [[ "${VALID_DAYS}" =~ ^[0-9]+$ ]]; then
   echo "--valid-days must be a positive integer."
   exit 1
@@ -101,6 +96,16 @@ terraform -chdir="${TF_DIR}" init \
   -backend-config="use_azuread_auth=true" >/dev/null
 
 APP_CLIENT_ID="$(terraform -chdir="${TF_DIR}" output -raw query_web_entra_client_id 2>/dev/null || true)"
+
+if [[ -z "${KEY_VAULT_NAME}" ]]; then
+  KEY_VAULT_NAME="$(terraform -chdir="${TF_DIR}" output -raw app_secrets_key_vault_name 2>/dev/null || true)"
+fi
+
+if [[ -z "${KEY_VAULT_NAME}" ]]; then
+  echo "Unable to resolve Key Vault name from Terraform outputs."
+  echo "Set it explicitly with --key-vault-name or run phase3c-app-secrets first."
+  exit 1
+fi
 
 if [[ -z "${APP_CLIENT_ID}" ]]; then
   echo "Unable to read query_web_entra_client_id from Terraform outputs."

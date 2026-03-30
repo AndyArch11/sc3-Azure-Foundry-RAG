@@ -7,7 +7,8 @@ locals {
     "privatelink.file.core.windows.net",
     "privatelink.openai.azure.com",
     "privatelink.search.windows.net",
-    "privatelink.services.ai.azure.com"
+    "privatelink.services.ai.azure.com",
+    "privatelink.vaultcore.azure.net"
   ]
 }
 

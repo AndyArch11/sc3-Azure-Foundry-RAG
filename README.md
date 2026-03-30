@@ -165,7 +165,9 @@ Run the environment build scripts in order (can take over 1 hour to provision th
   - `./ops/scripts/phase2-network-dns.sh "${TARGET_ENV}" apply`
 3. Optional Create Foundry related Azure resources (only required if BYOL network resources or wanting the jumpbox/bastion host):
   - `./ops/scripts/phase3-data-ai.sh "${TARGET_ENV}" apply`
-4. Optional preview-only hosted agent path (ignore this step unless wanting to play with hosted agents - untested code): 
+4. Create private app secrets Key Vault and private endpoint:
+  - `./ops/scripts/phase3c-app-secrets.sh "${TARGET_ENV}" apply`
+5. Optional preview-only hosted agent path (ignore this step unless wanting to play with hosted agents - untested code): 
   - `ENABLE_HOSTED_QUERY_AGENT_PREVIEW=true ./ops/scripts/phase3b-agent-hosting.sh "${TARGET_ENV}" apply`
 
 #### Optional install verification
@@ -203,15 +205,15 @@ On the jumpbox:
   - `sudo ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --init-terraform-backend "${TARGET_ENV}" --run-unit-tests`
 5. If the VM has multiple user-assigned identities, pass the intended client ID explicitly:
   - `sudo ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --az-login-client-id "<agent-runtime-uami-client-id>" --init-terraform-backend "${TARGET_ENV}" --run-unit-tests`
-6. If using Entra group-gated query web auth, create or rotate the EasyAuth app credential and store it in your private Key Vault:
-  - `sudo ./ops/scripts/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" --key-vault-name "<private-kv-name>" --secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
+6. If using Entra group-gated query web auth, create or rotate the EasyAuth app credential and store it in the private app secrets Key Vault:
+  - `sudo ./ops/scripts/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" --secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
 
 The standard private-network deployment path uses the Container App ingestion and query services. The `phase3b-agent-hosting.sh` script is only for the preview hosted-query-agent path and is not required for the normal runtime deployment.
 
 Use a split operational model for standard private-network deployments:
 
 - External/admin Entra bootstrap (app registration only): `./ops/scripts/rollout-query-web-entra.sh "${TARGET_ENV}" apply`
-- Jumpbox rollout (non-RBAC app resources only): `sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply --ingestion-tag "<immutable-ingestion-tag>" --query-web-tag "<immutable-query-web-tag>" --entra-secret-kv "<private-kv-name>" --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
+- Jumpbox rollout (non-RBAC app resources only): `sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply --ingestion-tag "<immutable-ingestion-tag>" --query-web-tag "<immutable-query-web-tag>" --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
 - Admin RBAC reconciliation (privileged identity only, run from admin workstation/CI runner): `./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply`
 
 This avoids permission failures when jumpbox identities cannot manage role assignments.
@@ -339,6 +341,7 @@ TARGET_ENV="<env>"
 ./ops/scripts/phase1-bootstrap.sh "${TARGET_ENV}"
 ./ops/scripts/phase2-network-dns.sh "${TARGET_ENV}" apply
 ./ops/scripts/phase3-data-ai.sh "${TARGET_ENV}" apply
+./ops/scripts/phase3c-app-secrets.sh "${TARGET_ENV}" apply
 
 # Build and push immutable images from a private-network-connected host
 ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-ingestion.sh
@@ -347,11 +350,15 @@ ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build
 # External/admin: create the Entra app registration used by query web EasyAuth
 ./ops/scripts/rollout-query-web-entra.sh "${TARGET_ENV}" apply
 
+# Jumpbox: create/rotate EasyAuth app credential and publish to private Key Vault
+sudo ./ops/scripts/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" \
+  --secret-name "query-web-entra-client-secret-${TARGET_ENV}"
+
 # Roll out app image tags from jumpbox (non-RBAC resources)
 sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --ingestion-tag "<immutable-ingestion-tag>" \
   --query-web-tag "<immutable-query-web-tag>" \
-  --entra-secret-kv "<private-kv-name>" \
+  --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" \
   --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 
 # Reconcile RBAC role assignments from admin context (local admin shell or CI)

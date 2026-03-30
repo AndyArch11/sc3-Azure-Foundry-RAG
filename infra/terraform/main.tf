@@ -140,6 +140,18 @@ module "identity" {
   tags = local.tags
 }
 
+module "app_secrets" {
+  count                     = (!local.use_byol_network && var.enable_query_web_app) ? 1 : 0
+  source                    = "./modules/app_secrets"
+  resource_group_name       = module.foundation.resource_group_name
+  location                  = var.location
+  suffix                    = local.naming_suffix
+  private_endpoint_subnet_id = local.private_endpoint_subnet_id
+  private_dns_zone_id       = module.dns[0].private_dns_zone_ids["privatelink.vaultcore.azure.net"]
+  agent_runtime_principal_id = module.identity.agent_runtime_principal_id
+  tags                      = local.tags
+}
+
 module "bastion_jumpbox" {
   count                        = local.use_byol_network ? 0 : 1
   source                       = "./modules/bastion_jumpbox"
