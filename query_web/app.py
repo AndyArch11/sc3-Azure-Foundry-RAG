@@ -202,14 +202,40 @@ def _json_fallback_eval() -> dict[str, Any]:
 
 
 def _parse_eval(text: str) -> dict[str, Any]:
-    try:
-        data = json.loads(text)
-        acceptable = bool(data.get("acceptable", False))
-        score = max(0.0, min(1.0, float(data.get("score", 0.0))))
-        reason = str(data.get("reason", "No reason provided.")).strip()
-        return {"acceptable": acceptable, "score": score, "reason": reason}
-    except Exception:
-        return _json_fallback_eval()
+    """Extract and validate the evaluation JSON from the model response.
+
+    Handles models that wrap JSON in markdown code fences or prefix it with prose
+    by scanning for the first {...} block that contains the required keys.
+    """
+    candidates: list[str] = []
+
+    # 1. Try the full response as-is (ideal case).
+    candidates.append(text.strip())
+
+    # 2. Strip ```json ... ``` or ``` ... ``` fences.
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fence_match:
+        candidates.append(fence_match.group(1))
+
+    # 3. Extract every {...} block in the response (handles leading/trailing prose).
+    for m in re.finditer(r"\{[^{}]*\}", text, re.DOTALL):
+        candidates.append(m.group(0))
+
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+            if not isinstance(data, dict):
+                continue
+            if "acceptable" not in data and "score" not in data:
+                continue
+            acceptable = bool(data.get("acceptable", False))
+            score = max(0.0, min(1.0, float(data.get("score", 0.0))))
+            reason = str(data.get("reason", "No reason provided.")).strip()
+            return {"acceptable": acceptable, "score": score, "reason": reason}
+        except Exception:
+            continue
+
+    return _json_fallback_eval()
 
 
 app = FastAPI(title="RAG Query Console")
