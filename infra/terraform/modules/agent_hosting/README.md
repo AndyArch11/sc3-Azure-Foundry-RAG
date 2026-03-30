@@ -55,17 +55,20 @@ TARGET_ENV="<env>"
 ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-ingestion.sh
 ```
 
-Then roll that exact tag into Terraform or update the job configuration explicitly so deployments remain reproducible.
+Then roll that exact tag using the standard jumpbox rollout script so deployments remain reproducible.
 
 Example rollout:
 
 ```bash
-terraform -chdir=infra/terraform apply \
-  -input=false \
-  -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
-  -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \
-  -var "ingestion_job_image_tag=<immutable-ingestion-tag>" \
-  -target=module.agent_hosting
+sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+  --ingestion-tag "<immutable-ingestion-tag>"
+```
+
+If RBAC role assignments need reconciliation, run from an admin identity:
+
+```bash
+# Run from admin context (local admin shell or CI), not jumpbox UAMI context.
+./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply
 ```
 
 > **Note:** the script must run from inside the VNet (jumpbox or CI with VNet

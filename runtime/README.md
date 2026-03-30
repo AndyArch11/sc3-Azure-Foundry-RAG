@@ -212,18 +212,21 @@ ENV="${TARGET_ENV}" IMAGE_TAG="${QUERY_TAG}" ./ops/scripts/build-push-query-web.
 
 Use immutable tags rather than `latest` so Container Apps revisions roll forward predictably and Terraform plans remain stable.
 
-### Roll Out The Images With Terraform
+### Roll Out The Images
 
-The build scripts print rollout commands. A full manual example is:
+For standard private-network deployments, run non-RBAC rollout from jumpbox:
 
 ```bash
-terraform -chdir=infra/terraform apply \
-  -input=false \
-  -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
-  -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \
-  -var "ingestion_job_image_tag=${INGESTION_TAG}" \
-  -var "query_web_image_tag=${QUERY_TAG}" \
-  -target=module.agent_hosting
+sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+  --ingestion-tag "${INGESTION_TAG}" \
+  --query-web-tag "${QUERY_TAG}"
+```
+
+Then reconcile RBAC resources from an admin identity:
+
+```bash
+# Run from admin context (local admin shell or CI), not jumpbox UAMI context.
+./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply
 ```
 
 ### Upload Documents To Blob Storage

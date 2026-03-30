@@ -13,12 +13,11 @@ Usage:
 Builds and pushes the rag-query-web image to the target environment ACR.
 
 Recommended follow-up rollout:
-  terraform -chdir=infra/terraform apply \
-    -input=false \
-    -var-file=environments/<env>/bootstrap.generated.tfvars \
-    -var-file=environments/<env>/<env>.tfvars \
-    -var query_web_image_tag=<immutable-tag> \
-    -target=module.agent_hosting
+  sudo ./ops/scripts/rollout-agent-hosting.sh <env> apply \
+    --query-web-tag <immutable-tag>
+
+Optional RBAC reconciliation (admin identity):
+  ./ops/scripts/reconcile-rbac-admin.sh <env> apply
 EOF
   exit 0
 fi
@@ -179,4 +178,6 @@ az acr login --name "${ACR_LOGIN_SERVER%%.*}"
 
 echo "==> Done: ${FULL_IMAGE}"
 echo "==> Rollout command:"
-echo "terraform -chdir=${TF_DIR} apply -input=false -var-file=environments/${ENV}/bootstrap.generated.tfvars -var-file=environments/${ENV}/${ENV}.tfvars -var query_web_image_tag=${IMAGE_TAG} -target=module.agent_hosting"
+echo "sudo ./ops/scripts/rollout-agent-hosting.sh ${ENV} apply --query-web-tag ${IMAGE_TAG}"
+echo "# Optional admin RBAC reconciliation:"
+echo "./ops/scripts/reconcile-rbac-admin.sh ${ENV} apply"

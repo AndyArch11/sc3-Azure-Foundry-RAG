@@ -206,6 +206,19 @@ On the jumpbox:
 
 The standard private-network deployment path uses the Container App ingestion and query services. The `phase3b-agent-hosting.sh` script is only for the preview hosted-query-agent path and is not required for the normal runtime deployment.
 
+Use a split operational model for standard private-network deployments:
+
+- Jumpbox rollout (non-RBAC app resources only): `sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply --ingestion-tag "<immutable-ingestion-tag>" --query-web-tag "<immutable-query-web-tag>"`
+- Admin RBAC reconciliation (privileged identity only, run from admin workstation/CI runner): `./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply`
+
+This avoids permission failures when jumpbox identities cannot manage role assignments.
+
+Important context split:
+
+- Run `rollout-agent-hosting.sh` on the jumpbox using the VM managed identity.
+- Run `reconcile-rbac-admin.sh` from an admin context (for example your local admin shell or CI runner signed in with Owner/User Access Administrator permissions).
+- Do not run `reconcile-rbac-admin.sh` from the jumpbox managed identity unless that identity has role-assignment write/delete privileges.
+
 This should have already been taken care of by the configure-jumpbox.sh script, but if needing to reset the login:
 
 ```bash
@@ -222,15 +235,18 @@ Build and push the ingestion image from a Docker-capable host inside the VNet, t
 - `sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-ingestion.sh`
 - Update `ingestion_job_image_tag` in `infra/terraform/environments/<env>/<env>.tfvars` with `<immutable-ingestion-tag>` container tag
 
-The script prints a Terraform rollout command. Apply that exact image tag with Terraform, for example:
+Roll out the new image tag from jumpbox with the standard non-RBAC rollout script:
 
 ```bash
-terraform -chdir=infra/terraform apply \
-  -input=false \
-  -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
-  -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \
-  -var "ingestion_job_image_tag=<immutable-ingestion-tag>" \
-  -target=module.agent_hosting
+sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+  --ingestion-tag "<immutable-ingestion-tag>"
+```
+
+If RBAC resources need reconciliation after rollout, run:
+
+```bash
+# Run from admin context (not jumpbox UAMI context)
+./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply
 ```
 
 After rollout, use the ingestion workflow described in [runtime/README.md](runtime/README.md) to upload files and start the Container App Job.
@@ -242,15 +258,11 @@ Build and push the query web image from a Docker-capable host inside the VNet:
 - `sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-query-web.sh`
 - Update `query_web_image_tag` in `infra/terraform/environments/<env>/<env>.tfvars` with `<immutable-query-web-tag>` container tag
 
-Apply that exact image tag with Terraform:
+Roll out the query web image from jumpbox:
 
 ```bash
-terraform -chdir=infra/terraform apply \
-  -input=false \
-  -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
-  -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \
-  -var "query_web_image_tag=<immutable-query-web-tag>" \
-  -target=module.agent_hosting
+sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+  --query-web-tag "<immutable-query-web-tag>"
 ```
 
 ### Validate Query Web Deployment
@@ -280,14 +292,14 @@ TARGET_ENV="<env>"
 ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-ingestion.sh
 ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-query-web.sh
 
-# Roll out image tags through Terraform
-terraform -chdir=infra/terraform apply \
-  -input=false \
-  -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
-  -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \
-  -var "ingestion_job_image_tag=<immutable-ingestion-tag>" \
-  -var "query_web_image_tag=<immutable-query-web-tag>" \
-  -target=module.agent_hosting
+# Roll out app image tags from jumpbox (non-RBAC resources)
+sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+  --ingestion-tag "<immutable-ingestion-tag>" \
+  --query-web-tag "<immutable-query-web-tag>"
+
+# Reconcile RBAC role assignments from admin context (local admin shell or CI)
+# Do not run from jumpbox UAMI context unless that identity can manage role assignments.
+./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply
 
 # Run unit tests
 python3 -m pip install -r requirements-dev.txt

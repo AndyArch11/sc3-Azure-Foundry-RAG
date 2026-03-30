@@ -21,12 +21,11 @@ Usage:
 Builds and pushes the ingestion-runner image to the target environment ACR.
 
 Recommended follow-up rollout:
-  terraform -chdir=infra/terraform apply \
-    -input=false \
-    -var-file=environments/<env>/bootstrap.generated.tfvars \
-    -var-file=environments/<env>/<env>.tfvars \
-    -var ingestion_job_image_tag=<immutable-tag> \
-    -target=module.agent_hosting
+  sudo ./ops/scripts/rollout-agent-hosting.sh <env> apply \
+    --ingestion-tag <immutable-tag>
+
+Optional RBAC reconciliation (admin identity):
+  ./ops/scripts/reconcile-rbac-admin.sh <env> apply
 EOF
   exit 0
 fi
@@ -237,7 +236,9 @@ echo ""
 echo "==> Done: ${FULL_IMAGE}"
 echo ""
 echo "==> Rollout command:"
-echo "terraform -chdir=${TF_DIR} apply -input=false -var-file=environments/${ENV}/bootstrap.generated.tfvars -var-file=environments/${ENV}/${ENV}.tfvars -var ingestion_job_image_tag=${IMAGE_TAG} -target=module.agent_hosting"
+echo "sudo ./ops/scripts/rollout-agent-hosting.sh ${ENV} apply --ingestion-tag ${IMAGE_TAG}"
+echo "# Optional admin RBAC reconciliation:"
+echo "./ops/scripts/reconcile-rbac-admin.sh ${ENV} apply"
 echo ""
 echo "Trigger ingestion job (files already in blob storage):"
 echo "  az containerapp job start \\"
