@@ -238,6 +238,32 @@ def _parse_eval(text: str) -> dict[str, Any]:
     return _json_fallback_eval()
 
 
+def _unwrap_answer(text: str) -> str:
+    """Extract plain answer text from responses that are mistakenly wrapped in JSON.
+
+    Handles patterns like:
+      {"answer": "..."}
+      ```json\n{"answer": "..."}\n```
+    Returns the original text unchanged when no known wrapping is detected.
+    """
+    stripped = text.strip()
+
+    # Strip markdown code fences first.
+    fence_match = re.search(r"```(?:json)?\s*(.+?)\s*```", stripped, re.DOTALL)
+    if fence_match:
+        stripped = fence_match.group(1).strip()
+
+    # Try to parse as JSON and pull an "answer" key.
+    try:
+        data = json.loads(stripped)
+        if isinstance(data, dict) and "answer" in data:
+            return str(data["answer"]).strip()
+    except Exception:
+        pass
+
+    return text.strip()
+
+
 app = FastAPI(title="RAG Query Console")
 templates = Jinja2Templates(directory="templates")
 credential = DefaultAzureCredential()
@@ -780,7 +806,7 @@ def _run_rag(
     )
 
     t_llm = time.perf_counter()
-    answer = _chat_completion(messages, deployment=config.query_deployment, temperature=temperature)
+    answer = _unwrap_answer(_chat_completion(messages, deployment=config.query_deployment, temperature=temperature))
     llm_reply_s = round(time.perf_counter() - t_llm, 3)
 
     t_eval = time.perf_counter()
