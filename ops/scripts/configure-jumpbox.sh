@@ -448,7 +448,18 @@ run_unit_tests() {
   fi
 
   info "Running unit tests"
-  "${VENV_DIR}/bin/python" -m pytest "${REPO_DIR}/tests/unit" -q
+  local -a pytest_cache_args=()
+
+  # If script is run with sudo/root, avoid creating root-owned .pytest_cache in
+  # the repository, which later causes warnings for non-root jumpbox users.
+  if [[ "${EUID}" -eq 0 ]]; then
+    local fallback_cache_dir
+    fallback_cache_dir="${TMPDIR:-/tmp}/pytest-cache-${SUDO_USER:-root}"
+    mkdir -p "${fallback_cache_dir}"
+    pytest_cache_args=("-o" "cache_dir=${fallback_cache_dir}")
+  fi
+
+  "${VENV_DIR}/bin/python" -m pytest "${REPO_DIR}/tests/unit" -q "${pytest_cache_args[@]}"
 }
 
 # ---------------------------------------------------------------------------

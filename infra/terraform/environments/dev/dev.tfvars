@@ -27,7 +27,7 @@ query_eval_threshold         = 0.72
 # Optional shared token for query web app auth gate.
 # query_web_auth_token       = "change-me"
 # Optional Entra security group object ID required for query web access.
-# query_web_required_group_object_id = "00000000-0000-0000-0000-000000000000"
+query_web_required_group_object_id = "7c110a48-68ac-4514-ae8f-1f674091b559"
 
 # Bring-Your-Own-Network (BYOL): uncomment and set these to use pre-existing network infrastructure.
 # Leave empty to create network via phase2-network-dns.sh.
