@@ -146,12 +146,34 @@ if [[ -z "${NEW_SECRET_VALUE}" ]]; then
 fi
 
 echo "==> Writing client secret value to Key Vault secret ${KEY_VAULT_NAME}/${SECRET_NAME}"
+set +e
 SECRET_ID="$(az keyvault secret set \
   --vault-name "${KEY_VAULT_NAME}" \
   --name "${SECRET_NAME}" \
   --value "${NEW_SECRET_VALUE}" \
   --content-type "query-web-easyauth-client-secret" \
-  --query id -o tsv)"
+  --query id -o tsv 2>/tmp/query-web-easyauth-kv.err)"
+AZ_KV_RC=$?
+set -e
+
+if [[ ${AZ_KV_RC} -ne 0 ]]; then
+  echo "Failed to write secret to Key Vault ${KEY_VAULT_NAME}."
+  cat /tmp/query-web-easyauth-kv.err
+  echo ""
+  echo "This is usually a private endpoint / DNS path issue rather than Key Vault RBAC."
+  echo "The jumpbox request is reaching the public Key Vault endpoint instead of the private endpoint."
+  echo ""
+  echo "Recommended checks:"
+  echo "  1. Re-run phase 2 to ensure privatelink.vaultcore.azure.net DNS zone exists and is linked:"
+  echo "     ./ops/scripts/phase2-network-dns.sh ${ENVIRONMENT} apply"
+  echo "  2. Re-run phase 3c to ensure the Key Vault private endpoint and zone group are present:"
+  echo "     ./ops/scripts/phase3c-app-secrets.sh ${ENVIRONMENT} apply"
+  echo "  3. From jumpbox, verify ${KEY_VAULT_NAME}.vault.azure.net resolves to a private IP:"
+  echo "     getent ahostsv4 ${KEY_VAULT_NAME}.vault.azure.net"
+  echo ""
+  echo "If your VNet uses custom DNS, ensure it forwards privatelink.vaultcore.azure.net correctly."
+  exit 1
+fi
 
 if [[ -z "${SECRET_ID}" ]]; then
   echo "Failed to write secret to Key Vault."
