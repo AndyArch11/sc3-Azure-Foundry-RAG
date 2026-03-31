@@ -231,6 +231,8 @@ def _prompt_injection_response(reason: str) -> dict[str, Any]:
         "metrics": {
             "guardrail_blocked": 1.0,
             "rag_retrieval_s": 0.0,
+            "embedding_s": 0.0,
+            "search_s": 0.0,
             "llm_reply_s": 0.0,
             "evaluator_s": 0.0,
             "llm_retry_s": 0.0,
