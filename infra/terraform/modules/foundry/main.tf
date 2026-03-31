@@ -23,6 +23,11 @@ locals {
   # Skip duplicate deployments when multiple roles share the same model/version.
   query_model_is_distinct = var.query_model.name != var.embedding_model.name || var.query_model.version != var.embedding_model.version
   eval_model_is_distinct  = (var.evaluation_model.name != var.embedding_model.name || var.evaluation_model.version != var.embedding_model.version) && (var.evaluation_model.name != var.query_model.name || var.evaluation_model.version != var.query_model.version)
+  validator_model_is_distinct = (
+    (var.validator_model.name != var.embedding_model.name || var.validator_model.version != var.embedding_model.version) &&
+    (var.validator_model.name != var.query_model.name || var.validator_model.version != var.query_model.version) &&
+    (var.validator_model.name != var.evaluation_model.name || var.validator_model.version != var.evaluation_model.version)
+  )
 }
 
 moved {
@@ -38,6 +43,34 @@ moved {
 moved {
   from = azapi_resource.model_deployment["gpt-4.1-mini"]
   to   = azapi_resource.model_deployment_evaluation[0]
+}
+
+resource "azapi_resource" "model_deployment_validator" {
+  count                     = var.enable_model_deployments && local.validator_model_is_distinct ? 1 : 0
+  type                      = "Microsoft.CognitiveServices/accounts/deployments@2025-06-01"
+  name                      = var.validator_model.name
+  parent_id                 = azurerm_cognitive_account.foundry.id
+  schema_validation_enabled = false
+
+  depends_on = [
+    azapi_resource.model_deployment_embedding,
+    azapi_resource.model_deployment_query,
+    azapi_resource.model_deployment_evaluation,
+  ]
+
+  body = {
+    sku = {
+      name     = "GlobalStandard"
+      capacity = var.validator_model.capacity
+    }
+    properties = {
+      model = {
+        format  = "OpenAI"
+        name    = var.validator_model.name
+        version = var.validator_model.version
+      }
+    }
+  }
 }
 
 # Deploy model endpoints in sequence to avoid concurrent account deployment operations.

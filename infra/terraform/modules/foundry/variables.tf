@@ -49,6 +49,18 @@ variable "evaluation_model" {
     capacity = 1
   }
 }
+variable "validator_model" {
+  type = object({
+    name     = string
+    version  = string
+    capacity = optional(number, 1)
+  })
+  default = {
+    name     = "gpt-4.1-mini"
+    version  = "2025-04-14"
+    capacity = 1
+  }
+}
 variable "enable_model_deployments" {
   type        = bool
   description = "Whether to create model deployments in the Foundry account. Keep false until model names/quotas are validated for the target region."

@@ -142,6 +142,20 @@ variable "evaluation_model" {
   }
 }
 
+variable "validator_model" {
+  type = object({
+    name     = string
+    version  = string
+    capacity = optional(number, 1)
+  })
+  description = "Prompt injection validator model deployment name and version."
+  default = {
+    name     = "gpt-4.1-mini"
+    version  = "2025-04-14"
+    capacity = 1
+  }
+}
+
 variable "enable_model_deployments" {
   type        = bool
   description = "Whether to create Foundry model deployments via Terraform."
@@ -235,6 +249,36 @@ variable "query_eval_threshold" {
   type        = number
   description = "Minimum acceptable evaluator score before triggering a second answer attempt."
   default     = 0.72
+}
+
+variable "prompt_injection_validator_enabled" {
+  type        = bool
+  description = "Enable optional LLM-based prompt injection validator stage for query web app."
+  default     = false
+}
+
+variable "prompt_injection_validator_deployment" {
+  type        = string
+  description = "Optional existing deployment name used for prompt injection validator classification. Leave empty to use validator_model.name."
+  default     = ""
+}
+
+variable "prompt_injection_validator_threshold" {
+  type        = number
+  description = "Confidence threshold for blocking when validator mode is enforce."
+  default     = 0.85
+}
+
+variable "prompt_injection_validator_timeout_s" {
+  type        = number
+  description = "Timeout in seconds for prompt injection validator calls."
+  default     = 15
+}
+
+variable "prompt_injection_validator_mode" {
+  type        = string
+  description = "Prompt injection validator mode: off, shadow, or enforce."
+  default     = "off"
 }
 
 variable "query_web_auth_token" {

@@ -43,6 +43,17 @@ terraform -chdir=infra/terraform apply \
 - User ID isolation: all queries and writes use partition_key=user_id.
 - Persistence failures must surface in JSON error responses, not silent fallback.
 
+## Prompt Injection and Validator Guardrails
+
+- Deterministic prompt injection screening remains primary; validator is additive.
+- Structured model-output parsing (evaluator/validator) must tolerate:
+  - Raw JSON
+  - JSON wrapped in markdown code fences
+  - JSON surrounded by prose text
+- Validator parsing failures should fail open to an inconclusive validator result,
+  while deterministic guardrails remain active.
+- Keep validator prompts isolated from system prompts, retrieval context, and conversation history.
+
 ## Code Changes That Require Image Rollout
 
 - Cosmos interaction changes (partition key, document ID format).

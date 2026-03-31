@@ -8,11 +8,11 @@ module "foundation" {
 data "azurerm_client_config" "current" {}
 
 locals {
-  bootstrap_key_vault_resource_group_name = trimspace(var.bootstrap_key_vault_resource_group_name) != "" ? var.bootstrap_key_vault_resource_group_name : "rg-tfstate-${var.environment}"
+  bootstrap_key_vault_resource_group_name             = trimspace(var.bootstrap_key_vault_resource_group_name) != "" ? var.bootstrap_key_vault_resource_group_name : "rg-tfstate-${var.environment}"
   bootstrap_state_storage_account_resource_group_name = trimspace(var.bootstrap_state_storage_account_resource_group_name) != "" ? var.bootstrap_state_storage_account_resource_group_name : "rg-tfstate-${var.environment}"
-  jumpbox_ssh_public_key_secret_name      = trimspace(var.jumpbox_ssh_public_key_secret_name) != "" ? var.jumpbox_ssh_public_key_secret_name : "jumpbox-admin-ssh-public-key-${var.environment}"
-  use_key_vault_jumpbox_key               = (trimspace(var.jumpbox_admin_ssh_public_key) == "" || trimspace(var.jumpbox_admin_ssh_public_key) == "<set-me-ssh-public-key>") && trimspace(var.bootstrap_key_vault_name) != ""
-  use_bootstrap_state_storage             = trimspace(var.bootstrap_state_storage_account_name) != ""
+  jumpbox_ssh_public_key_secret_name                  = trimspace(var.jumpbox_ssh_public_key_secret_name) != "" ? var.jumpbox_ssh_public_key_secret_name : "jumpbox-admin-ssh-public-key-${var.environment}"
+  use_key_vault_jumpbox_key                           = (trimspace(var.jumpbox_admin_ssh_public_key) == "" || trimspace(var.jumpbox_admin_ssh_public_key) == "<set-me-ssh-public-key>") && trimspace(var.bootstrap_key_vault_name) != ""
+  use_bootstrap_state_storage                         = trimspace(var.bootstrap_state_storage_account_name) != ""
 
   # BYOL (Bring-Your-Own-Network): use provided IDs if supplied, otherwise use module outputs.
   use_byol_network           = trimspace(var.byol_vnet_id) != ""
@@ -75,34 +75,35 @@ module "observability" {
 }
 
 module "data_services" {
-  source                = "./modules/data_services"
-  resource_group_name   = module.foundation.resource_group_name
-  location              = var.location
-  suffix                = local.naming_suffix
+  source                       = "./modules/data_services"
+  resource_group_name          = module.foundation.resource_group_name
+  location                     = var.location
+  suffix                       = local.naming_suffix
   search_service_name_override = var.search_service_name_override
-  cosmos_database_name  = var.cosmos_database_name
-  cosmos_container_name = var.cosmos_container_name
-  tags                  = local.tags
+  cosmos_database_name         = var.cosmos_database_name
+  cosmos_container_name        = var.cosmos_container_name
+  tags                         = local.tags
 }
 
 module "foundry" {
-  source                    = "./modules/foundry"
-  resource_group_name       = module.foundation.resource_group_name
-  location                  = var.location
-  suffix                    = local.naming_suffix
+  source                        = "./modules/foundry"
+  resource_group_name           = module.foundation.resource_group_name
+  location                      = var.location
+  suffix                        = local.naming_suffix
   foundry_account_name_override = var.foundry_account_name_override
-  delegated_agent_subnet_id = local.agent_subnet_id
-  storage_account_id        = module.data_services.storage_account_id
-  storage_account_name      = module.data_services.storage_account_name
-  search_service_id         = module.data_services.search_service_id
-  search_service_name       = module.data_services.search_service_name
-  cosmosdb_account_id       = module.data_services.cosmosdb_account_id
-  cosmosdb_account_name     = module.data_services.cosmosdb_account_name
-  embedding_model           = var.embedding_model
-  query_model               = var.query_model
-  evaluation_model          = var.evaluation_model
-  enable_model_deployments  = var.enable_model_deployments
-  tags                      = local.tags
+  delegated_agent_subnet_id     = local.agent_subnet_id
+  storage_account_id            = module.data_services.storage_account_id
+  storage_account_name          = module.data_services.storage_account_name
+  search_service_id             = module.data_services.search_service_id
+  search_service_name           = module.data_services.search_service_name
+  cosmosdb_account_id           = module.data_services.cosmosdb_account_id
+  cosmosdb_account_name         = module.data_services.cosmosdb_account_name
+  embedding_model               = var.embedding_model
+  query_model                   = var.query_model
+  evaluation_model              = var.evaluation_model
+  validator_model               = var.validator_model
+  enable_model_deployments      = var.enable_model_deployments
+  tags                          = local.tags
 }
 
 module "private_endpoints" {
@@ -120,15 +121,15 @@ module "private_endpoints" {
 }
 
 module "identity" {
-  source                         = "./modules/identity"
-  resource_group_name            = module.foundation.resource_group_name
-  location                       = var.location
-  suffix                         = local.naming_suffix
-  deployment_principal_object_id = data.azurerm_client_config.current.object_id
-  search_service_principal_id    = module.data_services.search_service_principal_id
+  source                             = "./modules/identity"
+  resource_group_name                = module.foundation.resource_group_name
+  location                           = var.location
+  suffix                             = local.naming_suffix
+  deployment_principal_object_id     = data.azurerm_client_config.current.object_id
+  search_service_principal_id        = module.data_services.search_service_principal_id
   terraform_state_storage_account_id = local.use_bootstrap_state_storage ? data.azurerm_storage_account.bootstrap_state[0].id : ""
-  cosmos_database_name           = var.cosmos_database_name
-  cosmos_container_name          = var.cosmos_container_name
+  cosmos_database_name               = var.cosmos_database_name
+  cosmos_container_name              = var.cosmos_container_name
   scope_ids = {
     storage       = module.data_services.storage_account_id
     search        = module.data_services.search_service_id
@@ -141,15 +142,15 @@ module "identity" {
 }
 
 module "app_secrets" {
-  count                     = (!local.use_byol_network && var.enable_query_web_app) ? 1 : 0
-  source                    = "./modules/app_secrets"
-  resource_group_name       = module.foundation.resource_group_name
-  location                  = var.location
-  suffix                    = local.naming_suffix
+  count                      = (!local.use_byol_network && var.enable_query_web_app) ? 1 : 0
+  source                     = "./modules/app_secrets"
+  resource_group_name        = module.foundation.resource_group_name
+  location                   = var.location
+  suffix                     = local.naming_suffix
   private_endpoint_subnet_id = local.private_endpoint_subnet_id
-  private_dns_zone_id       = module.dns[0].private_dns_zone_ids["privatelink.vaultcore.azure.net"]
+  private_dns_zone_id        = module.dns[0].private_dns_zone_ids["privatelink.vaultcore.azure.net"]
   agent_runtime_principal_id = module.identity.agent_runtime_principal_id
-  tags                      = local.tags
+  tags                       = local.tags
 }
 
 module "bastion_jumpbox" {
@@ -200,42 +201,47 @@ resource "azuread_application_redirect_uris" "query_web" {
 }
 
 module "agent_hosting" {
-  source                     = "./modules/agent_hosting"
-  resource_group_name        = module.foundation.resource_group_name
-  location                   = var.location
-  suffix                     = local.naming_suffix
-  delegated_agent_subnet_id  = local.container_apps_subnet_id
-  vnet_id                    = local.vnet_id
-  log_analytics_workspace_id = module.observability.log_analytics_workspace_id
-  acr_login_server           = module.data_services.acr_login_server
-  agent_runtime_identity_id  = module.identity.agent_runtime_identity_id
-  agent_runtime_client_id    = module.identity.agent_runtime_client_id
-  agent_runtime_principal_id = module.identity.agent_runtime_principal_id
-  azure_search_endpoint      = "https://${module.data_services.search_service_name}.search.windows.net"
-  azure_openai_endpoint      = "https://${module.foundry.foundry_account_name}.openai.azure.com"
-  azure_cosmos_endpoint      = "https://${module.data_services.cosmosdb_account_name}.documents.azure.com:443/"
-  cosmos_database_name       = var.cosmos_database_name
-  cosmos_container_name      = var.cosmos_container_name
-  storage_account_name       = module.data_services.storage_account_name
-  storage_account_id         = module.data_services.storage_account_id
-  search_index_name          = var.search_index_name
-  embedding_deployment_name  = var.embedding_model.name
-  query_deployment_name      = var.query_model.name
-  evaluator_deployment_name  = var.evaluation_model.name
-  embedding_dimensions       = 1536
-  query_top_k                = var.query_top_k
-  query_default_temperature  = var.query_default_temperature
-  query_eval_threshold       = var.query_eval_threshold
+  source                                            = "./modules/agent_hosting"
+  resource_group_name                               = module.foundation.resource_group_name
+  location                                          = var.location
+  suffix                                            = local.naming_suffix
+  delegated_agent_subnet_id                         = local.container_apps_subnet_id
+  vnet_id                                           = local.vnet_id
+  log_analytics_workspace_id                        = module.observability.log_analytics_workspace_id
+  acr_login_server                                  = module.data_services.acr_login_server
+  agent_runtime_identity_id                         = module.identity.agent_runtime_identity_id
+  agent_runtime_client_id                           = module.identity.agent_runtime_client_id
+  agent_runtime_principal_id                        = module.identity.agent_runtime_principal_id
+  azure_search_endpoint                             = "https://${module.data_services.search_service_name}.search.windows.net"
+  azure_openai_endpoint                             = "https://${module.foundry.foundry_account_name}.openai.azure.com"
+  azure_cosmos_endpoint                             = "https://${module.data_services.cosmosdb_account_name}.documents.azure.com:443/"
+  cosmos_database_name                              = var.cosmos_database_name
+  cosmos_container_name                             = var.cosmos_container_name
+  storage_account_name                              = module.data_services.storage_account_name
+  storage_account_id                                = module.data_services.storage_account_id
+  search_index_name                                 = var.search_index_name
+  embedding_deployment_name                         = var.embedding_model.name
+  query_deployment_name                             = var.query_model.name
+  evaluator_deployment_name                         = var.evaluation_model.name
+  embedding_dimensions                              = 1536
+  query_top_k                                       = var.query_top_k
+  query_default_temperature                         = var.query_default_temperature
+  query_eval_threshold                              = var.query_eval_threshold
+  prompt_injection_validator_enabled                = var.prompt_injection_validator_enabled
+  prompt_injection_validator_deployment             = trimspace(var.prompt_injection_validator_deployment) != "" ? var.prompt_injection_validator_deployment : var.validator_model.name
+  prompt_injection_validator_threshold              = var.prompt_injection_validator_threshold
+  prompt_injection_validator_timeout_s              = var.prompt_injection_validator_timeout_s
+  prompt_injection_validator_mode                   = var.prompt_injection_validator_mode
   query_web_entra_client_secret_key_vault_secret_id = var.query_web_entra_client_secret_key_vault_secret_id
-  ingestion_job_image_tag    = var.ingestion_job_image_tag
-  query_web_auth_token       = var.query_web_auth_token
-  query_web_required_group_object_id = var.query_web_required_group_object_id
-  query_web_entra_client_id     = try(azuread_application.query_web[0].client_id, "")
-  entra_tenant_id               = data.azurerm_client_config.current.tenant_id
-  query_web_image_tag        = var.query_web_image_tag
-  enable_ingestion_job       = var.enable_ingestion_job
-  enable_query_web_app       = var.enable_query_web_app
-  query_web_public_endpoint  = var.query_web_public_endpoint
-  tags                       = local.tags
+  ingestion_job_image_tag                           = var.ingestion_job_image_tag
+  query_web_auth_token                              = var.query_web_auth_token
+  query_web_required_group_object_id                = var.query_web_required_group_object_id
+  query_web_entra_client_id                         = try(azuread_application.query_web[0].client_id, "")
+  entra_tenant_id                                   = data.azurerm_client_config.current.tenant_id
+  query_web_image_tag                               = var.query_web_image_tag
+  enable_ingestion_job                              = var.enable_ingestion_job
+  enable_query_web_app                              = var.enable_query_web_app
+  query_web_public_endpoint                         = var.query_web_public_endpoint
+  tags                                              = local.tags
 }
 

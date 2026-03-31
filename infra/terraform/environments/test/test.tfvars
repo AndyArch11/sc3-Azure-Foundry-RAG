@@ -24,6 +24,19 @@ search_index_name            = "grounding-index"
 query_top_k               = 5
 query_default_temperature = 1.0
 query_eval_threshold      = 0.72
+
+# Optional prompt injection validator settings.
+# prompt_injection_validator_enabled    = false
+# prompt_injection_validator_mode       = "off" # off | shadow | enforce
+# prompt_injection_validator_threshold  = 0.85
+# prompt_injection_validator_timeout_s  = 15
+# prompt_injection_validator_deployment = "gpt-4.1-mini" # Optional existing deployment override. Leave unset to use validator_model.name.
+# validator_model = {
+#   name     = "gpt-4.1-mini"
+#   version  = "2025-04-14"
+#   capacity = 1
+# }
+
 # Optional shared token for query web app auth gate.
 # query_web_auth_token       = "change-me"
 # Optional Entra security group object ID required for query web access.

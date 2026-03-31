@@ -23,6 +23,31 @@ variable "embedding_dimensions" { type = number }
 variable "query_top_k" { type = number }
 variable "query_default_temperature" { type = number }
 variable "query_eval_threshold" { type = number }
+variable "prompt_injection_validator_enabled" {
+  type        = bool
+  description = "Enable optional LLM-based prompt injection validator stage for query web app."
+  default     = false
+}
+variable "prompt_injection_validator_deployment" {
+  type        = string
+  description = "Model deployment name used for prompt injection validator classification, typically resolved from validator_model.name by the root module."
+  default     = "gpt-4.1-mini"
+}
+variable "prompt_injection_validator_threshold" {
+  type        = number
+  description = "Confidence threshold for blocking when validator mode is enforce."
+  default     = 0.85
+}
+variable "prompt_injection_validator_timeout_s" {
+  type        = number
+  description = "Timeout in seconds for prompt injection validator calls."
+  default     = 15
+}
+variable "prompt_injection_validator_mode" {
+  type        = string
+  description = "Prompt injection validator mode: off, shadow, or enforce."
+  default     = "off"
+}
 variable "query_web_auth_token" { type = string }
 variable "query_web_required_group_object_id" {
   type        = string

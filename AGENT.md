@@ -90,6 +90,12 @@ The agent should optimise for secure-by-default changes, deterministic infrastru
 - Update docs when behaviour, commands, or required env vars change.
 - Avoid creating ad hoc markdown summary files unless explicitly requested.
 - Keep README and testing instructions aligned with actual scripts and deployment flow.
+- Keep Terraform variable availability aligned across:
+  - `infra/terraform/terraform.tfvars.example`
+  - `infra/terraform/environments/dev/dev.tfvars`
+  - `infra/terraform/environments/test/test.tfvars`
+  - `infra/terraform/environments/prod/prod.tfvars`
+  Add new variables as comments/defaults where appropriate so operators can discover available knobs consistently.
 
 ## Definition of Done
 

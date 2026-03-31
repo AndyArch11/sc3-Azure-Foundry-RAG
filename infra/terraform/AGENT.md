@@ -34,6 +34,19 @@ terraform apply -var-file=environments/dev/bootstrap.generated.tfvars -var-file=
 - `query_web_image_tag`: immutable tag; use timestamp-hash format
 - `cosmos_database_name`, `cosmos_container_name`: match runtime env vars
 - Environment-specific values: use `environments/{dev,test,prod}/<env>.tfvars`
+- Prompt injection validator controls:
+	- `prompt_injection_validator_enabled`
+	- `prompt_injection_validator_mode`
+	- `prompt_injection_validator_threshold`
+	- `prompt_injection_validator_timeout_s`
+	- `prompt_injection_validator_deployment` (optional explicit deployment override)
+	- `validator_model` (versioned deployment object: name/version/capacity)
+- Deployment precedence:
+	- If `prompt_injection_validator_deployment` is set, use it.
+	- Otherwise, use `validator_model.name`.
+- Rollout policy:
+	- Enable validator in `shadow` mode first (especially dev/test).
+	- Move to `enforce` only after observing acceptable false-positive rates.
 
 ## Cosmos and Identity Guardrails
 

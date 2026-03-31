@@ -250,6 +250,26 @@ resource "azurerm_container_app" "query_web" {
         name  = "ACCEPTABLE_SCORE_THRESHOLD"
         value = tostring(var.query_eval_threshold)
       }
+      env {
+        name  = "PROMPT_INJECTION_VALIDATOR_ENABLED"
+        value = tostring(var.prompt_injection_validator_enabled)
+      }
+      env {
+        name  = "PROMPT_INJECTION_VALIDATOR_DEPLOYMENT"
+        value = var.prompt_injection_validator_deployment
+      }
+      env {
+        name  = "PROMPT_INJECTION_VALIDATOR_THRESHOLD"
+        value = tostring(var.prompt_injection_validator_threshold)
+      }
+      env {
+        name  = "PROMPT_INJECTION_VALIDATOR_TIMEOUT_S"
+        value = tostring(var.prompt_injection_validator_timeout_s)
+      }
+      env {
+        name  = "PROMPT_INJECTION_VALIDATOR_MODE"
+        value = var.prompt_injection_validator_mode
+      }
       dynamic "env" {
         for_each = var.query_web_auth_token != "" ? [1] : []
         content {

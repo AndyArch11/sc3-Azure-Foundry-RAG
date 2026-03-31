@@ -39,3 +39,24 @@ QUERY_WEB_RUN_API_ASK=true              # Include /api/ask test
 - New tests are exercisable.
 - Existing tests still pass.
 - Integration tests can be run from jump host without modification.
+
+## Parser and Guardrail Test Expectations
+
+**Structured output parsers** (evaluator, validator): any change to response parsing must include tests for all three response shapes:
+- Raw JSON (`{"malicious": false, "confidence": 0.1}`)
+- Fenced JSON (` ```json\n{...}\n``` `)
+- Prose-wrapped JSON (narrative text with embedded JSON object)
+
+**Guardrail tests** must cover all four decision paths:
+- Deterministic block (regex pattern match)
+- Validator shadow-mode: query proceeds regardless of validator verdict
+- Validator enforce-mode block: validator returns `malicious=true` above threshold
+- Validator enforce-mode allow: validator returns `malicious=false` or confidence below threshold
+
+**Frozen dataclass config patching:** `QueryConfig` is a frozen dataclass. Do not use `patch.object(config_instance, "field", value)` — this raises `FrozenInstanceError`. Instead:
+```python
+from dataclasses import replace
+test_config = replace(app_module.config, field=value)
+with patch.object(app_module, "config", test_config):
+    ...
+```

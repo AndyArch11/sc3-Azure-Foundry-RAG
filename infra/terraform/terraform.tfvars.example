@@ -32,6 +32,14 @@ query_top_k                  = 5
 query_default_temperature    = 1.0
 query_eval_threshold         = 0.72
 
+# Optional prompt injection validator settings.
+# Keep disabled/off by default; use shadow in lower environments before enforce.
+# prompt_injection_validator_enabled    = false
+# prompt_injection_validator_deployment = "gpt-4.1-mini" # Existing deployment name override. Omit to use validator_model.name.
+# prompt_injection_validator_threshold  = 0.85
+# prompt_injection_validator_timeout_s  = 15
+# prompt_injection_validator_mode       = "off" # off | shadow | enforce
+
 # Optional shared token for query web app auth gate.
 # query_web_auth_token       = "change-me"
 
@@ -52,6 +60,11 @@ query_eval_threshold         = 0.72
 #   capacity = 1
 # }
 # evaluation_model = {
+#   name     = "gpt-4.1-mini"
+#   version  = "2025-04-14"
+#   capacity = 1
+# }
+# validator_model = {
 #   name     = "gpt-4.1-mini"
 #   version  = "2025-04-14"
 #   capacity = 1
