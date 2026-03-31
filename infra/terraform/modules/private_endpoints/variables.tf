@@ -6,7 +6,7 @@ variable "storage_account_id" { type = string }
 variable "search_service_id" { type = string }
 variable "cosmosdb_account_id" { type = string }
 variable "foundry_account_id" { type = string }
-variable "acr_id"           { type = string }
+variable "acr_id" { type = string }
 variable "tags" {
   type    = map(string)
   default = {}

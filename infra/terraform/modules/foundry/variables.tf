@@ -15,37 +15,37 @@ variable "cosmosdb_account_id" { type = string }
 variable "cosmosdb_account_name" { type = string }
 variable "embedding_model" {
   type = object({
-    name    = string
-    version = string
+    name     = string
+    version  = string
     capacity = optional(number, 10)
   })
   default = {
-    name    = "text-embedding-ada-002"
-    version = "2"
+    name     = "text-embedding-ada-002"
+    version  = "2"
     capacity = 10
   }
 }
 variable "query_model" {
   type = object({
-    name    = string
-    version = string
+    name     = string
+    version  = string
     capacity = optional(number, 1)
   })
   default = {
-    name    = "gpt-5.1-chat"
-    version = "2025-11-13"
+    name     = "gpt-5.1-chat"
+    version  = "2025-11-13"
     capacity = 1
   }
 }
 variable "evaluation_model" {
   type = object({
-    name    = string
-    version = string
+    name     = string
+    version  = string
     capacity = optional(number, 1)
   })
   default = {
-    name    = "gpt-4.1-mini"
-    version = "2025-04-14"
+    name     = "gpt-4.1-mini"
+    version  = "2025-04-14"
     capacity = 1
   }
 }

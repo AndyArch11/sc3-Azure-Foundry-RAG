@@ -14,16 +14,16 @@ jumpbox_vm_size              = "Standard_B2as_v2"
 enable_model_deployments     = true
 enable_ingestion_job         = true
 enable_query_web_app         = true
-query_web_public_endpoint    = true # Set true for public query web ingress. Creation-level: switching later requires CAE replacement.
+query_web_public_endpoint    = true                   # Set true for public query web ingress. Creation-level: switching later requires CAE replacement.
 ingestion_job_image_tag      = "202603292354-8115700" # Immutable tag. Update when a new ingestion image is pushed.
 query_web_image_tag          = "202603300900-061bca3" # Immutable tag. Update when a new query-web image is pushed.
 search_index_name            = "grounding-index"
 # Optional overrides for globally-unique resource names (use when 409 name collisions occur).
-search_service_name_override = "srch-dev-aue-20260329"
+search_service_name_override  = "srch-dev-aue-20260329"
 foundry_account_name_override = "foundry-dev-aue-20260329"
-query_top_k                  = 5
-query_default_temperature    = 1.0
-query_eval_threshold         = 0.72
+query_top_k                   = 5
+query_default_temperature     = 1.0
+query_eval_threshold          = 0.72
 # Optional shared token for query web app auth gate.
 # query_web_auth_token       = "change-me"
 # Optional Entra security group object ID required for query web access.
