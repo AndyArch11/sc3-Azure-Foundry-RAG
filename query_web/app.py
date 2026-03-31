@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from query_web.prompt_injection_guard import (
+from prompt_injection_guard import (
     BLOCKED_PROMPT_INJECTION_MESSAGE,
     PROMPT_INJECTION_SYSTEM_PROMPT,
     VALIDATOR_SYSTEM_PROMPT,

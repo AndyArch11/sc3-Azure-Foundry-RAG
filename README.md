@@ -315,7 +315,7 @@ Roll out the query web image from jumpbox:
 ```bash
 sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --query-web-tag "<immutable-query-web-tag>" \
-  --entra-secret-kv "<private-kv-name>" \
+  --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" \
   --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 ```
 
