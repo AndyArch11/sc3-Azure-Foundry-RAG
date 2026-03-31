@@ -36,6 +36,7 @@ query_eval_threshold      = 0.72
 #   version  = "2025-04-14"
 #   capacity = 1
 # }
+# guardrail_metrics_in_response = false  # Set true to surface guardrail metrics in API responses. Disable in prod.
 
 # Optional shared token for query web app auth gate.
 # query_web_auth_token       = "change-me"

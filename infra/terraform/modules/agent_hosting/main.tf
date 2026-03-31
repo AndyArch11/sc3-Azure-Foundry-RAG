@@ -270,6 +270,10 @@ resource "azurerm_container_app" "query_web" {
         name  = "PROMPT_INJECTION_VALIDATOR_MODE"
         value = var.prompt_injection_validator_mode
       }
+      env {
+        name  = "GUARDRAIL_METRICS_IN_RESPONSE"
+        value = tostring(var.guardrail_metrics_in_response)
+      }
       dynamic "env" {
         for_each = var.query_web_auth_token != "" ? [1] : []
         content {

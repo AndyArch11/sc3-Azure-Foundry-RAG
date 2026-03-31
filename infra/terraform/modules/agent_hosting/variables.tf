@@ -48,6 +48,11 @@ variable "prompt_injection_validator_mode" {
   description = "Prompt injection validator mode: off, shadow, or enforce."
   default     = "off"
 }
+variable "guardrail_metrics_in_response" {
+  type        = bool
+  description = "Expose guardrail metrics in query web API responses. Enable in dev/test only."
+  default     = false
+}
 variable "query_web_auth_token" { type = string }
 variable "query_web_required_group_object_id" {
   type        = string

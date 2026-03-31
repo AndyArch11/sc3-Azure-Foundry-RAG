@@ -30,6 +30,7 @@ prompt_injection_validator_enabled   = true
 prompt_injection_validator_mode      = "shadow"
 prompt_injection_validator_threshold = 0.85
 prompt_injection_validator_timeout_s = 15
+guardrail_metrics_in_response        = true
 # prompt_injection_validator_deployment = "gpt-4.1-mini" # Optional existing deployment override. Leave unset to use validator_model.name.
 # validator_model = {
 #   name     = "gpt-4.1-mini"

@@ -69,6 +69,7 @@ query_eval_threshold         = 0.72
 #   version  = "2025-04-14"
 #   capacity = 1
 # }
+# guardrail_metrics_in_response = false  # Set true to surface guardrail metrics in API responses. Disable in prod.
 
 # Bring-Your-Own-Network (BYOL): Optional pre-created network resource IDs.
 # Leave these empty (default) to create network via phase2-network-dns.sh.

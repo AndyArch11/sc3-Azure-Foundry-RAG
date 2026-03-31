@@ -232,6 +232,7 @@ module "agent_hosting" {
   prompt_injection_validator_threshold              = var.prompt_injection_validator_threshold
   prompt_injection_validator_timeout_s              = var.prompt_injection_validator_timeout_s
   prompt_injection_validator_mode                   = var.prompt_injection_validator_mode
+  guardrail_metrics_in_response                     = var.guardrail_metrics_in_response
   query_web_entra_client_secret_key_vault_secret_id = var.query_web_entra_client_secret_key_vault_secret_id
   ingestion_job_image_tag                           = var.ingestion_job_image_tag
   query_web_auth_token                              = var.query_web_auth_token

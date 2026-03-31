@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
 import time
@@ -74,6 +75,10 @@ class QueryConfig:
     prompt_injection_validator_threshold: float
     prompt_injection_validator_timeout_s: int
     prompt_injection_validator_mode: str
+    guardrail_metrics_in_response: bool
+
+logger = logging.getLogger(__name__)
+
 
 def _require_env(name: str) -> str:
     value = os.getenv(name)
@@ -126,6 +131,7 @@ def load_config() -> QueryConfig:
         prompt_injection_validator_threshold=float(os.getenv("PROMPT_INJECTION_VALIDATOR_THRESHOLD", "0.85")),
         prompt_injection_validator_timeout_s=int(os.getenv("PROMPT_INJECTION_VALIDATOR_TIMEOUT_S", "15")),
         prompt_injection_validator_mode=os.getenv("PROMPT_INJECTION_VALIDATOR_MODE", "off").lower(),
+        guardrail_metrics_in_response=_env_bool("GUARDRAIL_METRICS_IN_RESPONSE", default=False),
     )
 
 @dataclass
@@ -846,8 +852,23 @@ def _run_rag(
         validator_mode=config.prompt_injection_validator_mode,
     )
     
+    logger.info(
+        "guardrail decision: %s",
+        json.dumps({
+            "allowed": guardrail_decision.allowed,
+            "blocked_by_deterministic": guardrail_decision.blocked_by_deterministic,
+            "categories": list(guardrail_decision.categories),
+            "validator_consulted": guardrail_decision.validator_consulted,
+            "validator_confidence": round(guardrail_decision.validator_confidence, 3),
+            "validator_would_block": bool((guardrail_decision.metrics or {}).get("validator_would_block")),
+            "deterministic_score": (guardrail_decision.metrics or {}).get("deterministic_score", 0),
+        }),
+    )
     if not guardrail_decision.allowed:
-        return _prompt_injection_response(guardrail_decision.reason)
+        blocked = _prompt_injection_response(guardrail_decision.reason)
+        if config.guardrail_metrics_in_response and guardrail_decision.metrics:
+            blocked["metrics"].update(guardrail_decision.metrics)
+        return blocked
 
     chunks, retrieval_timings = _hybrid_search(question, retrieve_k=retrieve_k)
     controls, controls_timings = _controls_search(
@@ -993,6 +1014,8 @@ def _run_rag(
         "llm_total_s": llm_total_s,
         "total_s": round(time.perf_counter() - started, 3),
     }
+    if config.guardrail_metrics_in_response and guardrail_decision.metrics:
+        metrics.update(guardrail_decision.metrics)
 
     return {
         "answer": answer,

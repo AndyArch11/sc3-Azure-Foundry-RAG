@@ -281,6 +281,12 @@ variable "prompt_injection_validator_mode" {
   default     = "off"
 }
 
+variable "guardrail_metrics_in_response" {
+  type        = bool
+  description = "Expose guardrail metrics (deterministic score, validator confidence) in query web API responses. Enable in dev/test only; disable in prod."
+  default     = false
+}
+
 variable "query_web_auth_token" {
   type        = string
   description = "Optional shared token to gate query web app access. Leave empty to disable app-level auth."
