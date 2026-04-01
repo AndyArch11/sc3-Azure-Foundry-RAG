@@ -189,6 +189,16 @@
             </select>
           </div>
           <div class="field">
+            <label for="controls_framework">Controls framework</label>
+            <select id="controls_framework" name="controls_framework">
+              <option value="" {% if not controls_framework %}selected{% endif %}>Auto (infer from question)</option>
+              <option value="nist_csf" {% if controls_framework == "nist_csf" %}selected{% endif %}>NIST CSF</option>
+              <option value="essential_eight" {% if controls_framework == "essential_eight" %}selected{% endif %}>Essential Eight</option>
+              <option value="aescsf" {% if controls_framework == "aescsf" %}selected{% endif %}>AESCSF</option>
+              <option value="ism" {% if controls_framework == "ism" %}selected{% endif %}>ISM</option>
+            </select>
+          </div>
+          <div class="field">
             <label for="auth_token">Access token{% if not auth_enabled %} (disabled){% endif %}</label>
             <input id="auth_token" name="auth_token" type="password" value="{{ auth_token or '' }}" {% if not auth_enabled %}disabled{% endif %} />
           </div>

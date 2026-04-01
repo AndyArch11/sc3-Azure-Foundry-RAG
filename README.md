@@ -247,6 +247,17 @@ sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --ingestion-tag "<immutable-ingestion-tag>"
 ```
 
+**Important:** If the query-web container has already been deployed (and EasyAuth is configured), you must include the Entra secret arguments even when rolling out only the ingestion container, otherwise the web app's authentication configuration will be removed:
+
+```bash
+sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+  --ingestion-tag "<immutable-ingestion-tag>" \
+  --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" \
+  --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
+```
+
+**TODO:** Decouple ingestion and query-web container deployments so they can be rolled out independently without affecting each other's authentication or configuration state.
+
 If RBAC resources need reconciliation after rollout, run:
 
 ```bash

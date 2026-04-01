@@ -390,6 +390,7 @@ class AskRequest(BaseModel):
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
     auth_token: str = ""
     controls_semantic: bool | None = None
+    controls_framework: str | None = None
 
 
 class AskResponse(BaseModel):
@@ -693,7 +694,70 @@ def _hybrid_search(question: str, retrieve_k: int) -> tuple[list[dict[str, Any]]
     return items, timings
 
 
-def _fetch_controls(search_text: str, retrieve_k: int, use_semantic: bool) -> list[dict[str, Any]]:
+_CONTROLS_FRAMEWORK_FILTERS = {
+    "nist_csf": "NIST CSF",
+    "essential_eight": "Essential Eight",
+    "aescsf": "AESCSF",
+    "ism": "ISM",
+}
+
+
+def _normalize_framework_filter(raw_value: str | None) -> str | None:
+    if raw_value is None:
+        return None
+
+    value = raw_value.strip().lower()
+    if not value or value in {"auto", "all", "any", "none"}:
+        return None
+
+    if value in _CONTROLS_FRAMEWORK_FILTERS:
+        return _CONTROLS_FRAMEWORK_FILTERS[value]
+
+    aliases = {
+        "nist": "NIST CSF",
+        "nist csf": "NIST CSF",
+        "csf": "NIST CSF",
+        "csf 2": "NIST CSF",
+        "csf 2.0": "NIST CSF",
+        "essential eight": "Essential Eight",
+        "e8": "Essential Eight",
+        "aescsf": "AESCSF",
+        "ism": "ISM",
+        "information security manual": "ISM",
+    }
+    if value in aliases:
+        return aliases[value]
+
+    for framework_name in _CONTROLS_FRAMEWORK_FILTERS.values():
+        if value == framework_name.lower():
+            return framework_name
+
+    return None
+
+
+def _infer_framework_filter(question: str) -> str | None:
+    text = question.strip().lower()
+    if not text:
+        return None
+
+    if re.search(r"\bnist\b|\bnist\s*csf\b|\bcsf\s*2(\.0)?\b", text):
+        return "NIST CSF"
+    if re.search(r"\bessential\s*eight\b|\be8\b", text):
+        return "Essential Eight"
+    if re.search(r"\baescsf\b|\baemo\b", text):
+        return "AESCSF"
+    if re.search(r"\bism\b|\binformation\s+security\s+manual\b", text):
+        return "ISM"
+
+    return None
+
+
+def _fetch_controls(
+    search_text: str,
+    retrieve_k: int,
+    use_semantic: bool,
+    framework_filter: str | None = None,
+) -> list[dict[str, Any]]:
     """Execute a controls-index search and return hydrated items.
 
     Raises exceptions on error so callers can decide how to handle them.
@@ -707,6 +771,9 @@ def _fetch_controls(search_text: str, retrieve_k: int, use_semantic: bool) -> li
         "top": retrieve_k,
         "select": _SELECT,
     }
+    if framework_filter:
+        escaped_framework = framework_filter.replace("'", "''")
+        search_kwargs["filter"] = f"framework eq '{escaped_framework}'"
     if use_semantic:
         search_kwargs["query_type"] = "semantic"
         search_kwargs["semantic_configuration_name"] = config.controls_semantic_configuration_name
@@ -738,6 +805,7 @@ def _controls_search(
     retrieve_k: int,
     *,
     use_semantic: bool,
+    framework_filter_override: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, float]]:
     """Retrieve requirement records from the dedicated controls index.
 
@@ -747,15 +815,27 @@ def _controls_search(
     """
     timings: dict[str, float] = {}
     timings["controls_semantic_enabled"] = 1.0 if use_semantic else 0.0
+    framework_filter = framework_filter_override or _infer_framework_filter(question)
+    timings["controls_framework_filter_enabled"] = 1.0 if framework_filter else 0.0
 
     t0 = time.perf_counter()
     try:
-        items = _fetch_controls(question, retrieve_k, use_semantic)
+        items = _fetch_controls(
+            question,
+            retrieve_k,
+            use_semantic,
+            framework_filter=framework_filter,
+        )
     except Exception as e:
         # Fall back to keyword search when semantic is unavailable on this tier.
         if use_semantic and "SemanticQueriesNotAvailable" in str(e):
             try:
-                items = _fetch_controls(question, retrieve_k, use_semantic=False)
+                items = _fetch_controls(
+                    question,
+                    retrieve_k,
+                    use_semantic=False,
+                    framework_filter=framework_filter,
+                )
             except Exception:
                 items = []
         else:
@@ -839,6 +919,7 @@ def _run_rag(
     retrieve_k: int,
     temperature: float,
     controls_semantic: bool,
+    controls_framework: str | None = None,
     conversation_history: list[ConversationMessage] | None = None,
     feedback_context: str = "",
 ) -> dict[str, Any]:
@@ -875,6 +956,7 @@ def _run_rag(
         question,
         retrieve_k=config.controls_top_k,
         use_semantic=controls_semantic,
+        framework_filter_override=controls_framework,
     )
 
     if not chunks and not controls:
@@ -1079,6 +1161,7 @@ def api_config() -> JSONResponse:
             "controls_top_k": config.controls_top_k,
             "controls_semantic_default": config.controls_semantic_default,
             "controls_semantic_configuration_name": config.controls_semantic_configuration_name,
+            "controls_framework_filters": list(_CONTROLS_FRAMEWORK_FILTERS.keys()),
             "prompt_injection_guard_enabled": True,
             "prompt_injection_validator_enabled": config.prompt_injection_validator_enabled,
             "prompt_injection_validator_mode": config.prompt_injection_validator_mode,
@@ -1261,6 +1344,7 @@ def home(request: Request) -> HTMLResponse:
             "retrieve_k": config.search_top_k,
             "temperature": config.default_temperature,
             "controls_semantic": config.controls_semantic_default,
+            "controls_framework": "",
             "auth_token": "",
             "index_name": config.search_index_name,
             "embedding_deployment": config.embedding_deployment,
@@ -1281,6 +1365,7 @@ def ask(
     retrieve_k: int = Form(...),
     temperature: float = Form(...),
     controls_semantic: str = Form(""),
+    controls_framework: str = Form(""),
     auth_token: str = Form(""),
     session_id: str = Form(default=""),
     conversation_id: str = Form(default=""),
@@ -1304,6 +1389,7 @@ def ask(
                 "retrieve_k": retrieve_k,
                 "temperature": temperature,
                 "controls_semantic": _form_bool(controls_semantic, default=config.controls_semantic_default),
+                "controls_framework": (controls_framework or "").strip().lower(),
                 "auth_token": "",
                 "index_name": config.search_index_name,
                 "embedding_deployment": config.embedding_deployment,
@@ -1323,6 +1409,8 @@ def ask(
     retrieve_k = max(1, min(20, retrieve_k))
     temperature = max(0, min(1.0, temperature))
     controls_semantic_enabled = _form_bool(controls_semantic, default=config.controls_semantic_default)
+    controls_framework_value = (controls_framework or "").strip().lower()
+    controls_framework_filter = _normalize_framework_filter(controls_framework_value)
 
     try:
         conversation_history = session.messages if session else []
@@ -1333,6 +1421,7 @@ def ask(
             retrieve_k=retrieve_k,
             temperature=temperature,
             controls_semantic=controls_semantic_enabled,
+            controls_framework=controls_framework_filter,
             conversation_history=conversation_history,
             feedback_context=feedback_context,
         )
@@ -1371,6 +1460,7 @@ def ask(
             "retrieve_k": retrieve_k,
             "temperature": temperature,
             "controls_semantic": controls_semantic_enabled,
+            "controls_framework": controls_framework_value,
             "auth_token": auth_token,
             "index_name": config.search_index_name,
             "embedding_deployment": config.embedding_deployment,
@@ -1419,6 +1509,7 @@ def ask_api(request: Request, payload: AskRequest) -> AskResponse:
                 if payload.controls_semantic is not None
                 else config.controls_semantic_default
             ),
+            controls_framework=_normalize_framework_filter(payload.controls_framework),
         )
         return AskResponse(
             answer=result["answer"],

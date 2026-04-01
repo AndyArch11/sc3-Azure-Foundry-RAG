@@ -242,6 +242,18 @@ sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 ```
 
+**IMPORTANT:** When rolling out only the ingestion container (omitting `--query-web-tag`), you must still include the `--entra-secret-kv` and `--entra-secret-name` arguments if the query-web container has previously been deployed. Omitting these arguments will remove the web app's EasyAuth authentication configuration and break access to the query endpoint.
+
+**Example for ingestion-only rollout:**
+```bash
+sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+  --ingestion-tag "${INGESTION_TAG}" \
+  --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" \
+  --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
+```
+
+**TODO:** Refactor container deployments to be independent—ingestion and query-web should have separate rollout paths so that updating one does not require specifying configuration for the other.
+
 Then reconcile RBAC resources from an admin identity:
 
 ```bash

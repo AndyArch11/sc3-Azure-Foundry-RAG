@@ -6,7 +6,9 @@ resource_group_name          = "rg-ai-platform-dev"
 vnet_cidr                    = "10.20.0.0/16"
 private_endpoint_subnet_cidr = "10.20.1.0/24"
 agent_subnet_cidr            = "10.20.2.0/24"
-container_apps_subnet_cidr   = "10.20.5.0/24"
+container_apps_subnet_cidr   = "10.20.5.0/24"2026-04-01T07:46:34.9830056Z stderr F INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+2026-04-01T07:48:57.3448018Z stdout F INFO:     100.100.0.89:35626 - "GET / HTTP/1.1" 401 Unauthorized
+2026-04-01T07:53:08.7208711Z stdout F INFO:     100.100.0.111:36378 - "GET / HTTP/1.1" 401 Unauthorized
 jumpbox_subnet_cidr          = "10.20.3.0/24"
 azure_bastion_subnet_cidr    = "10.20.4.0/26"
 jumpbox_admin_ssh_public_key = "<set-me-ssh-public-key>"
