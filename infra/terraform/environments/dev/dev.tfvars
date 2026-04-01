@@ -6,9 +6,7 @@ resource_group_name          = "rg-ai-platform-dev"
 vnet_cidr                    = "10.20.0.0/16"
 private_endpoint_subnet_cidr = "10.20.1.0/24"
 agent_subnet_cidr            = "10.20.2.0/24"
-container_apps_subnet_cidr   = "10.20.5.0/24"2026-04-01T07:46:34.9830056Z stderr F INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
-2026-04-01T07:48:57.3448018Z stdout F INFO:     100.100.0.89:35626 - "GET / HTTP/1.1" 401 Unauthorized
-2026-04-01T07:53:08.7208711Z stdout F INFO:     100.100.0.111:36378 - "GET / HTTP/1.1" 401 Unauthorized
+container_apps_subnet_cidr   = "10.20.5.0/24"
 jumpbox_subnet_cidr          = "10.20.3.0/24"
 azure_bastion_subnet_cidr    = "10.20.4.0/26"
 jumpbox_admin_ssh_public_key = "<set-me-ssh-public-key>"
@@ -18,7 +16,7 @@ enable_ingestion_job         = true
 enable_query_web_app         = true
 query_web_public_endpoint    = true                   # Set true for public query web ingress. Creation-level: switching later requires CAE replacement.
 ingestion_job_image_tag      = "202604010703-38552be" # Immutable tag. Update when a new ingestion image is pushed.
-query_web_image_tag          = "202603310830-b633b63" # Immutable tag. Update when a new query-web image is pushed.
+query_web_image_tag          = "202604010825-868ddc6" # Immutable tag. Update when a new query-web image is pushed.
 search_index_name            = "grounding-index"
 # Optional overrides for globally-unique resource names (use when 409 name collisions occur).
 search_service_name_override  = "srch-dev-aue-20260329"
