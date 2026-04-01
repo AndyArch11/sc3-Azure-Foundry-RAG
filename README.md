@@ -258,7 +258,7 @@ After rollout, use the ingestion workflow described in [runtime/README.md](runti
 
 ### Load Control Data
 
-After the ingestion job has indexed evidence documents, load framework control requirements (for example Essential Eight or AESCSF) into the dedicated controls index.
+After the ingestion job has indexed evidence documents, load framework control requirements (for example Essential Eight, AESCSF, ISM, or NIST CSF) into the dedicated controls index.
 
 Use the controls runner from inside the private network (jumpbox or CI runner) with the Search endpoint exported. The runner supports four modes:
 
@@ -267,7 +267,21 @@ Use the controls runner from inside the private network (jumpbox or CI runner) w
 - `parse-and-publish` performs both steps in one command
 - `ensure-index` creates or updates the dedicated controls index without uploading records
 
-For Essential Eight, the parser fetches the current ASD framework content directly and writes the parsed requirement records to a versioned JSONL file.
+Available framework parsers:
+
+- `essential_eight`: ASD Essential Eight Maturity Model
+- `aescsf`: Australian Energy Sector Cyber Security Framework (AESCSF v2 core workbook)
+- `ism`: ASD Information Security Manual (OSCAL catalog)
+- `nist_csf`: NIST Cybersecurity Framework 2.0
+
+Use `--framework all` to parse or parse-and-publish all frameworks in one run, or pass one framework name to selectively load only that control set.
+
+Parser outputs are written to `./parsed-controls` with framework-specific filenames, for example:
+
+- `essential_eight_november-2023.jsonl`
+- `aescsf_v2.jsonl`
+- `ism_latest.jsonl`
+- `nist_csf_2-0.jsonl`
 
 ```bash
 TARGET_ENV="<env>"
@@ -279,16 +293,31 @@ export AZURE_SEARCH_ENDPOINT="${SEARCH_EP}"
 cd runtime
 source .venv/bin/activate
 
-# Parse the Essential Eight framework into ./parsed-controls only
+# Parse a framework into ./parsed-controls only
 python3 -m ingestion.controls_runner \
   --mode parse \
-  --framework essential_eight
+  --framework aescsf
+
+# Parse all frameworks into ./parsed-controls in one run
+python3 -m ingestion.controls_runner \
+  --mode parse \
+  --framework all
+
+# Parse ISM controls into ./parsed-controls only
+python3 -m ingestion.controls_runner \
+  --mode parse \
+  --framework ism
+
+# Parse NIST CSF controls into ./parsed-controls only
+python3 -m ingestion.controls_runner \
+  --mode parse \
+  --framework nist_csf
 
 # Create or update the controls index only
 python3 -m ingestion.controls_runner \
   --mode ensure-index
 
-# Parse and publish Essential Eight in one step
+# Parse and publish in one step
 python3 -m ingestion.controls_runner \
   --mode parse-and-publish \
   --framework essential_eight
@@ -297,9 +326,14 @@ python3 -m ingestion.controls_runner \
 python3 -m ingestion.controls_runner \
   --mode publish \
   --input-jsonl ../parsed-controls/essential_eight_november-2023.jsonl
+
+# Publish AESCSF JSONL directly
+python3 -m ingestion.controls_runner \
+  --mode publish \
+  --input-jsonl ../parsed-controls/aescsf_v2.jsonl
 ```
 
-Add `--no-guidance` if you want the parser to skip supplementary guidance fetches while building the JSONL output.
+Add `--no-guidance` if you want parsers that support guidance-fetch skipping (for example Essential Eight and NIST CSF) to avoid supplementary guidance fetches while building JSONL output.
 
 See [runtime/README.md](runtime/README.md) for the full controls pipeline reference, supported frameworks, runner options, and controls index environment variables.
 
@@ -368,11 +402,11 @@ sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
 # Do not run from jumpbox UAMI context unless that identity can manage role assignments.
 ./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply
 
-# Parse and publish Essential Eight control data into the controls index (run from inside private network)
+# Parse and publish control data into the controls index (run from inside private network)
 SEARCH_EP=$(terraform -chdir=infra/terraform output -raw search_endpoint)
 export AZURE_SEARCH_ENDPOINT="${SEARCH_EP}"
 cd runtime && source .venv/bin/activate
-python3 -m ingestion.controls_runner --mode parse-and-publish --framework essential_eight
+python3 -m ingestion.controls_runner --mode parse-and-publish --framework aescsf
 cd ..
 
 # Run unit tests

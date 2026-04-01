@@ -35,22 +35,43 @@ logger = logging.getLogger(__name__)
 # Registry of supported frameworks.
 # Each entry maps a CLI name → factory callable that accepts fetch_guidance kwarg.
 def _build_registry():
+    from .aescsf import AescsfParser  # noqa: PLC0415
     from .essential_eight import (  # noqa: PLC0415
         EssentialEightParser,
         FRAMEWORK_VERSION,
         _slugify,
     )
+    from .ism import IsmParser  # noqa: PLC0415
+    from .nist_csf import NistCsfParser  # noqa: PLC0415
+    from .nist_csf import FRAMEWORK_VERSION as CSF_VERSION  # noqa: PLC0415
 
     FRAMEWORK_VERSION_SLUG = _slugify(FRAMEWORK_VERSION)
 
     return {
+        "aescsf": {
+            "factory": lambda fetch_guidance: AescsfParser(),
+            "output_filename": "aescsf_v2.jsonl",
+            "description": "AESCSF v2 Assessment Toolkit (354 practices across 11 domains)",
+        },
         "essential_eight": {
             "factory": lambda fetch_guidance: EssentialEightParser(
                 fetch_guidance=fetch_guidance
             ),
             "output_filename": f"essential_eight_{FRAMEWORK_VERSION_SLUG}.jsonl",
             "description": "ASD Essential Eight Maturity Model (all three levels)",
-        }
+        },
+        "ism": {
+            "factory": lambda fetch_guidance: IsmParser(),
+            "output_filename": "ism_latest.jsonl",
+            "description": "ASD Information Security Manual (all controls, latest OSCAL release)",
+        },
+        "nist_csf": {
+            "factory": lambda fetch_guidance: NistCsfParser(
+                fetch_guidance=fetch_guidance
+            ),
+            "output_filename": f"nist_csf_{_slugify(CSF_VERSION)}.jsonl",
+            "description": "NIST Cybersecurity Framework 2.0 (all 106 subcategories)",
+        },
     }
 
 
@@ -62,7 +83,7 @@ def _parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument(
         "--framework",
         required=True,
-        choices=["essential_eight"],
+        choices=["aescsf", "essential_eight", "ism", "nist_csf"],
         help="Framework to parse.",
     )
     parser.add_argument(

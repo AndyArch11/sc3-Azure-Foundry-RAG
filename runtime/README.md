@@ -77,6 +77,9 @@ source .venv/bin/activate
 # Parse only (writes JSONL to ./parsed-controls)
 python3 -m ingestion.controls_runner --mode parse --framework essential_eight
 
+# Parse all supported frameworks in one run
+python3 -m ingestion.controls_runner --mode parse --framework all
+
 # Publish an existing JSONL file to the controls index
 python3 -m ingestion.controls_runner --mode publish \
   --input-jsonl ../parsed-controls/essential_eight_november-2023.jsonl
@@ -84,6 +87,10 @@ python3 -m ingestion.controls_runner --mode publish \
 # End-to-end parse + ensure index + publish
 python3 -m ingestion.controls_runner --mode parse-and-publish \
   --framework essential_eight
+
+# End-to-end parse + publish all supported frameworks
+python3 -m ingestion.controls_runner --mode parse-and-publish \
+  --framework all
 ```
 
 Controls index environment variables:
