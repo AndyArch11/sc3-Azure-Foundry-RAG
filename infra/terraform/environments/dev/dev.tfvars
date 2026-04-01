@@ -15,7 +15,7 @@ enable_model_deployments     = true
 enable_ingestion_job         = true
 enable_query_web_app         = true
 query_web_public_endpoint    = true                   # Set true for public query web ingress. Creation-level: switching later requires CAE replacement.
-ingestion_job_image_tag      = "202603292354-8115700" # Immutable tag. Update when a new ingestion image is pushed.
+ingestion_job_image_tag      = "202604010703-38552be" # Immutable tag. Update when a new ingestion image is pushed.
 query_web_image_tag          = "202603310830-b633b63" # Immutable tag. Update when a new query-web image is pushed.
 search_index_name            = "grounding-index"
 # Optional overrides for globally-unique resource names (use when 409 name collisions occur).
