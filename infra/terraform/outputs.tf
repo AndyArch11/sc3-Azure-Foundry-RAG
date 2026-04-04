@@ -42,6 +42,10 @@ output "query_web_fqdn" {
   value = module.agent_hosting.query_web_fqdn
 }
 
+output "confluence_poller_app_name" {
+  value = module.agent_hosting.confluence_poller_app_name
+}
+
 output "query_web_entra_client_id" {
   value = try(azuread_application.query_web[0].client_id, null)
 }

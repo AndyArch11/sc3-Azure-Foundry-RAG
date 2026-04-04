@@ -34,9 +34,9 @@ modes:
     )
     parser.add_argument(
         "--mode",
-        choices=["local", "azure", "reset"],
+        choices=["local", "azure", "reset", "controls"],
         default="local",
-        help="local: client-side extraction + JSONL; azure: blob upload + Search indexer pipeline; reset: purge loaded indexed data",
+        help="local: client-side extraction + JSONL; azure: blob upload + Search indexer pipeline; reset: purge loaded indexed data; controls: parse/publish Corpus A frameworks",
     )
     parser.add_argument(
         "--input-dir",
@@ -58,6 +58,31 @@ modes:
         action="store_true",
         default=False,
         help="(reset mode) also delete all source blobs from AZURE_STORAGE_CONTAINER_NAME",
+    )
+    # controls mode
+    parser.add_argument(
+        "--controls-framework",
+        choices=["all", "aescsf", "essential_eight", "ism", "nist_csf"],
+        default="all",
+        help="(controls mode) framework(s) to parse and publish",
+    )
+    parser.add_argument(
+        "--replace-existing",
+        action="store_true",
+        default=False,
+        help="(controls mode) replace existing framework/version docs when manifest differs",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="(controls mode) evaluate dedupe/publish action without writing to controls index",
+    )
+    parser.add_argument(
+        "--no-guidance",
+        action="store_true",
+        default=False,
+        help="(controls mode) skip supplementary guidance fetch during parsing",
     )
     return parser.parse_args()
 
@@ -246,12 +271,77 @@ def _run_reset(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_controls(args: argparse.Namespace) -> int:
+    from azure.identity import DefaultAzureCredential
+
+    from .controls_index import ControlsIndexConfig, ensure_controls_index
+    from .controls_runner import _build_parser_registry, _selected_frameworks
+    from .publish_controls import upload_controls_records
+
+    try:
+        config = ControlsIndexConfig.from_env()
+    except ValueError as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        return 1
+
+    credential = DefaultAzureCredential()
+    ensure_controls_index(config, credential)
+
+    registry = _build_parser_registry()
+    selected = _selected_frameworks(args.controls_framework, registry)
+
+    summaries: list[dict] = []
+    for framework in selected:
+        parser_instance = registry[framework]["factory"](fetch_guidance=(not args.no_guidance))
+        records = parser_instance.parse()
+        if not records:
+            summaries.append(
+                {
+                    "framework": framework,
+                    "error": "Parser returned no records",
+                }
+            )
+            continue
+
+        records_payload = [
+            json.loads(line)
+            for line in parser_instance.to_jsonl(records).splitlines()
+            if line.strip()
+        ]
+
+        summary = upload_controls_records(
+            config,
+            credential,
+            records_payload,
+            replace_existing=args.replace_existing,
+            dry_run=args.dry_run,
+        )
+        summaries.append({"framework": framework, **summary})
+
+    payload = {
+        "mode": "controls",
+        "framework": args.controls_framework,
+        "replace_existing": bool(args.replace_existing),
+        "dry_run": bool(args.dry_run),
+        "results": summaries,
+    }
+    print(json.dumps(payload, ensure_ascii=True))
+
+    if any(item.get("records_failed", 0) for item in summaries):
+        return 1
+    if any(item.get("error") for item in summaries):
+        return 1
+    return 0
+
+
 def main() -> int:
     args = parse_args()
     if args.mode == "azure":
         return _run_azure(args)
     if args.mode == "reset":
         return _run_reset(args)
+    if args.mode == "controls":
+        return _run_controls(args)
     return _run_local(args)
 
 

@@ -1,0 +1,225 @@
+version: 1
+contract_type: shared_schemas
+schemas:
+  identity_mode:
+    type: string
+    enum:
+      - app_only
+      - delegated
+
+  provider:
+    type: string
+    enum:
+      - confluence
+      - sharepoint
+      - m365
+      - email
+
+  assessment_job:
+    type: object
+    additionalProperties: false
+    required:
+      - job_id
+      - provider
+      - target_id
+      - target_url
+      - trigger_type
+      - request_identity_mode
+      - delivery_policy
+      - correlation_id
+    properties:
+      job_id:
+        type: string
+      source_type:
+        type: string
+      provider:
+        $ref: '#/schemas/provider'
+      target_id:
+        type: string
+      target_url:
+        type: string
+      trigger_type:
+        type: string
+      request_identity_mode:
+        $ref: '#/schemas/identity_mode'
+      requester_id:
+        type: string
+      requester_email:
+        type: string
+      delivery_policy:
+        type: string
+      correlation_id:
+        type: string
+      metadata:
+        type: object
+
+  resolved_target:
+    type: object
+    additionalProperties: false
+    required:
+      - provider
+      - target_type
+      - target_id
+      - canonical_url
+      - title
+    properties:
+      provider:
+        $ref: '#/schemas/provider'
+      target_type:
+        type: string
+      target_id:
+        type: string
+      canonical_url:
+        type: string
+      title:
+        type: string
+      container_id:
+        type: string
+      version:
+        type: string
+      metadata:
+        type: object
+
+  access_decision:
+    type: object
+    additionalProperties: false
+    required:
+      - granted
+      - identity_mode
+      - reason
+    properties:
+      granted:
+        type: boolean
+      identity_mode:
+        $ref: '#/schemas/identity_mode'
+      reason:
+        type: string
+      audit_fields:
+        type: object
+
+  person_reference:
+    type: object
+    additionalProperties: false
+    required:
+      - principal_id
+      - display_name
+    properties:
+      principal_id:
+        type: string
+      display_name:
+        type: string
+      email:
+        type: string
+
+  assessed_artifact_package:
+    type: object
+    additionalProperties: false
+    required:
+      - provider
+      - target_id
+      - canonical_url
+      - title
+      - content
+      - metadata
+    properties:
+      provider:
+        $ref: '#/schemas/provider'
+      target_id:
+        type: string
+      canonical_url:
+        type: string
+      title:
+        type: string
+      content:
+        type: string
+      metadata:
+        type: object
+      owner:
+        $ref: '#/schemas/person_reference'
+      last_editor:
+        $ref: '#/schemas/person_reference'
+      discussion_context:
+        type: array
+        items:
+          type: object
+
+  corpus_grounding_package:
+    type: object
+    additionalProperties: false
+    required:
+      - corpus_a_results
+      - corpus_b_results
+    properties:
+      corpus_a_results:
+        type: array
+        items:
+          type: object
+      corpus_b_results:
+        type: array
+        items:
+          type: object
+      precedence_policy_version:
+        type: string
+
+  structured_assessment_report:
+    type: object
+    additionalProperties: false
+    required:
+      - schema_version
+      - executive_summary
+      - findings
+      - citations
+    properties:
+      schema_version:
+        type: string
+      executive_summary:
+        type: string
+      findings:
+        type: array
+        items:
+          type: object
+      citations:
+        type: array
+        items:
+          type: string
+      report_markdown:
+        type: string
+
+  delivery_plan:
+    type: object
+    additionalProperties: false
+    required:
+      - delivery_policy
+      - email_recipients
+    properties:
+      delivery_policy:
+        type: string
+      inline_target:
+        type: object
+      email_recipients:
+        type: array
+        items:
+          type: string
+      fallback_to_email:
+        type: boolean
+
+  delivery_outcome:
+    type: object
+    additionalProperties: false
+    required:
+      - success
+      - attempted_channels
+      - failures
+    properties:
+      success:
+        type: boolean
+      attempted_channels:
+        type: array
+        items:
+          type: string
+      failures:
+        type: array
+        items:
+          type: string
+      metadata:
+        type: object

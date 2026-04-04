@@ -140,6 +140,9 @@
     .rating-stars button.lit { color:#f59e0b; }
     .rating-todo { flex:1; min-width:140px; font-size:0.82rem; padding:4px 7px; border:1px solid var(--border); border-radius:4px; background:var(--bg); color:var(--text); }
     .rating-done { font-size:0.82rem; color:#16a34a; }
+    .ops-grid { display:grid; grid-template-columns: repeat(2, minmax(180px,1fr)); gap:8px; margin-top:8px; }
+    .ops-row { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; }
+    .ops-status { margin-top:10px; max-height:260px; overflow:auto; background:#f9fafb; border:1px solid var(--border); border-radius:8px; padding:8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.8rem; white-space:pre-wrap; }
   </style>
 </head>
 <body>
@@ -207,6 +210,102 @@
         <input type="hidden" name="conversation_id" id="conversation_id_field" value="{{ conversation_id or '' }}" />
         <button type="submit">Ask</button>
       </form>
+
+      <div class="source" id="corpus-a-ops">
+        <h3>Corpus A Operations</h3>
+        <p class="muted">Check ingestion status and trigger controls ingestion for selected frameworks.</p>
+        <div class="ops-row">
+          <label><input type="checkbox" id="ca-all" checked /> All frameworks</label>
+          <label><input type="checkbox" class="ca-fw" value="essential_eight" checked /> Essential Eight</label>
+          <label><input type="checkbox" class="ca-fw" value="aescsf" checked /> AESCSF</label>
+          <label><input type="checkbox" class="ca-fw" value="ism" checked /> ISM</label>
+          <label><input type="checkbox" class="ca-fw" value="nist_csf" checked /> NIST CSF</label>
+        </div>
+        <div class="ops-grid">
+          <label><input type="checkbox" id="ca-replace-existing" /> Replace existing</label>
+          <label><input type="checkbox" id="ca-dry-run" /> Dry run</label>
+          <label><input type="checkbox" id="ca-no-guidance" /> No guidance fetch</label>
+          <label><input type="checkbox" id="ca-clear-dry-run" checked /> Clear dry run</label>
+        </div>
+        <div class="ops-row">
+          <button type="button" class="btn-secondary" onclick="refreshCorpusAStatus()">Refresh Corpus A Status</button>
+          <button type="button" onclick="triggerCorpusAIngest()">Trigger Corpus A Ingestion</button>
+          <button type="button" class="btn-secondary" onclick="clearCorpusA()">Clear Corpus A Index Data</button>
+        </div>
+        <div id="ca-status" class="ops-status">Status not loaded yet.</div>
+      </div>
+
+      <div class="source" id="corpus-b-ops">
+        <h3>Corpus B Operations</h3>
+        <p class="muted">Clear Corpus B vector/index data, with optional blob cleanup.</p>
+        <div class="ops-row">
+          <label><input type="checkbox" id="cb-clear-dry-run" checked /> Dry run</label>
+          <label><input type="checkbox" id="cb-clear-blobs" /> Also delete Corpus B blobs</label>
+          <button type="button" class="btn-secondary" onclick="clearCorpusB()">Clear Corpus B Data</button>
+        </div>
+        <div id="cb-status" class="ops-status">No Corpus B clear action yet.</div>
+      </div>
+
+      <div class="source" id="corpus-c-ops">
+        <h3>Corpus C Operations</h3>
+        <p class="muted">Upload assessed artifacts, trigger ingestion, then generate a compliance report using Corpus A and B grounding.</p>
+        <div class="ops-row">
+          <input id="cc-files" type="file" multiple />
+          <label><input type="checkbox" id="cc-trigger-job" checked /> Trigger ingestion job</label>
+          <button type="button" onclick="uploadCorpusCIngest()">Upload Corpus C</button>
+          <button type="button" class="btn-secondary" onclick="clearCorpusC()">Clear Corpus C Data</button>
+          <label><input type="checkbox" id="cc-clear-dry-run" checked /> Dry run</label>
+          <label><input type="checkbox" id="cc-clear-blobs" /> Also delete Corpus C blobs</label>
+        </div>
+        <div id="cc-status" class="ops-status">No Corpus C upload yet.</div>
+      </div>
+
+      <div class="source" id="compliance-report-ops">
+        <h3>Compliance Report</h3>
+        <p class="muted">Generate a report using Corpus A controls, Corpus B guidance, and Corpus C artifacts.</p>
+        <div class="grid">
+          <div class="field">
+            <label for="cr-retrieve-k">Top K chunks</label>
+            <input id="cr-retrieve-k" type="number" min="1" max="20" value="5" />
+          </div>
+          <div class="field">
+            <label for="cr-temperature">Temperature</label>
+            <input id="cr-temperature" type="number" min="0" max="1" step="0.05" value="0.2" />
+          </div>
+          <div class="field">
+            <label for="cr-controls-framework">Controls framework</label>
+            <select id="cr-controls-framework">
+              <option value="">Auto (infer from question)</option>
+              <option value="nist_csf">NIST CSF</option>
+              <option value="essential_eight">Essential Eight</option>
+              <option value="aescsf">AESCSF</option>
+              <option value="ism">ISM</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="cr-upload-batch">Corpus C upload batch (optional)</label>
+            <input id="cr-upload-batch" type="text" placeholder="e.g. 4f1f2..." />
+          </div>
+          <div class="field">
+            <label for="cr-validation-mode">Schema validation mode</label>
+            <select id="cr-validation-mode">
+              <option value="hard" selected>Hard fail on schema mismatch</option>
+              <option value="soft">Soft fail (return raw output)</option>
+            </select>
+          </div>
+        </div>
+        <div class="field" style="margin-top:8px">
+          <label for="cr-question">Assessment question</label>
+          <textarea id="cr-question" placeholder="Assess compliance against required controls for these artifacts..."></textarea>
+        </div>
+        <div class="ops-row">
+          <button type="button" onclick="generateComplianceReport()">Generate Compliance Report</button>
+          <button type="button" class="btn-secondary" onclick="downloadComplianceReportMarkdown()">Download Markdown</button>
+          <button type="button" class="btn-secondary" onclick="downloadComplianceReportJson()">Download JSON</button>
+          <button type="button" class="btn-secondary" onclick="downloadComplianceFindingsCsv()">Download Findings CSV</button>
+        </div>
+        <div id="cr-status" class="ops-status">No report generated yet.</div>
+      </div>
 
       {% if error %}
       <p style="color:#b91c1c"><strong>Error:</strong> {{ error }}</p>
@@ -307,6 +406,7 @@
   </div>
 <script>
   const SESSION_KEY = 'rag_session';
+  let _lastComplianceReport = null;
 
   function escHtml(s) {
     return String(s)
@@ -469,6 +569,221 @@
       .catch(e => console.error('Failed to load conversation:', e));
   }
 
+  function _currentAuthToken() {
+    const authField = document.getElementById('auth_token');
+    if (authField && authField.value) return authField.value;
+    const session = loadSession();
+    return (session && session.auth_token) ? session.auth_token : '';
+  }
+
+  function _selectedCorpusAFrameworks() {
+    const allChecked = document.getElementById('ca-all').checked;
+    if (allChecked) return ['all'];
+    return Array.from(document.querySelectorAll('.ca-fw:checked')).map(el => el.value);
+  }
+
+  function _renderCorpusAStatus(payload) {
+    const target = document.getElementById('ca-status');
+    target.textContent = JSON.stringify(payload, null, 2);
+  }
+
+  function _renderCorpusCStatus(payload) {
+    const target = document.getElementById('cc-status');
+    target.textContent = JSON.stringify(payload, null, 2);
+  }
+
+  function _renderCorpusBStatus(payload) {
+    const target = document.getElementById('cb-status');
+    target.textContent = JSON.stringify(payload, null, 2);
+  }
+
+  function _renderComplianceReport(payload) {
+    const target = document.getElementById('cr-status');
+    if (payload && !payload.error && payload.mode === 'compliance-report') {
+      _lastComplianceReport = payload;
+    }
+    if (payload && payload.report) {
+      target.textContent = payload.report;
+      return;
+    }
+    target.textContent = JSON.stringify(payload, null, 2);
+  }
+
+  function _downloadText(filename, content, contentType) {
+    const blob = new Blob([content], { type: contentType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadComplianceReportMarkdown() {
+    if (!_lastComplianceReport || !_lastComplianceReport.report_markdown) {
+      _renderComplianceReport({ error: 'Generate a compliance report first.' });
+      return;
+    }
+    const base = _lastComplianceReport.report_filename_base || 'compliance-report';
+    _downloadText(base + '.md', _lastComplianceReport.report_markdown, 'text/markdown;charset=utf-8');
+  }
+
+  function downloadComplianceReportJson() {
+    if (!_lastComplianceReport || !_lastComplianceReport.report_structured) {
+      _renderComplianceReport({ error: 'Generate a compliance report first.' });
+      return;
+    }
+    const base = _lastComplianceReport.report_filename_base || 'compliance-report';
+    _downloadText(
+      base + '.json',
+      JSON.stringify(_lastComplianceReport.report_structured, null, 2),
+      'application/json;charset=utf-8'
+    );
+  }
+
+  function downloadComplianceFindingsCsv() {
+    if (!_lastComplianceReport || !_lastComplianceReport.report_findings_csv) {
+      _renderComplianceReport({ error: 'Generate a compliance report first.' });
+      return;
+    }
+    const base = _lastComplianceReport.report_filename_base || 'compliance-report';
+    _downloadText(base + '-findings.csv', _lastComplianceReport.report_findings_csv, 'text/csv;charset=utf-8');
+  }
+
+  function refreshCorpusAStatus() {
+    const token = _currentAuthToken();
+    const qs = token ? ('?auth_token=' + encodeURIComponent(token)) : '';
+    fetch('/api/corpus-a/status' + qs)
+      .then(r => r.json())
+      .then(data => _renderCorpusAStatus(data))
+      .catch(err => _renderCorpusAStatus({ error: String(err) }));
+  }
+
+  function triggerCorpusAIngest() {
+    const token = _currentAuthToken();
+    const frameworks = _selectedCorpusAFrameworks();
+    const body = {
+      frameworks: frameworks,
+      replace_existing: document.getElementById('ca-replace-existing').checked,
+      dry_run: document.getElementById('ca-dry-run').checked,
+      no_guidance: document.getElementById('ca-no-guidance').checked,
+      auth_token: token,
+    };
+
+    fetch('/api/corpus-a/ingest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(r => r.json())
+      .then(data => _renderCorpusAStatus(data))
+      .catch(err => _renderCorpusAStatus({ error: String(err) }));
+  }
+
+  function clearCorpusA() {
+    const body = {
+      frameworks: _selectedCorpusAFrameworks(),
+      dry_run: document.getElementById('ca-clear-dry-run').checked,
+      auth_token: _currentAuthToken(),
+    };
+    if (!confirm((body.dry_run ? 'Preview' : 'Clear') + ' selected Corpus A controls from the controls index?')) return;
+    fetch('/api/corpus-a/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(r => r.json())
+      .then(data => _renderCorpusAStatus(data))
+      .catch(err => _renderCorpusAStatus({ error: String(err) }));
+  }
+
+  function clearCorpusB() {
+    const body = {
+      dry_run: document.getElementById('cb-clear-dry-run').checked,
+      clear_blobs: document.getElementById('cb-clear-blobs').checked,
+      auth_token: _currentAuthToken(),
+    };
+    if (!confirm((body.dry_run ? 'Preview' : 'Clear') + ' Corpus B data from grounding index' + (body.clear_blobs ? ' and delete blobs' : '') + '?')) return;
+    fetch('/api/corpus-b/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(r => r.json())
+      .then(data => _renderCorpusBStatus(data))
+      .catch(err => _renderCorpusBStatus({ error: String(err) }));
+  }
+
+  function uploadCorpusCIngest() {
+    const input = document.getElementById('cc-files');
+    if (!input.files || !input.files.length) {
+      _renderCorpusCStatus({ error: 'Select at least one file.' });
+      return;
+    }
+
+    const fd = new FormData();
+    for (const file of input.files) {
+      fd.append('files', file);
+    }
+    fd.append('trigger_job', document.getElementById('cc-trigger-job').checked ? 'true' : 'false');
+    fd.append('auth_token', _currentAuthToken());
+
+    fetch('/api/corpus-c/ingest', {
+      method: 'POST',
+      body: fd,
+    })
+      .then(r => r.json())
+      .then(data => _renderCorpusCStatus(data))
+      .catch(err => _renderCorpusCStatus({ error: String(err) }));
+  }
+
+  function clearCorpusC() {
+    const body = {
+      dry_run: document.getElementById('cc-clear-dry-run').checked,
+      clear_blobs: document.getElementById('cc-clear-blobs').checked,
+      auth_token: _currentAuthToken(),
+    };
+    if (!confirm((body.dry_run ? 'Preview' : 'Clear') + ' Corpus C data from grounding index' + (body.clear_blobs ? ' and delete blobs' : '') + '?')) return;
+    fetch('/api/corpus-c/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(r => r.json())
+      .then(data => _renderCorpusCStatus(data))
+      .catch(err => _renderCorpusCStatus({ error: String(err) }));
+  }
+
+  function generateComplianceReport() {
+    const question = document.getElementById('cr-question').value.trim();
+    if (!question) {
+      _renderComplianceReport({ error: 'Assessment question is required.' });
+      return;
+    }
+
+    const body = {
+      question: question,
+      retrieve_k: Number(document.getElementById('cr-retrieve-k').value || 5),
+      temperature: Number(document.getElementById('cr-temperature').value || 0.2),
+      controls_framework: document.getElementById('cr-controls-framework').value || null,
+      corpus_c_upload_batch: document.getElementById('cr-upload-batch').value.trim() || null,
+      validation_mode: document.getElementById('cr-validation-mode').value || 'hard',
+      auth_token: _currentAuthToken(),
+    };
+
+    _renderComplianceReport({ status: 'Generating report...' });
+    fetch('/api/compliance/report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(r => r.json())
+      .then(data => _renderComplianceReport(data))
+      .catch(err => _renderComplianceReport({ error: String(err) }));
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     const sd = JSON.parse(document.getElementById('server-data').textContent);
 
@@ -513,6 +828,7 @@
     }
 
     renderThread(session.turns);
+    refreshCorpusAStatus();
   });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js" crossorigin="anonymous"></script>

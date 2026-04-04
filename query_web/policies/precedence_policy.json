@@ -1,0 +1,24 @@
+{
+  "version": "2026-04-01",
+  "description": "Default precedence policy for cross-framework contradictions in compliance assistant responses.",
+  "default_framework_order": [
+    "Essential Eight",
+    "ISM",
+    "AESCSF",
+    "NIST CSF"
+  ],
+  "rules": [
+    {
+      "rule_id": "identity-access-au-priority",
+      "description": "For Australia-focused identity/access control topics, prioritise Essential Eight guidance first.",
+      "applies_when_keywords": ["privileged", "access"],
+      "preferred_framework": "Essential Eight"
+    },
+    {
+      "rule_id": "encryption-au-priority",
+      "description": "For encryption at rest/transit questions in Australia scope, prioritise ISM baseline controls.",
+      "applies_when_keywords": ["encryption"],
+      "preferred_framework": "ISM"
+    }
+  ]
+}

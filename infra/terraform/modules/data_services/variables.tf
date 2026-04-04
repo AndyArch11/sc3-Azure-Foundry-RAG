@@ -8,6 +8,11 @@ variable "search_service_name_override" {
 }
 variable "cosmos_database_name" { type = string }
 variable "cosmos_container_name" { type = string }
+variable "cosmos_orchestration_container_name" {
+  type        = string
+  description = "Cosmos DB SQL container name for orchestration state (polling watermark/locks)."
+  default     = "orchestration-state"
+}
 variable "tags" {
   type    = map(string)
   default = {}

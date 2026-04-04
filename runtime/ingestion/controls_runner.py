@@ -94,6 +94,18 @@ def parse_args() -> argparse.Namespace:
         help="Batch size for Search document upload",
     )
     parser.add_argument(
+        "--replace-existing",
+        action="store_true",
+        default=False,
+        help="When publishing controls, replace existing docs for same framework/version if manifest differs",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Preview dedupe/publish action without writing to the controls index",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -123,7 +135,14 @@ def _run_parse(framework: str, output_dir: Path, no_guidance: bool) -> dict[str,
     return outputs
 
 
-def _run_publish(config: ControlsIndexConfig, jsonl_path: Path, batch_size: int) -> dict:
+def _run_publish(
+    config: ControlsIndexConfig,
+    jsonl_path: Path,
+    batch_size: int,
+    *,
+    replace_existing: bool,
+    dry_run: bool,
+) -> dict:
     credential = DefaultAzureCredential()
 
     ensure_controls_index(config, credential)
@@ -133,6 +152,8 @@ def _run_publish(config: ControlsIndexConfig, jsonl_path: Path, batch_size: int)
         credential,
         records,
         batch_size=batch_size,
+        replace_existing=replace_existing,
+        dry_run=dry_run,
     )
     result["jsonl_path"] = str(jsonl_path)
     return result
@@ -191,7 +212,13 @@ def main() -> int:
         jsonl_path = Path(args.input_jsonl) if args.input_jsonl else None
         if jsonl_path is None:
             raise RuntimeError("No JSONL source available for publish mode")
-        summary = _run_publish(config, jsonl_path, args.batch_size)
+        summary = _run_publish(
+            config,
+            jsonl_path,
+            args.batch_size,
+            replace_existing=args.replace_existing,
+            dry_run=args.dry_run,
+        )
         print(json.dumps({"mode": args.mode, **summary}, ensure_ascii=True))
         return 0
 
@@ -200,7 +227,13 @@ def main() -> int:
     if args.framework == "all":
         summaries = []
         for framework_name, jsonl_path in parsed_outputs.items():
-            summary = _run_publish(config, jsonl_path, args.batch_size)
+            summary = _run_publish(
+                config,
+                jsonl_path,
+                args.batch_size,
+                replace_existing=args.replace_existing,
+                dry_run=args.dry_run,
+            )
             summaries.append({"framework": framework_name, **summary})
         print(
             json.dumps(
@@ -215,7 +248,13 @@ def main() -> int:
         return 0
 
     selected_path = parsed_outputs[args.framework]
-    summary = _run_publish(config, selected_path, args.batch_size)
+    summary = _run_publish(
+        config,
+        selected_path,
+        args.batch_size,
+        replace_existing=args.replace_existing,
+        dry_run=args.dry_run,
+    )
     print(json.dumps({"mode": args.mode, **summary}, ensure_ascii=True))
     return 0
 

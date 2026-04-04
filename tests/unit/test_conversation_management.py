@@ -43,7 +43,7 @@ class TestConversationMessage:
 
 
 class TestConversationSession:
-    """Test ConversationSession dataclass and serialization."""
+    """Test ConversationSession dataclass and serialisation."""
 
     def test_create_session(self) -> None:
         session = ConversationSession(
@@ -218,7 +218,7 @@ class TestConversationLoadSave:
 
 
 class TestConversationMessageHistory:
-    """Test conversation message accumulation and serialization."""
+    """Test conversation message accumulation and serialisation."""
 
     def test_add_messages_to_session(self) -> None:
         session = ConversationSession(
@@ -236,7 +236,7 @@ class TestConversationMessageHistory:
         assert session.messages[1].role == "assistant"
         assert session.messages[2].role == "user"
 
-    def test_conversation_serialization_preserves_order(self) -> None:
+    def test_conversation_serialisation_preserves_order(self) -> None:
         session = ConversationSession(
             session_id="sess-123",
             user_id="user-456",

@@ -10,6 +10,7 @@ App Job for the ingestion runner.
 | `azurerm_container_app_environment` | `cae-<suffix>` | VNet-integrated CAE on the agent-delegated subnet |
 | `azurerm_container_app_job` | `caj-ingestion-<suffix>` | Manually-triggered ingestion pipeline job (created when `enable_ingestion_job = true`) |
 | `azurerm_container_app` | `ca-rag-query-<suffix>` | Browser-accessible query web app (created when `enable_query_web_app = true`; ingress exposure controlled by `query_web_public_endpoint`) |
+| `azurerm_container_app` | `ca-confluence-poller-<suffix>` | Continuous Confluence polling worker (created when `enable_confluence_poller_app = true`) |
 
 The query web app provides:
 - Hybrid retrieval (keyword + vector)
@@ -18,6 +19,11 @@ The query web app provides:
 - Runtime controls for Top-K and temperature
 - Optional shared-token auth gate via `query_web_auth_token`
 - Optional Entra group gate via `query_web_required_group_object_id`
+
+The Confluence poller app provides:
+- Continuous mention polling with single-flight lock semantics
+- Cosmos-backed watermark and idempotency state
+- Optional dry-run assessment mode (`CONFLUENCE_POLL_DRY_RUN=true`)
 
 ## Networking
 
@@ -29,7 +35,7 @@ By default, `query_web_public_endpoint = false` and
 Set `query_web_public_endpoint = true` to use an internet-facing endpoint for
 query web while keeping VNet integration for private dependencies.
 
-> **Creation-level behavior:** switching `query_web_public_endpoint` after
+> **Creation-level behaviour:** switching `query_web_public_endpoint` after
 > deployment changes the CAE load balancer mode and requires replacing the
 > Container App Environment and hosted apps.
 
@@ -74,6 +80,11 @@ sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --ingestion-tag "<immutable-ingestion-tag>" \
   --entra-secret-kv "<private-kv-name>" \
   --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
+
+# Confluence poller rollout
+sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+  --confluence-poller-tag "<immutable-poller-tag>" \
+  --enable-confluence-poller
 ```
 
 If RBAC role assignments need reconciliation, run from an admin identity:

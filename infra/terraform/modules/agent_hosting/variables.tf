@@ -13,6 +13,10 @@ variable "azure_openai_endpoint" { type = string }
 variable "azure_cosmos_endpoint" { type = string }
 variable "cosmos_database_name" { type = string }
 variable "cosmos_container_name" { type = string }
+variable "cosmos_orchestration_container_name" {
+  type        = string
+  description = "Cosmos DB SQL container name used by orchestration polling state."
+}
 variable "storage_account_name" { type = string }
 variable "storage_account_id" { type = string }
 variable "embedding_deployment_name" { type = string }
@@ -61,6 +65,11 @@ variable "query_web_required_group_object_id" {
 }
 variable "ingestion_job_image_tag" { type = string }
 variable "query_web_image_tag" { type = string }
+variable "confluence_poller_image_tag" {
+  type        = string
+  description = "Image tag for confluence-poller in ACR."
+  default     = "latest"
+}
 variable "enable_ingestion_job" {
   type        = bool
   description = "Whether to create the ingestion Container App Job."
@@ -70,6 +79,72 @@ variable "enable_query_web_app" {
   type        = bool
   description = "Whether to create the internal query web Container App."
   default     = false
+}
+variable "enable_confluence_poller_app" {
+  type        = bool
+  description = "Whether to create the dedicated Confluence polling Container App."
+  default     = false
+}
+variable "confluence_base_url" {
+  type        = string
+  description = "Confluence base URL for polling and content access."
+  default     = ""
+}
+variable "confluence_auth_mode" {
+  type        = string
+  description = "Confluence auth mode: basic, bearer, or oauth."
+  default     = "basic"
+}
+variable "confluence_auth_email" {
+  type        = string
+  description = "Confluence auth email used in basic mode."
+  default     = ""
+}
+variable "confluence_api_token" {
+  type        = string
+  description = "Confluence API token used by poller for basic/bearer mode."
+  default     = ""
+  sensitive   = true
+}
+variable "confluence_cloud_id" {
+  type        = string
+  description = "Optional Confluence cloud ID for bearer/oauth mode."
+  default     = ""
+}
+variable "confluence_account_id" {
+  type        = string
+  description = "Atlassian account ID used for structured mention CQL polling."
+  default     = ""
+}
+variable "confluence_poll_space_keys" {
+  type        = list(string)
+  description = "Optional list of Confluence space keys included in polling scope."
+  default     = []
+}
+variable "confluence_poll_interval_seconds" {
+  type        = number
+  description = "Poll interval in seconds."
+  default     = 75
+}
+variable "confluence_poll_lease_ttl_seconds" {
+  type        = number
+  description = "Lease TTL in seconds for single-flight lock."
+  default     = 300
+}
+variable "confluence_poll_max_event_attempts" {
+  type        = number
+  description = "Max attempts per event before terminal skip."
+  default     = 3
+}
+variable "confluence_poll_initial_lookback" {
+  type        = string
+  description = "Initial lookback duration used when no watermark exists."
+  default     = "PT1H"
+}
+variable "confluence_poll_dry_run" {
+  type        = bool
+  description = "When true, poller runs assess-only and does not post response comments."
+  default     = true
 }
 variable "query_web_public_endpoint" {
   type        = bool

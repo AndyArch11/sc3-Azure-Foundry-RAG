@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "description": "Skill selection eval cases for assessment orchestration skills.",
+  "cases": [
+    {
+      "id": "trigger-intake-email-notification",
+      "prompt": "An email notification arrived from the agent mailbox. Turn it into a validated assessment job.",
+      "expected_skill": "trigger-intake"
+    },
+    {
+      "id": "content-resolution-url",
+      "prompt": "Resolve this SharePoint URL into a canonical target object before retrieval.",
+      "expected_skill": "content-resolution"
+    },
+    {
+      "id": "access-validation-delegated",
+      "prompt": "This is a user-initiated request. Verify delegated mode and prevent app-only fallback.",
+      "expected_skill": "access-validation"
+    },
+    {
+      "id": "content-retrieval-provider",
+      "prompt": "Fetch the target body, metadata, owner and last editor from the provider through MCP.",
+      "expected_skill": "content-retrieval"
+    },
+    {
+      "id": "corpus-retrieval-grounding",
+      "prompt": "Retrieve Corpus A controls and Corpus B guidance to prepare grounding evidence for assessment.",
+      "expected_skill": "corpus-retrieval"
+    },
+    {
+      "id": "assessment-findings",
+      "prompt": "Generate a structured compliance report with findings, citations, and missing evidence markers.",
+      "expected_skill": "assessment"
+    },
+    {
+      "id": "delivery-decision-policy",
+      "prompt": "Pick inline comment, email, or fallback channels based on delivery policy and provider capability.",
+      "expected_skill": "delivery-decision"
+    },
+    {
+      "id": "publication-execute",
+      "prompt": "Execute the delivery plan and publish comments and email outcomes through MCP servers.",
+      "expected_skill": "publication"
+    },
+    {
+      "id": "audit-and-trace-reconstruct",
+      "prompt": "Persist stage-level trace records with correlation ID so the full assessment can be reconstructed.",
+      "expected_skill": "audit-and-trace"
+    }
+  ]
+}

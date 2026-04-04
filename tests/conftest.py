@@ -37,11 +37,12 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         if "sample_fixtures" not in item.keywords:
             continue
         # Collect every Path(...).exists() call would require importing the test
-        # module; instead skip the whole test if *any* parametrize value that
+        # module; instead skip the whole test if *any* parametrise value that
         # looks like a filename (str ending in a known extension) is missing.
         missing = []
-        if hasattr(item, "callspec"):
-            for val in item.callspec.params.values():
+        callspec = getattr(item, "callspec", None)
+        if callspec is not None:
+            for val in callspec.params.values():
                 if isinstance(val, str) and "." in val:
                     candidate = SAMPLES_DIR / val
                     if not candidate.exists():

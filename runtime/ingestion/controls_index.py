@@ -124,6 +124,20 @@ def ensure_controls_index(config: ControlsIndexConfig, credential: TokenCredenti
             facetable=True,
             retrievable=True,
         ),
+        SimpleField(
+            name="ingestion_manifest_hash",
+            type=SearchFieldDataType.String,
+            filterable=True,
+            facetable=True,
+            retrievable=True,
+        ),
+        SimpleField(
+            name="ingestion_loaded_at",
+            type=SearchFieldDataType.String,
+            filterable=True,
+            facetable=True,
+            retrievable=True,
+        ),
     ]
 
     semantic_search = SemanticSearch(

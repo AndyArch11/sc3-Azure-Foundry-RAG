@@ -233,6 +233,97 @@ variable "cosmos_container_name" {
   default     = "conversations"
 }
 
+variable "cosmos_orchestration_container_name" {
+  type        = string
+  description = "Cosmos DB SQL container name used by orchestration polling state."
+  default     = "orchestration-state"
+}
+
+variable "enable_confluence_poller_app" {
+  type        = bool
+  description = "Whether to create the dedicated Confluence polling Container App."
+  default     = false
+}
+
+variable "confluence_poller_image_tag" {
+  type        = string
+  description = "Image tag for confluence-poller in ACR."
+  default     = "latest"
+}
+
+variable "confluence_base_url" {
+  type        = string
+  description = "Confluence base URL for polling and content access."
+  default     = ""
+}
+
+variable "confluence_auth_mode" {
+  type        = string
+  description = "Confluence auth mode for poller: basic, bearer, or oauth."
+  default     = "basic"
+}
+
+variable "confluence_auth_email" {
+  type        = string
+  description = "Confluence auth email used in basic mode."
+  default     = ""
+}
+
+variable "confluence_api_token" {
+  type        = string
+  description = "Confluence API token used by poller for basic/bearer mode."
+  default     = ""
+  sensitive   = true
+}
+
+variable "confluence_cloud_id" {
+  type        = string
+  description = "Optional Confluence cloud ID used by bearer/oauth modes."
+  default     = ""
+}
+
+variable "confluence_account_id" {
+  type        = string
+  description = "Atlassian account ID used for structured mention CQL polling."
+  default     = ""
+}
+
+variable "confluence_poll_space_keys" {
+  type        = list(string)
+  description = "Optional allowlist of Confluence space keys for polling scope."
+  default     = []
+}
+
+variable "confluence_poll_interval_seconds" {
+  type        = number
+  description = "Polling interval for Confluence poller Container App in seconds."
+  default     = 75
+}
+
+variable "confluence_poll_lease_ttl_seconds" {
+  type        = number
+  description = "Distributed lease TTL for poller single-flight control in seconds."
+  default     = 300
+}
+
+variable "confluence_poll_max_event_attempts" {
+  type        = number
+  description = "Maximum attempts per event before terminal skip."
+  default     = 3
+}
+
+variable "confluence_poll_initial_lookback" {
+  type        = string
+  description = "Initial lookback duration for first poll when no watermark exists."
+  default     = "PT1H"
+}
+
+variable "confluence_poll_dry_run" {
+  type        = bool
+  description = "When true, poller detects and assesses events without posting response comments."
+  default     = true
+}
+
 variable "query_top_k" {
   type        = number
   description = "Number of chunks to retrieve for hybrid search in query web app."

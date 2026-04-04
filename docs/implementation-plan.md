@@ -149,6 +149,12 @@ Operational convention:
   - Query API manages conversations and response generation over retrieved evidence.
 3. Shared package
   - Model settings, identity-aware clients, telemetry helpers, and retry policies.
+4. Agent assessment orchestration
+  - Event-driven assessment orchestration for Confluence, SharePoint, and email-triggered requests is defined in `docs/agent-assessment-orchestration.md`.
+  - MCP servers are the provider access boundary; the orchestrator owns retrieval, assessment, delivery policy, and audit.
+  - The ownership split is formalised in `docs/adr/0001-assessment-orchestrator-mcp-boundary.md`.
+  - Confluence polling worker is hosted as a dedicated Container App, with single-flight lease control to prevent overlapping cycles when processing exceeds interval.
+  - Poll state uses persisted watermark boundaries and idempotency markers in Cosmos DB so restart/retry paths do not miss or duplicate responses.
 
 ## 11. Delivery Phases
 
@@ -171,6 +177,74 @@ Operational convention:
 6. Verification and hardening
   - Execute private-network integration tests.
   - Add alerting baselines and operational checks.
+
+### 11.1 Confluence Polling Worker Implementation Tasks
+
+1. Runtime state store module (Cosmos lock + watermark)
+  - Add a dedicated runtime module for orchestration state persistence using Cosmos optimistic concurrency.
+  - Implement operations: load_state, commit_state, try_acquire_lease, renew_lease, release_lease, mark_processed_event, is_event_processed.
+  - Use a single logical source key (`confluence`) and ETag compare-and-swap for all write paths.
+  - Persist watermark after each successfully completed event to support mid-backlog restart.
+  - Add failure-tracking operations: increment_failure_count, mark_terminal_failure, and list_terminal_failures for operations review.
+  - Suggested touchpoints:
+    - `runtime/assessment_orchestration/` new module (for example `state_store.py`).
+    - Existing Cosmos client patterns in `query_web/app.py` for resilient CRUD handling.
+
+2. Poll worker entrypoint and run loop
+  - Add a dedicated worker process that runs continuously in one replica.
+  - At each interval: acquire lease, compute poll window, fetch mention events, process events, commit watermark, release lease.
+  - Enforce bounded polling window to prevent misses during long processing:
+    - window_start = last committed watermark (exclusive)
+    - window_end = cycle start timestamp (inclusive)
+  - Enforce deterministic processing order:
+    - occurred_at ascending (oldest first)
+    - title ascending for equal timestamps
+    - event_id ascending as final tie-break
+  - Keep idempotency with short-lived processed-event markers in Cosmos (TTL-backed).
+  - Add poison-event handling so repeated failures do not block backlog progress:
+    - retry each event up to configured max attempts
+    - on terminal failure, log and quarantine event, then continue with next ordered event
+  - Suggested touchpoints:
+    - `runtime/assessment_orchestration/` new module (for example `polling_worker.py`).
+    - Reuse `MentionPoller` and Confluence MCP wiring from `runtime/assessment_orchestration/mcp/confluence.py` and `runtime/assessment_orchestration/runtime_wiring.py`.
+    - Reuse assessment orchestration flows from `runtime/assessment_orchestration/worker.py` and `runtime/assessment_orchestration/worker_main.py`.
+
+3. Terraform resources for hosting and state
+  - Add optional dedicated Container App resource for Confluence poller in the existing agent hosting module.
+  - Keep poller at single replica for initial release; lease mechanism still required for safety.
+  - Add a Cosmos container for orchestration state and optional processed-event markers.
+  - Add environment wiring for poll interval, Confluence auth settings, account ID, Cosmos endpoint/database/container names.
+  - Suggested touchpoints:
+    - `infra/terraform/modules/agent_hosting/main.tf`.
+    - `infra/terraform/modules/agent_hosting/variables.tf` and outputs.
+    - `infra/terraform/modules/data_services/main.tf` (state container resource).
+    - `infra/terraform/main.tf` and environment tfvars for feature toggles and image tags.
+
+4. Observability and operational controls
+  - Emit metrics/log fields for poll latency, events detected, events processed, failures, and watermark lag.
+  - Alert when watermark has not advanced within threshold window.
+  - Add emergency disable toggle via env var and Terraform variable.
+  - Add bounded initial lookback for first run to avoid historical flood.
+  - Emit ordered-processing diagnostics (`first_event_ts`, `last_event_ts`, tie-break counters) for deterministic replay validation.
+  - Emit terminal-failure metrics and alert when poison-event rate exceeds threshold.
+
+5. Test and validation gates
+  - Unit tests for lock acquisition conflicts, lease expiry handling, watermark commit semantics, and idempotency checks.
+  - Integration tests for end-to-end mention detection and response comment publication.
+  - Restart resilience test: stop/restart poller and verify no duplicate processing and no missed window.
+  - Ordering test: verify same-timestamp events are processed alphabetically by title, then by event_id.
+  - Backlog continuation test: verify watermark advances per-event and restart resumes from first unprocessed event.
+  - Poison-event test: force repeated failure on one event and verify worker logs terminal failure then processes next event.
+  - Suggested touchpoints:
+    - `tests/unit/` new tests for state store and worker loop.
+    - `tests/integration/test_confluence_live.py` for live mention capture and response-flow checks.
+
+6. Rollout sequence
+  - Step 1: Deploy Cosmos state container and poller app disabled.
+  - Step 2: Deploy poller image and enable dry-run mode (detect + assess, no response comment).
+  - Step 3: Validate watermark movement, idempotency, and alert wiring.
+  - Step 4: Enable response comments in a test space allowlist.
+  - Step 5: Promote to broader allowlist after burn-in period.
 
 ## 12. Definition of Done
 

@@ -5,6 +5,7 @@ python-multipart==0.0.22
 requests==2.32.4
 azure-identity==1.21.0
 azure-search-documents==11.6.0
+azure-storage-blob==12.25.1
 openai==1.51.0
 httpx==0.27.2
 azure-cosmos==4.7.0

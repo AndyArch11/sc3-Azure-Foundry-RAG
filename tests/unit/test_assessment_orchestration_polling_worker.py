@@ -1,0 +1,217 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+from runtime.assessment_orchestration.polling_worker import (
+    PollerConfig,
+    _build_recent_mentions_query,
+    run_poll_cycle,
+)
+from runtime.assessment_orchestration.state_store import InMemoryPollingStateStore
+
+
+class _FakeServer:
+    def __init__(self, mentions: list[dict]) -> None:
+        self._mentions = mentions
+        self.last_since = ""
+        self.last_scope_filter: dict | None = None
+
+    def get_recent_mentions(self, *, since: str = "", scope_filter: dict | None = None) -> dict:
+        self.last_since = since
+        self.last_scope_filter = scope_filter
+        return {"mentions": list(self._mentions)}
+
+
+class _FakeAdapter:
+    pass
+
+
+class _LeaseRejectedStateStore(InMemoryPollingStateStore):
+    def try_acquire_lease(self, source: str, *, owner_run_id: str, ttl_seconds: int) -> bool:
+        return False
+
+
+def test_run_poll_cycle_orders_by_occurred_at_then_title_then_event_id() -> None:
+    mentions = [
+        {"event_id": "e-3", "occurred_at": "2026-04-04T10:00:00+00:00", "title": "zeta", "target_id": "1", "target_url": "https://x/1"},
+        {"event_id": "e-1", "occurred_at": "2026-04-04T09:00:00+00:00", "title": "beta", "target_id": "2", "target_url": "https://x/2"},
+        {"event_id": "e-2", "occurred_at": "2026-04-04T10:00:00+00:00", "title": "alpha", "target_id": "3", "target_url": "https://x/3"},
+        {"event_id": "e-0", "occurred_at": "2026-04-04T10:00:00+00:00", "title": "alpha", "target_id": "4", "target_url": "https://x/4"},
+    ]
+    server = _FakeServer(mentions)
+    state_store = InMemoryPollingStateStore()
+    seen: list[str] = []
+
+    def _handler(event: dict) -> None:
+        seen.append(str(event.get("event_id") or ""))
+
+    result = run_poll_cycle(
+        config=PollerConfig(),
+        state_store=state_store,
+        server=server,  # type: ignore[arg-type]
+        adapter=_FakeAdapter(),  # type: ignore[arg-type]
+        process_event=_handler,
+    )
+
+    assert result.acquired_lease is True
+    assert seen == ["e-1", "e-0", "e-2", "e-3"]
+
+
+def test_run_poll_cycle_advances_watermark_after_each_event() -> None:
+    mentions = [
+        {"event_id": "e-1", "occurred_at": "2026-04-04T10:00:00+00:00", "title": "a", "target_id": "1", "target_url": "https://x/1"},
+        {"event_id": "e-2", "occurred_at": "2026-04-04T10:01:00+00:00", "title": "b", "target_id": "2", "target_url": "https://x/2"},
+    ]
+    server = _FakeServer(mentions)
+    state_store = InMemoryPollingStateStore()
+    committed: list[str] = []
+
+    def _handler(event: dict) -> None:
+        # Observe watermark after first event has been committed.
+        if event.get("event_id") == "e-2":
+            committed.append(state_store.load_state("confluence").watermark)
+
+    result = run_poll_cycle(
+        config=PollerConfig(),
+        state_store=state_store,
+        server=server,  # type: ignore[arg-type]
+        adapter=_FakeAdapter(),  # type: ignore[arg-type]
+        process_event=_handler,
+    )
+
+    assert result.processed_events == 2
+    assert committed == ["2026-04-04T10:00:00+00:00"]
+    assert state_store.load_state("confluence").watermark == "2026-04-04T10:01:00+00:00"
+
+
+def test_run_poll_cycle_terminal_failure_does_not_block_next_event() -> None:
+    mentions = [
+        {"event_id": "bad", "occurred_at": "2026-04-04T10:00:00+00:00", "title": "a", "target_id": "1", "target_url": "https://x/1"},
+        {"event_id": "good", "occurred_at": "2026-04-04T10:01:00+00:00", "title": "b", "target_id": "2", "target_url": "https://x/2"},
+    ]
+    server = _FakeServer(mentions)
+    state_store = InMemoryPollingStateStore()
+    seen: list[str] = []
+
+    def _handler(event: dict) -> None:
+        event_id = str(event.get("event_id") or "")
+        seen.append(event_id)
+        if event_id == "bad":
+            raise RuntimeError("forced failure")
+
+    result = run_poll_cycle(
+        config=PollerConfig(max_event_attempts=1),
+        state_store=state_store,
+        server=server,  # type: ignore[arg-type]
+        adapter=_FakeAdapter(),  # type: ignore[arg-type]
+        process_event=_handler,
+    )
+
+    assert seen == ["bad", "good"]
+    assert result.terminal_failures == 1
+    assert result.processed_events == 1
+    assert state_store.load_state("confluence").watermark == "2026-04-04T10:01:00+00:00"
+
+
+def test_run_poll_cycle_returns_early_when_lease_not_acquired() -> None:
+    mentions = [
+        {
+            "event_id": "e-1",
+            "occurred_at": "2026-04-04T10:00:00+00:00",
+            "title": "a",
+            "target_id": "1",
+            "target_url": "https://x/1",
+        }
+    ]
+    server = _FakeServer(mentions)
+    state_store = _LeaseRejectedStateStore()
+    seen: list[str] = []
+
+    result = run_poll_cycle(
+        config=PollerConfig(),
+        state_store=state_store,
+        server=server,  # type: ignore[arg-type]
+        adapter=_FakeAdapter(),  # type: ignore[arg-type]
+        process_event=lambda event: seen.append(str(event.get("event_id") or "")),
+    )
+
+    assert result.acquired_lease is False
+    assert result.fetched_events == 0
+    assert result.processed_events == 0
+    assert seen == []
+
+
+def test_run_poll_cycle_retryable_failure_stops_cycle_without_advancing_watermark() -> None:
+    mentions = [
+        {
+            "event_id": "e-1",
+            "occurred_at": "2026-04-04T10:00:00+00:00",
+            "title": "a",
+            "target_id": "1",
+            "target_url": "https://x/1",
+        },
+        {
+            "event_id": "e-2",
+            "occurred_at": "2026-04-04T10:01:00+00:00",
+            "title": "b",
+            "target_id": "2",
+            "target_url": "https://x/2",
+        },
+    ]
+    server = _FakeServer(mentions)
+    state_store = InMemoryPollingStateStore()
+    seen: list[str] = []
+
+    def _handler(event: dict) -> None:
+        event_id = str(event.get("event_id") or "")
+        seen.append(event_id)
+        raise RuntimeError("retryable")
+
+    result = run_poll_cycle(
+        config=PollerConfig(max_event_attempts=2),
+        state_store=state_store,
+        server=server,  # type: ignore[arg-type]
+        adapter=_FakeAdapter(),  # type: ignore[arg-type]
+        process_event=_handler,
+    )
+
+    assert result.acquired_lease is True
+    assert result.fetched_events == 2
+    assert result.processed_events == 0
+    assert result.terminal_failures == 0
+    assert seen == ["e-1"]
+    assert state_store.load_state("confluence").watermark == ""
+
+
+def test_build_recent_mentions_query_applies_space_scope_and_window_bound() -> None:
+    now = datetime.now(UTC)
+    in_window = (now - timedelta(minutes=1)).isoformat()
+    out_of_window = (now + timedelta(minutes=1)).isoformat()
+    server = _FakeServer(
+        [
+            {
+                "event_id": "e-future",
+                "occurred_at": out_of_window,
+                "title": "later",
+                "target_id": "2",
+                "target_url": "https://x/2",
+            },
+            {
+                "event_id": "e-now",
+                "occurred_at": in_window,
+                "title": "now",
+                "target_id": "1",
+                "target_url": "https://x/1",
+            },
+        ]
+    )
+
+    result = _build_recent_mentions_query(
+        server=server,  # type: ignore[arg-type]
+        since_iso=(now - timedelta(hours=1)).isoformat(),
+        window_end=now,
+        space_keys=("DOC", "OPS"),
+    )
+
+    assert [item["event_id"] for item in result] == ["e-now"]
+    assert server.last_scope_filter == {"space_keys": ["DOC", "OPS"]}

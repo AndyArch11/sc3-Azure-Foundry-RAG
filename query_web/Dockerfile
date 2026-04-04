@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py ./app.py
 COPY prompt_injection_guard.py ./prompt_injection_guard.py
 COPY templates ./templates
+COPY policies ./policies
 
 RUN useradd -m -u 1000 appuser
 USER appuser

@@ -169,6 +169,84 @@ def ensure_search_index(config: IngestionConfig, credential: TokenCredential) ->
             facetable=True,
             retrievable=True,
         ),
+        # Corpus and ingestion metadata projected from blob metadata_* fields.
+        SimpleField(
+            name="corpus",
+            type=SearchFieldDataType.String,
+            filterable=True,
+            facetable=True,
+            retrievable=True,
+        ),
+        SimpleField(
+            name="corpus_role",
+            type=SearchFieldDataType.String,
+            filterable=True,
+            facetable=True,
+            retrievable=True,
+        ),
+        SimpleField(
+            name="upload_source",
+            type=SearchFieldDataType.String,
+            filterable=True,
+            facetable=True,
+            retrievable=True,
+        ),
+        SimpleField(
+            name="uploaded_by",
+            type=SearchFieldDataType.String,
+            filterable=True,
+            facetable=True,
+            retrievable=True,
+        ),
+        SimpleField(
+            name="upload_batch",
+            type=SearchFieldDataType.String,
+            filterable=True,
+            facetable=True,
+            retrievable=True,
+        ),
+        SimpleField(
+            name="uploaded_at",
+            type=SearchFieldDataType.String,
+            filterable=True,
+            facetable=True,
+            retrievable=True,
+        ),
+        SimpleField(
+            name="original_filename",
+            type=SearchFieldDataType.String,
+            filterable=True,
+            facetable=True,
+            retrievable=True,
+        ),
+        SimpleField(
+            name="content_sha256",
+            type=SearchFieldDataType.String,
+            filterable=True,
+            facetable=True,
+            retrievable=True,
+        ),
+        SimpleField(
+            name="normalised_text_sha256",
+            type=SearchFieldDataType.String,
+            filterable=True,
+            facetable=True,
+            retrievable=True,
+        ),
+        SimpleField(
+            name="dedupe_hash",
+            type=SearchFieldDataType.String,
+            filterable=True,
+            facetable=True,
+            retrievable=True,
+        ),
+        SimpleField(
+            name="dedupe_method",
+            type=SearchFieldDataType.String,
+            filterable=True,
+            facetable=True,
+            retrievable=True,
+        ),
     ]
 
     vector_search = VectorSearch(
@@ -375,6 +453,50 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
                     InputFieldMappingEntry(
                         name="source_name",
                         source="/document/metadata_storage_name",
+                    ),
+                    InputFieldMappingEntry(
+                        name="corpus",
+                        source="/document/metadata_corpus",
+                    ),
+                    InputFieldMappingEntry(
+                        name="corpus_role",
+                        source="/document/metadata_corpus_role",
+                    ),
+                    InputFieldMappingEntry(
+                        name="upload_source",
+                        source="/document/metadata_upload_source",
+                    ),
+                    InputFieldMappingEntry(
+                        name="uploaded_by",
+                        source="/document/metadata_uploaded_by",
+                    ),
+                    InputFieldMappingEntry(
+                        name="upload_batch",
+                        source="/document/metadata_upload_batch",
+                    ),
+                    InputFieldMappingEntry(
+                        name="uploaded_at",
+                        source="/document/metadata_uploaded_at",
+                    ),
+                    InputFieldMappingEntry(
+                        name="original_filename",
+                        source="/document/metadata_original_filename",
+                    ),
+                    InputFieldMappingEntry(
+                        name="content_sha256",
+                        source="/document/metadata_content_sha256",
+                    ),
+                    InputFieldMappingEntry(
+                        name="normalised_text_sha256",
+                        source="/document/metadata_normalized_text_sha256",
+                    ),
+                    InputFieldMappingEntry(
+                        name="dedupe_hash",
+                        source="/document/metadata_dedupe_hash",
+                    ),
+                    InputFieldMappingEntry(
+                        name="dedupe_method",
+                        source="/document/metadata_dedupe_method",
                     ),
                 ],
             )

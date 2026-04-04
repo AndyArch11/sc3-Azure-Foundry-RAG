@@ -39,6 +39,14 @@ resource "azurerm_cosmosdb_sql_role_assignment" "cosmos_data_contributor" {
   scope               = "${var.scope_ids.cosmos}/dbs/${var.cosmos_database_name}/colls/${var.cosmos_container_name}"
 }
 
+resource "azurerm_cosmosdb_sql_role_assignment" "cosmos_orchestration_data_contributor" {
+  resource_group_name = var.resource_group_name
+  account_name        = split("/", var.scope_ids.cosmos)[8]
+  role_definition_id  = "${var.scope_ids.cosmos}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002"
+  principal_id        = azurerm_user_assigned_identity.agent_runtime.principal_id
+  scope               = "${var.scope_ids.cosmos}/dbs/${var.cosmos_database_name}/colls/${var.cosmos_orchestration_container_name}"
+}
+
 resource "azurerm_role_assignment" "foundry_project_manager" {
   scope                = var.scope_ids.foundry
   role_definition_name = "Azure AI Project Manager"

@@ -1,0 +1,9 @@
+version: 1
+contract_type: provider_event_contracts_index
+providers:
+  - provider: sharepoint
+    file: docs/contracts/provider-events-sharepoint.yaml
+  - provider: confluence
+    file: docs/contracts/provider-events-confluence.yaml
+  - provider: email
+    file: docs/contracts/provider-events-email.yaml

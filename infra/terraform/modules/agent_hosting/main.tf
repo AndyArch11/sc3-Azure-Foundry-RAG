@@ -304,6 +304,155 @@ resource "azurerm_container_app" "query_web" {
   tags = var.tags
 }
 
+resource "azurerm_container_app" "confluence_poller" {
+  count                        = var.enable_confluence_poller_app ? 1 : 0
+  name                         = "ca-confluence-poller-${var.suffix}"
+  resource_group_name          = var.resource_group_name
+  container_app_environment_id = azurerm_container_app_environment.this.id
+  revision_mode                = "Single"
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [var.agent_runtime_identity_id]
+  }
+
+  registry {
+    server   = var.acr_login_server
+    identity = var.agent_runtime_identity_id
+  }
+
+  dynamic "secret" {
+    for_each = var.confluence_api_token != "" ? [1] : []
+    content {
+      name  = "confluence-api-token"
+      value = var.confluence_api_token
+    }
+  }
+
+  template {
+    min_replicas = 1
+    max_replicas = 1
+
+    container {
+      name   = "confluence-poller"
+      image  = "${var.acr_login_server}/confluence-poller:${var.confluence_poller_image_tag}"
+      cpu    = 0.5
+      memory = "1Gi"
+      command = [
+        "python",
+        "-m",
+        "assessment_orchestration.polling_worker_main",
+      ]
+
+      env {
+        name  = "AZURE_CLIENT_ID"
+        value = var.agent_runtime_client_id
+      }
+      env {
+        name  = "AZURE_COSMOS_ENDPOINT"
+        value = var.azure_cosmos_endpoint
+      }
+      env {
+        name  = "AZURE_COSMOS_DATABASE_NAME"
+        value = var.cosmos_database_name
+      }
+      env {
+        name  = "AZURE_COSMOS_ORCHESTRATION_CONTAINER_NAME"
+        value = var.cosmos_orchestration_container_name
+      }
+      env {
+        name  = "AZURE_SEARCH_ENDPOINT"
+        value = var.azure_search_endpoint
+      }
+      env {
+        name  = "AZURE_OPENAI_ENDPOINT"
+        value = var.azure_openai_endpoint
+      }
+      env {
+        name  = "AZURE_SEARCH_INDEX_NAME"
+        value = var.search_index_name
+      }
+      env {
+        name  = "EMBEDDING_DEPLOYMENT_NAME"
+        value = var.embedding_deployment_name
+      }
+      env {
+        name  = "QUERY_DEPLOYMENT_NAME"
+        value = var.query_deployment_name
+      }
+      env {
+        name  = "CONFLUENCE_BASE_URL"
+        value = var.confluence_base_url
+      }
+      env {
+        name  = "CONFLUENCE_AUTH_MODE"
+        value = var.confluence_auth_mode
+      }
+      env {
+        name  = "CONFLUENCE_AUTH_EMAIL"
+        value = var.confluence_auth_email
+      }
+      dynamic "env" {
+        for_each = var.confluence_api_token != "" ? [1] : []
+        content {
+          name        = "CONFLUENCE_API_TOKEN"
+          secret_name = "confluence-api-token"
+        }
+      }
+      dynamic "env" {
+        for_each = trimspace(var.confluence_cloud_id) != "" ? [1] : []
+        content {
+          name  = "CONFLUENCE_CLOUD_ID"
+          value = var.confluence_cloud_id
+        }
+      }
+      dynamic "env" {
+        for_each = trimspace(var.confluence_account_id) != "" ? [1] : []
+        content {
+          name  = "CONFLUENCE_ACCOUNT_ID"
+          value = var.confluence_account_id
+        }
+      }
+      dynamic "env" {
+        for_each = length(var.confluence_poll_space_keys) > 0 ? [1] : []
+        content {
+          name  = "CONFLUENCE_POLL_SPACE_KEYS"
+          value = join(",", var.confluence_poll_space_keys)
+        }
+      }
+      env {
+        name  = "CONFLUENCE_POLL_INTERVAL_SECONDS"
+        value = tostring(var.confluence_poll_interval_seconds)
+      }
+      env {
+        name  = "CONFLUENCE_POLL_LEASE_TTL_SECONDS"
+        value = tostring(var.confluence_poll_lease_ttl_seconds)
+      }
+      env {
+        name  = "CONFLUENCE_POLL_MAX_EVENT_ATTEMPTS"
+        value = tostring(var.confluence_poll_max_event_attempts)
+      }
+      env {
+        name  = "CONFLUENCE_POLL_INITIAL_LOOKBACK"
+        value = var.confluence_poll_initial_lookback
+      }
+      env {
+        name  = "CONFLUENCE_POLL_DRY_RUN"
+        value = tostring(var.confluence_poll_dry_run)
+      }
+    }
+  }
+
+  tags = var.tags
+}
+
+resource "azurerm_role_assignment" "confluence_poller_contributor" {
+  count                = var.enable_confluence_poller_app ? 1 : 0
+  scope                = azurerm_container_app.confluence_poller[0].id
+  role_definition_name = "Contributor"
+  principal_id         = var.agent_runtime_principal_id
+}
+
 resource "azurerm_role_assignment" "query_web_contributor" {
   count                = var.enable_query_web_app ? 1 : 0
   scope                = azurerm_container_app.query_web[0].id

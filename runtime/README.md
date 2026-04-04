@@ -91,7 +91,25 @@ python3 -m ingestion.controls_runner --mode parse-and-publish \
 # End-to-end parse + publish all supported frameworks
 python3 -m ingestion.controls_runner --mode parse-and-publish \
   --framework all
+
+# Replace existing framework/version docs when manifest differs
+python3 -m ingestion.controls_runner --mode parse-and-publish \
+  --framework essential_eight \
+  --replace-existing
+
+# Preview dedupe/publish decision without writing to index
+python3 -m ingestion.controls_runner --mode parse-and-publish \
+  --framework essential_eight \
+  --dry-run
 ```
+
+Corpus A duplicate policy:
+
+- Duplicate detection key is `(framework, framework_version, ingestion_manifest_hash)`.
+- If the same version+manifest already exists, publish is skipped.
+- If the same version exists with a different manifest, publish is skipped by default.
+- Use `--replace-existing` to intentionally replace that framework/version.
+- Use `--dry-run` to preview action (`would_upload`, `would_replace`, `skip_duplicate`, `skip_conflict`) with no index writes.
 
 Controls index environment variables:
 
@@ -120,6 +138,11 @@ Controls index environment variables:
 | `CHUNK_SIZE` | `1200` | Characters per chunk |
 | `CHUNK_OVERLAP` | `200` | Overlap between adjacent chunks |
 | `QUERY_WEB_REQUIRED_GROUP_OBJECT_ID` | _(unset)_ | Optional Entra security group object ID required by query web app |
+| `PRECEDENCE_POLICY_PATH` | `/app/policies/precedence_policy.json` | Query web precedence policy file path inside container |
+| `CONTROLS_FRAMEWORK_AUTHORITY_ORDER` | `Essential Eight,ISM,AESCSF,NIST CSF` | Fallback framework precedence when policy file is missing/invalid |
+| `INGESTION_JOB_SUBSCRIPTION_ID` | _(unset)_ | Required to trigger ingestion Container App Job from query web API |
+| `INGESTION_JOB_RESOURCE_GROUP` | _(unset)_ | Required to trigger ingestion Container App Job from query web API |
+| `INGESTION_JOB_NAME` | _(unset)_ | Required to trigger ingestion Container App Job from query web API |
 
 ## Prerequisites
 
@@ -215,6 +238,10 @@ QUERY_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)"
 
 ENV="${TARGET_ENV}" IMAGE_TAG="${INGESTION_TAG}" ./ops/scripts/build-push-ingestion.sh
 ENV="${TARGET_ENV}" IMAGE_TAG="${QUERY_TAG}" ./ops/scripts/build-push-query-web.sh
+
+# Optional Confluence poller image
+POLLER_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)"
+ENV="${TARGET_ENV}" IMAGE_TAG="${POLLER_TAG}" ./ops/scripts/build-push-confluence-poller.sh
 ```
 
 Use immutable tags rather than `latest` so Container Apps revisions roll forward predictably and Terraform plans remain stable.
@@ -238,6 +265,13 @@ sudo ./ops/scripts/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" \
 sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --ingestion-tag "${INGESTION_TAG}" \
   --query-web-tag "${QUERY_TAG}" \
+  --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" \
+  --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
+
+# Enable and roll out Confluence poller app
+sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+  --confluence-poller-tag "${POLLER_TAG}" \
+  --enable-confluence-poller \
   --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" \
   --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 ```
@@ -309,6 +343,367 @@ QUERY_WEB_REQUIRE_CONVERSATIONS=true \
 ```
 
 If `query_web_auth_token` is configured in tfvars, pass the same token to the integration runner and any direct `curl` calls.
+
+### Confluence Poller One-Shot Smoke Check
+
+Before enabling continuous Confluence polling, run a one-shot dry-run worker cycle
+from a private-network host (for example jumpbox):
+
+```bash
+cd /workspaces/sc3-Azure-Foundry-RAG
+source runtime/.venv/bin/activate
+
+# Required runtime env vars (example names shown; use your environment values)
+export AZURE_COSMOS_ENDPOINT="https://<cosmos-account>.documents.azure.com:443/"
+export AZURE_COSMOS_DATABASE_NAME="rag-conversations"
+export AZURE_COSMOS_ORCHESTRATION_CONTAINER_NAME="orchestration-state"
+export AZURE_SEARCH_ENDPOINT="https://<search-service>.search.windows.net"
+export AZURE_OPENAI_ENDPOINT="https://<foundry-account>.openai.azure.com"
+export AZURE_SEARCH_INDEX_NAME="grounding-index"
+export QUERY_DEPLOYMENT_NAME="gpt-5.1-chat"
+export EMBEDDING_DEPLOYMENT_NAME="text-embedding-ada-002"
+export CONFLUENCE_BASE_URL="https://api.atlassian.com/ex/confluence/<cloud-id>"
+export CONFLUENCE_AUTH_MODE="basic"
+export CONFLUENCE_AUTH_EMAIL="<service-account-email>"
+export CONFLUENCE_API_TOKEN="<token>"
+export CONFLUENCE_ACCOUNT_ID="<atlassian-account-id>"
+
+# Safe smoke mode (forces dry-run=true unless --no-dry-run is passed)
+./ops/scripts/run-confluence-poller-smoke.sh
+```
+
+Expected outcome:
+
+- Script exits `0` and prints a JSON result from `polling_worker_main --once`.
+- No Confluence reply comments are posted in default dry-run mode.
+- When dry-run is disabled, the poller retrieves Corpus A and Corpus B grounding from Search, generates a structured compliance report via Azure OpenAI, and posts a formatted Confluence footer comment.
+- Cosmos orchestration state is readable/writable with the runtime identity.
+
+### Confluence Poller Health And Logs
+
+After deploying the poller Container App, check status and recent logs:
+
+```bash
+cd /workspaces/sc3-Azure-Foundry-RAG
+
+# Resolve app name/resource group from terraform outputs
+./ops/scripts/check-confluence-poller-health.sh
+
+# Custom tail length
+./ops/scripts/check-confluence-poller-health.sh dev --lines 200
+
+# Stream logs continuously
+./ops/scripts/check-confluence-poller-health.sh dev --follow
+```
+
+This helper prints:
+
+- Container App summary (provisioning state and latest revision)
+- Revision health table
+- Recent container logs for the poller
+
+### Confluence Poller One-Command Preflight
+
+Run smoke plus deployed health/log checks in one command:
+
+```bash
+cd /workspaces/sc3-Azure-Foundry-RAG
+
+# Step 1: one-shot smoke (dry-run by default)
+# Step 2: deployed app health + logs
+./ops/scripts/run-confluence-poller-preflight.sh dev
+
+# Skip deployed health checks and run smoke only
+./ops/scripts/run-confluence-poller-preflight.sh dev --skip-health
+```
+
+### Query Web Precedence Policy
+
+The query web app supports a precedence-policy contract used when controls from
+multiple frameworks are contradictory or materially discrepant.
+
+Default policy file path in the container image:
+
+- `query_web/policies/precedence_policy.json`
+
+Policy contract fields:
+
+- `version`: policy version string for traceability.
+- `default_framework_order`: framework precedence from highest to lowest authority.
+- `rules`: optional keyword-triggered preference rules.
+
+Rule contract fields:
+
+- `rule_id`: stable identifier.
+- `description`: short rationale for maintainers and audit trails.
+- `applies_when_keywords`: all keywords must appear in the question text for rule activation.
+- `preferred_framework`: canonical framework name to prioritise when the rule matches.
+
+Example:
+
+```json
+{
+  "version": "2026-04-01",
+  "default_framework_order": [
+    "Essential Eight",
+    "ISM",
+    "AESCSF",
+    "NIST CSF"
+  ],
+  "rules": [
+    {
+      "rule_id": "identity-access-au-priority",
+      "description": "Prefer Essential Eight for AU identity/access phrasing.",
+      "applies_when_keywords": ["privileged", "access"],
+      "preferred_framework": "Essential Eight"
+    }
+  ]
+}
+```
+
+Notes:
+
+- If the policy file is missing or invalid JSON, query web falls back to
+  `CONTROLS_FRAMEWORK_AUTHORITY_ORDER`.
+- If neither is provided, built-in defaults are used.
+- Use `/api/config` and `/health` to verify active policy version/order at runtime.
+
+Operator checklist (post-rollout):
+
+1. Verify query web reports active policy metadata:
+
+```bash
+QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn)
+
+curl -sS "https://${QUERY_FQDN}/health" | jq '{
+  precedence_policy_version,
+  precedence_policy_order,
+  precedence_policy_path
+}'
+```
+
+2. Verify config endpoint exposes policy details and rules count:
+
+```bash
+curl -sS "https://${QUERY_FQDN}/api/config" | jq '{
+  precedence_policy_version,
+  precedence_policy_order,
+  precedence_policy_rules_count,
+  controls_framework_filters
+}'
+```
+
+3. Verify framework-filter and precedence behaviour with an API ask:
+
+```bash
+TEST_TEMPERATURE="${QUERY_WEB_TEST_TEMPERATURE:-1.0}"  # Use 1.0 default for broad model compatibility.
+
+curl -sS "https://${QUERY_FQDN}/api/ask" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n \
+    --arg q 'What are the controls for privileged access?' \
+    --argjson t "${TEST_TEMPERATURE}" \
+    '{question: $q, retrieve_k: 5, temperature: $t, controls_framework: "auto"}')" | jq '{
+    error,
+    controls_count: (.controls_results | length),
+    first_framework: (.controls_results[0].framework // null)
+  }'
+```
+
+4. If precedence fields are missing, rebuild and redeploy query web image, then repeat checks 1-3.
+
+Auth-protected variant (shared token):
+
+If `query_web_auth_token` is enabled, include it in API ask payloads and
+conversation endpoints:
+
+```bash
+QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn)
+AUTH_TOKEN="<query-web-auth-token>"
+TEST_TEMPERATURE="${QUERY_WEB_TEST_TEMPERATURE:-1.0}"
+
+curl -sS "https://${QUERY_FQDN}/api/ask" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n \
+    --arg q 'What are the controls for privileged access?' \
+    --arg token "${AUTH_TOKEN}" \
+    --argjson t "${TEST_TEMPERATURE}" \
+    '{question: $q, retrieve_k: 5, temperature: $t, controls_framework: "auto", auth_token: $token}')" | jq '{
+    error,
+    controls_count: (.controls_results | length),
+    first_framework: (.controls_results[0].framework // null)
+  }'
+
+curl -sS "https://${QUERY_FQDN}/api/conversations/new" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "auth_token=${AUTH_TOKEN}"
+```
+
+Auth-protected variant (Entra group-gated):
+
+- Direct unauthenticated `curl` calls will not include EasyAuth principal headers and will return `401`.
+- Validate with an authenticated browser session and the integration test runner from inside the private network:
+
+```bash
+QUERY_WEB_RUN_API_ASK=true \
+QUERY_WEB_REQUIRE_CONVERSATIONS=true \
+./ops/scripts/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
+```
+
+### Corpus B Upload And Ingestion Trigger API
+
+The query web app now exposes an authenticated endpoint for Corpus B ingestion:
+
+- `POST /api/corpus-b/ingest`
+- Accepts multipart file uploads (`files`) and optionally triggers the ingestion Container App Job.
+
+Form fields:
+
+- `files`: one or more files to upload.
+- `trigger_job`: `true` or `false` (default `true`).
+- `auth_token`: required when token auth is enabled.
+
+Uploaded files are stored under:
+
+- `corpus-b/by-dedupe/<dedupe-hash>`
+
+Each uploaded blob includes generated metadata:
+
+- `corpus=b`
+- `corpus_role=narrative_guidance`
+- `upload_source=query_web`
+- `uploaded_by`
+- `upload_batch`
+- `uploaded_at`
+- `original_filename`
+- `content_sha256`
+- `normalised_text_sha256` (when text normalisation is possible)
+- `dedupe_hash`
+- `dedupe_method`
+
+Corpus B duplicate policy:
+
+- Preferred dedupe key is normalised text hash for text-like uploads.
+- Fallback dedupe key is binary SHA-256 for non-text/binary uploads.
+- Uploads with an existing dedupe key are skipped before ingestion job trigger.
+
+Example (shared-token variant):
+
+```bash
+QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn)
+AUTH_TOKEN="<query-web-auth-token>"
+
+curl -sS "https://${QUERY_FQDN}/api/corpus-b/ingest" \
+  -H "Content-Type: multipart/form-data" \
+  -F "trigger_job=true" \
+  -F "auth_token=${AUTH_TOKEN}" \
+  -F "files=@./runtime/samples/sample-policy.pdf" \
+  -F "files=@./runtime/samples/sample-standard.docx" | jq
+```
+
+Example (Entra group-gated variant):
+
+- Run from an authenticated browser or a client flow that carries EasyAuth principal headers.
+- Direct unauthenticated `curl` calls will return `401`.
+
+### Corpus A Trigger And Status API
+
+The query web app also exposes Corpus A orchestration endpoints:
+
+- `GET /api/corpus-a/status`
+  - Returns per-framework ingestion status (ingested flag, document count, versions, manifest hashes).
+- `POST /api/corpus-a/ingest`
+  - Triggers ingestion job executions for selected frameworks or all supported frameworks.
+  - Skips already-ingested frameworks by default.
+  - Supports `replace_existing`, `dry_run`, and `no_guidance` flags.
+
+Request body example:
+
+```json
+{
+  "frameworks": ["essential_eight", "nist_csf"],
+  "replace_existing": false,
+  "dry_run": false,
+  "no_guidance": false,
+  "auth_token": "<query-web-auth-token-if-enabled>"
+}
+```
+
+Trigger behaviour notes:
+
+- Uses ingestion job args override with `--mode controls --controls-framework <framework>`.
+- For each selected framework, query web starts one job execution.
+- If `replace_existing=false`, already-ingested frameworks are reported and skipped.
+
+To support this from the ingestion container image, `ingestion.runner` now supports:
+
+- `--mode controls`
+- `--controls-framework all|aescsf|essential_eight|ism|nist_csf`
+- `--replace-existing`
+- `--dry-run`
+- `--no-guidance`
+
+### Corpus Clear APIs (With Dry Run)
+
+Query web exposes authenticated clear endpoints for vector/index data management:
+
+- `POST /api/corpus-a/clear`
+- `POST /api/corpus-b/clear`
+- `POST /api/corpus-c/clear`
+
+Safety behavior:
+
+- All clear APIs support `dry_run=true` to preview impact before deletion.
+- Corpus B/C clear support `clear_blobs=true` to also remove uploaded blob source data.
+- In dry run mode, responses return `would_delete` counters; in execute mode, they return `deleted` counters.
+
+Request examples:
+
+```json
+{
+  "frameworks": ["essential_eight", "nist_csf"],
+  "dry_run": true,
+  "auth_token": "<query-web-auth-token-if-enabled>"
+}
+```
+
+```json
+{
+  "dry_run": true,
+  "clear_blobs": false,
+  "auth_token": "<query-web-auth-token-if-enabled>"
+}
+```
+
+### Compliance Report API Schema And Validation Modes
+
+`POST /api/compliance/report` now enforces a versioned structured findings schema and supports validation modes:
+
+- `validation_mode=hard` (default): schema mismatch returns API error.
+- `validation_mode=soft`: returns raw model output with `schema_valid=false` and `validation_error` details.
+
+The structured payload requires `schema_version="v1.1"`.
+
+Response now includes download-ready artifacts:
+
+- `report_markdown`
+- `report_structured`
+- `report_findings_csv`
+- `report_filename_base`
+
+Request example:
+
+```json
+{
+  "question": "Assess compliance posture for privileged access controls.",
+  "retrieve_k": 5,
+  "temperature": 0.2,
+  "controls_framework": "nist_csf",
+  "corpus_c_upload_batch": null,
+  "validation_mode": "hard",
+  "auth_token": "<query-web-auth-token-if-enabled>"
+}
+```
 
 ## Jumpbox Workflow
 

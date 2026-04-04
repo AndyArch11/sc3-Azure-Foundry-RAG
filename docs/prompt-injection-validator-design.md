@@ -40,7 +40,7 @@ PROMPT_INJECTION_VALIDATOR_TIMEOUT_S=15
 
 # Operational mode: off, shadow, or enforce
 # - off: deterministic only (default)
-# - shadow: run validator but don't change behavior; log results
+# - shadow: run validator but don't change behaviour; log results
 # - enforce: use validator to block requests
 PROMPT_INJECTION_VALIDATOR_MODE=shadow
 ```

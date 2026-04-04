@@ -239,7 +239,7 @@ response = client.chat.completions.create(
 - **Database:** `rag-conversations`
 - **Container:** `conversations`
   - **Partition Key:** `/user_id`
-  - **Document ID:** `{user_id_sanitized}_{conversation_id_sanitized}`
+  - **Document ID:** `{user_id_sanitised}_{conversation_id_sanitised}`
 
 ### Document Structure
 

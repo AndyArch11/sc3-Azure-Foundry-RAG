@@ -24,6 +24,10 @@ variable "cosmos_container_name" {
   type        = string
   description = "Cosmos DB SQL container name for conversation persistence."
 }
+variable "cosmos_orchestration_container_name" {
+  type        = string
+  description = "Cosmos DB SQL container name for orchestration state persistence."
+}
 variable "tags" {
   type    = map(string)
   default = {}

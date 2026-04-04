@@ -1,0 +1,54 @@
+version: 1
+contract_type: provider_event_contract
+provider: sharepoint
+event_types:
+  - event_type: mention_notification
+    purpose: Directed assessment request originating from page or document mention/comment workflow.
+    required_fields:
+      - event_id
+      - occurred_at
+      - tenant_id
+      - site_id
+      - target_id
+      - target_url
+    normalised_output:
+      source_type: provider_event
+      provider: sharepoint
+      trigger_type: mention
+    example_event:
+      event_id: sp-evt-1
+      occurred_at: "2026-04-02T00:00:00Z"
+      tenant_id: tenant-1
+      site_id: site-sec
+      target_id: page-123
+      target_url: https://tenant.sharepoint.com/sites/sec/SitePages/page.aspx?id=page-123
+  - event_type: item_updated
+    purpose: Optional change-driven reassessment trigger for approved document scopes.
+    required_fields:
+      - event_id
+      - occurred_at
+      - tenant_id
+      - site_id
+      - target_id
+      - target_url
+      - modified_by
+    normalised_output:
+      source_type: provider_event
+      provider: sharepoint
+      trigger_type: update
+    example_event:
+      event_id: sp-evt-2
+      occurred_at: "2026-04-02T01:00:00Z"
+      tenant_id: tenant-1
+      site_id: site-sec
+      target_id: file-456
+      target_url: https://tenant.sharepoint.com/sites/sec/Shared%20Documents/file.docx
+      modified_by: editor@example.com
+security_requirements:
+  - validate provider source where webhook signatures or issuer validation are supported
+  - route through approved ingress or relay for private deployments
+  - preserve original event identifiers for deduplication
+failure_modes:
+  - unsupported_event_type
+  - missing_target_reference
+  - unverifiable_source

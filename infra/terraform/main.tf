@@ -75,14 +75,15 @@ module "observability" {
 }
 
 module "data_services" {
-  source                       = "./modules/data_services"
-  resource_group_name          = module.foundation.resource_group_name
-  location                     = var.location
-  suffix                       = local.naming_suffix
-  search_service_name_override = var.search_service_name_override
-  cosmos_database_name         = var.cosmos_database_name
-  cosmos_container_name        = var.cosmos_container_name
-  tags                         = local.tags
+  source                              = "./modules/data_services"
+  resource_group_name                 = module.foundation.resource_group_name
+  location                            = var.location
+  suffix                              = local.naming_suffix
+  search_service_name_override        = var.search_service_name_override
+  cosmos_database_name                = var.cosmos_database_name
+  cosmos_container_name               = var.cosmos_container_name
+  cosmos_orchestration_container_name = var.cosmos_orchestration_container_name
+  tags                                = local.tags
 }
 
 module "foundry" {
@@ -121,15 +122,16 @@ module "private_endpoints" {
 }
 
 module "identity" {
-  source                             = "./modules/identity"
-  resource_group_name                = module.foundation.resource_group_name
-  location                           = var.location
-  suffix                             = local.naming_suffix
-  deployment_principal_object_id     = data.azurerm_client_config.current.object_id
-  search_service_principal_id        = module.data_services.search_service_principal_id
-  terraform_state_storage_account_id = local.use_bootstrap_state_storage ? data.azurerm_storage_account.bootstrap_state[0].id : ""
-  cosmos_database_name               = var.cosmos_database_name
-  cosmos_container_name              = var.cosmos_container_name
+  source                              = "./modules/identity"
+  resource_group_name                 = module.foundation.resource_group_name
+  location                            = var.location
+  suffix                              = local.naming_suffix
+  deployment_principal_object_id      = data.azurerm_client_config.current.object_id
+  search_service_principal_id         = module.data_services.search_service_principal_id
+  terraform_state_storage_account_id  = local.use_bootstrap_state_storage ? data.azurerm_storage_account.bootstrap_state[0].id : ""
+  cosmos_database_name                = var.cosmos_database_name
+  cosmos_container_name               = var.cosmos_container_name
+  cosmos_orchestration_container_name = var.cosmos_orchestration_container_name
   scope_ids = {
     storage       = module.data_services.storage_account_id
     search        = module.data_services.search_service_id
@@ -217,6 +219,7 @@ module "agent_hosting" {
   azure_cosmos_endpoint                             = "https://${module.data_services.cosmosdb_account_name}.documents.azure.com:443/"
   cosmos_database_name                              = var.cosmos_database_name
   cosmos_container_name                             = var.cosmos_container_name
+  cosmos_orchestration_container_name               = var.cosmos_orchestration_container_name
   storage_account_name                              = module.data_services.storage_account_name
   storage_account_id                                = module.data_services.storage_account_id
   search_index_name                                 = var.search_index_name
@@ -242,6 +245,20 @@ module "agent_hosting" {
   query_web_image_tag                               = var.query_web_image_tag
   enable_ingestion_job                              = var.enable_ingestion_job
   enable_query_web_app                              = var.enable_query_web_app
+  enable_confluence_poller_app                      = var.enable_confluence_poller_app
+  confluence_poller_image_tag                       = var.confluence_poller_image_tag
+  confluence_base_url                               = var.confluence_base_url
+  confluence_auth_mode                              = var.confluence_auth_mode
+  confluence_auth_email                             = var.confluence_auth_email
+  confluence_api_token                              = var.confluence_api_token
+  confluence_cloud_id                               = var.confluence_cloud_id
+  confluence_account_id                             = var.confluence_account_id
+  confluence_poll_space_keys                        = var.confluence_poll_space_keys
+  confluence_poll_interval_seconds                  = var.confluence_poll_interval_seconds
+  confluence_poll_lease_ttl_seconds                 = var.confluence_poll_lease_ttl_seconds
+  confluence_poll_max_event_attempts                = var.confluence_poll_max_event_attempts
+  confluence_poll_initial_lookback                  = var.confluence_poll_initial_lookback
+  confluence_poll_dry_run                           = var.confluence_poll_dry_run
   query_web_public_endpoint                         = var.query_web_public_endpoint
   tags                                              = local.tags
 }

@@ -9,3 +9,4 @@ output "acr_login_server" { value = azurerm_container_registry.this.login_server
 output "acr_name" { value = azurerm_container_registry.this.name }
 output "cosmosdb_account_id" { value = azurerm_cosmosdb_account.this.id }
 output "cosmosdb_account_name" { value = azurerm_cosmosdb_account.this.name }
+output "cosmos_orchestration_container_name" { value = azurerm_cosmosdb_sql_container.orchestration_state.name }

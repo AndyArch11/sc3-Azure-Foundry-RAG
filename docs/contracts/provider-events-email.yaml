@@ -1,0 +1,32 @@
+version: 1
+contract_type: provider_event_contract
+provider: email
+event_types:
+  - event_type: assessment_notification_email
+    purpose: Trigger assessment from agent mailbox notifications when direct webhook intake is unavailable or undesirable.
+    required_fields:
+      - message_id
+      - received_at
+      - mailbox_id
+      - subject
+      - sender
+      - body
+    normalised_output:
+      source_type: email_notification
+      provider: email
+      trigger_type: email_notification
+    example_event:
+      message_id: msg-1
+      received_at: "2026-04-02T00:00:00Z"
+      mailbox_id: agent-mailbox
+      subject: Assess this page
+      sender: requester@example.com
+      body: Please assess https://tenant.sharepoint.com/sites/sec/SitePages/page.aspx?id=page-123
+security_requirements:
+  - read only from approved agent mailbox or approved shared mailboxes
+  - preserve message_id for deduplication
+  - mark processing outcome to avoid duplicate job creation
+failure_modes:
+  - target_not_extractable
+  - unsupported_notification_format
+  - mailbox_unavailable

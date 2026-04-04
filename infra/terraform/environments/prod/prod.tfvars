@@ -14,9 +14,11 @@ jumpbox_vm_size              = "Standard_B4as_v2"
 enable_model_deployments     = false
 enable_ingestion_job         = false
 enable_query_web_app         = false
+enable_confluence_poller_app = false
 query_web_public_endpoint    = false    # Set true for public query web ingress. Creation-level: switching later requires CAE replacement.
 ingestion_job_image_tag      = "latest" # Set to an immutable tag during deployment.
 query_web_image_tag          = "latest" # Set to an immutable tag during deployment.
+confluence_poller_image_tag  = "latest" # Set to an immutable tag during deployment.
 search_index_name            = "grounding-index"
 # Optional overrides for globally-unique resource names (use when 409 name collisions occur).
 # search_service_name_override = "srch-prod-aue-20260329"
@@ -24,6 +26,20 @@ search_index_name            = "grounding-index"
 query_top_k               = 5
 query_default_temperature = 1.0
 query_eval_threshold      = 0.72
+
+# Confluence poller settings (keep secrets out of tfvars where possible; pass via secure pipeline vars).
+confluence_base_url                = ""
+confluence_auth_mode               = "basic"
+confluence_auth_email              = ""
+confluence_api_token               = ""
+confluence_cloud_id                = ""
+confluence_account_id              = ""
+confluence_poll_space_keys         = []
+confluence_poll_interval_seconds   = 75
+confluence_poll_lease_ttl_seconds  = 300
+confluence_poll_max_event_attempts = 3
+confluence_poll_initial_lookback   = "PT1H"
+confluence_poll_dry_run            = true
 
 # Optional prompt injection validator settings.
 # prompt_injection_validator_enabled    = false

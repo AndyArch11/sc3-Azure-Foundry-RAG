@@ -40,7 +40,7 @@ fi
 : "${QUERY_WEB_BASE_URL:?QUERY_WEB_BASE_URL is required. Pass arg1 or set env var.}"
 
 # Accept either base URL (https://host) or a common endpoint URL
-# (https://host/ask, /api/ask, /health) and normalize to base URL.
+# (https://host/ask, /api/ask, /health) and normalise to base URL.
 if [[ "${QUERY_WEB_BASE_URL}" =~ ^(https?://[^/]+)(/.*)$ ]]; then
   _origin="${BASH_REMATCH[1]}"
   _path="${BASH_REMATCH[2]}"

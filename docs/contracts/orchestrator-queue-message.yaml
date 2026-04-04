@@ -1,0 +1,38 @@
+version: 1
+contract_type: orchestrator_queue_message
+message_types:
+  - message_type: assessment_requested
+    purpose: Hand off a normalised assessment job from intake into orchestrated execution.
+    required_fields:
+      - queue_message_id
+      - message_type
+      - enqueued_at
+      - correlation_id
+      - job
+    job_schema_ref: docs/contracts/shared-schemas.yaml#/schemas/assessment_job
+    optional_fields:
+      - delivery_count
+      - source_event_id
+      - traceparent
+      - metadata
+  - message_type: assessment_retry_requested
+    purpose: Requeue a previously failed job with retry metadata preserved.
+    required_fields:
+      - queue_message_id
+      - message_type
+      - enqueued_at
+      - correlation_id
+      - job
+      - metadata
+    metadata_requirements:
+      - retry_reason
+      - previous_attempt_count
+processing_requirements:
+  - Queue messages must preserve correlation_id and job_id.
+  - Queue messages must be idempotent by queue_message_id and correlation_id.
+  - Intake surfaces must not enqueue a user-requested job without an explicit request_identity_mode.
+failure_modes:
+  - unsupported_message_type
+  - missing_job
+  - malformed_job
+  - correlation_missing

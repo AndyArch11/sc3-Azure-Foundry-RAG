@@ -13,3 +13,7 @@ output "query_web_app_name" {
 output "query_web_fqdn" {
   value = try(azurerm_container_app.query_web[0].ingress[0].fqdn, null)
 }
+
+output "confluence_poller_app_name" {
+  value = try(azurerm_container_app.confluence_poller[0].name, null)
+}

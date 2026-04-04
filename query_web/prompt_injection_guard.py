@@ -112,7 +112,7 @@ class GuardrailAssessment:
     score: int
     categories: tuple[str, ...]
     matched_fragments: tuple[str, ...]
-    normalized_text: str
+    normalised_text: str
 
 
 @dataclass(frozen=True)
@@ -167,17 +167,17 @@ def _decode_base64_candidate(token: str) -> str:
 
 
 def assess_prompt_injection(text: str, *, allow_academic_context: bool = True) -> GuardrailAssessment:
-    normalized = _normalise_text(text)
-    lowered = normalized.lower()
-    compact = _compact_text(normalized)
-    academic_context = allow_academic_context and _has_academic_context(normalized)
+    normalised = _normalise_text(text)
+    lowered = normalised.lower()
+    compact = _compact_text(normalised)
+    academic_context = allow_academic_context and _has_academic_context(normalised)
 
     score = 0
     categories: list[str] = []
     matched_fragments: list[str] = []
 
     for category, pattern, weight in _DANGEROUS_PATTERNS:
-        match = pattern.search(normalized)
+        match = pattern.search(normalised)
         if not match:
             continue
         fragment = match.group(0).strip()
@@ -201,7 +201,7 @@ def assess_prompt_injection(text: str, *, allow_academic_context: bool = True) -
         categories.append("obfuscation")
         matched_fragments.append("zero-width characters")
 
-    for token in _BASE64_TOKEN_RE.findall(normalized):
+    for token in _BASE64_TOKEN_RE.findall(normalised):
         decoded = _decode_base64_candidate(token)
         if not decoded:
             continue
@@ -212,7 +212,7 @@ def assess_prompt_injection(text: str, *, allow_academic_context: bool = True) -
             matched_fragments.append("base64 payload")
             break
 
-    for token in _HEX_TOKEN_RE.findall(normalized):
+    for token in _HEX_TOKEN_RE.findall(normalised):
         cleaned = token[2:] if token.startswith(("0x", "0X")) else token
         if len(cleaned) % 2 != 0:
             continue
@@ -240,34 +240,34 @@ def assess_prompt_injection(text: str, *, allow_academic_context: bool = True) -
         score=score,
         categories=unique_categories,
         matched_fragments=unique_fragments,
-        normalized_text=normalized,
+        normalised_text=normalised,
     )
 
 
-def sanitize_untrusted_text(text: str) -> str:
-    sanitized_lines: list[str] = []
+def sanitise_untrusted_text(text: str) -> str:
+    sanitised_lines: list[str] = []
     for raw_line in text.splitlines():
         stripped = raw_line.strip()
         if not stripped:
-            sanitized_lines.append(raw_line)
+            sanitised_lines.append(raw_line)
             continue
         assessment = assess_prompt_injection(stripped)
         if assessment.blocked:
-            sanitized_lines.append(FILTERED_UNTRUSTED_TEXT)
+            sanitised_lines.append(FILTERED_UNTRUSTED_TEXT)
             continue
-        sanitized_lines.append(_ZERO_WIDTH_RE.sub("", raw_line))
+        sanitised_lines.append(_ZERO_WIDTH_RE.sub("", raw_line))
 
-    return "\n".join(sanitized_lines).strip()
+    return "\n".join(sanitised_lines).strip()
 
 
-def sanitize_conversation_turn(role: str, content: str) -> str:
+def sanitise_conversation_turn(role: str, content: str) -> str:
     if role != "user":
         return content.strip()
 
     assessment = assess_prompt_injection(content)
     if assessment.blocked:
         return "[previous user turn omitted by prompt injection guardrail]"
-    return sanitize_untrusted_text(content)
+    return sanitise_untrusted_text(content)
 
 
 def validate_with_llm(

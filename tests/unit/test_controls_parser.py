@@ -2,7 +2,7 @@
 
 Covers:
 - RequirementRecord and BaseParser.to_jsonl (parsers/base.py)
-- Essential Eight helper functions: _slugify, _normalize_family_name,
+- Essential Eight helper functions: _slugify, _normalise_family_name,
   _extract_introduction, _extract_cell_requirements,
   _parse_requirement_table, _parse_maturity_model_page
 - EssentialEightParser with fully mocked HTTP (_fetch_soup patched)
@@ -27,7 +27,7 @@ from runtime.ingestion.parsers.essential_eight import (
     EssentialEightParser,
     _extract_cell_requirements,
     _extract_introduction,
-    _normalize_family_name,
+    _normalise_family_name,
     _parse_maturity_model_page,
     _parse_requirement_table,
     _slugify,
@@ -171,32 +171,32 @@ class TestSlugify:
 
 
 # ---------------------------------------------------------------------------
-# _normalize_family_name
+# _normalise_family_name
 # ---------------------------------------------------------------------------
 
-class TestNormalizeFamilyName:
+class TestNormaliseFamilyName:
     def test_exact_match(self):
-        assert _normalize_family_name("Patch applications") == "Patch applications"
+        assert _normalise_family_name("Patch applications") == "Patch applications"
 
     def test_case_insensitive_match(self):
-        assert _normalize_family_name("PATCH APPLICATIONS") == "Patch applications"
+        assert _normalise_family_name("PATCH APPLICATIONS") == "Patch applications"
 
     def test_whitespace_stripped(self):
-        assert _normalize_family_name("  Patch applications  ") == "Patch applications"
+        assert _normalise_family_name("  Patch applications  ") == "Patch applications"
 
     def test_prefix_match(self):
         # "Patch ap" starts with the first 8 chars of "Patch applications"
-        assert _normalize_family_name("Patch app") == "Patch applications"
+        assert _normalise_family_name("Patch app") == "Patch applications"
 
     def test_unknown_returns_none(self):
-        assert _normalize_family_name("Completely Unknown Control Family") is None
+        assert _normalise_family_name("Completely Unknown Control Family") is None
 
     def test_empty_returns_none(self):
-        assert _normalize_family_name("") is None
+        assert _normalise_family_name("") is None
 
     @pytest.mark.parametrize("family", CONTROL_FAMILIES)
     def test_all_canonical_families_resolve(self, family):
-        assert _normalize_family_name(family) == family
+        assert _normalise_family_name(family) == family
 
 
 # ---------------------------------------------------------------------------

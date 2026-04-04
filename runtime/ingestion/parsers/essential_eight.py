@@ -159,7 +159,7 @@ def _slugify(text: str) -> str:
     return slug
 
 
-def _normalize_family_name(raw: str) -> Optional[str]:
+def _normalise_family_name(raw: str) -> Optional[str]:
     """Match *raw* text to one of the canonical control family names."""
     raw_clean = raw.strip()
     if not raw_clean:
@@ -272,9 +272,9 @@ def _parse_requirement_table(
             # Skip header rows
             if first_text.lower() in _HEADER_CELL_VALUES:
                 continue
-            normalized = _normalize_family_name(first_text)
-            if normalized:
-                current_family = normalized
+            normalised = _normalise_family_name(first_text)
+            if normalised:
+                current_family = normalised
             req_cell = cells[1]
 
         elif len(cells) == 1:

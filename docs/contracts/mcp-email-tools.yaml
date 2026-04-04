@@ -1,0 +1,224 @@
+version: 1
+contract_type: mcp_tool_set
+provider: email
+supports_identity_modes:
+  - app_only
+  - delegated
+normalised_objects:
+  - mailbox_message
+  - recipient
+common_requirements:
+  delegated_user_request_rule: Delegated mode is used when a user explicitly requests delivery via their own mailbox context.
+  app_only_scope_rule: App-only mailbox access must be limited to the agent mailbox and approved shared mailboxes.
+  idempotency_rule: Send operations must accept an external idempotency key.
+tools:
+  - tool_name: read_inbox_notifications
+    purpose: Read agent mailbox notifications that may represent assessment triggers.
+    allowed_identity_modes:
+      - app_only
+    input_schema:
+      type: object
+      required:
+        - mailbox_id
+        - lookback_window
+      properties:
+        mailbox_id:
+          type: string
+        lookback_window:
+          type: string
+        folder:
+          type: string
+        unread_only:
+          type: boolean
+    output_schema:
+      type: object
+      required:
+        - messages
+      properties:
+        messages:
+          type: array
+    failure_modes:
+      - mailbox_not_found
+      - permissions_denied
+      - provider_timeout
+    example_input:
+      mailbox_id: agent-mailbox
+      lookback_window: PT1H
+      folder: Inbox
+      unread_only: true
+    example_output:
+      messages: []
+
+  - tool_name: parse_notification_target
+    purpose: Extract provider references, requester details, and target URLs from notification content.
+    allowed_identity_modes:
+      - app_only
+      - delegated
+    input_schema:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: object
+    output_schema:
+      type: object
+      required:
+        - provider
+        - target_reference
+      properties:
+        provider:
+          enum:
+            - confluence
+            - sharepoint
+            - m365
+            - unknown
+        target_reference:
+          type: string
+        requester_email:
+          type: string
+        mentioner_email:
+          type: string
+    failure_modes:
+      - target_not_extractable
+      - unsupported_notification_format
+    example_input:
+      message:
+        message_id: msg-1
+        subject: Please assess this page
+        body: Review https://example.atlassian.net/wiki/spaces/SEC/pages/1234/Page+Title
+    example_output:
+      provider: confluence
+      target_reference: https://example.atlassian.net/wiki/spaces/SEC/pages/1234/Page+Title
+      requester_email: requester@example.com
+      mentioner_email: requester@example.com
+
+  - tool_name: resolve_recipients
+    purpose: Resolve and validate recipient set for assessment delivery.
+    allowed_identity_modes:
+      - app_only
+      - delegated
+    input_schema:
+      type: object
+      required:
+        - recipient_candidates
+      properties:
+        recipient_candidates:
+          type: array
+        policy:
+          type: string
+    output_schema:
+      type: object
+      required:
+        - recipients
+      properties:
+        recipients:
+          type: array
+    failure_modes:
+      - no_valid_recipients
+      - policy_rejected_recipient
+    example_input:
+      recipient_candidates:
+        - owner@example.com
+        - editor@example.com
+      policy: ordered
+    example_output:
+      recipients:
+        - owner@example.com
+        - editor@example.com
+
+  - tool_name: send_email
+    purpose: Send assessment results or fallback notifications by email.
+    allowed_identity_modes:
+      - app_only
+      - delegated
+    input_schema:
+      type: object
+      required:
+        - mailbox_id
+        - recipients
+        - subject
+        - body
+        - idempotency_key
+      properties:
+        mailbox_id:
+          type: string
+        recipients:
+          type: array
+        cc:
+          type: array
+        bcc:
+          type: array
+        subject:
+          type: string
+        body:
+          type: string
+        content_type:
+          enum:
+            - text_plain
+            - text_html
+        attachments:
+          type: array
+        idempotency_key:
+          type: string
+    output_schema:
+      type: object
+      required:
+        - success
+        - message_id
+      properties:
+        success:
+          type: boolean
+        message_id:
+          type: string
+    failure_modes:
+      - mailbox_not_found
+      - permissions_denied
+      - duplicate_submission
+      - provider_timeout
+    example_input:
+      mailbox_id: agent-mailbox
+      recipients:
+        - owner@example.com
+      subject: Assessment completed
+      body: Assessment completed successfully.
+      content_type: text_plain
+      attachments: []
+      idempotency_key: idem-1
+    example_output:
+      success: true
+      message_id: sent-1
+
+  - tool_name: mark_notification_processed
+    purpose: Mark an email-trigger notification as processed to avoid duplicate job creation.
+    allowed_identity_modes:
+      - app_only
+    input_schema:
+      type: object
+      required:
+        - message_id
+        - processing_state
+      properties:
+        message_id:
+          type: string
+        processing_state:
+          enum:
+            - processed
+            - ignored
+            - failed
+    output_schema:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+    failure_modes:
+      - message_not_found
+      - permissions_denied
+      - provider_timeout
+    example_input:
+      message_id: msg-1
+      processing_state: processed
+    example_output:
+      success: true

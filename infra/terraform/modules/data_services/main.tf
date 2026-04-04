@@ -85,6 +85,25 @@ resource "azurerm_cosmosdb_sql_container" "conversations" {
   }
 }
 
+resource "azurerm_cosmosdb_sql_container" "orchestration_state" {
+  name                  = var.cosmos_orchestration_container_name
+  resource_group_name   = var.resource_group_name
+  account_name          = azurerm_cosmosdb_account.this.name
+  database_name         = azurerm_cosmosdb_sql_database.rag_conversations.name
+  partition_key_paths   = ["/source"]
+  partition_key_version = 2
+
+  default_ttl = -1
+
+  indexing_policy {
+    indexing_mode = "consistent"
+
+    included_path {
+      path = "/*"
+    }
+  }
+}
+
 # Azure Container Registry — Premium SKU required for private endpoint.
 # Admin credentials disabled; access is exclusively via managed identity (AcrPull).
 resource "azurerm_container_registry" "this" {

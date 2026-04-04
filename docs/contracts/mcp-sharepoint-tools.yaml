@@ -1,0 +1,350 @@
+version: 1
+contract_type: mcp_tool_set
+provider: sharepoint
+supports_identity_modes:
+  - app_only
+  - delegated
+normalised_objects:
+  - site
+  - drive
+  - drive_item
+  - page
+  - comment
+common_requirements:
+  delegated_user_request_rule: User-requested assessment must execute with delegated identity and must fail closed if delegated context is missing.
+  app_only_scope_rule: App-only access must be limited to approved sites, drives, and content roots.
+  idempotency_rule: Write operations must accept an external idempotency key.
+tools:
+  - tool_name: resolve_target
+    purpose: Resolve a SharePoint or Microsoft 365 URL into a canonical target object.
+    allowed_identity_modes:
+      - app_only
+      - delegated
+    input_schema:
+      type: object
+      required:
+        - target_reference
+      properties:
+        target_reference:
+          type: string
+        requester_context:
+          type: object
+          required: false
+    output_schema:
+      type: object
+      required:
+        - provider
+        - target_type
+        - target_id
+        - canonical_url
+        - title
+      properties:
+        provider:
+          const: sharepoint
+        target_type:
+          enum:
+            - page
+            - drive_item
+        target_id:
+          type: string
+        site_id:
+          type: string
+        drive_id:
+          type: string
+        canonical_url:
+          type: string
+        title:
+          type: string
+    failure_modes:
+      - invalid_url
+      - target_not_found
+      - unsupported_target_type
+    example_input:
+      target_reference: https://tenant.sharepoint.com/sites/sec/SitePages/page.aspx?id=abc-123
+    example_output:
+      provider: sharepoint
+      target_type: page
+      target_id: abc-123
+      canonical_url: https://tenant.sharepoint.com/sites/sec/SitePages/page.aspx?id=abc-123
+      title: page.aspx
+      site_id: site-sec
+      drive_id: drive-sitepages
+
+  - tool_name: check_user_access
+    purpose: Verify the requesting user can access the target object.
+    allowed_identity_modes:
+      - delegated
+    input_schema:
+      type: object
+      required:
+        - target_id
+        - delegated_user_context
+      properties:
+        target_id:
+          type: string
+        delegated_user_context:
+          type: object
+    output_schema:
+      type: object
+      required:
+        - granted
+        - effective_identity_mode
+        - reason
+      properties:
+        granted:
+          type: boolean
+        effective_identity_mode:
+          const: delegated
+        reason:
+          type: string
+    failure_modes:
+      - delegated_context_missing
+      - permissions_denied
+      - target_not_found
+    example_input:
+      target_id: abc-123
+      delegated_user_context:
+        principal_id: user-1
+        email: user.one@example.com
+    example_output:
+      granted: true
+      effective_identity_mode: delegated
+      reason: granted
+
+  - tool_name: get_content_by_id
+    purpose: Retrieve normalised page or file content and metadata by target ID.
+    allowed_identity_modes:
+      - app_only
+      - delegated
+    input_schema:
+      type: object
+      required:
+        - target_id
+        - identity_mode
+      properties:
+        target_id:
+          type: string
+        identity_mode:
+          enum:
+            - app_only
+            - delegated
+        include_discussion_context:
+          type: boolean
+    output_schema:
+      type: object
+      required:
+        - provider
+        - target_id
+        - canonical_url
+        - title
+        - content
+        - metadata
+      properties:
+        provider:
+          const: sharepoint
+        target_id:
+          type: string
+        canonical_url:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        metadata:
+          type: object
+        owner:
+          type: object
+        last_editor:
+          type: object
+        comments:
+          type: array
+    failure_modes:
+      - target_not_found
+      - permissions_denied
+      - provider_timeout
+    example_input:
+      target_id: abc-123
+      identity_mode: app_only
+      include_discussion_context: true
+    example_output:
+      provider: sharepoint
+      target_id: abc-123
+      canonical_url: https://tenant.sharepoint.com/sites/sec/SitePages/page.aspx?id=abc-123
+      title: page.aspx
+      content: Example SharePoint page content
+      metadata: {}
+      owner: {}
+      last_editor: {}
+      comments: []
+
+  - tool_name: get_flagged_item_context
+    purpose: Retrieve the target content plus mention, comment, and request context for a flagged item.
+    allowed_identity_modes:
+      - app_only
+      - delegated
+    input_schema:
+      type: object
+      required:
+        - target_id
+        - identity_mode
+      properties:
+        target_id:
+          type: string
+        identity_mode:
+          enum:
+            - app_only
+            - delegated
+        trigger_context:
+          type: object
+    output_schema:
+      type: object
+      required:
+        - content_package
+        - trigger_context
+      properties:
+        content_package:
+          type: object
+        trigger_context:
+          type: object
+    failure_modes:
+      - target_not_found
+      - permissions_denied
+      - trigger_context_unavailable
+    example_input:
+      target_id: abc-123
+      identity_mode: app_only
+      trigger_context:
+        event_id: evt-1
+        trigger_type: mention
+    example_output:
+      content_package:
+        provider: sharepoint
+        target_id: abc-123
+      trigger_context:
+        event_id: evt-1
+        trigger_type: mention
+
+  - tool_name: resolve_page_owner
+    purpose: Resolve the owner of a SharePoint page or file.
+    allowed_identity_modes:
+      - app_only
+      - delegated
+    input_schema:
+      type: object
+      required:
+        - target_id
+      properties:
+        target_id:
+          type: string
+    output_schema:
+      type: object
+      required:
+        - principal_id
+        - email
+        - display_name
+      properties:
+        principal_id:
+          type: string
+        email:
+          type: string
+        display_name:
+          type: string
+    failure_modes:
+      - owner_not_resolvable
+      - target_not_found
+    example_input:
+      target_id: abc-123
+    example_output:
+      principal_id: owner-1
+      email: owner@example.com
+      display_name: Owner User
+
+  - tool_name: resolve_last_editor
+    purpose: Resolve the last editor of a SharePoint page or file.
+    allowed_identity_modes:
+      - app_only
+      - delegated
+    input_schema:
+      type: object
+      required:
+        - target_id
+      properties:
+        target_id:
+          type: string
+    output_schema:
+      type: object
+      required:
+        - principal_id
+        - email
+        - display_name
+        - modified_at
+      properties:
+        principal_id:
+          type: string
+        email:
+          type: string
+        display_name:
+          type: string
+        modified_at:
+          type: string
+    failure_modes:
+      - editor_not_resolvable
+      - target_not_found
+    example_input:
+      target_id: abc-123
+    example_output:
+      principal_id: editor-1
+      email: editor@example.com
+      display_name: Editor User
+      modified_at: "2026-04-02T00:00:00Z"
+
+  - tool_name: post_comment
+    purpose: Publish an assessment comment to a SharePoint page or related comment surface.
+    allowed_identity_modes:
+      - app_only
+      - delegated
+    input_schema:
+      type: object
+      required:
+        - target_id
+        - comment_body
+        - identity_mode
+        - idempotency_key
+      properties:
+        target_id:
+          type: string
+        comment_body:
+          type: string
+        identity_mode:
+          enum:
+            - app_only
+            - delegated
+        idempotency_key:
+          type: string
+    output_schema:
+      type: object
+      required:
+        - success
+        - comment_id
+        - canonical_url
+      properties:
+        success:
+          type: boolean
+        comment_id:
+          type: string
+        canonical_url:
+          type: string
+    failure_modes:
+      - comments_not_supported
+      - permissions_denied
+      - duplicate_submission
+      - provider_timeout
+    example_input:
+      target_id: abc-123
+      comment_body: Assessment completed.
+      identity_mode: app_only
+      idempotency_key: idem-1
+    example_output:
+      success: true
+      comment_id: cmt-1
+      canonical_url: https://tenant.sharepoint.com/sites/sec/SitePages/page.aspx?id=abc-123#comment-cmt-1

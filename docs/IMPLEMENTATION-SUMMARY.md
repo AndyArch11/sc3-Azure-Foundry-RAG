@@ -13,7 +13,7 @@ Successfully implemented Azure Foundry chat completion API integration with pers
 **New Data Models:**
 - `ConversationMessage` — Individual message with role, content, and timestamp
 - `ConversationSession` — Conversation container with user_id, session_id, and ordered messages
-- Serialization methods (`to_dict`, `from_dict`) for CosmosDB persistence
+- Serialisation methods (`to_dict`, `from_dict`) for CosmosDB persistence
 
 **Configuration Updates:**
 - Added `cosmos_endpoint` to `QueryConfig` dataclass
@@ -73,7 +73,7 @@ Updated for security:
 
 **15 comprehensive tests** for conversation functionality:
 - **Data Models:** Message creation, session creation, role validation
-- **Serialization:** Round-trip `to_dict` / `from_dict` conversions
+- **Serialisation:** Round-trip `to_dict` / `from_dict` conversions
 - **User ID Generation:** Auth token hashing, session ID fallback, determinism
 - **Load/Save:** CosmosDB interaction with mocked container, fallback handling
 - **Message History:** Accumulation, ordering, round-trip preservation

@@ -59,7 +59,25 @@ If bootstrap destroy is blocked, first remove any Terraform `prevent_destroy` gu
 
 - If Foundry project capability host creation intermittently fails after role assignment changes, consider adding an explicit short `time_sleep` dependency between role assignments and capability host resources to absorb AAD/RBAC propagation delay.
 
-## Known Terraform Behaviors (Do Not Re-Debug)
+## Confluence Poller Rollout Inputs
+
+The root module supports a dedicated Confluence polling Container App. Core tfvars inputs:
+
+- `enable_confluence_poller_app` (bool): create the poller app.
+- `confluence_poller_image_tag` (string): immutable image tag in ACR.
+- `confluence_base_url` (string): Confluence base URL.
+- `confluence_auth_mode` (string): `basic`, `bearer`, or `oauth`.
+- `confluence_auth_email` (string): required in basic mode.
+- `confluence_api_token` (sensitive string): API token for basic/bearer mode.
+- `confluence_account_id` (string): account ID for structured mention polling.
+- `confluence_poll_space_keys` (list(string)): optional space allowlist.
+- `confluence_poll_interval_seconds` (number): polling interval.
+- `confluence_poll_max_event_attempts` (number): max retries before terminal skip.
+- `confluence_poll_dry_run` (bool): assess-only mode with no response comment posting.
+
+State persistence uses Cosmos DB container `cosmos_orchestration_container_name` (default `orchestration-state`).
+
+## Known Terraform Behaviours (Do Not Re-Debug)
 
 ### 1) Persistent drift on query web Container App workload profile
 
