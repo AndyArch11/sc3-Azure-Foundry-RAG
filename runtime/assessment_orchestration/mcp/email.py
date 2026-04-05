@@ -12,6 +12,12 @@ class EmailMCPServer:
 
     _URL_PATTERN = re.compile(r"https?://[^\s<>'\"]+", re.IGNORECASE)
 
+    @staticmethod
+    def _host_is_exact_or_subdomain(host: str, domain: str) -> bool:
+        host_l = host.strip().lower()
+        domain_l = domain.strip().lower()
+        return host_l == domain_l or host_l.endswith(f".{domain_l}")
+
     def read_inbox_notifications(
         self,
         mailbox_id: str,
@@ -31,10 +37,15 @@ class EmailMCPServer:
         target_reference = match.group(0) if match else ""
         provider = "unknown"
         if target_reference:
-            host = (urlparse(target_reference).hostname or "").lower()
-            if "atlassian.net" in host or "confluence" in host:
+            parsed = urlparse(target_reference)
+            host = (parsed.hostname or "").lower()
+            if self._host_is_exact_or_subdomain(host, "atlassian.net") or (
+                host == "api.atlassian.com" and "/ex/confluence/" in (parsed.path or "")
+            ):
                 provider = "confluence"
-            elif "sharepoint.com" in host or "office.com" in host:
+            elif self._host_is_exact_or_subdomain(host, "sharepoint.com") or self._host_is_exact_or_subdomain(
+                host, "office.com"
+            ):
                 provider = "sharepoint"
 
         return {

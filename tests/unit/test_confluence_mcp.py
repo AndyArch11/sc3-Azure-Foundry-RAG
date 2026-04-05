@@ -92,6 +92,12 @@ def test_resolve_target_offline_non_atlassian_raises() -> None:
         sp.resolve_target("https://example.com/wiki/spaces/SEC/pages/1234")
 
 
+def test_resolve_target_offline_lookalike_atlassian_host_raises() -> None:
+    sp = ConfluenceMCPServer()
+    with pytest.raises(ValueError, match="Confluence Cloud URL"):
+        sp.resolve_target("https://evil-atlassian.net.evil.example/wiki/spaces/SEC/pages/1234")
+
+
 def test_get_content_by_id_offline_returns_stub() -> None:
     sp = ConfluenceMCPServer()
     artifact = sp.get_content_by_id("1234", identity_mode="app_only", include_discussion_context=True)

@@ -97,6 +97,8 @@ class QueryConfig:
 
 logger = logging.getLogger(__name__)
 
+_INTERNAL_ERROR_MESSAGE = "An internal error occurred."
+
 
 _FRAMEWORK_ALIASES = {
     "nist": "NIST CSF",
@@ -2063,7 +2065,8 @@ def index_status() -> JSONResponse:
             count = pager.get_count() if hasattr(pager, "get_count") else ("1+" if results else 0)
             return {"reachable": True, "document_count": count}
         except Exception as exc:
-            return {"reachable": False, "error": str(exc)}
+            logger.exception("Index probe failed for %s: %s", index_name, exc)
+            return {"reachable": False, "error": "index probe failed"}
 
     return JSONResponse(
         {
@@ -2129,7 +2132,8 @@ def get_conversations(request: Request, user_id: str, auth_token: str = "") -> J
         ))
         return JSONResponse({"conversations": items})
     except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        logger.exception("Failed to list conversations for user_id=%s: %s", user_id, exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
 @app.get("/api/conversations/{user_id}/{conversation_id}")
@@ -2160,7 +2164,13 @@ def get_conversation_history(request: Request, user_id: str, conversation_id: st
             ],
         })
     except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        logger.exception(
+            "Failed to get conversation history for user_id=%s conversation_id=%s: %s",
+            user_id,
+            conversation_id,
+            exc,
+        )
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
 @app.post("/api/conversations/new")
@@ -2187,7 +2197,8 @@ def create_conversation(request: Request, auth_token: str = Form("")) -> JSONRes
             "user_id": user_id,
         })
     except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        logger.exception("Failed to create conversation for user_id=%s: %s", user_id, exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
 @app.post("/api/conversations/{conversation_id}/message")
@@ -2215,7 +2226,13 @@ def add_message_to_conversation(
             "updated_at": session.updated_at,
         })
     except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        logger.exception(
+            "Failed to add message for user_id=%s conversation_id=%s: %s",
+            user_id,
+            conversation_id,
+            exc,
+        )
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
 @app.post("/api/conversations/{conversation_id}/rating")
@@ -2260,7 +2277,13 @@ def add_response_rating(
             }
         )
     except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        logger.exception(
+            "Failed to add response rating for user_id=%s conversation_id=%s: %s",
+            user_id,
+            conversation_id,
+            exc,
+        )
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
@@ -2373,6 +2396,7 @@ def ask(
         
         error = ""
     except Exception as exc:
+        logger.exception("Failed to process /ask request: %s", exc)
         result = {
             "answer": "",
             "results": [],
@@ -2381,7 +2405,7 @@ def ask(
             "metrics": None,
             "iterations": None,
         }
-        error = str(exc)
+        error = _INTERNAL_ERROR_MESSAGE
 
     return templates.TemplateResponse(
         request,
@@ -2459,6 +2483,7 @@ def ask_api(request: Request, payload: AskRequest) -> AskResponse:
             error="",
         )
     except Exception as exc:
+        logger.exception("Failed to process /api/ask request: %s", exc)
         return AskResponse(
             answer="",
             results=[],
@@ -2466,7 +2491,7 @@ def ask_api(request: Request, payload: AskRequest) -> AskResponse:
             evaluation=None,
             iterations=None,
             metrics=None,
-            error=str(exc),
+            error=_INTERNAL_ERROR_MESSAGE,
         )
 
 
@@ -2510,7 +2535,8 @@ async def upload_corpus_b_and_trigger(
             status_code=status_code,
         )
     except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        logger.exception("Failed /api/corpus-b/ingest request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
 @app.post("/api/corpus-c/ingest")
@@ -2562,7 +2588,8 @@ async def upload_corpus_c_and_trigger(
             status_code=status_code,
         )
     except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        logger.exception("Failed /api/corpus-c/ingest request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
 @app.post("/api/corpus-a/clear")
@@ -2606,7 +2633,8 @@ def clear_corpus_a(request: Request, payload: CorpusAClearRequest) -> JSONRespon
             }
         )
     except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        logger.exception("Failed /api/corpus-a/clear request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
 @app.post("/api/corpus-b/clear")
@@ -2645,7 +2673,8 @@ def clear_corpus_b(request: Request, payload: CorpusClearRequest) -> JSONRespons
             }
         )
     except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        logger.exception("Failed /api/corpus-b/clear request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
 @app.post("/api/corpus-c/clear")
@@ -2684,7 +2713,8 @@ def clear_corpus_c(request: Request, payload: CorpusClearRequest) -> JSONRespons
             }
         )
     except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        logger.exception("Failed /api/corpus-c/clear request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
 @app.post("/api/compliance/report")
@@ -2791,7 +2821,8 @@ def generate_compliance_report(request: Request, payload: ComplianceReportReques
             report_csv = _report_findings_to_csv(report_structured)
             schema_valid = True
         except Exception as exc:
-            validation_error = str(exc)
+            logger.exception("Compliance report schema validation failed: %s", exc)
+            validation_error = "Compliance report schema validation failed."
             if payload.validation_mode == "hard":
                 raise RuntimeError(f"Compliance report schema validation failed: {validation_error}") from exc
 
@@ -2820,7 +2851,11 @@ def generate_compliance_report(request: Request, payload: ComplianceReportReques
             }
         )
     except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        if isinstance(exc, RuntimeError) and "schema validation failed" in str(exc).lower():
+            logger.exception("Failed /api/compliance/report request due to schema validation: %s", exc)
+            return JSONResponse({"error": "Compliance report schema validation failed."}, status_code=500)
+        logger.exception("Failed /api/compliance/report request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
 @app.get("/api/corpus-a/status")
@@ -2837,7 +2872,8 @@ def corpus_a_status(request: Request, auth_token: str = "") -> JSONResponse:
             }
         )
     except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        logger.exception("Failed /api/corpus-a/status request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
 @app.post("/api/corpus-a/ingest")
@@ -2912,4 +2948,5 @@ def corpus_a_ingest(request: Request, payload: CorpusAIngestRequest) -> JSONResp
             }
         )
     except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        logger.exception("Failed /api/corpus-a/ingest request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)

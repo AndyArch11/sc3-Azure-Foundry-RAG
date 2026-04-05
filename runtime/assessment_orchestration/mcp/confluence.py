@@ -40,6 +40,12 @@ def _strip_html(html: str) -> str:
     return extractor.get_text()
 
 
+def _host_is_exact_or_subdomain(host: str, domain: str) -> bool:
+    host_l = host.strip().lower()
+    domain_l = domain.strip().lower()
+    return host_l == domain_l or host_l.endswith(f".{domain_l}")
+
+
 # --------------------------------------------------------------------------- #
 # CQL / datetime helpers                                                       #
 # --------------------------------------------------------------------------- #
@@ -559,7 +565,7 @@ class ConfluenceMCPServer:
         if not parsed.scheme or not parsed.netloc:
             raise ValueError("target_reference must be a valid absolute URL")
         host = (parsed.hostname or "").lower()
-        is_site_url = "atlassian.net" in host
+        is_site_url = _host_is_exact_or_subdomain(host, "atlassian.net")
         is_ex_api_url = host == "api.atlassian.com" and "/ex/confluence/" in parsed.path
         if not (is_site_url or is_ex_api_url):
             raise ValueError("target_reference does not look like a Confluence Cloud URL")

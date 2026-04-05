@@ -15,11 +15,21 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _host_is_exact_or_subdomain(host: str, domain: str) -> bool:
+    host_l = host.strip().lower()
+    domain_l = domain.strip().lower()
+    return host_l == domain_l or host_l.endswith(f".{domain_l}")
+
+
 def _infer_provider_from_url(target_url: str) -> str:
-    host = (urlparse(target_url).hostname or "").lower()
-    if "atlassian.net" in host or "confluence" in host:
+    parsed = urlparse(target_url)
+    host = (parsed.hostname or "").lower()
+    path = parsed.path or ""
+    if _host_is_exact_or_subdomain(host, "atlassian.net") or (
+        host == "api.atlassian.com" and "/ex/confluence/" in path
+    ):
         return "confluence"
-    if "sharepoint.com" in host or "office.com" in host:
+    if _host_is_exact_or_subdomain(host, "sharepoint.com") or _host_is_exact_or_subdomain(host, "office.com"):
         return "sharepoint"
     return "email"
 
