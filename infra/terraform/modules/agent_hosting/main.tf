@@ -247,6 +247,10 @@ resource "azurerm_container_app" "query_web" {
         value = tostring(var.query_default_temperature)
       }
       env {
+        name  = "EVALUATOR_TEMPERATURE"
+        value = tostring(var.query_evaluator_temperature)
+      }
+      env {
         name  = "ACCEPTABLE_SCORE_THRESHOLD"
         value = tostring(var.query_eval_threshold)
       }
@@ -261,6 +265,10 @@ resource "azurerm_container_app" "query_web" {
       env {
         name  = "PROMPT_INJECTION_VALIDATOR_THRESHOLD"
         value = tostring(var.prompt_injection_validator_threshold)
+      }
+      env {
+        name  = "PROMPT_INJECTION_VALIDATOR_TEMPERATURE"
+        value = tostring(var.prompt_injection_validator_temperature)
       }
       env {
         name  = "PROMPT_INJECTION_VALIDATOR_TIMEOUT_S"

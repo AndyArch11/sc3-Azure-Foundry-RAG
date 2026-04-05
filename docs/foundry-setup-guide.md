@@ -35,6 +35,8 @@ AZURE_COSMOS_CONTAINER_NAME=conversations
 
 # Optional
 DEFAULT_TEMPERATURE=1.0
+EVALUATOR_TEMPERATURE=1.0
+PROMPT_INJECTION_VALIDATOR_TEMPERATURE=0.5
 ACCEPTABLE_SCORE_THRESHOLD=0.72
 QUERY_WEB_AUTH_TOKEN=<optional-auth-token>
 ```
@@ -142,6 +144,7 @@ curl "https://${QUERY_FQDN}/health"
 ```bash
 curl "https://${QUERY_FQDN}/api/config"
 # Expected: {..., "default_temperature": 1.0, ...}
+# Also exposed: evaluator_temperature and prompt_injection_validator_temperature
 ```
 
 ### Integration Smoke Test

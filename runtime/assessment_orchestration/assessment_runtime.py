@@ -118,10 +118,13 @@ def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
         "nist": "NIST CSF",
         "nist csf": "NIST CSF",
         "csf": "NIST CSF",
+        "cyber security framework": "NIST CSF",
         "essential eight": "Essential Eight",
         "essential_eight": "Essential Eight",
+        "essential 8": "Essential Eight",
         "e8": "Essential Eight",
         "aescsf": "AESCSF",
+        "australian energy sector cyber security framework": "AESCSF",
         "ism": "ISM",
     }
     ordered: list[str] = []
@@ -252,13 +255,38 @@ def _chat_completion(
         api_version="2024-08-01-preview",
         azure_endpoint=config.openai_endpoint,
     )
-    response = client.chat.completions.create(
-        model=config.query_deployment,
-        messages=cast(Any, messages),
-        max_completion_tokens=1400,
-        temperature=config.temperature,
-        timeout=timeout,
-    )
+    safe_temperature = max(0.0, min(1.0, float(config.temperature)))
+
+    try:
+        response = client.chat.completions.create(
+            model=config.query_deployment,
+            messages=cast(Any, messages),
+            max_completion_tokens=1400,
+            temperature=safe_temperature,
+            timeout=timeout,
+        )
+    except Exception as exc:
+        message = str(exc).lower()
+        should_retry_with_one = (
+            safe_temperature != 1.0
+            and "temperature" in message
+            and (
+                "must be 1" in message
+                or "only supports" in message
+                or "unsupported" in message
+                or "not supported" in message
+                or "invalid" in message
+            )
+        )
+        if not should_retry_with_one:
+            raise
+        response = client.chat.completions.create(
+            model=config.query_deployment,
+            messages=cast(Any, messages),
+            max_completion_tokens=1400,
+            temperature=1.0,
+            timeout=timeout,
+        )
     return str(response.choices[0].message.content or "").strip()
 
 
@@ -272,12 +300,14 @@ def _framework_authority_rank(item: dict[str, Any], order: tuple[str, ...]) -> i
 
 def _infer_framework_filter(text: str) -> str | None:
     value = text.lower()
+    if re.search(r"\baescsf\b|\baustralian\s+energy\s+sector\s+cyber\s+security\s+framework\b", value):
+        return "AESCSF"
     if re.search(r"\bnist\b|\bnist\s*csf\b|\bcsf\s*2(\.0)?\b", value):
         return "NIST CSF"
-    if re.search(r"\bessential\s*eight\b|\be8\b", value):
+    if re.search(r"\bcyber\s+security\s+framework\b", value):
+        return "NIST CSF"
+    if re.search(r"\bessential\s*eight\b|\bessential\s*8\b|\be8\b", value):
         return "Essential Eight"
-    if re.search(r"\baescsf\b|\baemo\b", value):
-        return "AESCSF"
     if re.search(r"\bism\b|\binformation\s+security\s+manual\b", value):
         return "ISM"
     return None
@@ -593,7 +623,8 @@ class SearchBackedAssessmentAgent:
 
     def retrieve_corpus_grounding(self, artifact: AssessedArtifactPackage) -> CorpusGroundingPackage:
         query = self._build_assessment_query(artifact)
-        framework_filter = _infer_framework_filter(f"{artifact.title}\n{artifact.content[:1200]}")
+        framework_override = str(artifact.metadata.get("framework_filter_override") or "").strip()
+        framework_filter = framework_override or _infer_framework_filter(f"{artifact.title}\n{artifact.content[:1200]}")
         controls = _fetch_controls(
             self._controls_search_client,
             question=query,
@@ -693,12 +724,14 @@ class SearchBackedAssessmentAgent:
             )
 
         report.setdefault("metadata", {})
+        framework_scope = str(artifact.metadata.get("framework_filter_override") or "").strip() or "default_auto"
         report["metadata"] = {
             **dict(report.get("metadata") or {}),
             "provider": artifact.provider,
             "target_id": artifact.target_id,
             "target_url": artifact.canonical_url,
             "title": artifact.title,
+            "framework_scope": framework_scope,
             "validation_mode": validation_mode,
             "grounding_counts": {
                 "corpus_a": len(grounding.corpus_a_results),

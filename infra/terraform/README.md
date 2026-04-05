@@ -77,6 +77,28 @@ The root module supports a dedicated Confluence polling Container App. Core tfva
 
 State persistence uses Cosmos DB container `cosmos_orchestration_container_name` (default `orchestration-state`).
 
+## Query Web Temperature Controls
+
+The root module exposes temperature controls for query generation, evaluator scoring, and validator classification.
+
+Core tfvars inputs:
+
+- query_default_temperature (number): default response temperature for user-facing generation.
+- query_evaluator_temperature (number): evaluator model temperature for quality scoring.
+- prompt_injection_validator_temperature (number): validator model temperature for prompt-injection classification.
+
+Recommended defaults:
+
+- dev: query_default_temperature = 1.0, query_evaluator_temperature = 1.0, prompt_injection_validator_temperature = 0.5
+- test: query_default_temperature = 1.0, query_evaluator_temperature = 1.0, prompt_injection_validator_temperature = 0.5
+- prod: query_default_temperature = 1.0, query_evaluator_temperature = 1.0, prompt_injection_validator_temperature = 0.5
+
+Compatibility guidance:
+
+- Some deployments only accept temperature value 1.
+- The runtime now retries with temperature 1.0 when a deployment rejects a custom temperature.
+- Keep evaluator at 1.0 unless you have verified a lower value on the exact deployed model/version.
+
 ## Known Terraform Behaviours (Do Not Re-Debug)
 
 ### 1) Persistent drift on query web Container App workload profile

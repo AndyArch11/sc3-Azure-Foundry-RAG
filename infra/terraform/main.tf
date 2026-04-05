@@ -229,10 +229,12 @@ module "agent_hosting" {
   embedding_dimensions                              = 1536
   query_top_k                                       = var.query_top_k
   query_default_temperature                         = var.query_default_temperature
+  query_evaluator_temperature                       = var.query_evaluator_temperature
   query_eval_threshold                              = var.query_eval_threshold
   prompt_injection_validator_enabled                = var.prompt_injection_validator_enabled
   prompt_injection_validator_deployment             = trimspace(var.prompt_injection_validator_deployment) != "" ? var.prompt_injection_validator_deployment : var.validator_model.name
   prompt_injection_validator_threshold              = var.prompt_injection_validator_threshold
+  prompt_injection_validator_temperature            = var.prompt_injection_validator_temperature
   prompt_injection_validator_timeout_s              = var.prompt_injection_validator_timeout_s
   prompt_injection_validator_mode                   = var.prompt_injection_validator_mode
   guardrail_metrics_in_response                     = var.guardrail_metrics_in_response

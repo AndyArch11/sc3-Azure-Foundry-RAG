@@ -56,6 +56,13 @@ def build_assessment_job_from_provider_event(
     source_event_id = _first_non_empty(payload, ["event_id", "message_id", "source_event_id"]) or str(uuid.uuid4())
     correlation_id = _first_non_empty(payload, ["correlation_id"]) or _stable_correlation(source_event_id, target_url)
     trigger_type = _first_non_empty(payload, ["trigger_type"]) or "mention"
+    metadata = {
+        "source_event_id": source_event_id,
+        "provider_raw_event_type": _first_non_empty(payload, ["event_type"]),
+    }
+    extra_metadata = payload.get("metadata")
+    if isinstance(extra_metadata, Mapping):
+        metadata.update({str(k): v for k, v in extra_metadata.items()})
 
     job_payload = {
         "job_id": _first_non_empty(payload, ["job_id"]) or str(uuid.uuid4()),
@@ -69,10 +76,7 @@ def build_assessment_job_from_provider_event(
         "correlation_id": correlation_id,
         "requester_id": _first_non_empty(payload, ["requester_id", "requester_principal_id"]),
         "requester_email": _first_non_empty(payload, ["requester_email", "mentioner_email"]),
-        "metadata": {
-            "source_event_id": source_event_id,
-            "provider_raw_event_type": _first_non_empty(payload, ["event_type"]),
-        },
+        "metadata": metadata,
     }
     return validate_assessment_job(job_payload)
 

@@ -402,6 +402,37 @@ This helper prints:
 - Revision health table
 - Recent container logs for the poller
 
+### Confluence Poller Framework Trigger Phrases
+
+When a Confluence mention includes framework request text, the poller routes the
+assessment scope by keyword and posts one response comment per requested framework.
+
+Supported framework phrase mapping:
+
+- `Essential Eight`: `essential eight`, `essential_eight`, `essential 8`, `e8`
+- `AESCSF`: `AESCSF` acronym, or full phrase `Australian Energy Sector Cyber Security Framework`
+- `ISM`: `ISM`, `Information Security Manual`
+- `NIST CSF`: `NIST`, `NIST CSF`, `CSF 2`, `CSF 2.0`, and generic phrase `cyber security framework`
+
+Important disambiguation rule:
+
+- Generic phrase `cyber security framework` maps to `NIST CSF`.
+- It maps to `AESCSF` only when the acronym `AESCSF` or the full Australian Energy Sector phrase is explicitly present.
+
+Multiple-framework requests:
+
+- If more than one framework keyword is present, the poller runs sequential assessments and posts separate comments, one per framework.
+
+"All frameworks" intent:
+
+- The poller only treats "all" as all-framework review when explicit phrases are used, such as:
+  - `all frameworks`
+  - `review ... all frameworks`
+  - `assess ... all frameworks`
+  - `full framework review`
+  - `complete framework review`
+- Generic use of `all` in other sentence contexts does not trigger all-framework mode.
+
 ### Confluence Poller One-Command Preflight
 
 Run smoke plus deployed health/log checks in one command:

@@ -38,9 +38,14 @@ terraform apply -var-file=environments/dev/bootstrap.generated.tfvars -var-file=
 	- `prompt_injection_validator_enabled`
 	- `prompt_injection_validator_mode`
 	- `prompt_injection_validator_threshold`
+	- `prompt_injection_validator_temperature`
 	- `prompt_injection_validator_timeout_s`
 	- `prompt_injection_validator_deployment` (optional explicit deployment override)
 	- `validator_model` (versioned deployment object: name/version/capacity)
+- Query quality controls:
+	- `query_default_temperature`
+	- `query_evaluator_temperature`
+	- `query_eval_threshold`
 - Deployment precedence:
 	- If `prompt_injection_validator_deployment` is set, use it.
 	- Otherwise, use `validator_model.name`.

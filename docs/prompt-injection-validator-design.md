@@ -35,6 +35,9 @@ PROMPT_INJECTION_VALIDATOR_DEPLOYMENT=gpt-4.1-mini
 # Confidence threshold above which validator blocks (0.0-1.0)
 PROMPT_INJECTION_VALIDATOR_THRESHOLD=0.85
 
+# Validator sampling temperature (0.0-1.0)
+PROMPT_INJECTION_VALIDATOR_TEMPERATURE=0.5
+
 # Validator timeout in seconds
 PROMPT_INJECTION_VALIDATOR_TIMEOUT_S=15
 
@@ -44,6 +47,11 @@ PROMPT_INJECTION_VALIDATOR_TIMEOUT_S=15
 # - enforce: use validator to block requests
 PROMPT_INJECTION_VALIDATOR_MODE=shadow
 ```
+
+Runtime compatibility note:
+
+- Query and validator model calls now retry automatically with `temperature=1.0` when a deployment rejects custom temperature values.
+- This allows lower-temperature defaults where supported, while remaining compatible with models that only accept temperature `1`.
 
 ## Operational Modes
 

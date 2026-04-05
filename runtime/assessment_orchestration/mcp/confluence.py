@@ -96,6 +96,8 @@ def _normalise_mention_result(result: dict[str, Any], *, site_base_url: str) -> 
     mentioner_by = version.get("by") or {}
     mentioner_account_id = str(mentioner_by.get("accountId") or "")
     occurred_at = str(version.get("when") or result.get("lastModified") or "")
+    trigger_text = _strip_html(str(result.get("excerpt") or "")).strip()
+    title = str(content.get("title") or "").strip()
 
     if webui:
         canonical_url = webui if webui.startswith("http") else f"{site_base_url}{webui}"
@@ -108,11 +110,13 @@ def _normalise_mention_result(result: dict[str, Any], *, site_base_url: str) -> 
         "event_id": event_id,
         "content_id": content_id,
         "content_type": content_type,
+        "title": title,
         "target_id": page_id or content_id,
         "target_url": canonical_url,
         "space_key": space_key,
         "mentioner_account_id": mentioner_account_id,
         "occurred_at": occurred_at,
+        "trigger_text": trigger_text,
         "trigger_type": "mention",
     }
 

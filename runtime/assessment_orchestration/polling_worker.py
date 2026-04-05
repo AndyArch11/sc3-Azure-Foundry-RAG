@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -15,6 +16,31 @@ from .interfaces import OrchestratorAdapter
 from .mcp.confluence import ConfluenceMCPServer
 from .runtime_wiring import create_confluence_mcp_server_from_env, create_orchestrator_adapter_from_env
 from .state_store import CosmosPollingStateStore, PollingStateStore
+
+
+_FRAMEWORK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("Essential Eight", re.compile(r"\b(essential\s*eight|essential_eight|essential\s*8|\be8\b)\b", re.IGNORECASE)),
+    (
+        "AESCSF",
+        re.compile(
+            r"\b(aescsf|australian\s+energy\s+sector\s+cyber\s+security\s+framework)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    ("ISM", re.compile(r"\b(ism|information\s+security\s+manual)\b", re.IGNORECASE)),
+    ("NIST CSF", re.compile(r"\b(nist\s*csf|\bnist\b|\bcsf\s*2(\.0)?\b)\b", re.IGNORECASE)),
+)
+_ALL_FRAMEWORK_ORDER: tuple[str, ...] = ("Essential Eight", "AESCSF", "ISM", "NIST CSF")
+_ALL_FRAMEWORK_INTENT_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\b(all\s+frameworks)\b", re.IGNORECASE),
+    re.compile(r"\b(review|assess|evaluate)\s+.*\b(all\s+(controls\s+)?frameworks)\b", re.IGNORECASE),
+    re.compile(r"\b(full|complete)\s+(framework\s+)?review\b", re.IGNORECASE),
+)
+_GENERIC_CSF_PHRASE_RE = re.compile(r"\bcyber\s+security\s+framework\b", re.IGNORECASE)
+_FULL_AES_PHRASE_RE = re.compile(
+    r"\baustralian\s+energy\s+sector\s+cyber\s+security\s+framework\b",
+    re.IGNORECASE,
+)
 
 
 def _now_utc() -> datetime:
@@ -43,9 +69,16 @@ def _render_assessment_comment(assessment: dict[str, Any]) -> str:
     recommended_actions = list(assessment.get("recommended_actions") or [])
     missing_evidence = list(assessment.get("missing_evidence") or [])
     citations = list(assessment.get("citations") or [])
+    metadata = dict(assessment.get("metadata") or {})
+    framework_scope = str(metadata.get("framework_scope") or "").strip()
 
     parts = [
         "<p><strong>Automated compliance review</strong></p>",
+        (
+            f"<p><strong>Framework scope:</strong> {escape(framework_scope)}</p>"
+            if framework_scope
+            else ""
+        ),
         f"<p><strong>Overall risk:</strong> {escape(overall_risk)}</p>",
         f"<p>{escape(summary)}</p>",
         f"<p><strong>Findings:</strong> {len(findings)}</p>",
@@ -108,6 +141,43 @@ def _render_assessment_comment(assessment: dict[str, Any]) -> str:
     return "".join(parts)
 
 
+def _is_explicit_all_framework_request(text: str) -> bool:
+    value = text.strip()
+    if not value:
+        return False
+    for pattern in _ALL_FRAMEWORK_INTENT_PATTERNS:
+        if pattern.search(value):
+            return True
+    return False
+
+
+def _requested_frameworks_from_text(text: str) -> tuple[str, ...]:
+    value = text.strip()
+    if not value:
+        return ()
+    if _is_explicit_all_framework_request(value):
+        return _ALL_FRAMEWORK_ORDER
+
+    found: list[str] = []
+    for framework, pattern in _FRAMEWORK_PATTERNS:
+        if pattern.search(value) and framework not in found:
+            found.append(framework)
+
+    # Treat the generic "cyber security framework" phrase as NIST CSF intent,
+    # unless the full AESCSF phrase was used explicitly.
+    if _GENERIC_CSF_PHRASE_RE.search(value) and not _FULL_AES_PHRASE_RE.search(value):
+        if "NIST CSF" not in found:
+            found.append("NIST CSF")
+    return tuple(found)
+
+
+def _requested_frameworks_for_event(event: dict[str, Any]) -> tuple[str, ...]:
+    trigger_text = str(event.get("trigger_text") or "")
+    title = str(event.get("title") or "")
+    combined = "\n".join(part for part in (trigger_text, title) if part.strip())
+    return _requested_frameworks_from_text(combined)
+
+
 @dataclass(frozen=True)
 class PollerConfig:
     source: str = "confluence"
@@ -161,32 +231,47 @@ def _process_assessment_event(
     if not target_url or not target_id:
         raise ValueError(f"Event missing target reference fields: {event}")
 
-    job = build_assessment_job_from_provider_event(
-        {
-            "event_id": event.get("event_id") or "",
-            "target_id": target_id,
-            "target_url": target_url,
-            "trigger_type": event.get("trigger_type") or "mention",
-            "requester_id": event.get("mentioner_account_id") or "",
-        },
-        provider_hint="confluence",
-        request_identity_mode="app_only",
-        delivery_policy="inline_else_email",
-    )
-    assessment = adapter.run_assessment(job)
-    if dry_run:
-        return
+    requested_frameworks = _requested_frameworks_for_event(event)
+    framework_scopes = requested_frameworks or ("",)
 
-    comment_body = _render_assessment_comment(assessment)
-    idempotency_key = str(event.get("event_id") or job.correlation_id)
-    delivery = server.post_comment(
-        target_id,
-        comment_body=comment_body,
-        identity_mode="app_only",
-        idempotency_key=idempotency_key,
-    )
-    if not delivery.success:
-        raise RuntimeError(f"Failed posting Confluence comment for event {idempotency_key}: {delivery.failures}")
+    for framework_scope in framework_scopes:
+        metadata: dict[str, Any] = {
+            "trigger_text": str(event.get("trigger_text") or ""),
+            "requested_frameworks": list(requested_frameworks),
+            "review_scope_mode": "all" if requested_frameworks == _ALL_FRAMEWORK_ORDER else "selected",
+        }
+        if framework_scope:
+            metadata["requested_framework"] = framework_scope
+
+        job = build_assessment_job_from_provider_event(
+            {
+                "event_id": event.get("event_id") or "",
+                "target_id": target_id,
+                "target_url": target_url,
+                "trigger_type": event.get("trigger_type") or "mention",
+                "requester_id": event.get("mentioner_account_id") or "",
+                "metadata": metadata,
+            },
+            provider_hint="confluence",
+            request_identity_mode="app_only",
+            delivery_policy="inline_else_email",
+        )
+        assessment = adapter.run_assessment(job)
+        if dry_run:
+            continue
+
+        comment_body = _render_assessment_comment(assessment)
+        event_key = str(event.get("event_id") or job.correlation_id)
+        scope_key = re.sub(r"[^a-zA-Z0-9_\-]", "", framework_scope.lower().replace(" ", "-"))
+        idempotency_key = event_key if not scope_key else f"{event_key}-{scope_key}"
+        delivery = server.post_comment(
+            target_id,
+            comment_body=comment_body,
+            identity_mode="app_only",
+            idempotency_key=idempotency_key,
+        )
+        if not delivery.success:
+            raise RuntimeError(f"Failed posting Confluence comment for event {idempotency_key}: {delivery.failures}")
 
 
 def run_poll_cycle(

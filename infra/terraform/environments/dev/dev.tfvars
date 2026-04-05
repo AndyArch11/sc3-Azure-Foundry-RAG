@@ -25,6 +25,7 @@ search_service_name_override  = "srch-dev-aue-20260329"
 foundry_account_name_override = "foundry-dev-aue-20260329"
 query_top_k                   = 5
 query_default_temperature     = 1.0
+query_evaluator_temperature   = 1.0
 query_eval_threshold          = 0.72
 
 # Confluence poller settings (keep secrets out of tfvars where possible; pass via secure pipeline vars).
@@ -45,6 +46,7 @@ confluence_poll_dry_run            = true
 prompt_injection_validator_enabled   = true
 prompt_injection_validator_mode      = "shadow"
 prompt_injection_validator_threshold = 0.85
+prompt_injection_validator_temperature = 0.5
 prompt_injection_validator_timeout_s = 15
 guardrail_metrics_in_response        = true
 # prompt_injection_validator_deployment = "gpt-4.1-mini" # Optional existing deployment override. Leave unset to use validator_model.name.

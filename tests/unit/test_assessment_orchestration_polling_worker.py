@@ -5,6 +5,9 @@ from datetime import UTC, datetime, timedelta
 from runtime.assessment_orchestration.polling_worker import (
     PollerConfig,
     _build_recent_mentions_query,
+    _requested_frameworks_from_text,
+    _requested_frameworks_for_event,
+    _process_assessment_event,
     run_poll_cycle,
 )
 from runtime.assessment_orchestration.state_store import InMemoryPollingStateStore
@@ -23,7 +26,40 @@ class _FakeServer:
 
 
 class _FakeAdapter:
-    pass
+    def __init__(self) -> None:
+        self.jobs: list = []
+
+    def run_assessment(self, job):
+        self.jobs.append(job)
+        scope = str(job.metadata.get("requested_framework") or "default_auto")
+        return {
+            "executive_summary": f"Assessment for {scope}",
+            "findings": [],
+            "overall_risk_rating": "low",
+            "metadata": {"framework_scope": scope},
+        }
+
+
+class _PostingServer(_FakeServer):
+    def __init__(self, mentions: list[dict]) -> None:
+        super().__init__(mentions)
+        self.posts: list[dict] = []
+
+    def post_comment(self, target_id: str, *, comment_body: str, identity_mode: str, idempotency_key: str):
+        self.posts.append(
+            {
+                "target_id": target_id,
+                "comment_body": comment_body,
+                "identity_mode": identity_mode,
+                "idempotency_key": idempotency_key,
+            }
+        )
+
+        class _Outcome:
+            success = True
+            failures: tuple[str, ...] = ()
+
+        return _Outcome()
 
 
 class _LeaseRejectedStateStore(InMemoryPollingStateStore):
@@ -215,3 +251,70 @@ def test_build_recent_mentions_query_applies_space_scope_and_window_bound() -> N
 
     assert [item["event_id"] for item in result] == ["e-now"]
     assert server.last_scope_filter == {"space_keys": ["DOC", "OPS"]}
+
+
+def test_requested_frameworks_from_text_detects_specific_frameworks() -> None:
+    text = "@assessment-agent please review Essential Eight and AESCSF for this page"
+    result = _requested_frameworks_from_text(text)
+    assert result == ("Essential Eight", "AESCSF")
+
+
+def test_requested_frameworks_from_text_requires_explicit_all_intent() -> None:
+    generic = "I updated all references in this sentence"
+    explicit = "Please assess this page against all frameworks"
+
+    assert _requested_frameworks_from_text(generic) == ()
+    assert _requested_frameworks_from_text(explicit) == (
+        "Essential Eight",
+        "AESCSF",
+        "ISM",
+        "NIST CSF",
+    )
+
+
+def test_requested_frameworks_for_event_uses_trigger_text() -> None:
+    event = {"trigger_text": "Review against ISM then NIST CSF", "title": "ignored title"}
+    assert _requested_frameworks_for_event(event) == ("ISM", "NIST CSF")
+
+
+def test_requested_frameworks_from_text_maps_generic_cyber_security_framework_to_nist() -> None:
+    text = "Please review this page against the cyber security framework."
+    assert _requested_frameworks_from_text(text) == ("NIST CSF",)
+
+
+def test_requested_frameworks_from_text_maps_full_australian_energy_sector_phrase_to_aescsf_only() -> None:
+    text = "Assess this page against the full Australian Energy Sector Cyber Security Framework."
+    assert _requested_frameworks_from_text(text) == ("AESCSF",)
+
+
+def test_requested_frameworks_from_text_supports_essential_8_variant() -> None:
+    text = "Please perform an Essential 8 review."
+    assert _requested_frameworks_from_text(text) == ("Essential Eight",)
+
+
+def test_process_assessment_event_posts_one_comment_per_requested_framework() -> None:
+    server = _PostingServer([])
+    adapter = _FakeAdapter()
+    event = {
+        "event_id": "e-123",
+        "target_id": "123",
+        "target_url": "https://example/123",
+        "trigger_type": "mention",
+        "mentioner_account_id": "acct-1",
+        "trigger_text": "Please review Essential Eight and AESCSF.",
+    }
+
+    _process_assessment_event(
+        adapter=adapter,  # type: ignore[arg-type]
+        server=server,  # type: ignore[arg-type]
+        event=event,
+        dry_run=False,
+    )
+
+    assert [job.metadata.get("requested_framework") for job in adapter.jobs] == [
+        "Essential Eight",
+        "AESCSF",
+    ]
+    assert len(server.posts) == 2
+    assert server.posts[0]["idempotency_key"].endswith("essential-eight")
+    assert server.posts[1]["idempotency_key"].endswith("aescsf")

@@ -26,6 +26,7 @@ variable "search_index_name" { type = string }
 variable "embedding_dimensions" { type = number }
 variable "query_top_k" { type = number }
 variable "query_default_temperature" { type = number }
+variable "query_evaluator_temperature" { type = number }
 variable "query_eval_threshold" { type = number }
 variable "prompt_injection_validator_enabled" {
   type        = bool
@@ -41,6 +42,11 @@ variable "prompt_injection_validator_threshold" {
   type        = number
   description = "Confidence threshold for blocking when validator mode is enforce."
   default     = 0.85
+}
+variable "prompt_injection_validator_temperature" {
+  type        = number
+  description = "Temperature used for prompt injection validator model calls."
+  default     = 0.5
 }
 variable "prompt_injection_validator_timeout_s" {
   type        = number

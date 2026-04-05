@@ -162,6 +162,22 @@ class OrchestratorAdapter:
             identity_mode=job.request_identity_mode,
             include_discussion_context=True,
         )
+        artifact_metadata = dict(artifact.metadata)
+        artifact_metadata["job_metadata"] = dict(job.metadata)
+        requested_framework = str(job.metadata.get("requested_framework") or "").strip()
+        if requested_framework:
+            artifact_metadata["framework_filter_override"] = requested_framework
+        artifact = AssessedArtifactPackage(
+            provider=artifact.provider,
+            target_id=artifact.target_id,
+            canonical_url=artifact.canonical_url,
+            title=artifact.title,
+            content=artifact.content,
+            metadata=artifact_metadata,
+            owner=artifact.owner,
+            last_editor=artifact.last_editor,
+            discussion_context=list(artifact.discussion_context),
+        )
         self._audit_sink.record_stage(
             job,
             "content_retrieved",

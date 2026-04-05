@@ -336,6 +336,12 @@ variable "query_default_temperature" {
   default     = 1.0
 }
 
+variable "query_evaluator_temperature" {
+  type        = number
+  description = "Evaluator model temperature for quality checks in query web app. Keep at 1.0 for widest model compatibility unless validated otherwise."
+  default     = 1.0
+}
+
 variable "query_eval_threshold" {
   type        = number
   description = "Minimum acceptable evaluator score before triggering a second answer attempt."
@@ -358,6 +364,12 @@ variable "prompt_injection_validator_threshold" {
   type        = number
   description = "Confidence threshold for blocking when validator mode is enforce."
   default     = 0.85
+}
+
+variable "prompt_injection_validator_temperature" {
+  type        = number
+  description = "Prompt injection validator model temperature. Lower values can improve consistency but may not be supported by all models."
+  default     = 0.5
 }
 
 variable "prompt_injection_validator_timeout_s" {

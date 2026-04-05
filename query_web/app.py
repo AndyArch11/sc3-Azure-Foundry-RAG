@@ -78,6 +78,7 @@ class QueryConfig:
     ingestion_job_name: str
 
     default_temperature: float
+    evaluator_temperature: float
     evaluation_threshold: float
     auth_token: str
     required_group_object_id: str
@@ -89,6 +90,7 @@ class QueryConfig:
     prompt_injection_validator_enabled: bool
     prompt_injection_validator_deployment: str
     prompt_injection_validator_threshold: float
+    prompt_injection_validator_temperature: float
     prompt_injection_validator_timeout_s: int
     prompt_injection_validator_mode: str
     guardrail_metrics_in_response: bool
@@ -251,6 +253,7 @@ def load_config() -> QueryConfig:
         ingestion_job_name=os.getenv("INGESTION_JOB_NAME", "").strip(),
 
         default_temperature=float(os.getenv("DEFAULT_TEMPERATURE", "1")),
+        evaluator_temperature=float(os.getenv("EVALUATOR_TEMPERATURE", "1.0")),
         evaluation_threshold=float(os.getenv("ACCEPTABLE_SCORE_THRESHOLD", "0.72")),
         auth_token=os.getenv("QUERY_WEB_AUTH_TOKEN", "").strip(),
         required_group_object_id=os.getenv("QUERY_WEB_REQUIRED_GROUP_OBJECT_ID", "").strip(),
@@ -263,6 +266,9 @@ def load_config() -> QueryConfig:
             os.getenv("EVALUATOR_DEPLOYMENT_NAME", "gpt-4.1-mini"),
         ),
         prompt_injection_validator_threshold=float(os.getenv("PROMPT_INJECTION_VALIDATOR_THRESHOLD", "0.85")),
+        prompt_injection_validator_temperature=float(
+            os.getenv("PROMPT_INJECTION_VALIDATOR_TEMPERATURE", "0.5")
+        ),
         prompt_injection_validator_timeout_s=int(os.getenv("PROMPT_INJECTION_VALIDATOR_TIMEOUT_S", "15")),
         prompt_injection_validator_mode=os.getenv("PROMPT_INJECTION_VALIDATOR_MODE", "off").lower(),
         guardrail_metrics_in_response=_env_bool("GUARDRAIL_METRICS_IN_RESPONSE", default=False),
@@ -1467,6 +1473,20 @@ def _controls_search(
     return items, timings
 
 
+def _is_temperature_unsupported_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "temperature" in message
+        and (
+            "must be 1" in message
+            or "only supports" in message
+            or "unsupported" in message
+            or "not supported" in message
+            or "invalid" in message
+        )
+    )
+
+
 def _chat_completion(messages: list[dict[str, str]], deployment: str, temperature: float, timeout: int = 45) -> str:
     """Call Azure Foundry chat completion API using the OpenAI Python SDK."""
     try:
@@ -1482,13 +1502,32 @@ def _chat_completion(messages: list[dict[str, str]], deployment: str, temperatur
     )
     typed_messages = cast("list[ChatCompletionMessageParam]", messages)
     
-    response = client.chat.completions.create(
-        model=deployment,
-        messages=typed_messages,
-        max_completion_tokens=600,
-        temperature=temperature,
-        timeout=timeout,
-    )
+    safe_temperature = max(0.0, min(1.0, float(temperature)))
+
+    try:
+        response = client.chat.completions.create(
+            model=deployment,
+            messages=typed_messages,
+            max_completion_tokens=600,
+            temperature=safe_temperature,
+            timeout=timeout,
+        )
+    except Exception as exc:
+        if safe_temperature != 1.0 and _is_temperature_unsupported_error(exc):
+            logger.warning(
+                "Model rejected temperature %.3f for deployment %s; retrying with temperature=1.0",
+                safe_temperature,
+                deployment,
+            )
+            response = client.chat.completions.create(
+                model=deployment,
+                messages=typed_messages,
+                max_completion_tokens=600,
+                temperature=1.0,
+                timeout=timeout,
+            )
+        else:
+            raise
     return (response.choices[0].message.content or "").strip()
 
 
@@ -1505,7 +1544,12 @@ def _evaluate(question: str, context: str, answer: str) -> dict[str, Any]:
             ),
         },
     ]
-    raw = _chat_completion(eval_messages, deployment=config.evaluator_deployment, temperature=1.0, timeout=40)
+    raw = _chat_completion(
+        eval_messages,
+        deployment=config.evaluator_deployment,
+        temperature=config.evaluator_temperature,
+        timeout=40,
+    )
     return _parse_eval(raw)
 
 
@@ -1526,7 +1570,7 @@ def _call_validator(text: str, timeout_s: int = 15) -> dict[str, Any]:
         raw = _chat_completion(
             validator_messages,
             deployment=config.prompt_injection_validator_deployment,
-            temperature=0.5,
+            temperature=config.prompt_injection_validator_temperature,
             timeout=timeout_s,
         )
         
@@ -2001,6 +2045,7 @@ def health() -> JSONResponse:
             "prompt_injection_guard_enabled": True,
             "prompt_injection_validator_enabled": config.prompt_injection_validator_enabled,
             "prompt_injection_validator_mode": config.prompt_injection_validator_mode,
+            "prompt_injection_validator_temperature": config.prompt_injection_validator_temperature,
             "auth_enabled": bool(config.auth_token),
             "entra_group_auth_enabled": bool(config.required_group_object_id),
         }
@@ -2056,8 +2101,10 @@ def api_config() -> JSONResponse:
             "prompt_injection_validator_enabled": config.prompt_injection_validator_enabled,
             "prompt_injection_validator_mode": config.prompt_injection_validator_mode,
             "prompt_injection_validator_threshold": config.prompt_injection_validator_threshold,
+            "prompt_injection_validator_temperature": config.prompt_injection_validator_temperature,
             "compliance_report_schema_version": COMPLIANCE_REPORT_SCHEMA_VERSION,
             "default_temperature": config.default_temperature,
+            "evaluator_temperature": config.evaluator_temperature,
             "evaluation_threshold": config.evaluation_threshold,
             "auth_enabled": bool(config.auth_token),
             "entra_group_auth_enabled": bool(config.required_group_object_id),

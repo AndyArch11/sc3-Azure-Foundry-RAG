@@ -52,6 +52,17 @@ Current scaffold progress notes:
 
 ## Decision Summary
 
+Implementation-status note (April 2026): this document uses agent / skills / MCP
+language as the target architecture pattern, but the current production runtime is
+deterministic Python orchestration (non-agentic AI), with skills used for
+development/governance traceability and provider "MCP servers" currently operating
+closer to in-process adapters than fully externalised MCP client/server components.
+
+For fuller current-state details, see:
+
+- `Current Implementation Status (April 2026)` under `Required Agent Skills`
+- `MCP Maturity Note (Current Stage)` under `MCP Server Boundary Decision`
+
 The preferred architecture is:
 
 1. Use a dedicated assessment orchestrator service.
@@ -392,6 +403,25 @@ The initial single-agent model is simpler and should be preferred unless workloa
 
 ## Required Agent Skills
 
+### Current Implementation Status (April 2026)
+
+The agent / skills / MCP pattern is being used as an architectural guide, but the
+current runtime is deterministic Python orchestration rather than agentic AI.
+
+Current-state clarification:
+
+- Skills are defined and mapped for design discipline, stage traceability, and governance consistency.
+- Skills do not currently drive autonomous runtime behaviour or dynamic tool planning.
+- Assessment and delivery paths are implemented through explicit code paths and deterministic branching.
+- This means the present value of skills is primarily development and governance support, with associated maintenance overhead.
+
+MCP boundary clarification for this stage:
+
+- Current provider "MCP servers" are closer to in-process provider adapters used by the orchestrator runtime.
+- They provide normalised provider access and policy enforcement, but are not yet a fully realised MCP client/server deployment pattern.
+- For a reference on a full MCP architecture model, see:
+  - https://modelcontextprotocol.io/docs/learn/architecture
+
 Yes, defining required skills improves implementation quality.
 
 Without explicit skills, too much behaviour is left inside broad prompt instructions, which makes the system harder to test, harder to govern, and more likely to drift between providers or delivery paths.
@@ -725,6 +755,18 @@ Decision:
 - Platform-triggered assessments may use app-only access, but only for approved provider scopes.
 
 ## MCP Server Boundary Decision
+
+### MCP Maturity Note (Current Stage)
+
+The design intentionally follows MCP-style boundaries, but implementation maturity
+is currently adapter-first:
+
+- The runtime calls provider integration components in-process.
+- Transport-level MCP concerns such as independent MCP server lifecycle, externalised MCP transport boundaries, and broader tool-host separation are only partially represented.
+- This is a pragmatic interim step, not the final target architecture.
+
+The target direction remains provider MCP servers as clean capability boundaries,
+with progression over time toward a more fully realised MCP deployment model.
 
 Decision:
 
