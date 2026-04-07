@@ -15,13 +15,20 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
 from bs4 import BeautifulSoup
 
-from runtime.ingestion.parsers.base import BaseParser, RequirementRecord
+from runtime.ingestion.parsers.base import BaseParser, RequirementRecord, filter_keywords
+from runtime.ingestion.parsers.cis_controls import CisControlsParser, _build_control_guidance_map
+from runtime.ingestion.parsers.pci_dss import (
+    PciDssParser,
+    _build_requirement_and_guidance_maps,
+    _extract_full_text,
+)
+from runtime.ingestion.parsers.pspf import PspfParser, _parse_pspf_release_text, _pspf_keywords
 from runtime.ingestion.parsers.essential_eight import (
     CONTROL_FAMILIES,
     EssentialEightParser,
@@ -145,6 +152,30 @@ class TestBaseParserToJsonl:
     def test_empty_records_produces_empty_string(self):
         result = _ConcreteParser([]).to_jsonl([])
         assert result == ""
+
+
+class TestKeywordFiltering:
+    def test_removes_noise_and_stopword_tokens(self):
+        filtered = filter_keywords([
+            "account",
+            "ro",
+            "sp",
+            "and",
+            "def",
+            "wireless",
+            "pci",
+            "dss",
+            "v4",
+            "cis",
+            "v8",
+            "guidelines",
+            "defined",
+            "documented",
+            "examine",
+            "requirement",
+            "verify",
+        ])
+        assert filtered == ["account", "wireless"]
 
 
 # ---------------------------------------------------------------------------
@@ -485,6 +516,295 @@ class TestEssentialEightParser:
             EssentialEightParser(fetch_guidance=True).parse()
         # Should have fetched more than just the main URL
         assert mock_fetch.call_count > 1
+
+
+# ---------------------------------------------------------------------------
+# CIS Controls parser
+# ---------------------------------------------------------------------------
+
+
+class _FakePdfPage:
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def extract_text(self) -> str:
+        return self._text
+
+
+class _FakePdfReader:
+    def __init__(self, _path: str) -> None:
+        self.pages = [
+            _FakePdfPage(
+                """
+01
+ Inventory and Control of Enterprise Assets
+OVERVIEW  Manage enterprise assets.
+Why is this Control critical?
+You cannot defend assets you do not know you have.
+"""
+            ),
+            _FakePdfPage(
+                """
+Control 01: Inventory and Control of Enterprise Assets
+Procedures and tools
+Use inventories, scanners, and supporting processes.
+Safeguards
+"""
+            ),
+            _FakePdfPage(
+                """
+02
+ Inventory and Control of Software Assets
+OVERVIEW  Manage software assets.
+Why is this Control critical?
+Vulnerable software expands attack surface.
+"""
+            ),
+        ]
+
+
+class TestCisControlsParser:
+    def test_build_control_guidance_map_extracts_sections(self, tmp_path: Path):
+        pdf_path = tmp_path / "cis.pdf"
+        pdf_path.write_bytes(b"placeholder")
+        with patch("runtime.ingestion.parsers.cis_controls._PdfReader", _FakePdfReader):
+            guidance = _build_control_guidance_map(pdf_path)
+
+        assert "1" in guidance
+        assert "Overview: Manage enterprise assets." in guidance["1"]
+        assert "Why critical: You cannot defend assets you do not know you have." in guidance["1"]
+        assert "Procedures and tools: Use inventories, scanners, and supporting processes." in guidance["1"]
+
+    def test_parse_workbook_rows_into_requirement_records(self, tmp_path: Path):
+        import openpyxl
+
+        workbook_path = tmp_path / "cis.xlsx"
+        pdf_path = tmp_path / "cis.pdf"
+        pdf_path.write_bytes(b"placeholder")
+
+        wb = openpyxl.Workbook()
+        ws = cast(Any, wb.active)
+        ws.title = "Controls V8"
+        ws.append(["CIS Control", "CIS Safeguard", "Asset Type", "Security Function", "Title", "Description", "IG1", "IG2", "IG3"])
+        ws.append(["1", "", "", "", "Inventory and Control of Enterprise Assets", "Header description for control 1.", "", "", ""])
+        ws.append(["1", "1.1", "Devices", "Identify", "Establish and Maintain Detailed Enterprise Asset Inventory", "Maintain an accurate inventory.", "x", "x", "x"])
+        ws.append(["1", "1.2", "Devices", "Respond", "Address Unauthorized Assets", "Address unauthorized assets weekly.", "", "x", "x"])
+        ws.append(["1", "1.3", "Devices", "Protect", "Use an Active Discovery Tool", "Use active discovery to detect unmanaged assets.", "", "", "x"])
+        ws.append(["1", "1.4", "Devices", "Protect", "Maintain Asset Metadata", "Maintain metadata for managed assets.", "", "", ""])
+        wb.save(workbook_path)
+
+        with patch("runtime.ingestion.parsers.cis_controls._PdfReader", _FakePdfReader):
+            records = CisControlsParser(workbook_path=workbook_path, pdf_path=pdf_path).parse()
+
+        assert len(records) == 4
+        assert all(isinstance(record, RequirementRecord) for record in records)
+        assert records[0].framework == "CIS Controls"
+        assert records[0].framework_version == "v8"
+        assert records[0].requirement_id == "CISv8-1_1"
+        assert records[0].control_family == "Inventory and Control of Enterprise Assets"
+        assert records[0].source_section == "Control 01 > Safeguard 1.1"
+        assert "ig1" in records[0].keywords
+        assert records[0].maturity_level == 1
+        assert records[1].maturity_level == 2
+        assert records[2].maturity_level == 3
+        assert records[3].maturity_level is None
+        assert records[0].guidance_text
+
+    def test_parse_real_samples_populates_maturity_levels(self):
+        workspace_root = Path(__file__).resolve().parents[2]
+        workbook_path = workspace_root / "runtime" / "samples" / "CIS_Controls_Version_8.xlsx"
+        pdf_path = workspace_root / "runtime" / "samples" / "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf"
+
+        if not workbook_path.exists() or not pdf_path.exists():
+            pytest.skip("CIS sample files are not present in runtime/samples")
+
+        records = CisControlsParser(workbook_path=workbook_path, pdf_path=pdf_path).parse()
+
+        assert records, "Expected CIS parser to return records"
+        assert all(record.maturity_level in {1, 2, 3} for record in records)
+        assert all("\n" not in record.guidance_text for record in records)
+
+
+# ---------------------------------------------------------------------------
+# PCI DSS parser
+# ---------------------------------------------------------------------------
+
+# Minimal synthetic PDF page text that mirrors the PCI DSS column layout.
+_PCI_FAKE_PAGE = """\
+Requirements and Testing Procedures Guidance
+1.1 Processes and mechanisms for installing and maintaining network security controls are defined and understood.
+Defined Approach Requirements Defined Approach Testing Procedures Purpose
+Requirement 1.1.1 is about managing policies in Requirement 1.
+Good Practice
+Policies should be reviewed regularly.
+1.1.1 All security policies and operational procedures that are identified in Requirement 1 are:
+\u2022 Documented.
+\u2022 Kept up to date.
+1.1.1 Examine documentation and interview personnel to verify that security policies are managed in accordance with this requirement.
+Customized Approach Objective
+Expectations and oversight for Requirement 1 are defined and adhered to by affected personnel.
+1.2 Network security controls (NSCs) are configured and maintained.
+Defined Approach Requirements Defined Approach Testing Procedures Purpose
+NSCs control traffic flowing inbound and outbound from the CDE.
+1.2.1 Configuration standards for NSC rulesets are:
+\u2022 Defined.
+\u2022 Implemented.
+1.2.1 Examine the configuration standards for NSC rulesets to verify they are in accordance with this requirement.
+Customized Approach Objective
+The way that NSCs are configured and operate are defined and consistently applied.
+"""
+
+
+class _FakePciPdfReader:
+    """Minimal fake PdfReader that yields one synthetic PCI DSS page."""
+
+    def __init__(self, _path: str) -> None:
+        pass
+
+    class _FakePage:
+        def __init__(self, text: str) -> None:
+            self._text = text
+
+        def extract_text(self) -> str:
+            return self._text
+
+    @property
+    def pages(self):
+        return [self._FakePage(_PCI_FAKE_PAGE)]
+
+
+class TestPciDssParser:
+    def test_extracts_requirement_text(self, tmp_path: Path):
+        pdf_path = tmp_path / "pci.pdf"
+        pdf_path.write_bytes(b"placeholder")
+
+        with patch("runtime.ingestion.parsers.pci_dss._PdfReader", _FakePciPdfReader):
+            records = PciDssParser(pdf_path=pdf_path).parse()
+
+        assert len(records) == 2
+        ids = {r.requirement_id for r in records}
+        assert "PCIDSS-1_1_1" in ids
+        assert "PCIDSS-1_2_1" in ids
+
+    def test_skips_testing_procedures(self, tmp_path: Path):
+        pdf_path = tmp_path / "pci.pdf"
+        pdf_path.write_bytes(b"placeholder")
+
+        with patch("runtime.ingestion.parsers.pci_dss._PdfReader", _FakePciPdfReader):
+            records = PciDssParser(pdf_path=pdf_path).parse()
+
+        # Testing procedures start with "Examine …" — none should appear in requirement_text
+        for rec in records:
+            assert not rec.requirement_text.lower().startswith("examine")
+
+    def test_requirement_fields(self, tmp_path: Path):
+        pdf_path = tmp_path / "pci.pdf"
+        pdf_path.write_bytes(b"placeholder")
+
+        with patch("runtime.ingestion.parsers.pci_dss._PdfReader", _FakePciPdfReader):
+            records = PciDssParser(pdf_path=pdf_path).parse()
+
+        rec = next(r for r in records if r.requirement_id == "PCIDSS-1_1_1")
+        assert rec.framework == "PCI DSS"
+        assert rec.framework_version == "v4.0.1"
+        assert rec.control_family == "Install and Maintain Network Security Controls"
+        assert rec.maturity_level is None
+        assert rec.source_section == "Requirement 1 > 1.1 > 1.1.1"
+        assert "Documented" in rec.requirement_text
+        assert rec.guidance_text  # section-level guidance should be captured
+        assert "and" not in rec.keywords
+        assert "the" not in rec.keywords
+
+    def test_no_newlines_in_text_fields(self, tmp_path: Path):
+        pdf_path = tmp_path / "pci.pdf"
+        pdf_path.write_bytes(b"placeholder")
+
+        with patch("runtime.ingestion.parsers.pci_dss._PdfReader", _FakePciPdfReader):
+            records = PciDssParser(pdf_path=pdf_path).parse()
+
+        for rec in records:
+            assert "\n" not in rec.requirement_text
+            assert "\n" not in rec.guidance_text
+
+    def test_parse_real_sample(self):
+        workspace_root = Path(__file__).resolve().parents[2]
+        pdf_path = workspace_root / "runtime" / "samples" / "PCI-DSS-v4_0_1.pdf"
+
+        if not pdf_path.exists():
+            pytest.skip("PCI-DSS-v4_0_1.pdf is not present in runtime/samples")
+
+        records = PciDssParser(pdf_path=pdf_path).parse()
+
+        assert len(records) >= 200, f"Expected 200+ PCI DSS requirements, got {len(records)}"
+        assert all(r.framework == "PCI DSS" for r in records)
+        assert all(r.maturity_level is None for r in records)
+        assert all("\n" not in r.requirement_text for r in records)
+        assert all("\n" not in r.guidance_text for r in records)
+        # Every record should map to a known top-level requirement
+        assert all(r.requirement_id.startswith("PCIDSS-") for r in records)
+
+
+# ---------------------------------------------------------------------------
+# PSPF parser
+# ---------------------------------------------------------------------------
+
+_PSPF_FAKE_TEXT = """\
+1 Whole of Government Protective Security Roles
+1.1 Departments of State
+Departments of State provide leadership and guidance to supported entities.
+Requirement 0001 | GOV | Department of State | 31 October 2024
+The Department of State supports portfolio entities to achieve and maintain an acceptable level of protective security.
+2 Entity Protective Security Roles and Responsibilities
+2.3 Chief Information Security Officer
+The Chief Information Security Officer provides cyber security leadership within the entity.
+Requirement 0011 | GOV | All entities | 01 July 2025
+A Chief Information Security Officer is appointed to oversee the entity's cyber security program and most critical technology resources.
+Table 1: Ignored table content
+This line should not be captured in the requirement body.
+"""
+
+
+class TestPspfParser:
+    def test_control_specific_keyword_tuning_adds_aliases(self):
+        ciso_keywords = _pspf_keywords(
+            "GOV",
+            "All entities",
+            {0: ("2", "Entity Protective Security Roles and Responsibilities"), 1: ("2.3", "Chief Information Security Officer")},
+            "A Chief Information Security Officer is appointed to oversee the entity's cyber security program.",
+        )
+        sogs_keywords = _pspf_keywords(
+            "TECH",
+            "System of Government Significance",
+            {0: ("15", "Cyber Security Programs"), 1: ("15.7", "Systems of Government Significance")},
+            "Declared Systems of Government Significance are protected in accordance with the standard.",
+        )
+
+        assert "ciso" in ciso_keywords
+        assert "cyber" in ciso_keywords
+        assert "sogs" in sogs_keywords
+        assert "critical" in sogs_keywords
+
+    def test_parse_release_text_extracts_requirements_and_guidance(self):
+        records = _parse_pspf_release_text(_PSPF_FAKE_TEXT)
+
+        assert len(records) == 2
+        assert records[0].requirement_id == "PSPF-0001"
+        assert records[0].framework == "PSPF"
+        assert records[0].control_family == "Departments of State"
+        assert records[0].guidance_text == "Departments of State provide leadership and guidance to supported entities."
+        assert records[0].effective_date == "31 October 2024"
+        assert records[1].control_family == "Chief Information Security Officer"
+        assert records[1].source_section == "GOV > 2 Entity Protective Security Roles and Responsibilities > 2.3 Chief Information Security Officer > Requirement 11"
+        assert "Ignored table content" not in records[1].requirement_text
+
+    def test_parse_uses_downloaded_pdf_content(self):
+        with patch("runtime.ingestion.parsers.pspf._download_pdf_bytes", return_value=b"pdf"):
+            with patch("runtime.ingestion.parsers.pspf._extract_full_text", return_value=_PSPF_FAKE_TEXT):
+                records = PspfParser().parse()
+
+        assert len(records) == 2
+        assert all(record.framework == "PSPF" for record in records)
+        assert all(record.maturity_level is None for record in records)
 
 
 # ---------------------------------------------------------------------------

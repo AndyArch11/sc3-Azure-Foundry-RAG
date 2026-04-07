@@ -111,10 +111,20 @@ _FRAMEWORK_ALIASES = {
     "essential_eight": "Essential Eight",
     "e8": "Essential Eight",
     "aescsf": "AESCSF",
+    "cis": "CIS Controls",
+    "cis controls": "CIS Controls",
+    "cis_controls": "CIS Controls",
     "ism": "ISM",
     "information security manual": "ISM",
+    "pci": "PCI DSS",
+    "pci dss": "PCI DSS",
+    "pci-dss": "PCI DSS",
+    "pci_dss": "PCI DSS",
+    "pci dss v4": "PCI DSS",
+    "pspf": "PSPF",
+    "protective security policy framework": "PSPF",
 }
-_CANONICAL_FRAMEWORKS = {"NIST CSF", "Essential Eight", "AESCSF", "ISM"}
+_CANONICAL_FRAMEWORKS = {"NIST CSF", "Essential Eight", "AESCSF", "CIS Controls", "ISM", "PCI DSS", "PSPF"}
 
 
 @dataclass(frozen=True)
@@ -159,7 +169,7 @@ def _form_bool(value: str | None, default: bool = False) -> bool:
 
 def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
     """Parse framework authority ordering from env into canonical framework names."""
-    default_order = ("Essential Eight", "ISM", "AESCSF", "NIST CSF")
+    default_order = ("Essential Eight", "ISM", "AESCSF", "NIST CSF", "PSPF")
     if raw_value is None or not raw_value.strip():
         return default_order
 
@@ -1179,14 +1189,20 @@ _CONTROLS_FRAMEWORK_FILTERS = {
     "nist_csf": "NIST CSF",
     "essential_eight": "Essential Eight",
     "aescsf": "AESCSF",
+    "cis_controls": "CIS Controls",
     "ism": "ISM",
+    "pci_dss": "PCI DSS",
+    "pspf": "PSPF",
 }
 
 _CORPUS_A_FRAMEWORKS = {
     "aescsf": "AESCSF",
+    "cis_controls": "CIS Controls",
     "essential_eight": "Essential Eight",
     "ism": "ISM",
     "nist_csf": "NIST CSF",
+    "pci_dss": "PCI DSS",
+    "pspf": "PSPF",
 }
 
 
@@ -1203,8 +1219,14 @@ def _normalise_corpus_a_framework_key(raw: str) -> str | None:
         return "essential_eight"
     if key in {"aescsf", "aemo"}:
         return "aescsf"
+    if key in {"cis", "cis controls", "cis_controls"}:
+        return "cis_controls"
     if key in {"ism", "information security manual"}:
         return "ism"
+    if key in {"pci", "pci dss", "pci-dss", "pci_dss", "pci dss v4"}:
+        return "pci_dss"
+    if key in {"pspf", "protective security policy framework"}:
+        return "pspf"
     if key == "all":
         return "all"
     return None

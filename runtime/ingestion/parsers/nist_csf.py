@@ -22,7 +22,7 @@ import logging
 import re
 from typing import Dict, List, Optional, Tuple
 
-from .base import BaseParser, RequirementRecord
+from .base import BaseParser, RequirementRecord, filter_keywords
 
 logger = logging.getLogger(__name__)
 
@@ -470,7 +470,7 @@ class NistCsfParser(BaseParser):
         for func_id, func_name, func_desc, categories in _CSF_CORE:
             for cat_id, cat_name, cat_desc, subcategories in categories:
                 guidance_text = guidance_map.get(cat_id, cat_desc) or ""
-                keywords = _CATEGORY_KEYWORDS.get(cat_id, [])
+                keywords = filter_keywords(_CATEGORY_KEYWORDS.get(cat_id, []))
                 func_slug = _slugify(func_name)
                 cat_slug = _slugify(cat_name)
 
@@ -487,7 +487,7 @@ class NistCsfParser(BaseParser):
                             maturity_level=None,
                             requirement_text=f"[{sub_id}] {sub_text}",
                             guidance_text=guidance_text,
-                            keywords=list(keywords),
+                            keywords=keywords,
                             source_uri=SOURCE_URI,
                             source_section=f"{func_name} ({func_id}) > {cat_name} ({cat_id})",
                             effective_date=EFFECTIVE_DATE,

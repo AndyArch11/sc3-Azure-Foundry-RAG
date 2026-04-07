@@ -22,7 +22,7 @@ import logging
 import re
 from typing import Dict, List, Optional
 
-from .base import BaseParser, RequirementRecord
+from .base import BaseParser, RequirementRecord, filter_keywords
 
 logger = logging.getLogger(__name__)
 
@@ -316,7 +316,7 @@ def _parse_requirement_table(
                     maturity_level=maturity_level,
                     requirement_text=req_text,
                     guidance_text=guidance_map.get(current_family, ""),
-                    keywords=FAMILY_KEYWORDS.get(current_family, []),
+                    keywords=filter_keywords(FAMILY_KEYWORDS.get(current_family, [])),
                     source_uri=source_uri,
                     source_section=source_section,
                     effective_date=EFFECTIVE_DATE,

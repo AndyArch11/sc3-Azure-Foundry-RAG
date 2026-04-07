@@ -2,9 +2,118 @@
 from __future__ import annotations
 
 import json
+import re
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
-from typing import List, Optional
+from typing import Iterable, List, Optional
+
+
+_KEYWORD_STOPWORDS = frozenset(
+    {
+        "a",
+        "all",
+        "an",
+        "and",
+        "any",
+        "are",
+        "as",
+        "at",
+        "be",
+        "both",
+        "by",
+        "can",
+        "cannot",
+        "do",
+        "does",
+        "done",
+        "for",
+        "from",
+        "had",
+        "has",
+        "have",
+        "how",
+        "if",
+        "in",
+        "into",
+        "is",
+        "it",
+        "its",
+        "may",
+        "more",
+        "most",
+        "no",
+        "not",
+        "of",
+        "off",
+        "only",
+        "on",
+        "or",
+        "other",
+        "out",
+        "over",
+        "per",
+        "should",
+        "such",
+        "than",
+        "that",
+        "the",
+        "their",
+        "there",
+        "these",
+        "this",
+        "those",
+        "through",
+        "to",
+        "too",
+        "under",
+        "up",
+        "using",
+        "via",
+        "was",
+        "were",
+        "when",
+        "where",
+        "which",
+        "while",
+        "will",
+        "with",
+    }
+)
+
+# Common OCR/layout token fragments observed in parser output.
+_KEYWORD_NOISE_TOKENS = frozenset(
+    {
+        "def",
+        "inc",
+        "insecur",
+        "int",
+        "ro",
+        "ser",
+        "sp",
+        "usi",
+    }
+)
+
+# Conservative static denylist derived from generated-record frequency scans.
+# These values currently duplicate framework/version metadata or add little
+# retrieval value relative to the explicit metadata fields.
+# Revisit later and replace this with generation-time/corpus-aware filtering
+# once we have a stable scoring approach for low-information tokens.
+_KEYWORD_STATIC_DENYLIST = frozenset(
+    {
+        "cis",
+        "defined",
+        "documented",
+        "dss",
+        "examine",
+        "guidelines",
+        "pci",
+        "requirement",
+        "v4",
+        "v8",
+        "verify",
+    }
+)
 
 
 @dataclass
@@ -55,3 +164,44 @@ class BaseParser(ABC):
     def to_jsonl(self, records: List[RequirementRecord]) -> str:
         """Serialise *records* to JSONL (one JSON object per line)."""
         return "\n".join(json.dumps(r.to_dict(), ensure_ascii=False) for r in records)
+
+
+def filter_keywords(keywords: Iterable[str]) -> list[str]:
+    """Normalize and remove common stopwords from a keyword iterable."""
+    cleaned: list[str] = []
+    seen: set[str] = set()
+
+    for keyword in keywords:
+        value = str(keyword or "").strip()
+        if not value:
+            continue
+
+        lowered = value.lower()
+        if lowered in _KEYWORD_STOPWORDS:
+            continue
+        if lowered in _KEYWORD_NOISE_TOKENS:
+            continue
+        if lowered in _KEYWORD_STATIC_DENYLIST:
+            continue
+
+        # Drop pure punctuation/very-short artifacts but keep useful short tags like ML1.
+        alnum = re.sub(r"[^a-z0-9]", "", lowered)
+        if len(alnum) < 2:
+            continue
+
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        cleaned.append(value)
+
+    return sorted(cleaned, key=lambda item: item.lower())
+
+
+def keywordise_values(*values: str) -> list[str]:
+    """Tokenise free text values and return deduplicated, stopword-filtered tokens."""
+    tokens: list[str] = []
+    for value in values:
+        for token in re.split(r"[^A-Za-z0-9]+", str(value or "").lower()):
+            if len(token) >= 2:
+                tokens.append(token)
+    return filter_keywords(tokens)

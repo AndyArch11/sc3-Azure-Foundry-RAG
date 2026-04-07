@@ -22,7 +22,7 @@ import urllib.request
 import json
 from typing import Dict, List, Optional, Tuple
 
-from .base import BaseParser, RequirementRecord
+from .base import BaseParser, RequirementRecord, filter_keywords
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +223,7 @@ class IsmParser(BaseParser):
                 label = _APPLICABILITY_LABELS.get(code)
                 if label:
                     keywords.append(label)
+            keywords = filter_keywords(keywords)
 
             records.append(
                 RequirementRecord(
@@ -233,7 +234,7 @@ class IsmParser(BaseParser):
                     maturity_level=None,
                     requirement_text=statement,
                     guidance_text=guidance_text,
-                    keywords=sorted(keywords),
+                    keywords=keywords,
                     source_uri=SOURCE_URI,
                     source_section=source_section,
                     effective_date=effective_date,

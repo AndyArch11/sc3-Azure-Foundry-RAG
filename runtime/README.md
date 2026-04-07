@@ -68,6 +68,61 @@ python3 -m ingestion.runner --mode reset --purge-blobs
 Pre-parsed control records (for example Essential Eight requirement JSONL) should be
 loaded into a dedicated Search index, separate from the evidence chunk index.
 
+Supported controls parsers:
+
+- `aescsf`
+- `cis_controls`
+- `essential_eight`
+- `ism`
+- `nist_csf`
+- `pci_dss`
+- `pspf`
+
+### CIS Controls Local Source Files
+
+The `cis_controls` parser expects these files to exist in `runtime/samples/`:
+
+- `CIS_Controls_Version_8.xlsx`
+- `CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf`
+
+These files should be sourced by the person running the parser from:
+
+- `https://www.cisecurity.org/controls/v8`
+
+Licensing note:
+
+- The repository does not distribute these CIS source files as part of the parser implementation.
+- Because of CIS licensing constraints, operators must obtain the official XLSX and PDF themselves and place them in `runtime/samples/` before running the parser.
+- The parser assumes the files are the official downloads and uses them as local inputs only.
+
+### PCI DSS v4.0.1 Local Source File
+
+The `pci_dss` parser expects this file to exist in `runtime/samples/`:
+
+- `PCI-DSS-v4_0_1.pdf`
+
+This file should be sourced from the PCI Security Standards Council:
+
+- `https://www.pcisecuritystandards.org/document_library/`
+
+Licensing note:
+
+- The repository does not distribute the PCI DSS document.
+- Operators must obtain the official PDF from the PCI SSC document library and place it in `runtime/samples/` before running the parser.
+- The parser uses the file as a local input only and does not redistribute any content.
+
+### PSPF Release 2025 Source Documents
+
+The `pspf` parser fetches the current public PSPF release PDF at parse time:
+
+- `https://www.protectivesecurity.gov.au/pspf-annual-release`
+- `https://www.protectivesecurity.gov.au/system/files/2025-07/pspf-release-2025.pdf`
+
+Implementation note:
+
+- The parser currently extracts mandatory requirement records and section-level guidance from the release PDF.
+- The companion `List of Requirements` PDF is a useful validation source, but the parser does not require it at runtime.
+
 Use the controls runner:
 
 ```bash
@@ -77,8 +132,18 @@ source .venv/bin/activate
 # Parse only (writes JSONL to ./parsed-controls)
 python3 -m ingestion.controls_runner --mode parse --framework essential_eight
 
+# Parse CIS Controls v8 from local sample files into the repository parsed-controls folder
+python3 -m ingestion.controls_runner --mode parse \
+  --framework cis_controls \
+  --output-dir ../parsed-controls
+
 # Parse all supported frameworks in one run
 python3 -m ingestion.controls_runner --mode parse --framework all
+
+# Parse PSPF Release 2025 into the repository parsed-controls folder
+python3 -m ingestion.controls_runner --mode parse \
+  --framework pspf \
+  --output-dir ../parsed-controls
 
 # Publish an existing JSONL file to the controls index
 python3 -m ingestion.controls_runner --mode publish \
@@ -669,7 +734,7 @@ Trigger behaviour notes:
 To support this from the ingestion container image, `ingestion.runner` now supports:
 
 - `--mode controls`
-- `--controls-framework all|aescsf|essential_eight|ism|nist_csf`
+- `--controls-framework all|aescsf|cis_controls|essential_eight|ism|nist_csf|pci_dss|pspf`
 - `--replace-existing`
 - `--dry-run`
 - `--no-guidance`

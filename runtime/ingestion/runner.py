@@ -62,7 +62,7 @@ modes:
     # controls mode
     parser.add_argument(
         "--controls-framework",
-        choices=["all", "aescsf", "essential_eight", "ism", "nist_csf"],
+        choices=["all", "aescsf", "cis_controls", "essential_eight", "ism", "nist_csf", "pci_dss", "pspf"],
         default="all",
         help="(controls mode) framework(s) to parse and publish",
     )

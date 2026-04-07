@@ -269,7 +269,7 @@ After rollout, use the ingestion workflow described in [runtime/README.md](runti
 
 ### Load Control Data
 
-After the ingestion job has indexed evidence documents, load framework control requirements (for example Essential Eight, AESCSF, ISM, or NIST CSF) into the dedicated controls index.
+After the ingestion job has indexed evidence documents, load framework control requirements (for example Essential Eight, AESCSF, CIS Controls, ISM, NIST CSF, or PSPF) into the dedicated controls index.
 
 Use the controls runner from inside the private network (jumpbox or CI runner) with the Search endpoint exported. The runner supports four modes:
 
@@ -282,8 +282,10 @@ Available framework parsers:
 
 - `essential_eight`: ASD Essential Eight Maturity Model
 - `aescsf`: Australian Energy Sector Cyber Security Framework (AESCSF v2 core workbook)
+- `cis_controls`: CIS Controls v8 (local XLSX and PDF sourced by the operator)
 - `ism`: ASD Information Security Manual (OSCAL catalog)
 - `nist_csf`: NIST Cybersecurity Framework 2.0
+- `pspf`: Australian Government Protective Security Policy Framework Release 2025 (public PSPF release PDF)
 
 Use `--framework all` to parse or parse-and-publish all frameworks in one run, or pass one framework name to selectively load only that control set.
 
@@ -291,8 +293,10 @@ Parser outputs are written to `./parsed-controls` with framework-specific filena
 
 - `essential_eight_november-2023.jsonl`
 - `aescsf_v2.jsonl`
+- `cis_controls_v8.jsonl`
 - `ism_latest.jsonl`
 - `nist_csf_2-0.jsonl`
+- `pspf_release_2025.jsonl`
 
 ```bash
 TARGET_ENV="<env>"
@@ -314,6 +318,11 @@ python3 -m ingestion.controls_runner \
   --mode parse \
   --framework all
 
+# Parse CIS Controls into ./parsed-controls only
+python3 -m ingestion.controls_runner \
+  --mode parse \
+  --framework cis_controls
+
 # Parse ISM controls into ./parsed-controls only
 python3 -m ingestion.controls_runner \
   --mode parse \
@@ -323,6 +332,11 @@ python3 -m ingestion.controls_runner \
 python3 -m ingestion.controls_runner \
   --mode parse \
   --framework nist_csf
+
+# Parse PSPF controls into ./parsed-controls only
+python3 -m ingestion.controls_runner \
+  --mode parse \
+  --framework pspf
 
 # Create or update the controls index only
 python3 -m ingestion.controls_runner \
@@ -342,6 +356,11 @@ python3 -m ingestion.controls_runner \
 python3 -m ingestion.controls_runner \
   --mode publish \
   --input-jsonl ../parsed-controls/aescsf_v2.jsonl
+
+# Publish CIS Controls JSONL directly
+python3 -m ingestion.controls_runner \
+  --mode publish \
+  --input-jsonl ../parsed-controls/cis_controls_v8.jsonl
 ```
 
 Add `--no-guidance` if you want parsers that support guidance-fetch skipping (for example Essential Eight and NIST CSF) to avoid supplementary guidance fetches while building JSONL output.

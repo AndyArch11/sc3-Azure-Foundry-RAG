@@ -1,0 +1,5 @@
+# Generated control JSONL artifacts are excluded from version control.
+# Operators must generate them locally using the controls runner — see runtime/README.md.
+# Some source materials (CIS, PCI-DSS, etc.) carry usage licence restrictions that
+# preclude redistribution of derived artefacts.
+*.jsonl

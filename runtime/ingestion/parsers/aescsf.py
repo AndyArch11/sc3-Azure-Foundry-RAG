@@ -22,7 +22,7 @@ import re
 import urllib.request
 from typing import Dict, List, Optional
 
-from .base import BaseParser, RequirementRecord
+from .base import BaseParser, RequirementRecord, filter_keywords
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +204,7 @@ class AescsfParser(BaseParser):
                 keywords.append(f"mil-{mil_level}")
             if is_anti_pattern:
                 keywords.append("anti-pattern")
-            keywords = sorted(set(keywords))
+            keywords = filter_keywords(keywords)
 
             records.append(
                 RequirementRecord(

@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 def _build_parser_registry() -> dict[str, dict]:
     from .parsers.aescsf import AescsfParser  # noqa: PLC0415
+    from .parsers.cis_controls import CisControlsParser  # noqa: PLC0415
+    from .parsers.pci_dss import PciDssParser  # noqa: PLC0415
+    from .parsers.pspf import PspfParser  # noqa: PLC0415
     from .parsers.essential_eight import (  # noqa: PLC0415
         EssentialEightParser,
         FRAMEWORK_VERSION,
@@ -29,6 +32,18 @@ def _build_parser_registry() -> dict[str, dict]:
         "aescsf": {
             "factory": lambda fetch_guidance: AescsfParser(),
             "output_filename": "aescsf_v2.jsonl",
+        },
+        "cis_controls": {
+            "factory": lambda fetch_guidance: CisControlsParser(),
+            "output_filename": "cis_controls_v8.jsonl",
+        },
+        "pci_dss": {
+            "factory": lambda fetch_guidance: PciDssParser(),
+            "output_filename": "pci_dss_v4_0_1.jsonl",
+        },
+        "pspf": {
+            "factory": lambda fetch_guidance: PspfParser(),
+            "output_filename": "pspf_release_2025.jsonl",
         },
         "essential_eight": {
             "factory": lambda fetch_guidance: EssentialEightParser(
@@ -67,7 +82,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--framework",
-        choices=["all", "aescsf", "essential_eight", "ism", "nist_csf"],
+        choices=["all", "aescsf", "cis_controls", "essential_eight", "ism", "nist_csf", "pci_dss", "pspf"],
         default="essential_eight",
         help="Framework parser to run when mode includes parse. Use 'all' to run every supported parser",
     )
