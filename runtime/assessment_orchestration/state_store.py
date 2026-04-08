@@ -37,6 +37,16 @@ class PollingState:
     etag: str = ""
 
 
+@dataclass(frozen=True)
+class AssessmentSnapshot:
+    source: str
+    target_id: str
+    framework_scope: str
+    page_version: str = ""
+    content_hash: str = ""
+    updated_at: str = ""
+
+
 class PollingStateStore(Protocol):
     def load_state(self, source: str) -> PollingState:
         ...
@@ -74,6 +84,20 @@ class PollingStateStore(Protocol):
     def mark_terminal_failure(self, source: str, *, event_id: str, error_message: str, run_id: str) -> None:
         ...
 
+    def get_assessment_snapshot(self, source: str, *, target_id: str, framework_scope: str) -> AssessmentSnapshot | None:
+        ...
+
+    def upsert_assessment_snapshot(
+        self,
+        source: str,
+        *,
+        target_id: str,
+        framework_scope: str,
+        page_version: str,
+        content_hash: str,
+    ) -> AssessmentSnapshot:
+        ...
+
 
 class InMemoryPollingStateStore:
     def __init__(self) -> None:
@@ -81,6 +105,7 @@ class InMemoryPollingStateStore:
         self._lease: dict[str, dict[str, Any]] = {}
         self._processed: dict[tuple[str, str], dict[str, Any]] = {}
         self._failures: dict[tuple[str, str], dict[str, Any]] = {}
+        self._assessment_snapshots: dict[tuple[str, str, str], dict[str, Any]] = {}
 
     def load_state(self, source: str) -> PollingState:
         payload = self._state.get(source) or {"source": source}
@@ -186,6 +211,40 @@ class InMemoryPollingStateStore:
         row["run_id"] = run_id
         self._failures[key] = row
 
+    def get_assessment_snapshot(self, source: str, *, target_id: str, framework_scope: str) -> AssessmentSnapshot | None:
+        key = (source, target_id, framework_scope)
+        payload = self._assessment_snapshots.get(key)
+        if payload is None:
+            return None
+        return AssessmentSnapshot(
+            source=str(payload.get("source") or source),
+            target_id=str(payload.get("target_id") or target_id),
+            framework_scope=str(payload.get("framework_scope") or framework_scope),
+            page_version=str(payload.get("page_version") or ""),
+            content_hash=str(payload.get("content_hash") or ""),
+            updated_at=str(payload.get("updated_at") or ""),
+        )
+
+    def upsert_assessment_snapshot(
+        self,
+        source: str,
+        *,
+        target_id: str,
+        framework_scope: str,
+        page_version: str,
+        content_hash: str,
+    ) -> AssessmentSnapshot:
+        payload = {
+            "source": source,
+            "target_id": target_id,
+            "framework_scope": framework_scope,
+            "page_version": page_version,
+            "content_hash": content_hash,
+            "updated_at": _utc_now_iso(),
+        }
+        self._assessment_snapshots[(source, target_id, framework_scope)] = payload
+        return AssessmentSnapshot(**payload)
+
 
 class CosmosPollingStateStore:
     """Cosmos-backed state store using one container keyed by /source.
@@ -211,6 +270,9 @@ class CosmosPollingStateStore:
 
     def _failure_id(self, source: str, event_id: str) -> str:
         return f"{source}:failure:{event_id}"
+
+    def _assessment_snapshot_id(self, source: str, target_id: str, framework_scope: str) -> str:
+        return f"{source}:assessment:{target_id}:{framework_scope}"
 
     def _read(self, source: str, doc_id: str) -> dict[str, Any] | None:
         try:
@@ -340,3 +402,46 @@ class CosmosPollingStateStore:
         doc["last_attempt_at"] = _utc_now_iso()
         doc["run_id"] = run_id
         self._upsert(doc)
+
+    def get_assessment_snapshot(self, source: str, *, target_id: str, framework_scope: str) -> AssessmentSnapshot | None:
+        doc_id = self._assessment_snapshot_id(source, target_id, framework_scope)
+        payload = self._read(source, doc_id)
+        if payload is None:
+            return None
+        return AssessmentSnapshot(
+            source=str(payload.get("source") or source),
+            target_id=str(payload.get("target_id") or target_id),
+            framework_scope=str(payload.get("framework_scope") or framework_scope),
+            page_version=str(payload.get("page_version") or ""),
+            content_hash=str(payload.get("content_hash") or ""),
+            updated_at=str(payload.get("updated_at") or ""),
+        )
+
+    def upsert_assessment_snapshot(
+        self,
+        source: str,
+        *,
+        target_id: str,
+        framework_scope: str,
+        page_version: str,
+        content_hash: str,
+    ) -> AssessmentSnapshot:
+        payload = {
+            "id": self._assessment_snapshot_id(source, target_id, framework_scope),
+            "doc_type": "assessment_snapshot",
+            "source": source,
+            "target_id": target_id,
+            "framework_scope": framework_scope,
+            "page_version": page_version,
+            "content_hash": content_hash,
+            "updated_at": _utc_now_iso(),
+        }
+        saved = self._upsert(payload)
+        return AssessmentSnapshot(
+            source=str(saved.get("source") or source),
+            target_id=str(saved.get("target_id") or target_id),
+            framework_scope=str(saved.get("framework_scope") or framework_scope),
+            page_version=str(saved.get("page_version") or ""),
+            content_hash=str(saved.get("content_hash") or ""),
+            updated_at=str(saved.get("updated_at") or ""),
+        )

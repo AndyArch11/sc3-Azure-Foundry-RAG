@@ -1,14 +1,41 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from .models import SourceDocument
 
 
 SUPPORTED_EXTENSIONS = {".pdf", ".xlsx", ".xlsm", ".xltx", ".xltm"}
+logger = logging.getLogger(__name__)
 
 
-def _extract_pdf_text(path: Path) -> str:
+def _extract_pdf_text_ocr(path: Path) -> str:
+    try:
+        import pypdfium2 as pdfium
+        import pytesseract
+    except ImportError as exc:
+        raise RuntimeError(
+            "pypdfium2 and pytesseract are required for local OCR fallback"
+        ) from exc
+
+    pages: list[str] = []
+    document = pdfium.PdfDocument(str(path))
+    try:
+        for idx in range(len(document)):
+            page = document[idx]
+            # Scale up for better OCR quality on scanned PDFs.
+            image = page.render(scale=2.0).to_pil()
+            text = pytesseract.image_to_string(image) or ""
+            if text.strip():
+                pages.append(text)
+    finally:
+        document.close()
+
+    return "\n".join(pages)
+
+
+def _extract_pdf_text(path: Path, *, enable_ocr: bool = False, min_text_chars: int = 80) -> str:
     try:
         from pypdf import PdfReader
     except ImportError as exc:
@@ -18,7 +45,27 @@ def _extract_pdf_text(path: Path) -> str:
     pages: list[str] = []
     for page in reader.pages:
         pages.append(page.extract_text() or "")
-    return "\n".join(pages)
+
+    extracted = "\n".join(pages)
+    if not enable_ocr:
+        return extracted
+
+    # For scanned/image-heavy PDFs, pypdf text can be sparse. Trigger OCR only
+    # when extracted text is below a practical threshold.
+    if len(extracted.strip()) >= max(0, min_text_chars):
+        return extracted
+
+    try:
+        ocr_text = _extract_pdf_text_ocr(path)
+    except RuntimeError as exc:
+        logger.warning("Local OCR unavailable for %s: %s", path, exc)
+        return extracted
+
+    if not ocr_text.strip():
+        return extracted
+    if not extracted.strip():
+        return ocr_text
+    return f"{extracted}\n{ocr_text}"
 
 
 def _extract_excel_text(path: Path) -> str:
@@ -38,10 +85,19 @@ def _extract_excel_text(path: Path) -> str:
     return "\n".join(lines)
 
 
-def extract_source_document(path: Path) -> SourceDocument:
+def extract_source_document(
+    path: Path,
+    *,
+    enable_ocr: bool = False,
+    ocr_min_text_chars: int = 80,
+) -> SourceDocument:
     suffix = path.suffix.lower()
     if suffix == ".pdf":
-        text = _extract_pdf_text(path)
+        text = _extract_pdf_text(
+            path,
+            enable_ocr=enable_ocr,
+            min_text_chars=ocr_min_text_chars,
+        )
         source_type = "pdf"
     elif suffix in {".xlsx", ".xlsm", ".xltx", ".xltm"}:
         text = _extract_excel_text(path)

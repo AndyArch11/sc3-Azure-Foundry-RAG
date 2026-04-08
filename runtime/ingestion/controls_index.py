@@ -138,6 +138,27 @@ def ensure_controls_index(config: ControlsIndexConfig, credential: TokenCredenti
             facetable=True,
             retrievable=True,
         ),
+        SimpleField(
+            name="control_applicability_scope",
+            type=SearchFieldDataType.String,
+            filterable=True,
+            facetable=True,
+            retrievable=True,
+        ),
+        SimpleField(
+            name="applicability_confidence",
+            type=SearchFieldDataType.Double,
+            filterable=True,
+            sortable=True,
+            retrievable=True,
+        ),
+        SimpleField(
+            name="applicability_uncertain",
+            type=SearchFieldDataType.Boolean,
+            filterable=True,
+            facetable=True,
+            retrievable=True,
+        ),
     ]
 
     semantic_search = SemanticSearch(

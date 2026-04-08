@@ -26,6 +26,12 @@ REQUIRED_FIELDS = {
     "jurisdiction_or_scope",
 }
 
+OPTIONAL_APPLICABILITY_FIELDS = {
+    "control_applicability_scope",
+    "applicability_confidence",
+    "applicability_uncertain",
+}
+
 
 def load_controls_jsonl(path: Path) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
@@ -149,6 +155,16 @@ def upload_controls_records(
     enriched_records = []
     for record in records:
         enriched = dict(record)
+        
+        # Apply control applicability enrichment if not already present
+        if "control_applicability_scope" not in enriched:
+            try:
+                from ..assessment_orchestration import enrich_control_with_applicability
+                enriched = enrich_control_with_applicability(enriched)
+            except Exception:
+                # Fallback: skip enrichment if unavailable (backward compatibility)
+                pass
+        
         enriched["ingestion_manifest_hash"] = manifest_hash
         enriched["ingestion_loaded_at"] = loaded_at
         enriched_records.append(enriched)

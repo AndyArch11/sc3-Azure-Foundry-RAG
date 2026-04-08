@@ -170,6 +170,129 @@ def test_search_backed_assessment_agent_soft_validation_falls_back() -> None:
     assert "fallback" in report["findings"][0]["finding_id"]
 
 
+def test_search_backed_assessment_agent_includes_azure_applicability_guidance() -> None:
+    captured_messages: list[dict[str, str]] = []
+
+    def _chat(messages):
+        captured_messages.extend(messages)
+        return json.dumps(
+            {
+                "schema_version": "v1.1",
+                "executive_summary": "Resource configuration evidence was assessed with applicability caution.",
+                "scope_and_inputs": ["Azure resource configuration extract"],
+                "controls_assessed": ["PR.AC-05"],
+                "guidance_applied": [],
+                "findings": [
+                    {
+                        "finding_id": "finding-1",
+                        "requirement_id": "PR.AC-05",
+                        "framework": "NIST CSF",
+                        "status": "insufficient_evidence",
+                        "severity": "medium",
+                        "rationale": "Process-oriented evidence is not available from resource configuration alone.",
+                        "evidence_sources": ["azure-extract"],
+                        "gaps": ["procedural evidence"],
+                        "recommendations": ["collect operational evidence"],
+                    }
+                ],
+                "overall_risk_rating": "medium",
+                "missing_evidence": ["procedural evidence"],
+                "recommended_actions": ["collect operational evidence"],
+                "citations": ["/subscriptions/sub-1/resourceGroups/rg-1"],
+            }
+        )
+
+    agent = SearchBackedAssessmentAgent(
+        config=_config(),
+        controls_search_client=_FakeSearchClient([]),
+        evidence_search_client=_FakeSearchClient([]),
+        embed_query=lambda question: [0.1],
+        chat_completion=_chat,
+    )
+    artifact = AssessedArtifactPackage(
+        provider="azure",
+        target_id="azure-target",
+        canonical_url="/subscriptions/sub-1/resourceGroups/rg-1",
+        title="Azure extract",
+        content="{}",
+        metadata={
+            "framework_filter_override": "NIST CSF",
+            "assessment_evidence_scope": "azure_resource_configuration_and_policy_assignments",
+            "framework_applicability_model": "azure_technical_control_prefilter_v1",
+        },
+        owner=None,
+        last_editor=None,
+        discussion_context=[],
+    )
+
+    report = agent.generate_assessment(artifact, CorpusGroundingPackage(corpus_a_results=[], corpus_b_results=[]))
+
+    assert any(
+        "do not mark process, governance, training, incident-response" in message.get("content", "").lower()
+        for message in captured_messages
+        if message.get("role") == "user"
+    )
+    assert report["metadata"]["assessment_evidence_scope"] == "azure_resource_configuration_and_policy_assignments"
+    assert report["metadata"]["framework_applicability_model"] == "azure_technical_control_prefilter_v1"
+
+
+def test_search_backed_assessment_agent_filters_non_technical_azure_controls() -> None:
+    controls_client = _FakeSearchClient(
+        [
+            {
+                "requirement_id": "GV-1",
+                "framework": "NIST CSF",
+                "framework_version": "2.0",
+                "control_family": "Governance",
+                "maturity_level": None,
+                "requirement_text": "Establish, communicate, and review cybersecurity policy and roles and responsibilities.",
+                "guidance_text": "Document governance oversight and approval workflows.",
+                "source_uri": "controls://gv-1",
+                "@search.score": 5.0,
+            },
+            {
+                "requirement_id": "PR.AC-1",
+                "framework": "NIST CSF",
+                "framework_version": "2.0",
+                "control_family": "Access Control",
+                "maturity_level": None,
+                "requirement_text": "Enforce multifactor authentication for privileged administrative access.",
+                "guidance_text": "Configure MFA and least-privilege access restrictions.",
+                "source_uri": "controls://pr.ac-1",
+                "@search.score": 4.5,
+            },
+        ]
+    )
+    agent = SearchBackedAssessmentAgent(
+        config=_config(),
+        controls_search_client=controls_client,
+        evidence_search_client=_FakeSearchClient([]),
+        embed_query=lambda question: [0.1],
+        chat_completion=lambda messages: "{}",
+    )
+    artifact = AssessedArtifactPackage(
+        provider="azure",
+        target_id="azure-target",
+        canonical_url="/subscriptions/sub-1/resourceGroups/rg-1",
+        title="Azure extract",
+        content="{}",
+        metadata={
+            "framework_filter_override": "NIST CSF",
+            "assessment_evidence_scope": "azure_resource_configuration_and_policy_assignments",
+        },
+        owner=None,
+        last_editor=None,
+        discussion_context=[],
+    )
+
+    grounding = agent.retrieve_corpus_grounding(artifact)
+
+    assert [item["requirement_id"] for item in grounding.corpus_a_results] == ["PR.AC-1"]
+    assert artifact.metadata["controls_retrieved_before_applicability_filter"] == 2
+    assert artifact.metadata["controls_filtered_for_applicability"] == 1
+    assert artifact.metadata["controls_retained_after_applicability_filter"] == 1
+
+
 def test_render_assessment_comment_includes_structured_sections() -> None:
     html = _render_assessment_comment(
         {

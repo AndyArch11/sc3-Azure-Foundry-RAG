@@ -4,6 +4,7 @@ import os
 import re
 import time
 import uuid
+import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from html import escape
@@ -71,12 +72,18 @@ def _render_assessment_comment(assessment: dict[str, Any]) -> str:
     citations = list(assessment.get("citations") or [])
     metadata = dict(assessment.get("metadata") or {})
     framework_scope = str(metadata.get("framework_scope") or "").strip()
+    page_version = str(metadata.get("page_version") or "").strip()
 
     parts = [
         "<p><strong>Automated compliance review</strong></p>",
         (
             f"<p><strong>Framework scope:</strong> {escape(framework_scope)}</p>"
             if framework_scope
+            else ""
+        ),
+        (
+            f"<p><strong>Page version:</strong> {escape(page_version)}</p>"
+            if page_version
             else ""
         ),
         f"<p><strong>Overall risk:</strong> {escape(overall_risk)}</p>",
@@ -139,6 +146,24 @@ def _render_assessment_comment(assessment: dict[str, Any]) -> str:
         parts.append("</ul>")
 
     return "".join(parts)
+
+
+def _render_no_change_comment(*, framework_scope: str, page_version: str) -> str:
+    label = framework_scope or "default framework selection"
+    safe_label = escape(label)
+    safe_version = escape(page_version)
+    return (
+        "<p><strong>Automated compliance review</strong></p>"
+        f"<p><strong>Framework scope:</strong> {safe_label}</p>"
+        f"<p><strong>Page version:</strong> {safe_version}</p>"
+        "<p>No changes were detected on this Confluence page since the last assessment for this framework. "
+        "A new page review was not triggered.</p>"
+    )
+
+
+def _content_hash(value: str) -> str:
+    normalised = value.strip().encode("utf-8")
+    return hashlib.sha256(normalised).hexdigest()
 
 
 def _is_explicit_all_framework_request(text: str) -> bool:
@@ -223,6 +248,8 @@ def _process_assessment_event(
     *,
     adapter: OrchestratorAdapter,
     server: ConfluenceMCPServer,
+    state_store: PollingStateStore,
+    source: str,
     event: dict[str, Any],
     dry_run: bool,
 ) -> None:
@@ -234,7 +261,48 @@ def _process_assessment_event(
     requested_frameworks = _requested_frameworks_for_event(event)
     framework_scopes = requested_frameworks or ("",)
 
+    artifact = server.get_content_by_id(
+        target_id,
+        identity_mode="app_only",
+        include_discussion_context=False,
+    )
+    current_page_version = str(artifact.metadata.get("version") or "")
+    current_content_hash = _content_hash(artifact.content)
+
     for framework_scope in framework_scopes:
+        framework_snapshot_scope = framework_scope or "default_auto"
+        last_snapshot = state_store.get_assessment_snapshot(
+            source,
+            target_id=target_id,
+            framework_scope=framework_snapshot_scope,
+        )
+
+        if (
+            last_snapshot is not None
+            and last_snapshot.page_version == current_page_version
+            and last_snapshot.content_hash == current_content_hash
+        ):
+            if dry_run:
+                continue
+
+            event_key = str(event.get("event_id") or target_id)
+            scope_key = re.sub(r"[^a-zA-Z0-9_\-]", "", framework_snapshot_scope.lower().replace(" ", "-"))
+            idempotency_key = f"{event_key}-{scope_key}-nochange"
+            delivery = server.post_comment(
+                target_id,
+                comment_body=_render_no_change_comment(
+                    framework_scope=framework_snapshot_scope,
+                    page_version=current_page_version,
+                ),
+                identity_mode="app_only",
+                idempotency_key=idempotency_key,
+            )
+            if not delivery.success:
+                raise RuntimeError(
+                    f"Failed posting Confluence no-change comment for event {idempotency_key}: {delivery.failures}"
+                )
+            continue
+
         metadata: dict[str, Any] = {
             "trigger_text": str(event.get("trigger_text") or ""),
             "requested_frameworks": list(requested_frameworks),
@@ -257,8 +325,22 @@ def _process_assessment_event(
             delivery_policy="inline_else_email",
         )
         assessment = adapter.run_assessment(job)
+        assessment_metadata = dict(assessment.get("metadata") or {})
+        if current_page_version:
+            assessment_metadata["page_version"] = current_page_version
+        if framework_snapshot_scope and not str(assessment_metadata.get("framework_scope") or "").strip():
+            assessment_metadata["framework_scope"] = framework_snapshot_scope
+        assessment["metadata"] = assessment_metadata
         if dry_run:
             continue
+
+        state_store.upsert_assessment_snapshot(
+            source,
+            target_id=target_id,
+            framework_scope=framework_snapshot_scope,
+            page_version=current_page_version,
+            content_hash=current_content_hash,
+        )
 
         comment_body = _render_assessment_comment(assessment)
         event_key = str(event.get("event_id") or job.correlation_id)
@@ -320,6 +402,8 @@ def run_poll_cycle(
             lambda event: _process_assessment_event(
                 adapter=adapter,
                 server=server,
+                state_store=state_store,
+                source=config.source,
                 event=event,
                 dry_run=config.dry_run,
             )

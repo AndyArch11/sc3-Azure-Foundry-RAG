@@ -68,6 +68,15 @@ _DANGEROUS_LINE_RE = re.compile(
     r"ignore.+instruction|system prompt|developer prompt|reveal.+secret|show.+token|run.+shell|execute.+tool",
     re.IGNORECASE,
 )
+_AZURE_TECHNICAL_CONTROL_RE = re.compile(
+    r"\b(mfa|multi-factor|authentication|access control|least privilege|rbac|network|firewall|segment|encrypt|encryption|key management|tls|certificate|logging|monitor|alert|backup|restore|patch|vulnerab|malware|endpoint|hardening|configuration|baseline|disable|enable|restrict|private endpoint|managed identity|secret|key vault|diagnostic|defender|inventory|discover|secure transfer|immutability|retention|deny|auditifnotexists|deployifnotexists|modify)\b",
+    re.IGNORECASE,
+)
+_AZURE_PROCESS_CONTROL_RE = re.compile(
+    r"\b(policy(?!\s+assignment)|policies|procedure|procedures|governance|strategy|roadmap|roles?\s+and\s+responsibilit|training|awareness|exercise|tabletop|legal|regulatory|compliance\s+program|audit\b|vendor|supplier|third[-\s]?party|personnel|workforce|human resources|continuity|recovery plan|communication plan|approve|approval|document(?:ed|ation)?|review cadence|oversight|charter|committee|budget|insurance|procurement)\b",
+    re.IGNORECASE,
+)
+_AZURE_GOVERNANCE_ID_RE = re.compile(r"^(GV(?:\.|-)|ID\.GV\b|AT-\d+|PM-\d+)", re.IGNORECASE)
 
 
 class SearchClientLike(Protocol):
@@ -93,6 +102,8 @@ class AssessmentRuntimeConfig:
     artifact_content_chars: int = 6000
     discussion_comment_limit: int = 8
     discussion_comment_chars: int = 1200
+    control_llm_review_enabled: bool = False
+    control_llm_review_heuristic_threshold: float = 0.75
 
 
 def _required(env: Mapping[str, str], key: str) -> str:
@@ -160,6 +171,8 @@ def load_assessment_runtime_config_from_env(env: Mapping[str, str] | None = None
         artifact_content_chars=max(1000, int(values.get("ASSESSMENT_ARTIFACT_CONTENT_CHARS") or "6000")),
         discussion_comment_limit=max(1, int(values.get("ASSESSMENT_DISCUSSION_COMMENT_LIMIT") or "8")),
         discussion_comment_chars=max(200, int(values.get("ASSESSMENT_DISCUSSION_COMMENT_CHARS") or "1200")),
+        control_llm_review_enabled=_env_bool(values, "CONTROL_LLM_REVIEW_ENABLED", default=False),
+        control_llm_review_heuristic_threshold=float(values.get("CONTROL_LLM_REVIEW_HEURISTIC_THRESHOLD") or "0.75"),
     )
 
 
@@ -210,6 +223,20 @@ def sanitise_untrusted_text(text: str) -> str:
             continue
         lines.append(cleaned)
     return "\n".join(lines).strip()
+
+
+def _assessment_task_instruction(artifact: AssessedArtifactPackage) -> str:
+    if artifact.provider == "azure":
+        return (
+            "Assess the supplied Azure resource configuration and Azure Policy assignment extract for compliance against the requested framework. "
+            "This evidence is posture-focused, not a full operating model or process review.\n\n"
+            "Azure-specific applicability rules:\n"
+            "- Do not mark process, governance, training, incident-response, or operational lifecycle controls as compliant solely from resource configuration or Azure Policy assignment evidence.\n"
+            "- When a control requires procedural or organizational evidence not present in the Azure extract, use status=insufficient_evidence or status=not_applicable, and explain why.\n"
+            "- Microsoft Cloud Security Benchmark mappings can partially address downstream frameworks, but they do not by themselves establish full compliance with those mapped controls.\n"
+            "- Prefer concrete resource and Azure Policy evidence for technical control checks and be explicit about residual evidence gaps."
+        )
+    return "Assess the supplied Confluence page for cyber-security compliance against the most relevant controls."
 
 
 def _cognitive_token(credential: DefaultAzureCredential) -> str:
@@ -380,6 +407,55 @@ def _fetch_controls(
         )
     )
     return items[: config.controls_top_k]
+
+
+def _azure_control_is_likely_applicable(control: dict[str, Any]) -> bool:
+    # If control has pre-computed applicability metadata, use it
+    scope = str(control.get("control_applicability_scope") or "").strip()
+    confidence = float(control.get("applicability_confidence") or 0.0)
+    uncertain = bool(control.get("applicability_uncertain", False))
+    
+    if scope:
+        # Pre-classified control: exclude clearly process/governance scopes with high confidence
+        if scope == "governance" and confidence >= 0.90:
+            return False
+        if scope == "process" and confidence >= 0.90:
+            return False
+        # Include all others: technical, mixed, and low-confidence classifications
+        return True
+    
+    # Fallback to runtime heuristics if no pre-computed metadata
+    requirement_id = str(control.get("requirement_id") or "").strip()
+    if requirement_id and _AZURE_GOVERNANCE_ID_RE.search(requirement_id):
+        return False
+
+    text = "\n".join(
+        str(control.get(field) or "")
+        for field in ("control_family", "requirement_text", "guidance_text")
+    )
+    has_technical_signal = bool(_AZURE_TECHNICAL_CONTROL_RE.search(text))
+    has_process_signal = bool(_AZURE_PROCESS_CONTROL_RE.search(text))
+    if has_process_signal and not has_technical_signal:
+        return False
+    return True
+
+
+def _filter_controls_for_artifact(
+    artifact: AssessedArtifactPackage,
+    controls: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if artifact.provider != "azure":
+        return controls
+
+    evidence_scope = str(artifact.metadata.get("assessment_evidence_scope") or "").strip().lower()
+    if not evidence_scope.startswith("azure_resource_configuration"):
+        return controls
+
+    retained = [item for item in controls if _azure_control_is_likely_applicable(item)]
+    artifact.metadata["controls_retrieved_before_applicability_filter"] = len(controls)
+    artifact.metadata["controls_filtered_for_applicability"] = len(controls) - len(retained)
+    artifact.metadata["controls_retained_after_applicability_filter"] = len(retained)
+    return retained
 
 
 def _hybrid_search(
@@ -591,6 +667,65 @@ def _discussion_excerpt(artifact: AssessedArtifactPackage, *, comment_limit: int
     return "\n\n".join(lines)
 
 
+def _apply_llm_control_applicability_review(
+    controls: list[dict[str, Any]],
+    *,
+    config: AssessmentRuntimeConfig,
+    chat_completion: Callable[[list[dict[str, str]]], str] | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Optionally enrich controls with Mistral-based applicability confidence scores.
+    Reviews only ambiguous controls (below heuristic confidence threshold).
+    Adds llm_scope, llm_confidence, llm_rationale, llm_agrees_with_heuristic to each control.
+    """
+    if not config.control_llm_review_enabled:
+        return controls
+    
+    try:
+        from .validate_control_applicability import review_ambiguous_controls_with_llm
+        
+        # Build a minimal control list with just the fields needed for review
+        review_controls = controls.copy()
+        review_result = review_ambiguous_controls_with_llm(
+            review_controls,
+            confidence_threshold=config.control_llm_review_heuristic_threshold,
+            max_controls=len(controls),  # Review up to all provided controls
+            chat_completion=chat_completion,
+        )
+        
+        # Create lookup table from results
+        llm_results_by_id = {}
+        for result in review_result.get("results", []):
+            req_id = result.get("requirement_id")
+            framework = result.get("framework")
+            key = (req_id, framework)
+            llm_results_by_id[key] = result
+        
+        # Enrich controls with LLM results
+        enriched = []
+        for control in controls:
+            enriched_control = dict(control)
+            req_id = control.get("requirement_id")
+            framework = control.get("framework")
+            key = (req_id, framework)
+            
+            if key in llm_results_by_id:
+                llm_result = llm_results_by_id[key]
+                enriched_control["llm_scope"] = llm_result.get("llm_scope")
+                enriched_control["llm_confidence"] = llm_result.get("llm_confidence", 0.0)
+                enriched_control["llm_rationale"] = llm_result.get("llm_rationale", "")
+                enriched_control["llm_agrees_with_heuristic"] = llm_result.get("agrees_with_heuristic", False)
+            
+            enriched.append(enriched_control)
+        
+        return enriched
+    except Exception as exc:
+        # Graceful fallback if LLM review fails
+        import logging
+        logging.warning(f"Control LLM applicability review failed, continuing without LLM enrichment: {exc}")
+        return controls
+
+
 class SearchBackedAssessmentAgent:
     def __init__(
         self,
@@ -614,6 +749,18 @@ class SearchBackedAssessmentAgent:
             index_name=config.controls_index_name,
             credential=self._credential,
         )
+        # Use provided functions or create from LLM_BACKEND (azure|ollama)
+        # If neither embed_query nor chat_completion provided, will attempt to use factory
+        # to select backend based on LLM_BACKEND env var, with automatic Azure fallback.
+        if not embed_query and not chat_completion:
+            try:
+                from .dev_llms import create_embedding_fn, create_chat_completion_fn
+                embed_query = create_embedding_fn(config=self._config, credential=self._credential)
+                chat_completion = create_chat_completion_fn(config=self._config, credential=self._credential)
+            except Exception:
+                # Fallback to Azure if factory fails (shouldn't happen but safe)
+                pass
+
         self._embed_query = embed_query or (
             lambda question: _embed_query(question, config=self._config, credential=self._credential)
         )
@@ -631,6 +778,15 @@ class SearchBackedAssessmentAgent:
             config=self._config,
             framework_filter=framework_filter,
         )
+        controls = _filter_controls_for_artifact(artifact, controls)
+        
+        # Optional: Enrich controls with Mistral-based applicability confidence
+        controls = _apply_llm_control_applicability_review(
+            controls,
+            config=self._config,
+            chat_completion=self._chat_completion,
+        )
+        
         guidance = _hybrid_search(
             self._evidence_search_client,
             question=query,
@@ -692,7 +848,7 @@ class SearchBackedAssessmentAgent:
             {
                 "role": "user",
                 "content": (
-                    "Assess the supplied Confluence page for cyber-security compliance against the most relevant controls.\n\n"
+                    f"{_assessment_task_instruction(artifact)}\n\n"
                     f"Assessed artifact (Corpus C):\n{artifact_context}\n\n"
                     f"Corpus A (normative requirements):\n{controls_context or 'No Corpus A controls retrieved.'}\n\n"
                     f"Corpus B (guidance and narrative evidence):\n{guidance_context or 'No Corpus B guidance retrieved.'}\n\n"
@@ -733,10 +889,21 @@ class SearchBackedAssessmentAgent:
             "title": artifact.title,
             "framework_scope": framework_scope,
             "validation_mode": validation_mode,
+            "assessment_evidence_scope": str(artifact.metadata.get("assessment_evidence_scope") or ""),
+            "framework_applicability_model": str(artifact.metadata.get("framework_applicability_model") or ""),
             "grounding_counts": {
                 "corpus_a": len(grounding.corpus_a_results),
                 "corpus_b": len(grounding.corpus_b_results),
                 "discussion_comments": len(artifact.discussion_context),
+            },
+            "applicability_filtering": {
+                "controls_retrieved_before_filter": int(
+                    artifact.metadata.get("controls_retrieved_before_applicability_filter") or len(grounding.corpus_a_results)
+                ),
+                "controls_filtered": int(artifact.metadata.get("controls_filtered_for_applicability") or 0),
+                "controls_retained": int(
+                    artifact.metadata.get("controls_retained_after_applicability_filter") or len(grounding.corpus_a_results)
+                ),
             },
         }
         return report

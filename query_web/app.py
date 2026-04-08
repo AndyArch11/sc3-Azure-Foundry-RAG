@@ -24,6 +24,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
+from runtime.assessment_orchestration.azure_assessment import run_azure_assessment
+
 from prompt_injection_guard import (
     BLOCKED_PROMPT_INJECTION_MESSAGE,
     PROMPT_INJECTION_SYSTEM_PROMPT,
@@ -562,6 +564,15 @@ class ComplianceReportRequest(BaseModel):
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
     controls_framework: str | None = None
     corpus_c_upload_batch: str | None = None
+    validation_mode: Literal["hard", "soft"] = "hard"
+    auth_token: str = ""
+
+
+class AzureComplianceReportRequest(BaseModel):
+    subscription_id: str
+    resource_group: str
+    resource_ids: list[str] = Field(default_factory=list)
+    controls_framework: str = "NIST CSF"
     validation_mode: Literal["hard", "soft"] = "hard"
     auth_token: str = ""
 
@@ -2877,6 +2888,82 @@ def generate_compliance_report(request: Request, payload: ComplianceReportReques
             logger.exception("Failed /api/compliance/report request due to schema validation: %s", exc)
             return JSONResponse({"error": "Compliance report schema validation failed."}, status_code=500)
         logger.exception("Failed /api/compliance/report request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+
+
+@app.post("/api/compliance/report/azure")
+def generate_azure_compliance_report(request: Request, payload: AzureComplianceReportRequest) -> JSONResponse:
+    if not _is_authorised_request(payload.auth_token, request):
+        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+
+    subscription_id = payload.subscription_id.strip()
+    resource_group = payload.resource_group.strip()
+    resource_ids = [item.strip() for item in payload.resource_ids if item.strip()]
+    if not subscription_id:
+        return JSONResponse({"error": "subscription_id must not be empty"}, status_code=400)
+    if not resource_group and not resource_ids:
+        return JSONResponse(
+            {"error": "resource_group is required when resource_ids are not supplied"},
+            status_code=400,
+        )
+
+    framework = _canonical_framework_name(payload.controls_framework)
+    if framework is None:
+        return JSONResponse({"error": "controls_framework must be a supported framework value"}, status_code=400)
+
+    try:
+        assessment = run_azure_assessment(
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+            resource_ids=resource_ids,
+            controls_framework=framework,
+            env=os.environ,
+            credential=credential,
+        )
+
+        validation_error = ""
+        report_structured: ComplianceReportStructured | None = None
+        report_markdown = json.dumps(assessment)
+        report_csv = ""
+        schema_valid = False
+
+        try:
+            report_structured = _validate_compliance_report_payload(assessment)
+            report_markdown = _report_to_markdown(report_structured)
+            report_csv = _report_findings_to_csv(report_structured)
+            schema_valid = True
+        except Exception as exc:
+            logger.exception("Azure compliance report schema validation failed: %s", exc)
+            validation_error = "Compliance report schema validation failed."
+            if payload.validation_mode == "hard":
+                raise RuntimeError("Compliance report schema validation failed") from exc
+
+        report_filename_base = f"azure-compliance-report-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
+        return JSONResponse(
+            {
+                "mode": "azure-compliance-report",
+                "framework": framework,
+                "scope": {
+                    "subscription_id": subscription_id,
+                    "resource_group": resource_group,
+                    "resource_ids": resource_ids,
+                },
+                "report": report_markdown,
+                "report_markdown": report_markdown,
+                "report_structured": report_structured.model_dump() if report_structured else None,
+                "report_findings_csv": report_csv,
+                "report_filename_base": report_filename_base,
+                "report_schema_version": COMPLIANCE_REPORT_SCHEMA_VERSION,
+                "validation_mode": payload.validation_mode,
+                "schema_valid": schema_valid,
+                "validation_error": validation_error,
+            }
+        )
+    except Exception as exc:
+        if isinstance(exc, RuntimeError) and "schema validation failed" in str(exc).lower():
+            logger.exception("Failed /api/compliance/report/azure due to schema validation: %s", exc)
+            return JSONResponse({"error": "Compliance report schema validation failed."}, status_code=500)
+        logger.exception("Failed /api/compliance/report/azure request: %s", exc)
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 

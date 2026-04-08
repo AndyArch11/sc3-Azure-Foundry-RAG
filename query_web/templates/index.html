@@ -307,6 +307,51 @@
         <div id="cr-status" class="ops-status">No report generated yet.</div>
       </div>
 
+      <div class="source" id="azure-compliance-report-ops">
+        <h3>Azure Compliance Assessment</h3>
+        <p class="muted">Assess Azure subscription and resource group configuration against NIST CSF using read-only Azure extraction.</p>
+        <div class="grid">
+          <div class="field">
+            <label for="az-subscription-id">Subscription ID</label>
+            <input id="az-subscription-id" type="text" placeholder="00000000-0000-0000-0000-000000000000" />
+          </div>
+          <div class="field">
+            <label for="az-resource-group">Resource Group</label>
+            <input id="az-resource-group" type="text" placeholder="rg-example" />
+          </div>
+          <div class="field">
+            <label for="az-controls-framework">Controls framework</label>
+            <select id="az-controls-framework">
+              <option value="NIST CSF" selected>NIST CSF</option>
+              <option value="Essential Eight">Essential Eight</option>
+              <option value="AESCSF">AESCSF</option>
+              <option value="CIS Controls">CIS Controls</option>
+              <option value="ISM">ISM</option>
+              <option value="PCI DSS">PCI DSS</option>
+              <option value="PSPF">PSPF</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="az-validation-mode">Schema validation mode</label>
+            <select id="az-validation-mode">
+              <option value="hard" selected>Hard fail on schema mismatch</option>
+              <option value="soft">Soft fail (return raw output)</option>
+            </select>
+          </div>
+        </div>
+        <div class="field" style="margin-top:8px">
+          <label for="az-resource-ids">Resource IDs (optional, one per line)</label>
+          <textarea id="az-resource-ids" placeholder="/subscriptions/.../resourceGroups/.../providers/Microsoft.KeyVault/vaults/example"></textarea>
+        </div>
+        <div class="ops-row">
+          <button type="button" onclick="generateAzureComplianceReport()">Generate Azure Assessment</button>
+          <button type="button" class="btn-secondary" onclick="downloadAzureComplianceReportMarkdown()">Download Markdown</button>
+          <button type="button" class="btn-secondary" onclick="downloadAzureComplianceReportJson()">Download JSON</button>
+          <button type="button" class="btn-secondary" onclick="downloadAzureComplianceFindingsCsv()">Download Findings CSV</button>
+        </div>
+        <div id="azcr-status" class="ops-status">No Azure assessment generated yet.</div>
+      </div>
+
       {% if error %}
       <p style="color:#b91c1c"><strong>Error:</strong> {{ error }}</p>
       {% endif %}
@@ -407,6 +452,7 @@
 <script>
   const SESSION_KEY = 'rag_session';
   let _lastComplianceReport = null;
+  let _lastAzureComplianceReport = null;
 
   function escHtml(s) {
     return String(s)
@@ -609,6 +655,18 @@
     target.textContent = JSON.stringify(payload, null, 2);
   }
 
+  function _renderAzureComplianceReport(payload) {
+    const target = document.getElementById('azcr-status');
+    if (payload && !payload.error && payload.mode === 'azure-compliance-report') {
+      _lastAzureComplianceReport = payload;
+    }
+    if (payload && payload.report) {
+      target.textContent = payload.report;
+      return;
+    }
+    target.textContent = JSON.stringify(payload, null, 2);
+  }
+
   function _downloadText(filename, content, contentType) {
     const blob = new Blob([content], { type: contentType });
     const url = URL.createObjectURL(blob);
@@ -650,6 +708,37 @@
     }
     const base = _lastComplianceReport.report_filename_base || 'compliance-report';
     _downloadText(base + '-findings.csv', _lastComplianceReport.report_findings_csv, 'text/csv;charset=utf-8');
+  }
+
+  function downloadAzureComplianceReportMarkdown() {
+    if (!_lastAzureComplianceReport || !_lastAzureComplianceReport.report_markdown) {
+      _renderAzureComplianceReport({ error: 'Generate an Azure compliance report first.' });
+      return;
+    }
+    const base = _lastAzureComplianceReport.report_filename_base || 'azure-compliance-report';
+    _downloadText(base + '.md', _lastAzureComplianceReport.report_markdown, 'text/markdown;charset=utf-8');
+  }
+
+  function downloadAzureComplianceReportJson() {
+    if (!_lastAzureComplianceReport || !_lastAzureComplianceReport.report_structured) {
+      _renderAzureComplianceReport({ error: 'Generate an Azure compliance report first.' });
+      return;
+    }
+    const base = _lastAzureComplianceReport.report_filename_base || 'azure-compliance-report';
+    _downloadText(
+      base + '.json',
+      JSON.stringify(_lastAzureComplianceReport.report_structured, null, 2),
+      'application/json;charset=utf-8'
+    );
+  }
+
+  function downloadAzureComplianceFindingsCsv() {
+    if (!_lastAzureComplianceReport || !_lastAzureComplianceReport.report_findings_csv) {
+      _renderAzureComplianceReport({ error: 'Generate an Azure compliance report first.' });
+      return;
+    }
+    const base = _lastAzureComplianceReport.report_filename_base || 'azure-compliance-report';
+    _downloadText(base + '-findings.csv', _lastAzureComplianceReport.report_findings_csv, 'text/csv;charset=utf-8');
   }
 
   function refreshCorpusAStatus() {
@@ -782,6 +871,43 @@
       .then(r => r.json())
       .then(data => _renderComplianceReport(data))
       .catch(err => _renderComplianceReport({ error: String(err) }));
+  }
+
+  function generateAzureComplianceReport() {
+    const subscriptionId = document.getElementById('az-subscription-id').value.trim();
+    const resourceGroup = document.getElementById('az-resource-group').value.trim();
+    const resourceIds = document.getElementById('az-resource-ids').value
+      .split('\n')
+      .map(v => v.trim())
+      .filter(Boolean);
+
+    if (!subscriptionId) {
+      _renderAzureComplianceReport({ error: 'Subscription ID is required.' });
+      return;
+    }
+    if (!resourceGroup && !resourceIds.length) {
+      _renderAzureComplianceReport({ error: 'Resource Group is required when no Resource IDs are supplied.' });
+      return;
+    }
+
+    const body = {
+      subscription_id: subscriptionId,
+      resource_group: resourceGroup,
+      resource_ids: resourceIds,
+      controls_framework: document.getElementById('az-controls-framework').value || 'NIST CSF',
+      validation_mode: document.getElementById('az-validation-mode').value || 'hard',
+      auth_token: _currentAuthToken(),
+    };
+
+    _renderAzureComplianceReport({ status: 'Generating Azure assessment...' });
+    fetch('/api/compliance/report/azure', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(r => r.json())
+      .then(data => _renderAzureComplianceReport(data))
+      .catch(err => _renderAzureComplianceReport({ error: String(err) }));
   }
 
   document.addEventListener('DOMContentLoaded', function () {

@@ -14,6 +14,7 @@ import pytest
 from runtime.ingestion.extractors import (
     discover_supported_files,
     extract_source_document,
+    _extract_pdf_text,
 )
 
 
@@ -119,6 +120,41 @@ def test_extract_pdf_raises_runtime_error_when_pypdf_missing(tmp_path: Path) -> 
     with patch.dict("sys.modules", {"pypdf": None}):
         with pytest.raises(RuntimeError, match="pypdf is required"):
             extract_source_document(pdf_file)
+
+
+def test_extract_pdf_ocr_not_triggered_when_text_sufficient(tmp_path: Path) -> None:
+    pdf_file = tmp_path / "text-rich.pdf"
+    pdf_file.write_bytes(_make_pdf_bytes(["This page has enough extracted text to skip OCR fallback."]))
+
+    with patch("runtime.ingestion.extractors._extract_pdf_text_ocr") as ocr_mock:
+        text = _extract_pdf_text(pdf_file, enable_ocr=True, min_text_chars=10)
+
+    assert "enough extracted text" in text
+    ocr_mock.assert_not_called()
+
+
+def test_extract_pdf_ocr_triggered_when_text_sparse(tmp_path: Path) -> None:
+    pdf_file = tmp_path / "sparse.pdf"
+    pdf_file.write_bytes(_make_pdf_bytes([""]))
+
+    with patch("runtime.ingestion.extractors._extract_pdf_text_ocr", return_value="ocr recovered text") as ocr_mock:
+        text = _extract_pdf_text(pdf_file, enable_ocr=True, min_text_chars=1)
+
+    assert "ocr recovered text" in text
+    ocr_mock.assert_called_once()
+
+
+def test_extract_pdf_ocr_failure_falls_back_to_extracted_text(tmp_path: Path) -> None:
+    pdf_file = tmp_path / "fallback.pdf"
+    pdf_file.write_bytes(_make_pdf_bytes(["native text"]))
+
+    with patch(
+        "runtime.ingestion.extractors._extract_pdf_text_ocr",
+        side_effect=RuntimeError("ocr unavailable"),
+    ):
+        text = _extract_pdf_text(pdf_file, enable_ocr=True, min_text_chars=1000)
+
+    assert "native text" in text
 
 
 # ---------------------------------------------------------------------------

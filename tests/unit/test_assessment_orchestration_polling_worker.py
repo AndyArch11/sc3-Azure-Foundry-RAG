@@ -18,11 +18,27 @@ class _FakeServer:
         self._mentions = mentions
         self.last_since = ""
         self.last_scope_filter: dict | None = None
+        self.page_version = 1
+        self.page_content = "test content"
 
     def get_recent_mentions(self, *, since: str = "", scope_filter: dict | None = None) -> dict:
         self.last_since = since
         self.last_scope_filter = scope_filter
         return {"mentions": list(self._mentions)}
+
+    def get_content_by_id(
+        self,
+        target_id: str,
+        *,
+        identity_mode: str,
+        include_discussion_context: bool = False,
+    ):
+        class _Artifact:
+            def __init__(self, content: str, version: int) -> None:
+                self.content = content
+                self.metadata = {"version": version}
+
+        return _Artifact(content=self.page_content, version=self.page_version)
 
 
 class _FakeAdapter:
@@ -307,6 +323,8 @@ def test_process_assessment_event_posts_one_comment_per_requested_framework() ->
     _process_assessment_event(
         adapter=adapter,  # type: ignore[arg-type]
         server=server,  # type: ignore[arg-type]
+        state_store=InMemoryPollingStateStore(),
+        source="confluence",
         event=event,
         dry_run=False,
     )
@@ -318,3 +336,45 @@ def test_process_assessment_event_posts_one_comment_per_requested_framework() ->
     assert len(server.posts) == 2
     assert server.posts[0]["idempotency_key"].endswith("essential-eight")
     assert server.posts[1]["idempotency_key"].endswith("aescsf")
+    assert "<strong>Page version:</strong> 1" in server.posts[0]["comment_body"]
+    assert "<strong>Page version:</strong> 1" in server.posts[1]["comment_body"]
+
+
+def test_process_assessment_event_skips_reassessment_when_page_unchanged() -> None:
+    server = _PostingServer([])
+    adapter = _FakeAdapter()
+    state_store = InMemoryPollingStateStore()
+    event = {
+        "event_id": "e-unchanged",
+        "target_id": "555",
+        "target_url": "https://example/555",
+        "trigger_type": "mention",
+        "mentioner_account_id": "acct-1",
+        "trigger_text": "Please review Essential Eight.",
+    }
+
+    _process_assessment_event(
+        adapter=adapter,  # type: ignore[arg-type]
+        server=server,  # type: ignore[arg-type]
+        state_store=state_store,
+        source="confluence",
+        event=event,
+        dry_run=False,
+    )
+    assert len(adapter.jobs) == 1
+    assert len(server.posts) == 1
+
+    _process_assessment_event(
+        adapter=adapter,  # type: ignore[arg-type]
+        server=server,  # type: ignore[arg-type]
+        state_store=state_store,
+        source="confluence",
+        event={**event, "event_id": "e-unchanged-2"},
+        dry_run=False,
+    )
+
+    assert len(adapter.jobs) == 1
+    assert len(server.posts) == 2
+    assert "No changes were detected" in server.posts[1]["comment_body"]
+    assert "<strong>Page version:</strong> 1" in server.posts[1]["comment_body"]
+    assert server.posts[1]["idempotency_key"].endswith("essential-eight-nochange")

@@ -4,6 +4,17 @@ from .assessment_runtime import (
     SearchBackedAssessmentAgent,
     create_search_backed_assessment_agent_from_env,
 )
+from .azure_assessment import run_azure_assessment
+from .control_applicability import (
+    classify_control_applicability,
+    enrich_control_with_applicability,
+    ControlApplicabilityMetadata,
+)
+from .dev_llms import (
+    create_chat_completion_fn,
+    create_embedding_fn,
+    get_llm_backend,
+)
 from .intake import (
     build_assessment_job_from_email_notification,
     build_assessment_job_from_provider_event,
@@ -21,6 +32,7 @@ from .models import (
 )
 from .queue import JobRunner, QueueMessage, deserialise_queue_message, serialise_queue_message, validate_queue_message
 from .runtime_wiring import create_confluence_mcp_server_from_env, create_orchestrator_adapter_from_env
+from .mcp.azure_resource import AzureMCPServer, build_azure_target_reference
 from .polling_worker import PollCycleResult, PollerConfig, run_forever, run_poll_cycle
 from .state_store import (
     CosmosPollingStateStore,
@@ -55,6 +67,10 @@ __all__ = [
     "AssessedArtifactPackage",
     "AssessmentAgent",
     "AssessmentRuntimeConfig",
+    "run_azure_assessment",
+    "classify_control_applicability",
+    "enrich_control_with_applicability",
+    "ControlApplicabilityMetadata",
     "AssessmentJob",
     "AuditSink",
     "CorpusGroundingPackage",
@@ -95,6 +111,8 @@ __all__ = [
     "reserialise_queue_message",
     "create_confluence_mcp_server_from_env",
     "create_orchestrator_adapter_from_env",
+    "AzureMCPServer",
+    "build_azure_target_reference",
     "PollCycleResult",
     "PollerConfig",
     "run_forever",

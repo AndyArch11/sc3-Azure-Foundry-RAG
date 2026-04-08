@@ -54,6 +54,18 @@ modes:
     parser.add_argument("--chunk-size", type=int, default=1200)
     parser.add_argument("--chunk-overlap", type=int, default=200)
     parser.add_argument(
+        "--enable-local-ocr",
+        action="store_true",
+        default=False,
+        help="(local mode) enable OCR fallback for low-text PDFs (requires pypdfium2 + pytesseract + tesseract binary)",
+    )
+    parser.add_argument(
+        "--local-ocr-min-text-chars",
+        type=int,
+        default=80,
+        help="(local mode) trigger OCR fallback for PDFs whose extracted text length is below this threshold",
+    )
+    parser.add_argument(
         "--purge-blobs",
         action="store_true",
         default=False,
@@ -109,7 +121,13 @@ def _run_local(args: argparse.Namespace) -> int:
 
     for path in files:
         try:
-            docs.append(extract_source_document(path))
+            docs.append(
+                extract_source_document(
+                    path,
+                    enable_ocr=args.enable_local_ocr,
+                    ocr_min_text_chars=args.local_ocr_min_text_chars,
+                )
+            )
             processed += 1
         except Exception as exc:  # pragma: no cover - defensive summary reporting
             failed += 1
