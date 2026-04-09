@@ -186,6 +186,12 @@ variable "query_web_entra_client_secret_key_vault_secret_id" {
   default     = ""
 }
 
+variable "subscription_id" {
+  type        = string
+  description = "Subscription ID used by query web to trigger the ingestion Container App Job."
+  default     = ""
+}
+
 variable "entra_tenant_id" {
   type        = string
   description = "Entra (Azure AD) tenant ID, used to build the OpenID Connect issuer URL for EasyAuth."

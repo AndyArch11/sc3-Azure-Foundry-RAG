@@ -252,6 +252,7 @@ module "agent_hosting" {
   query_web_required_group_object_id                = var.query_web_required_group_object_id
   query_web_entra_client_id                         = try(azuread_application.query_web[0].client_id, "")
   entra_tenant_id                                   = data.azurerm_client_config.current.tenant_id
+  subscription_id                                   = var.subscription_id
   query_web_image_tag                               = var.query_web_image_tag
   enable_ingestion_job                              = var.enable_ingestion_job
   enable_query_web_app                              = var.enable_query_web_app

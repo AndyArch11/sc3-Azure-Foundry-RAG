@@ -223,8 +223,32 @@ resource "azurerm_container_app" "query_web" {
         value = var.cosmos_container_name
       }
       env {
+        name  = "AZURE_STORAGE_ACCOUNT_NAME"
+        value = var.storage_account_name
+      }
+      env {
+        name  = "AZURE_STORAGE_CONTAINER_NAME"
+        value = "grounding-data"
+      }
+      env {
         name  = "AZURE_SEARCH_INDEX_NAME"
         value = var.search_index_name
+      }
+      env {
+        name  = "AZURE_SEARCH_CONTROLS_INDEX_NAME"
+        value = var.controls_index_name
+      }
+      env {
+        name  = "INGESTION_JOB_SUBSCRIPTION_ID"
+        value = var.subscription_id
+      }
+      env {
+        name  = "INGESTION_JOB_RESOURCE_GROUP"
+        value = var.resource_group_name
+      }
+      env {
+        name  = "INGESTION_JOB_NAME"
+        value = "caj-ingestion-${var.suffix}"
       }
       env {
         name  = "EMBEDDING_DEPLOYMENT_NAME"
