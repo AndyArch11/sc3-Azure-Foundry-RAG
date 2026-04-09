@@ -14,6 +14,11 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message
 logger = logging.getLogger(__name__)
 
 
+def _is_missing_source_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "not found" in message or "no such file" in message
+
+
 def _build_parser_registry() -> dict[str, dict]:
     from .parsers.aescsf import AescsfParser  # noqa: PLC0415
     from .parsers.cis_controls import CisControlsParser  # noqa: PLC0415
@@ -36,10 +41,12 @@ def _build_parser_registry() -> dict[str, dict]:
         "cis_controls": {
             "factory": lambda fetch_guidance: CisControlsParser(),
             "output_filename": "cis_controls_v8.jsonl",
+            "optional_when_all": True,
         },
         "pci_dss": {
             "factory": lambda fetch_guidance: PciDssParser(),
             "output_filename": "pci_dss_v4_0_1.jsonl",
+            "optional_when_all": True,
         },
         "pspf": {
             "factory": lambda fetch_guidance: PspfParser(),
@@ -129,17 +136,47 @@ def parse_args() -> argparse.Namespace:
 
 
 def _run_parse(framework: str, output_dir: Path, no_guidance: bool) -> dict[str, Path]:
+    outputs, _skipped = _run_parse_detailed(
+        framework=framework,
+        output_dir=output_dir,
+        no_guidance=no_guidance,
+    )
+    return outputs
+
+
+def _run_parse_detailed(
+    framework: str,
+    output_dir: Path,
+    no_guidance: bool,
+) -> tuple[dict[str, Path], list[dict[str, str]]]:
     registry = _build_parser_registry()
     frameworks = _selected_frameworks(framework, registry)
     output_dir.mkdir(parents=True, exist_ok=True)
     outputs: dict[str, Path] = {}
+    skipped: list[dict[str, str]] = []
 
     for selected in frameworks:
         entry = registry[selected]
         output_path = output_dir / entry["output_filename"]
 
         parser_instance = entry["factory"](fetch_guidance=(not no_guidance))
-        records = parser_instance.parse()
+        try:
+            records = parser_instance.parse()
+        except Exception as exc:
+            if framework == "all" and entry.get("optional_when_all") and _is_missing_source_error(exc):
+                logger.warning(
+                    "Skipping optional framework '%s': %s",
+                    selected,
+                    exc,
+                )
+                skipped.append(
+                    {
+                        "framework": selected,
+                        "reason": str(exc),
+                    }
+                )
+                continue
+            raise
         if not records:
             raise RuntimeError(f"Parser '{selected}' returned no records")
 
@@ -147,7 +184,7 @@ def _run_parse(framework: str, output_dir: Path, no_guidance: bool) -> dict[str,
         logger.info("Parsed %d records for %s to %s", len(records), selected, output_path)
         outputs[selected] = output_path
 
-    return outputs
+    return outputs, skipped
 
 
 def _run_publish(
@@ -174,6 +211,24 @@ def _run_publish(
     return result
 
 
+def _log_framework_all_summary(
+    *,
+    mode: str,
+    parsed_outputs: dict[str, Path],
+    skipped_frameworks: list[dict[str, str]],
+) -> None:
+    parsed_names = sorted(parsed_outputs.keys())
+    skipped_names = [entry.get("framework", "unknown") for entry in skipped_frameworks]
+    logger.info(
+        "Framework '%s' summary for --framework all: parsed=%d (%s), skipped=%d (%s)",
+        mode,
+        len(parsed_names),
+        ", ".join(parsed_names) if parsed_names else "none",
+        len(skipped_names),
+        ", ".join(skipped_names) if skipped_names else "none",
+    )
+
+
 def main() -> int:
     args = parse_args()
     logging.getLogger().setLevel(args.log_level)
@@ -193,12 +248,19 @@ def main() -> int:
         return 0
 
     parsed_outputs: dict[str, Path] = {}
+    skipped_frameworks: list[dict[str, str]] = []
     if args.mode in {"parse", "parse-and-publish"}:
-        parsed_outputs = _run_parse(
+        parsed_outputs, skipped_frameworks = _run_parse_detailed(
             framework=args.framework,
             output_dir=Path(args.output_dir),
             no_guidance=args.no_guidance,
         )
+        if args.framework == "all":
+            _log_framework_all_summary(
+                mode=args.mode,
+                parsed_outputs=parsed_outputs,
+                skipped_frameworks=skipped_frameworks,
+            )
 
     if args.mode == "parse":
         if args.framework == "all":
@@ -206,6 +268,8 @@ def main() -> int:
                 "mode": "parse",
                 "framework": args.framework,
                 "output_jsonls": {k: str(v) for k, v in parsed_outputs.items()},
+                "parsed_frameworks": sorted(parsed_outputs.keys()),
+                "skipped_frameworks": skipped_frameworks,
             }
         else:
             selected = args.framework
@@ -256,6 +320,8 @@ def main() -> int:
                     "mode": args.mode,
                     "framework": args.framework,
                     "results": summaries,
+                    "parsed_frameworks": sorted(parsed_outputs.keys()),
+                    "skipped_frameworks": skipped_frameworks,
                 },
                 ensure_ascii=True,
             )
