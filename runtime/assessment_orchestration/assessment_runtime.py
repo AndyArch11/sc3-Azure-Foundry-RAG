@@ -497,6 +497,13 @@ def _hybrid_search(
     embed_query: Callable[[str], list[float]],
     evidence_filter: str | None = None,
 ) -> list[dict[str, Any]]:
+    def _is_missing_grounding_index_error(exc: Exception) -> bool:
+        if isinstance(exc, ResourceNotFoundError):
+            message = str(exc).lower()
+            index_name = config.search_index_name.lower()
+            return "index" in message and index_name in message and "not found" in message
+        return False
+
     vector = embed_query(question)
     vector_query = VectorizedQuery(vector=vector, k_nearest_neighbors=retrieve_k, fields="content_vector")
     try:
@@ -522,31 +529,47 @@ def _hybrid_search(
                 "dedupe_method",
             ],
         )
-    except Exception:
+    except Exception as exc:
+        if _is_missing_grounding_index_error(exc):
+            _LOGGER.warning(
+                "Grounding index '%s' was not found in search service '%s'; continuing review without Corpus B guidance.",
+                config.search_index_name,
+                config.search_endpoint,
+            )
         return []
 
     items: list[dict[str, Any]] = []
-    for row in results:
-        score = row.get("@search.score")
-        items.append(
-            {
-                "content": str(row.get("content") or "").strip(),
-                "source_name": str(row.get("source_name") or "unknown").strip(),
-                "source_path": str(row.get("source_path") or "").strip(),
-                "corpus": str(row.get("corpus") or "").strip().lower(),
-                "corpus_role": str(row.get("corpus_role") or "").strip().lower(),
-                "upload_source": str(row.get("upload_source") or "").strip(),
-                "uploaded_by": str(row.get("uploaded_by") or "").strip(),
-                "upload_batch": str(row.get("upload_batch") or "").strip(),
-                "uploaded_at": str(row.get("uploaded_at") or "").strip(),
-                "original_filename": str(row.get("original_filename") or "").strip(),
-                "content_sha256": str(row.get("content_sha256") or "").strip(),
-                "normalised_text_sha256": str(row.get("normalised_text_sha256") or "").strip(),
-                "dedupe_hash": str(row.get("dedupe_hash") or "").strip(),
-                "dedupe_method": str(row.get("dedupe_method") or "").strip(),
-                "score": float(score) if score is not None else 0.0,
-            }
-        )
+    try:
+        for row in results:
+            score = row.get("@search.score")
+            items.append(
+                {
+                    "content": str(row.get("content") or "").strip(),
+                    "source_name": str(row.get("source_name") or "unknown").strip(),
+                    "source_path": str(row.get("source_path") or "").strip(),
+                    "corpus": str(row.get("corpus") or "").strip().lower(),
+                    "corpus_role": str(row.get("corpus_role") or "").strip().lower(),
+                    "upload_source": str(row.get("upload_source") or "").strip(),
+                    "uploaded_by": str(row.get("uploaded_by") or "").strip(),
+                    "upload_batch": str(row.get("upload_batch") or "").strip(),
+                    "uploaded_at": str(row.get("uploaded_at") or "").strip(),
+                    "original_filename": str(row.get("original_filename") or "").strip(),
+                    "content_sha256": str(row.get("content_sha256") or "").strip(),
+                    "normalised_text_sha256": str(row.get("normalised_text_sha256") or "").strip(),
+                    "dedupe_hash": str(row.get("dedupe_hash") or "").strip(),
+                    "dedupe_method": str(row.get("dedupe_method") or "").strip(),
+                    "score": float(score) if score is not None else 0.0,
+                }
+            )
+    except Exception as exc:
+        if _is_missing_grounding_index_error(exc):
+            _LOGGER.warning(
+                "Grounding index '%s' was not found while reading search results from '%s'; continuing review without Corpus B guidance.",
+                config.search_index_name,
+                config.search_endpoint,
+            )
+            return []
+        raise
     return items
 
 

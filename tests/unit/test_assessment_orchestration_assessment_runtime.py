@@ -41,6 +41,25 @@ class _BrokenControlsSearchClient:
         return _ExplodingIterable()
 
 
+class _BrokenEvidenceSearchClient:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def search(self, **kwargs):
+        self.calls.append(kwargs)
+
+        class _ExplodingIterable:
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                raise ResourceNotFoundError(
+                    "The index 'grounding-index' for service 'srch-dev-aue-20260408' was not found."
+                )
+
+        return _ExplodingIterable()
+
+
 def _config() -> AssessmentRuntimeConfig:
     return AssessmentRuntimeConfig(
         search_endpoint="https://search.example",
@@ -138,6 +157,37 @@ def test_search_backed_assessment_agent_handles_missing_controls_index() -> None
 
     assert grounding.corpus_a_results == []
     assert len(grounding.corpus_b_results) == 1
+
+
+def test_search_backed_assessment_agent_handles_missing_grounding_index() -> None:
+    controls_client = _FakeSearchClient(
+        [
+            {
+                "requirement_id": "E8-1",
+                "framework": "Essential Eight",
+                "framework_version": "2023",
+                "control_family": "MFA",
+                "maturity_level": "ML1",
+                "requirement_text": "Require MFA for administrative access.",
+                "guidance_text": "Use phishing-resistant MFA.",
+                "source_uri": "controls://e8-1",
+                "@search.score": 3.2,
+            }
+        ]
+    )
+    evidence_client = _BrokenEvidenceSearchClient()
+    agent = SearchBackedAssessmentAgent(
+        config=_config(),
+        controls_search_client=controls_client,
+        evidence_search_client=evidence_client,
+        embed_query=lambda question: [0.1, 0.2, 0.3],
+        chat_completion=lambda messages: "{}",
+    )
+
+    grounding = agent.retrieve_corpus_grounding(_artifact())
+
+    assert len(grounding.corpus_a_results) == 1
+    assert grounding.corpus_b_results == []
 
 
 def test_search_backed_assessment_agent_generates_validated_report() -> None:
