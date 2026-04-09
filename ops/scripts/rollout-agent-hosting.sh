@@ -13,6 +13,7 @@ What this script does:
   - skips state refresh (avoids Entra app-registration read permissions on jumpbox identities)
   - forces enable_hosted_query_agent_preview=false
   - bypasses bootstrap Key Vault lookup paths that are unrelated to agent_hosting
+  - deploys non-RBAC app resources only (role assignments are reconciled separately)
   - optionally overrides image tags for ingestion/query-web/confluence-poller
   - optionally enables or disables the confluence poller app
   - can resolve Entra EasyAuth secret ID from a private Key Vault
@@ -184,7 +185,6 @@ TARGET_ARGS=(
   "-target=module.agent_hosting.azurerm_container_app.query_web"
   "-target=module.agent_hosting.azurerm_container_app.confluence_poller"
   "-target=module.agent_hosting.azapi_resource.query_web_auth"
-  "-target=module.agent_hosting.azurerm_role_assignment.confluence_poller_contributor"
 )
 
 if [[ "${ACTION}" == "plan" ]]; then
