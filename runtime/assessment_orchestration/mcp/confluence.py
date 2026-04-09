@@ -159,6 +159,22 @@ def _url_fallback_id(url: str) -> str:
     return hashlib.sha256(url.encode()).hexdigest()[:24]
 
 
+def _raise_for_status_with_body(resp: requests.Response) -> None:
+    """Raise HTTPError with a short response-body snippet for easier debugging."""
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError as exc:
+        body = (resp.text or "").strip()
+        if not body:
+            raise
+        snippet = body[:500]
+        raise requests.HTTPError(
+            f"{exc} | response body: {snippet}",
+            response=resp,
+            request=resp.request,
+        ) from exc
+
+
 # --------------------------------------------------------------------------- #
 # Confluence REST API client                                                   #
 # --------------------------------------------------------------------------- #
@@ -245,13 +261,13 @@ class ConfluenceClient:
     def _get(self, path: str, **params: Any) -> Any:
         url = f"{self._api_base_url}{path}"
         resp = self._session.get(url, params=params)
-        resp.raise_for_status()
+        _raise_for_status_with_body(resp)
         return resp.json()
 
     def _post(self, path: str, body: dict[str, Any]) -> Any:
         url = f"{self._api_base_url}{path}"
         resp = self._session.post(url, json=body)
-        resp.raise_for_status()
+        _raise_for_status_with_body(resp)
         return resp.json()
 
     def get_page(self, page_id: str, *, body_format: str = "storage") -> dict[str, Any]:

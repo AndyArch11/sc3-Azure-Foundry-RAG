@@ -4,7 +4,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/rollout-agent-hosting.sh <env> [plan|apply] [--ingestion-tag <tag>] [--query-web-tag <tag>] [--confluence-poller-tag <tag>] [--enable-confluence-poller] [--disable-confluence-poller] [--entra-secret-kv <kv-name>] [--entra-secret-name <secret-name>] [--confluence-base-url <url>] [--confluence-auth-email <email>] [--confluence-api-token <token>] [--confluence-space-keys <KEY1,KEY2,...>]
+  ./ops/scripts/rollout-agent-hosting.sh <env> [plan|apply] [--ingestion-tag <tag>] [--query-web-tag <tag>] [--confluence-poller-tag <tag>] [--enable-confluence-poller] [--disable-confluence-poller] [--entra-secret-kv <kv-name>] [--entra-secret-name <secret-name>] [--confluence-base-url <url>] [--confluence-auth-mode <basic|bearer|oauth>] [--confluence-auth-email <email>] [--confluence-api-token <token>] [--confluence-cloud-id <cloud-id>] [--confluence-account-id <account-id>] [--confluence-space-keys <KEY1,KEY2,...>]
 
 Runs the STANDARD (non-preview) rollout for module.agent_hosting only.
 
@@ -28,9 +28,18 @@ Examples:
   ./ops/scripts/rollout-agent-hosting.sh dev apply \
     --enable-confluence-poller \
     --confluence-base-url https://myorg.atlassian.net \
+    --confluence-auth-mode basic \
     --confluence-auth-email svc@myorg.com \
     --confluence-api-token '<token>' \
     --confluence-space-keys 'SEC,GRC'
+
+  # Example for Atlassian scoped token path (Bearer + cloud-id)
+  ./ops/scripts/rollout-agent-hosting.sh dev apply \
+    --enable-confluence-poller \
+    --confluence-base-url https://myorg.atlassian.net \
+    --confluence-auth-mode bearer \
+    --confluence-cloud-id '<cloud-id>' \
+    --confluence-api-token '<token>'
 EOF
   exit 0
 fi
@@ -68,8 +77,11 @@ ENABLE_CONFLUENCE_POLLER=""
 ENTRA_SECRET_KV=""
 ENTRA_SECRET_NAME=""
 CONFLUENCE_BASE_URL=""
+CONFLUENCE_AUTH_MODE=""
 CONFLUENCE_AUTH_EMAIL=""
 CONFLUENCE_API_TOKEN=""
+CONFLUENCE_CLOUD_ID=""
+CONFLUENCE_ACCOUNT_ID=""
 CONFLUENCE_SPACE_KEYS=""
 
 while [[ $# -gt 0 ]]; do
@@ -106,12 +118,24 @@ while [[ $# -gt 0 ]]; do
       CONFLUENCE_BASE_URL="${2:-}"
       shift 2
       ;;
+    --confluence-auth-mode)
+      CONFLUENCE_AUTH_MODE="${2:-}"
+      shift 2
+      ;;
     --confluence-auth-email)
       CONFLUENCE_AUTH_EMAIL="${2:-}"
       shift 2
       ;;
     --confluence-api-token)
       CONFLUENCE_API_TOKEN="${2:-}"
+      shift 2
+      ;;
+    --confluence-cloud-id)
+      CONFLUENCE_CLOUD_ID="${2:-}"
+      shift 2
+      ;;
+    --confluence-account-id)
+      CONFLUENCE_ACCOUNT_ID="${2:-}"
       shift 2
       ;;
     --confluence-space-keys)
@@ -202,11 +226,20 @@ LATE_OVERRIDE_ARGS=()
 if [[ -n "${CONFLUENCE_BASE_URL}" ]]; then
   LATE_OVERRIDE_ARGS+=("-var=confluence_base_url=${CONFLUENCE_BASE_URL}")
 fi
+if [[ -n "${CONFLUENCE_AUTH_MODE}" ]]; then
+  LATE_OVERRIDE_ARGS+=("-var=confluence_auth_mode=${CONFLUENCE_AUTH_MODE}")
+fi
 if [[ -n "${CONFLUENCE_AUTH_EMAIL}" ]]; then
   LATE_OVERRIDE_ARGS+=("-var=confluence_auth_email=${CONFLUENCE_AUTH_EMAIL}")
 fi
 if [[ -n "${CONFLUENCE_API_TOKEN}" ]]; then
   LATE_OVERRIDE_ARGS+=("-var=confluence_api_token=${CONFLUENCE_API_TOKEN}")
+fi
+if [[ -n "${CONFLUENCE_CLOUD_ID}" ]]; then
+  LATE_OVERRIDE_ARGS+=("-var=confluence_cloud_id=${CONFLUENCE_CLOUD_ID}")
+fi
+if [[ -n "${CONFLUENCE_ACCOUNT_ID}" ]]; then
+  LATE_OVERRIDE_ARGS+=("-var=confluence_account_id=${CONFLUENCE_ACCOUNT_ID}")
 fi
 if [[ -n "${CONFLUENCE_SPACE_KEYS}" ]]; then
   # Convert "SEC,GRC" -> ["SEC","GRC"] for Terraform HCL list syntax.
