@@ -4,7 +4,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/rollout-agent-hosting.sh <env> [plan|apply] [--ingestion-tag <tag>] [--query-web-tag <tag>] [--confluence-poller-tag <tag>] [--enable-confluence-poller] [--disable-confluence-poller] [--entra-secret-kv <kv-name>] [--entra-secret-name <secret-name>]
+  ./ops/scripts/rollout-agent-hosting.sh <env> [plan|apply] [--ingestion-tag <tag>] [--query-web-tag <tag>] [--confluence-poller-tag <tag>] [--enable-confluence-poller] [--disable-confluence-poller] [--entra-secret-kv <kv-name>] [--entra-secret-name <secret-name>] [--confluence-base-url <url>] [--confluence-auth-email <email>] [--confluence-api-token <token>] [--confluence-space-keys <KEY1,KEY2,...>]
 
 Runs the STANDARD (non-preview) rollout for module.agent_hosting only.
 
@@ -17,12 +17,20 @@ What this script does:
   - optionally overrides image tags for ingestion/query-web/confluence-poller
   - optionally enables or disables the confluence poller app
   - can resolve Entra EasyAuth secret ID from a private Key Vault
+  - Confluence config flags (--confluence-*) override dev.tfvars defaults at apply time;
+    use --confluence-api-token to pass the secret without writing it to tfvars
 
 Examples:
   ./ops/scripts/rollout-agent-hosting.sh dev apply
   ./ops/scripts/rollout-agent-hosting.sh dev apply --ingestion-tag 202603292354-8115700 --query-web-tag 202603292347-8115700
   ./ops/scripts/rollout-agent-hosting.sh dev apply --confluence-poller-tag 202604041530-a1b2c3d --enable-confluence-poller
   ./ops/scripts/rollout-agent-hosting.sh dev apply --query-web-tag 202603292347-8115700 --entra-secret-kv kv-app-secrets-dev
+  ./ops/scripts/rollout-agent-hosting.sh dev apply \
+    --enable-confluence-poller \
+    --confluence-base-url https://myorg.atlassian.net \
+    --confluence-auth-email svc@myorg.com \
+    --confluence-api-token '<token>' \
+    --confluence-space-keys 'SEC,GRC'
 EOF
   exit 0
 fi
@@ -59,6 +67,10 @@ CONFLUENCE_POLLER_TAG=""
 ENABLE_CONFLUENCE_POLLER=""
 ENTRA_SECRET_KV=""
 ENTRA_SECRET_NAME=""
+CONFLUENCE_BASE_URL=""
+CONFLUENCE_AUTH_EMAIL=""
+CONFLUENCE_API_TOKEN=""
+CONFLUENCE_SPACE_KEYS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -88,6 +100,22 @@ while [[ $# -gt 0 ]]; do
       ;;
     --entra-secret-name)
       ENTRA_SECRET_NAME="${2:-}"
+      shift 2
+      ;;
+    --confluence-base-url)
+      CONFLUENCE_BASE_URL="${2:-}"
+      shift 2
+      ;;
+    --confluence-auth-email)
+      CONFLUENCE_AUTH_EMAIL="${2:-}"
+      shift 2
+      ;;
+    --confluence-api-token)
+      CONFLUENCE_API_TOKEN="${2:-}"
+      shift 2
+      ;;
+    --confluence-space-keys)
+      CONFLUENCE_SPACE_KEYS="${2:-}"
       shift 2
       ;;
     *)
@@ -169,6 +197,28 @@ if [[ -n "${ENTRA_SECRET_KV}" ]]; then
   EXTRA_VAR_ARGS+=("-var=query_web_entra_client_secret_key_vault_secret_id=${ENTRA_SECRET_ID}")
 fi
 
+# Confluence overrides are placed after the var-file so they win over dev.tfvars defaults.
+LATE_OVERRIDE_ARGS=()
+if [[ -n "${CONFLUENCE_BASE_URL}" ]]; then
+  LATE_OVERRIDE_ARGS+=("-var=confluence_base_url=${CONFLUENCE_BASE_URL}")
+fi
+if [[ -n "${CONFLUENCE_AUTH_EMAIL}" ]]; then
+  LATE_OVERRIDE_ARGS+=("-var=confluence_auth_email=${CONFLUENCE_AUTH_EMAIL}")
+fi
+if [[ -n "${CONFLUENCE_API_TOKEN}" ]]; then
+  LATE_OVERRIDE_ARGS+=("-var=confluence_api_token=${CONFLUENCE_API_TOKEN}")
+fi
+if [[ -n "${CONFLUENCE_SPACE_KEYS}" ]]; then
+  # Convert "SEC,GRC" -> ["SEC","GRC"] for Terraform HCL list syntax.
+  _hcl_keys=""
+  IFS=',' read -ra _key_arr <<< "${CONFLUENCE_SPACE_KEYS}"
+  for _k in "${_key_arr[@]}"; do
+    _k="$(echo "${_k}" | xargs)"  # trim surrounding whitespace
+    _hcl_keys+="\"${_k}\","
+  done
+  LATE_OVERRIDE_ARGS+=("-var=confluence_poll_space_keys=[${_hcl_keys%,}]")
+fi
+
 TF_SAFETY_ARGS=(
   "-parallelism=1"
   "-lock-timeout=5m"
@@ -196,6 +246,7 @@ if [[ "${ACTION}" == "plan" ]]; then
     "${EXTRA_VAR_FILE_ARGS[@]}" \
     "${EXTRA_VAR_ARGS[@]}" \
     -var-file="${VAR_FILE}" \
+    "${LATE_OVERRIDE_ARGS[@]}" \
     "${TARGET_ARGS[@]}"
 else
   echo "==> Running standard agent_hosting apply (${ENVIRONMENT})"
@@ -207,6 +258,7 @@ else
     "${EXTRA_VAR_ARGS[@]}" \
     -auto-approve \
     -var-file="${VAR_FILE}" \
+    "${LATE_OVERRIDE_ARGS[@]}" \
     "${TARGET_ARGS[@]}"
 fi
 
