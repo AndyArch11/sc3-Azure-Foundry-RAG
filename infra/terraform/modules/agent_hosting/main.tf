@@ -349,7 +349,7 @@ resource "azurerm_container_app" "confluence_poller" {
       command = [
         "python",
         "-m",
-        "assessment_orchestration.polling_worker_main",
+        "runtime.assessment_orchestration.polling_worker_main",
       ]
 
       env {
