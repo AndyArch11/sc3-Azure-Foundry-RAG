@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Mapping, Protocol, cast
 
 import requests
+from azure.core.exceptions import ResourceNotFoundError
 from azure.identity import DefaultAzureCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
@@ -77,6 +79,7 @@ _AZURE_PROCESS_CONTROL_RE = re.compile(
     re.IGNORECASE,
 )
 _AZURE_GOVERNANCE_ID_RE = re.compile(r"^(GV(?:\.|-)|ID\.GV\b|AT-\d+|PM-\d+)", re.IGNORECASE)
+_LOGGER = logging.getLogger(__name__)
 
 
 class SearchClientLike(Protocol):
@@ -370,6 +373,14 @@ def _fetch_controls(
         search_kwargs["semantic_configuration_name"] = config.controls_semantic_configuration_name
 
     items: list[dict[str, Any]] = []
+
+    def _is_missing_controls_index_error(exc: Exception) -> bool:
+        if isinstance(exc, ResourceNotFoundError):
+            message = str(exc).lower()
+            index_name = config.controls_index_name.lower()
+            return "index" in message and index_name in message and "not found" in message
+        return False
+
     try:
         results = client.search(**search_kwargs)
     except Exception as exc:
@@ -377,27 +388,46 @@ def _fetch_controls(
             search_kwargs.pop("query_type", None)
             search_kwargs.pop("semantic_configuration_name", None)
             results = client.search(**search_kwargs)
+        elif _is_missing_controls_index_error(exc):
+            _LOGGER.warning(
+                "Controls index '%s' was not found in search service '%s'; continuing review without Corpus A controls. "
+                "Create/populate the index via runtime ingestion controls runner (for example: python3 -m ingestion.controls_runner --mode parse-and-publish --framework all).",
+                config.controls_index_name,
+                config.search_endpoint,
+            )
+            return []
         else:
             return []
 
-    for row in results:
-        requirement_text = str(row.get("requirement_text") or "").strip()
-        if not requirement_text:
-            continue
-        score = row.get("@search.score")
-        items.append(
-            {
-                "requirement_id": str(row.get("requirement_id") or "").strip(),
-                "framework": str(row.get("framework") or "").strip(),
-                "framework_version": str(row.get("framework_version") or "").strip(),
-                "control_family": str(row.get("control_family") or "").strip(),
-                "maturity_level": row.get("maturity_level"),
-                "requirement_text": requirement_text,
-                "guidance_text": str(row.get("guidance_text") or "").strip(),
-                "source_uri": str(row.get("source_uri") or "").strip(),
-                "score": float(score) if score is not None else 0.0,
-            }
-        )
+    try:
+        for row in results:
+            requirement_text = str(row.get("requirement_text") or "").strip()
+            if not requirement_text:
+                continue
+            score = row.get("@search.score")
+            items.append(
+                {
+                    "requirement_id": str(row.get("requirement_id") or "").strip(),
+                    "framework": str(row.get("framework") or "").strip(),
+                    "framework_version": str(row.get("framework_version") or "").strip(),
+                    "control_family": str(row.get("control_family") or "").strip(),
+                    "maturity_level": row.get("maturity_level"),
+                    "requirement_text": requirement_text,
+                    "guidance_text": str(row.get("guidance_text") or "").strip(),
+                    "source_uri": str(row.get("source_uri") or "").strip(),
+                    "score": float(score) if score is not None else 0.0,
+                }
+            )
+    except Exception as exc:
+        if _is_missing_controls_index_error(exc):
+            _LOGGER.warning(
+                "Controls index '%s' was not found while reading search results from '%s'; continuing review without Corpus A controls. "
+                "Create/populate the index via runtime ingestion controls runner (for example: python3 -m ingestion.controls_runner --mode parse-and-publish --framework all).",
+                config.controls_index_name,
+                config.search_endpoint,
+            )
+            return []
+        raise
 
     items.sort(
         key=lambda item: (

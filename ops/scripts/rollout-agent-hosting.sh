@@ -4,7 +4,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/rollout-agent-hosting.sh <env> [plan|apply] [--ingestion-tag <tag>] [--query-web-tag <tag>] [--confluence-poller-tag <tag>] [--enable-confluence-poller] [--disable-confluence-poller] [--entra-secret-kv <kv-name>] [--entra-secret-name <secret-name>] [--confluence-base-url <url>] [--confluence-auth-mode <basic|bearer|oauth>] [--confluence-auth-email <email>] [--confluence-api-token <token>] [--confluence-cloud-id <cloud-id>] [--confluence-account-id <account-id>] [--confluence-space-keys <KEY1,KEY2,...>]
+  ./ops/scripts/rollout-agent-hosting.sh <env> [plan|apply] [--ingestion-tag <tag>] [--query-web-tag <tag>] [--confluence-poller-tag <tag>] [--enable-confluence-poller] [--disable-confluence-poller] [--entra-secret-kv <kv-name>] [--entra-secret-name <secret-name>] [--confluence-base-url <url>] [--confluence-auth-mode <basic|bearer|oauth>] [--confluence-auth-email <email>] [--confluence-api-token <token>] [--confluence-cloud-id <cloud-id>] [--confluence-account-id <account-id>] [--confluence-space-keys <KEY1,KEY2,...>] [--repair-query-web-reply-url]
 
 Runs the STANDARD (non-preview) rollout for module.agent_hosting only.
 
@@ -19,6 +19,8 @@ What this script does:
   - can resolve Entra EasyAuth secret ID from a private Key Vault
   - Confluence config flags (--confluence-*) override dev.tfvars defaults at apply time;
     use --confluence-api-token to pass the secret without writing it to tfvars
+  - validates query-web Entra reply URL post-apply to catch AADSTS500113 drift early
+  - optional --repair-query-web-reply-url attempts az ad app update when reply URL is missing
 
 Examples:
   ./ops/scripts/rollout-agent-hosting.sh dev apply
@@ -83,6 +85,7 @@ CONFLUENCE_API_TOKEN=""
 CONFLUENCE_CLOUD_ID=""
 CONFLUENCE_ACCOUNT_ID=""
 CONFLUENCE_SPACE_KEYS=""
+REPAIR_QUERY_WEB_REPLY_URL="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -141,6 +144,10 @@ while [[ $# -gt 0 ]]; do
     --confluence-space-keys)
       CONFLUENCE_SPACE_KEYS="${2:-}"
       shift 2
+      ;;
+    --repair-query-web-reply-url)
+      REPAIR_QUERY_WEB_REPLY_URL="true"
+      shift 1
       ;;
     *)
       echo "Unknown argument: $1"
@@ -296,3 +303,35 @@ else
 fi
 
 echo "==> Standard agent_hosting ${ACTION} completed for ${ENVIRONMENT}"
+
+if [[ "${ACTION}" == "apply" ]]; then
+  # Validate reply URL wiring to prevent AADSTS500113 (No reply address is registered).
+  QUERY_WEB_CLIENT_ID="$(terraform -chdir="${TF_DIR}" output -raw query_web_entra_client_id 2>/dev/null || true)"
+  QUERY_WEB_FQDN="$(terraform -chdir="${TF_DIR}" output -raw query_web_fqdn 2>/dev/null || true)"
+
+  if [[ -n "${QUERY_WEB_CLIENT_ID}" && -n "${QUERY_WEB_FQDN}" ]]; then
+    EXPECTED_REPLY_URL="https://${QUERY_WEB_FQDN}/.auth/login/aad/callback"
+    CURRENT_REPLY_URIS="$(az ad app show --id "${QUERY_WEB_CLIENT_ID}" --query "web.redirectUris" -o tsv 2>/dev/null || true)"
+
+    if [[ -z "${CURRENT_REPLY_URIS}" || "${CURRENT_REPLY_URIS}" != *"${EXPECTED_REPLY_URL}"* ]]; then
+      echo "WARNING: Query-web Entra reply URL is missing or out of sync."
+      echo "Expected: ${EXPECTED_REPLY_URL}"
+      echo "App ID:   ${QUERY_WEB_CLIENT_ID}"
+      if [[ "${REPAIR_QUERY_WEB_REPLY_URL}" == "true" ]]; then
+        echo "==> Attempting repair via az ad app update"
+        if az ad app update --id "${QUERY_WEB_CLIENT_ID}" --web-redirect-uris "${EXPECTED_REPLY_URL}" >/dev/null 2>&1; then
+          echo "==> Repaired query-web Entra reply URL"
+        else
+          echo "WARNING: Automatic repair failed (likely insufficient Entra app permissions)."
+          echo "Run with an admin identity:"
+          echo "  az ad app update --id ${QUERY_WEB_CLIENT_ID} --web-redirect-uris ${EXPECTED_REPLY_URL}"
+        fi
+      else
+        echo "To repair now (admin context):"
+        echo "  az ad app update --id ${QUERY_WEB_CLIENT_ID} --web-redirect-uris ${EXPECTED_REPLY_URL}"
+      fi
+    else
+      echo "==> Verified query-web Entra reply URL is configured"
+    fi
+  fi
+fi

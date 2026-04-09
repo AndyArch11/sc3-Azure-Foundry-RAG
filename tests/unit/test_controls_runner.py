@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import pytest
@@ -98,3 +99,20 @@ def test_missing_source_detector_handles_not_found():
     assert controls_runner._is_missing_source_error(RuntimeError("file not found"))
     assert controls_runner._is_missing_source_error(RuntimeError("No such file or directory"))
     assert not controls_runner._is_missing_source_error(RuntimeError("network timeout"))
+
+
+def test_resolve_controls_index_config_uses_cli_endpoint_without_env(monkeypatch):
+    monkeypatch.delenv("AZURE_SEARCH_ENDPOINT", raising=False)
+    args = argparse.Namespace(search_endpoint="https://search.example", controls_index_name="controls-index")
+    config = controls_runner._resolve_controls_index_config(args)
+    assert config.search_endpoint == "https://search.example"
+    assert config.controls_index_name == "controls-index"
+
+
+def test_resolve_controls_index_config_uses_env_with_cli_index_override(monkeypatch):
+    monkeypatch.setenv("AZURE_SEARCH_ENDPOINT", "https://env-search.example")
+    monkeypatch.setenv("AZURE_SEARCH_CONTROLS_INDEX_NAME", "env-controls-index")
+    args = argparse.Namespace(search_endpoint=None, controls_index_name="cli-controls-index")
+    config = controls_runner._resolve_controls_index_config(args)
+    assert config.search_endpoint == "https://env-search.example"
+    assert config.controls_index_name == "cli-controls-index"

@@ -132,7 +132,37 @@ def parse_args() -> argparse.Namespace:
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
+    parser.add_argument(
+        "--search-endpoint",
+        default=None,
+        help="Azure AI Search endpoint override (falls back to AZURE_SEARCH_ENDPOINT)",
+    )
+    parser.add_argument(
+        "--controls-index-name",
+        default=None,
+        help="Controls index name override (falls back to AZURE_SEARCH_CONTROLS_INDEX_NAME or controls-index)",
+    )
     return parser.parse_args()
+
+
+def _resolve_controls_index_config(args: argparse.Namespace) -> ControlsIndexConfig:
+    if args.search_endpoint:
+        return ControlsIndexConfig(
+            search_endpoint=str(args.search_endpoint).strip(),
+            controls_index_name=(
+                str(args.controls_index_name).strip()
+                if args.controls_index_name
+                else "controls-index"
+            ),
+        )
+
+    config = ControlsIndexConfig.from_env()
+    if args.controls_index_name:
+        return ControlsIndexConfig(
+            search_endpoint=config.search_endpoint,
+            controls_index_name=str(args.controls_index_name).strip(),
+        )
+    return config
 
 
 def _run_parse(framework: str, output_dir: Path, no_guidance: bool) -> dict[str, Path]:
@@ -234,7 +264,7 @@ def main() -> int:
     logging.getLogger().setLevel(args.log_level)
 
     if args.mode == "ensure-index":
-        config = ControlsIndexConfig.from_env()
+        config = _resolve_controls_index_config(args)
         ensure_controls_index(config, DefaultAzureCredential())
         print(
             json.dumps(
@@ -287,7 +317,7 @@ def main() -> int:
         return 0
 
     if args.mode == "publish":
-        config = ControlsIndexConfig.from_env()
+        config = _resolve_controls_index_config(args)
         jsonl_path = Path(args.input_jsonl) if args.input_jsonl else None
         if jsonl_path is None:
             raise RuntimeError("No JSONL source available for publish mode")
@@ -302,7 +332,7 @@ def main() -> int:
         return 0
 
     # parse-and-publish mode
-    config = ControlsIndexConfig.from_env()
+    config = _resolve_controls_index_config(args)
     if args.framework == "all":
         summaries = []
         for framework_name, jsonl_path in parsed_outputs.items():

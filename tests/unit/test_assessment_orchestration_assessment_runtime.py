@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+from azure.core.exceptions import ResourceNotFoundError
+
 from runtime.assessment_orchestration.assessment_runtime import (
     AssessmentRuntimeConfig,
     SearchBackedAssessmentAgent,
@@ -18,6 +20,25 @@ class _FakeSearchClient:
     def search(self, **kwargs):
         self.calls.append(kwargs)
         return list(self._results)
+
+
+class _BrokenControlsSearchClient:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def search(self, **kwargs):
+        self.calls.append(kwargs)
+
+        class _ExplodingIterable:
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                raise ResourceNotFoundError(
+                    "The index 'controls-index' for service 'srch-dev-aue-20260408' was not found."
+                )
+
+        return _ExplodingIterable()
 
 
 def _config() -> AssessmentRuntimeConfig:
@@ -89,6 +110,34 @@ def test_search_backed_assessment_agent_retrieves_grounding() -> None:
     assert grounding.corpus_b_results[0]["source_name"] == "Essential Eight Guidance"
     assert controls_client.calls[0]["top"] >= 2
     assert evidence_client.calls[0]["filter"] == "corpus eq 'b'"
+
+
+def test_search_backed_assessment_agent_handles_missing_controls_index() -> None:
+    controls_client = _BrokenControlsSearchClient()
+    evidence_client = _FakeSearchClient(
+        [
+            {
+                "content": "Guidance remains available even when controls index is missing.",
+                "source_name": "Fallback Guidance",
+                "source_path": "/guidance/fallback",
+                "corpus": "b",
+                "corpus_role": "guidance",
+                "@search.score": 2.5,
+            }
+        ]
+    )
+    agent = SearchBackedAssessmentAgent(
+        config=_config(),
+        controls_search_client=controls_client,
+        evidence_search_client=evidence_client,
+        embed_query=lambda question: [0.1, 0.2, 0.3],
+        chat_completion=lambda messages: "{}",
+    )
+
+    grounding = agent.retrieve_corpus_grounding(_artifact())
+
+    assert grounding.corpus_a_results == []
+    assert len(grounding.corpus_b_results) == 1
 
 
 def test_search_backed_assessment_agent_generates_validated_report() -> None:
