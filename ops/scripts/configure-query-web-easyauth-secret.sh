@@ -109,8 +109,40 @@ fi
 
 if [[ -z "${APP_CLIENT_ID}" ]]; then
   echo "Unable to read query_web_entra_client_id from Terraform outputs."
-  echo "Run rollout once to create the app registration target first, then rerun this script:"
-  echo "  sudo ./ops/scripts/rollout-agent-hosting.sh ${ENVIRONMENT} apply"
+  echo "Run external Entra bootstrap first to create the app registration target, then rerun this script:"
+  echo "  ./ops/scripts/rollout-query-web-entra.sh ${ENVIRONMENT} apply"
+  exit 1
+fi
+
+echo "==> Validating private Key Vault connectivity (${KEY_VAULT_NAME}.vault.azure.net)"
+KV_RESOLUTION="$(getent ahostsv4 "${KEY_VAULT_NAME}.vault.azure.net" 2>/dev/null | awk '{print $1}' | sort -u | xargs || true)"
+if [[ -n "${KV_RESOLUTION}" ]]; then
+  echo "Resolved ${KEY_VAULT_NAME}.vault.azure.net to: ${KV_RESOLUTION}"
+else
+  echo "Failed to resolve ${KEY_VAULT_NAME}.vault.azure.net from this host."
+fi
+
+set +e
+az keyvault secret list \
+  --vault-name "${KEY_VAULT_NAME}" \
+  --maxresults 1 \
+  --query "[].id" -o tsv >/tmp/query-web-easyauth-kv-preflight.out 2>/tmp/query-web-easyauth-kv-preflight.err
+KV_PREFLIGHT_RC=$?
+set -e
+
+if [[ ${KV_PREFLIGHT_RC} -ne 0 ]]; then
+  echo "Unable to reach Key Vault data plane through an approved private path before creating app credentials."
+  cat /tmp/query-web-easyauth-kv-preflight.err
+  echo ""
+  echo "Remediation:"
+  echo "  1. Re-run private DNS provisioning/link:"
+  echo "     ./ops/scripts/phase2-network-dns.sh ${ENVIRONMENT} apply"
+  echo "  2. Re-run app-secrets private endpoint deployment:"
+  echo "     ./ops/scripts/phase3c-app-secrets.sh ${ENVIRONMENT} apply"
+  echo "  3. From jumpbox, verify private resolution:" 
+  echo "     getent ahostsv4 ${KEY_VAULT_NAME}.vault.azure.net"
+  echo ""
+  echo "Credential creation skipped so no orphan Entra app secret was added."
   exit 1
 fi
 

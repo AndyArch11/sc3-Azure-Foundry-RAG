@@ -201,12 +201,28 @@ On the jumpbox:
   - Intitial Clone: `git clone [NAME-OF-REPO]`
   - Subsequent Pull: `git pull --ff-only`
 3. Change directory into downloaded repo: `cd sc3-Azure-Foundry-RAG/`
-4. Run the jumpbox bootstrap helper (default path; auto-discovers a single attached UAMI):
+4a. Run the jumpbox bootstrap helper (default path; auto-discovers a single attached UAMI):
   - `sudo ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --init-terraform-backend "${TARGET_ENV}" --run-unit-tests`
-5. If the VM has multiple user-assigned identities, pass the intended client ID explicitly:
+4b. If the VM has multiple user-assigned identities, pass the intended client ID explicitly:
   - `sudo ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --az-login-client-id "<agent-runtime-uami-client-id>" --init-terraform-backend "${TARGET_ENV}" --run-unit-tests`
-6. If using Entra group-gated query web auth, create or rotate the EasyAuth app credential and store it in the private app secrets Key Vault:
+5. If using Entra group-gated query web auth, run the external/admin Entra bootstrap first to create the query web app registration target:
+  - `./ops/scripts/rollout-query-web-entra.sh "${TARGET_ENV}" apply`
+6. Before creating/rotating the EasyAuth app credential on jumpbox, verify private Key Vault resolution and path:
+  - `getent ahostsv4 "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name).vault.azure.net"`
+  - If resolution is not private or access fails, rerun:
+    - `./ops/scripts/phase2-network-dns.sh "${TARGET_ENV}" apply`
+    - `./ops/scripts/phase3c-app-secrets.sh "${TARGET_ENV}" apply`
+7. Then on the jumpbox, create or rotate the EasyAuth app credential and store it in the private app secrets Key Vault:
   - `sudo ./ops/scripts/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" --secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
+8. Build and push immutable image tags from the jumpbox (only for images you are rolling out):
+  ```bash
+  sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-ingestion.sh
+  sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-query-web.sh
+  sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-confluence-poller.sh
+  ```
+  Update the corresponding `*_image_tag` values in `infra/terraform/environments/${TARGET_ENV}/${TARGET_ENV}.tfvars` with the immutable tags produced above.
+9. Roll out the standard agent hosting resources from jumpbox (non-RBAC app resources only):
+  - `sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply --ingestion-tag "<immutable-ingestion-tag>" --query-web-tag "<immutable-query-web-tag>" --confluence-poller-tag "<immutable-confluence-poller-tag>" --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
 
 The standard private-network deployment path uses the Container App ingestion and query services. The `phase3b-agent-hosting.sh` script is only for the preview hosted-query-agent path and is not required for the normal runtime deployment.
 
