@@ -223,6 +223,7 @@ module "agent_hosting" {
   storage_account_name                              = module.data_services.storage_account_name
   storage_account_id                                = module.data_services.storage_account_id
   search_index_name                                 = var.search_index_name
+  controls_index_name                               = var.controls_index_name
   embedding_deployment_name                         = var.embedding_model.name
   query_deployment_name                             = var.query_model.name
   evaluator_deployment_name                         = var.evaluation_model.name
@@ -231,6 +232,8 @@ module "agent_hosting" {
   query_default_temperature                         = var.query_default_temperature
   query_evaluator_temperature                       = var.query_evaluator_temperature
   query_eval_threshold                              = var.query_eval_threshold
+  control_llm_review_enabled                        = var.control_llm_review_enabled
+  control_llm_review_heuristic_threshold            = var.control_llm_review_heuristic_threshold
   prompt_injection_validator_enabled                = var.prompt_injection_validator_enabled
   prompt_injection_validator_deployment             = trimspace(var.prompt_injection_validator_deployment) != "" ? var.prompt_injection_validator_deployment : var.validator_model.name
   prompt_injection_validator_threshold              = var.prompt_injection_validator_threshold

@@ -47,6 +47,19 @@ if ! command -v terraform >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v az >/dev/null 2>&1; then
+  echo "Azure CLI is required in PATH."
+  exit 1
+fi
+
+echo "==> Registering required Azure resource providers"
+az provider register --namespace Microsoft.App
+az provider register --namespace Microsoft.ContainerService
+az provider register --namespace Microsoft.Monitor
+az provider register --namespace Microsoft.CognitiveServices
+az provider register --namespace Microsoft.KeyVault
+az provider register --namespace Microsoft.Compute
+
 # Safety-first defaults: serialise graph execution and wait for state lock.
 TF_SAFETY_ARGS=(
   "-parallelism=1"
@@ -72,6 +85,9 @@ terraform -chdir="${BOOTSTRAP_DIR}" apply -auto-approve \
   -var="key_vault_name_prefix=${KEY_VAULT_PREFIX}" \
   -var="key_vault_extra_rbac_principal_object_ids=${KV_EXTRA_RBAC_JSON}"
 
+echo "==> Cleaning up lock state (if it exists from prior runs)"
+terraform -chdir="${BOOTSTRAP_DIR}" state rm 'azurerm_management_lock.state_storage_account' 2>/dev/null || echo "Lock state already removed or never existed"
+
 echo "==> Reading bootstrap outputs"
 STATE_RG="$(terraform -chdir="${BOOTSTRAP_DIR}" output -raw resource_group_name)"
 STATE_SA="$(terraform -chdir="${BOOTSTRAP_DIR}" output -raw storage_account_name)"
@@ -83,6 +99,7 @@ resource_group_name  = "${STATE_RG}"
 storage_account_name = "${STATE_SA}"
 container_name       = "${STATE_CONTAINER}"
 key                  = "${BACKEND_KEY}"
+use_azuread_auth     = true
 EOF
 
 cat > "${GENERATED_BOOTSTRAP_VARS_FILE}" <<EOF

@@ -23,11 +23,22 @@ variable "embedding_deployment_name" { type = string }
 variable "query_deployment_name" { type = string }
 variable "evaluator_deployment_name" { type = string }
 variable "search_index_name" { type = string }
+variable "controls_index_name" { type = string }
 variable "embedding_dimensions" { type = number }
 variable "query_top_k" { type = number }
 variable "query_default_temperature" { type = number }
 variable "query_evaluator_temperature" { type = number }
 variable "query_eval_threshold" { type = number }
+variable "control_llm_review_enabled" {
+  type        = bool
+  description = "Enable optional LLM-based control applicability review in the assessment runtime."
+  default     = false
+}
+variable "control_llm_review_heuristic_threshold" {
+  type        = number
+  description = "Confidence threshold below which controls are sent to the LLM applicability reviewer."
+  default     = 0.75
+}
 variable "prompt_injection_validator_enabled" {
   type        = bool
   description = "Enable optional LLM-based prompt injection validator stage for query web app."

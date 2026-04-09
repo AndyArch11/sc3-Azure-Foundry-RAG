@@ -209,6 +209,12 @@ variable "search_index_name" {
   default     = "grounding-index"
 }
 
+variable "controls_index_name" {
+  type        = string
+  description = "Azure AI Search index name used by assessment control retrieval workloads."
+  default     = "controls-index"
+}
+
 variable "search_service_name_override" {
   type        = string
   description = "Optional explicit Azure AI Search service name override. Leave empty to use srch-<environment>-<location_short>-<instance>."
@@ -346,6 +352,18 @@ variable "query_eval_threshold" {
   type        = number
   description = "Minimum acceptable evaluator score before triggering a second answer attempt."
   default     = 0.72
+}
+
+variable "control_llm_review_enabled" {
+  type        = bool
+  description = "Enable optional LLM-based control applicability review in the assessment runtime."
+  default     = false
+}
+
+variable "control_llm_review_heuristic_threshold" {
+  type        = number
+  description = "Confidence threshold below which controls are sent to the LLM applicability reviewer."
+  default     = 0.75
 }
 
 variable "prompt_injection_validator_enabled" {

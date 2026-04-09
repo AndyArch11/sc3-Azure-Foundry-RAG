@@ -20,6 +20,7 @@ ingestion_job_image_tag      = "latest" # Set to an immutable tag during deploym
 query_web_image_tag          = "latest" # Set to an immutable tag during deployment.
 confluence_poller_image_tag  = "latest" # Set to an immutable tag during deployment.
 search_index_name            = "grounding-index"
+controls_index_name          = "controls-index"
 # Optional overrides for globally-unique resource names (use when 409 name collisions occur).
 # search_service_name_override = "srch-prod-aue-20260329"
 # foundry_account_name_override = "foundry-prod-aue-20260329"
@@ -27,6 +28,8 @@ query_top_k               = 5
 query_default_temperature = 1.0
 query_evaluator_temperature = 1.0
 query_eval_threshold      = 0.72
+control_llm_review_enabled = false
+control_llm_review_heuristic_threshold = 0.75
 
 # Confluence poller settings (keep secrets out of tfvars where possible; pass via secure pipeline vars).
 confluence_base_url                = ""

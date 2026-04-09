@@ -44,16 +44,6 @@ resource "azurerm_storage_container" "state" {
   }
 }
 
-# Backend state protection: the storage account cannot be deleted until this lock
-# is explicitly removed. This is intentional to protect Terraform state from
-# accidental teardown or replacement during subsequent deployments.
-resource "azurerm_management_lock" "state_storage_account" {
-  name       = "lock-tfstate-storage-account"
-  scope      = azurerm_storage_account.state.id
-  lock_level = "CanNotDelete"
-  notes      = "Protects Terraform backend storage. Remove explicitly before intentional deletion."
-}
-
 # Standalone demo convenience: this vault is created with public network access
 # and stores non-secret bootstrap/runtime convenience values (e.g. SSH public key).
 # Production environments should use independently managed key lifecycle and network controls.

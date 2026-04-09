@@ -55,6 +55,20 @@ terraform -chdir=infra/terraform/bootstrap destroy \
 
 If bootstrap destroy is blocked, first remove any Terraform `prevent_destroy` guardrails or Azure management locks protecting the state storage account, then rerun destroy.
 
+### Teardown via resource group delete
+
+If `terraform destroy` is unavailable or partially applied, you can delete the resource group directly. ARM will force-cascade through all resources including delegations and service association links:
+
+```bash
+az group delete \
+  --name rg-ai-platform-<env> \
+  --subscription <subscription-id> \
+  --yes \
+  --no-wait
+```
+
+**Note**: The Container App Environment attaches a `legionservicelink` service association link to the delegated subnet (`snet-agent-delegated`) when it is created. If the CAE is deleted out of order (e.g. via the portal or partial destroy) before the VNet, the link becomes orphaned. Azure blocks subnet delegation removal and VNet deletion while the orphaned link exists, and the link cannot be removed via the CLI or ARM REST API by user credentials (`UnauthorizedClientApplication`). The only recovery path is to delete the containing resource group, which bypasses the guard at the ARM level.
+
 ## Future Considerations
 
 - If Foundry project capability host creation intermittently fails after role assignment changes, consider adding an explicit short `time_sleep` dependency between role assignments and capability host resources to absorb AAD/RBAC propagation delay.

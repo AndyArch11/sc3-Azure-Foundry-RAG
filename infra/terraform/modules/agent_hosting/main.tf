@@ -381,12 +381,24 @@ resource "azurerm_container_app" "confluence_poller" {
         value = var.search_index_name
       }
       env {
+        name  = "AZURE_SEARCH_CONTROLS_INDEX_NAME"
+        value = var.controls_index_name
+      }
+      env {
         name  = "EMBEDDING_DEPLOYMENT_NAME"
         value = var.embedding_deployment_name
       }
       env {
         name  = "QUERY_DEPLOYMENT_NAME"
         value = var.query_deployment_name
+      }
+      env {
+        name  = "CONTROL_LLM_REVIEW_ENABLED"
+        value = tostring(var.control_llm_review_enabled)
+      }
+      env {
+        name  = "CONTROL_LLM_REVIEW_HEURISTIC_THRESHOLD"
+        value = tostring(var.control_llm_review_heuristic_threshold)
       }
       env {
         name  = "CONFLUENCE_BASE_URL"

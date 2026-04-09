@@ -29,10 +29,13 @@ enable_confluence_poller_app = false
 query_web_public_endpoint    = false # Set true to expose query web publicly. Creation-level: changing later requires CAE replacement.
 
 search_index_name            = "grounding-index"
+controls_index_name          = "controls-index"
 query_top_k                  = 5
 query_default_temperature    = 1.0
 query_evaluator_temperature  = 1.0
 query_eval_threshold         = 0.72
+control_llm_review_enabled   = false
+control_llm_review_heuristic_threshold = 0.75
 
 # Optional prompt injection validator settings.
 # Keep disabled/off by default; use shadow in lower environments before enforce.

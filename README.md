@@ -190,7 +190,7 @@ For manual private-network operations, connect through Bastion to the jumpbox us
 - Authentication Type: SSH Private Key from Azure Key Vault
 - username: `azureuser`
 - Key Vault resource group: `rg-tfstate-${TARGET_ENV}`
-- Key Vault: `kvtfstatehv0ksh`
+- Key Vault: `kvtfstate<xxxxxx>`
 - private key secret: `jumpbox-admin-ssh-private-key-${TARGET_ENV}`
 
 On the jumpbox:

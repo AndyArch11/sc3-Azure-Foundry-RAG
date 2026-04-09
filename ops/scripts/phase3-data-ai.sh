@@ -78,6 +78,37 @@ if ! az account show >/dev/null 2>&1; then
   exit 1
 fi
 
+echo "==> Recovering soft-deleted Key Vaults (if any)"
+# Recover any soft-deleted KV that matches our pattern to avoid conflicts
+RESOURCE_GROUP_NAME=$(grep 'resource_group_name' "${VAR_FILE}" | awk -F'"' '{print $2}')
+LOCATION=$(grep '^location ' "${VAR_FILE}" | awk -F'"' '{print $2}')
+LOCATION_SHORT=$(grep 'location_short' "${VAR_FILE}" | awk -F'"' '{print $2}')
+INSTANCE=$(grep '^instance ' "${VAR_FILE}" | awk -F'"' '{print $2}' || echo "001")
+
+# Construct expected KV name pattern: kvapp{env}-{location_short}-{instance} with hyphens removed
+EXPECTED_KV_PATTERN="kvapp"
+
+# Find and purge any soft-deleted KVs in the same RG
+echo "Checking for soft-deleted Key Vaults in ${RESOURCE_GROUP_NAME}..."
+for vault in $(az keyvault list-deleted --query "[?properties.location=='${LOCATION}'].name" -o tsv 2>/dev/null || true); do
+  if [[ "$vault" == kvapp* ]]; then
+    echo "Purging soft-deleted Key Vault: ${vault}"
+    az keyvault purge --name "${vault}" --location "${LOCATION}" || echo "Failed to purge ${vault}; may retry on next attempt"
+  fi
+done
+
+echo "==> Removing any management locks on state storage account"
+# Remove locks on the Terraform state storage account to allow role assignment operations
+STATE_RG="rg-tfstate-${ENVIRONMENT}"
+# Find and remove any locks on state storage accounts
+for sa_name in $(az storage account list --resource-group "${STATE_RG}" --query "[?starts_with(name, 'sttfstate')].name" -o tsv 2>/dev/null || true); do
+  SA_ID="/subscriptions/$(az account show --query id -o tsv)/resourceGroups/${STATE_RG}/providers/Microsoft.Storage/storageAccounts/${sa_name}"
+  for lock_id in $(az lock list --resource-group "${STATE_RG}" --query "[?scope=='${SA_ID}'].id" -o tsv 2>/dev/null || true); do
+    echo "Removing lock: ${lock_id}"
+    az lock delete --ids "${lock_id}" 2>/dev/null || echo "Lock already removed"
+  done
+done
+
 echo "==> Initialising Terraform root stack"
 terraform -chdir="${TF_DIR}" init -reconfigure -backend-config="${BACKEND_FILE}"
 
@@ -122,3 +153,26 @@ else
 fi
 
 echo "==> Phase 3 ${ACTION} completed for ${ENVIRONMENT}"
+
+if [[ "${ACTION}" == "apply" ]]; then
+  echo "==> Granting agent runtime identity access to Terraform state storage"
+  STATE_RG="rg-tfstate-${ENVIRONMENT}"
+  LOCATION=$(grep '^location ' "${VAR_FILE}" | awk -F'"' '{print $2}')
+  LOCATION_SHORT=$(grep 'location_short' "${VAR_FILE}" | awk -F'"' '{print $2}')
+  INSTANCE=$(grep '^instance ' "${VAR_FILE}" | awk -F'"' '{print $2}' || echo "001")
+  IDENTITY_NAME="id-agent-runtime-${ENVIRONMENT}-${LOCATION_SHORT}-${INSTANCE}"
+  STATE_SA_NAME=$(az storage account list --resource-group "${STATE_RG}" --query "[?starts_with(name, 'sttfstate')].name" -o tsv 2>/dev/null | head -1 || true)
+  
+  if [[ -n "${STATE_SA_NAME}" ]]; then
+    PRINCIPAL_ID=$(az identity list --query "[?name=='${IDENTITY_NAME}'].principalId" -o tsv 2>/dev/null || true)
+    if [[ -n "${PRINCIPAL_ID}" ]]; then
+      SA_ID="/subscriptions/$(az account show --query id -o tsv)/resourceGroups/${STATE_RG}/providers/Microsoft.Storage/storageAccounts/${STATE_SA_NAME}"
+      echo "Assigning Storage Blob Data Contributor role to ${IDENTITY_NAME} on ${STATE_SA_NAME}"
+      az role assignment create --role "Storage Blob Data Contributor" --assignee-object-id "${PRINCIPAL_ID}" --scope "${SA_ID}" 2>/dev/null || echo "Role assignment already exists"
+    else
+      echo "Warning: Could not find agent runtime identity ${IDENTITY_NAME}"
+    fi
+  else
+    echo "Warning: Could not find Terraform state storage account in ${STATE_RG}"
+  fi
+fi
