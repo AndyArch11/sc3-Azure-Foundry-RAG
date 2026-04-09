@@ -2596,11 +2596,10 @@ async def upload_corpus_c_and_trigger(
         )
         trigger_result: dict[str, Any] | None = None
         if trigger_job:
-            trigger_result = _trigger_ingestion_job_with_args([
-                "--mode",
-                "azure",
-                "--skip-upload",
-            ])
+            # The ingestion job template already defaults to --mode azure --skip-upload.
+            # Starting with an args override can be rejected by ARM in some environments
+            # unless a full container image spec is supplied in the override payload.
+            trigger_result = _trigger_ingestion_job()
 
         status_code = 200
         if upload_result["failed"]:
