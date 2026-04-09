@@ -683,6 +683,170 @@ def _validate_compliance_report_payload(payload: dict[str, Any]) -> ComplianceRe
     return report
 
 
+def _clean_non_empty_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items: list[str] = []
+    for raw in value:
+        text = str(raw or "").strip()
+        if text:
+            items.append(text)
+    return items
+
+
+def _normalise_compliance_report_payload(
+    payload: dict[str, Any],
+    *,
+    question: str,
+    controls: list[dict[str, Any]],
+    corpus_b_chunks: list[dict[str, Any]],
+    corpus_c_chunks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    report = dict(payload or {})
+
+    controls_count = len(controls)
+    corpus_b_count = len(corpus_b_chunks)
+    corpus_c_count = len(corpus_c_chunks)
+
+    control_ids = [
+        str(item.get("requirement_id") or "").strip()
+        for item in controls
+        if str(item.get("requirement_id") or "").strip()
+    ]
+    control_frameworks = [
+        str(item.get("framework") or "").strip()
+        for item in controls
+        if str(item.get("framework") or "").strip()
+    ]
+    source_names = [
+        str(item.get("source_name") or "").strip()
+        for item in [*corpus_c_chunks, *corpus_b_chunks]
+        if str(item.get("source_name") or "").strip()
+    ]
+
+    default_requirement_id = control_ids[0] if control_ids else "UNMAPPED"
+    default_framework = control_frameworks[0] if control_frameworks else "Unknown"
+    default_sources = source_names or ["No direct evidence source available"]
+
+    report["schema_version"] = str(report.get("schema_version") or COMPLIANCE_REPORT_SCHEMA_VERSION).strip()
+
+    executive_summary = str(report.get("executive_summary") or "").strip()
+    if not executive_summary:
+        executive_summary = (
+            "Automated compliance assessment generated with available grounded evidence. "
+            "Some required fields were normalised due to incomplete model output."
+        )
+    if (controls_count > 0 or corpus_c_count > 0) and "no normative requirements" in executive_summary.lower():
+        executive_summary = (
+            "Automated compliance assessment generated from retrieved corpus evidence. "
+            "Some model statements were corrected to match retrieved control and artifact counts."
+        )
+    report["executive_summary"] = executive_summary
+
+    # Keep scope summary aligned with actual retrieval to avoid contradictory model prose.
+    scope_and_inputs = [
+        f"Corpus A controls retrieved: {controls_count}",
+        f"Corpus B guidance retrieved: {corpus_b_count}",
+        f"Corpus C artifacts retrieved: {corpus_c_count}",
+    ]
+    report["scope_and_inputs"] = scope_and_inputs
+
+    controls_assessed = _clean_non_empty_string_list(report.get("controls_assessed"))
+    if control_ids:
+        controls_assessed = control_ids
+    elif not controls_assessed:
+        controls_assessed = ["UNMAPPED"]
+    report["controls_assessed"] = controls_assessed
+
+    report["guidance_applied"] = _clean_non_empty_string_list(report.get("guidance_applied"))
+
+    findings_raw = report.get("findings")
+    findings: list[dict[str, Any]] = []
+    if isinstance(findings_raw, list):
+        findings = [item for item in findings_raw if isinstance(item, dict)]
+
+    if not findings:
+        findings = [
+            {
+                "finding_id": "finding-1",
+                "requirement_id": default_requirement_id,
+                "framework": default_framework,
+                "status": "insufficient_evidence",
+                "severity": "medium",
+                "rationale": "Insufficient grounded evidence was available to produce a complete structured finding.",
+                "evidence_sources": default_sources,
+                "gaps": ["Insufficient structured evidence"],
+                "recommendations": ["Collect additional evidence and re-run assessment."],
+            }
+        ]
+
+    normalised_findings: list[dict[str, Any]] = []
+    valid_status = {"compliant", "partially_compliant", "non_compliant", "not_applicable", "insufficient_evidence"}
+    valid_severity = {"low", "medium", "high", "critical"}
+    for idx, finding in enumerate(findings):
+        finding_id = str(finding.get("finding_id") or "").strip() or f"finding-{idx + 1}"
+        requirement_id = str(finding.get("requirement_id") or "").strip() or default_requirement_id
+        framework = str(finding.get("framework") or "").strip() or default_framework
+        status = str(finding.get("status") or "").strip().lower()
+        severity = str(finding.get("severity") or "").strip().lower()
+        rationale = str(finding.get("rationale") or "").strip()
+        if not rationale:
+            rationale = "Model output omitted rationale; marked as insufficient evidence."
+            status = "insufficient_evidence"
+        if status not in valid_status:
+            status = "insufficient_evidence"
+        if severity not in valid_severity:
+            severity = "medium"
+
+        evidence_sources = _clean_non_empty_string_list(finding.get("evidence_sources"))
+        if not evidence_sources:
+            evidence_sources = default_sources
+
+        gaps = _clean_non_empty_string_list(finding.get("gaps"))
+        recommendations = _clean_non_empty_string_list(finding.get("recommendations"))
+
+        normalised_findings.append(
+            {
+                "finding_id": finding_id,
+                "requirement_id": requirement_id,
+                "framework": framework,
+                "status": status,
+                "severity": severity,
+                "rationale": rationale,
+                "evidence_sources": evidence_sources,
+                "gaps": gaps,
+                "recommendations": recommendations,
+            }
+        )
+    report["findings"] = normalised_findings
+
+    risk = str(report.get("overall_risk_rating") or "").strip().lower()
+    if risk not in {"low", "medium", "high", "critical"}:
+        risk = "medium"
+    report["overall_risk_rating"] = risk
+
+    missing_evidence = _clean_non_empty_string_list(report.get("missing_evidence"))
+    if not missing_evidence and (not controls or not source_names):
+        missing_evidence = [
+            "Insufficient grounded evidence for full control mapping and source attribution.",
+        ]
+    report["missing_evidence"] = missing_evidence
+
+    recommended_actions = _clean_non_empty_string_list(report.get("recommended_actions"))
+    if not recommended_actions:
+        recommended_actions = [
+            "Collect additional evidence and re-run compliance assessment.",
+        ]
+    report["recommended_actions"] = recommended_actions
+
+    citations = _clean_non_empty_string_list(report.get("citations"))
+    if not citations:
+        citations = default_sources
+    report["citations"] = citations
+
+    return report
+
+
 def _report_findings_to_csv(report: ComplianceReportStructured) -> str:
     buffer = io.StringIO()
     writer = csv.writer(buffer)
@@ -1564,6 +1728,39 @@ def _chat_completion(messages: list[dict[str, str]], deployment: str, temperatur
         else:
             raise
     return (response.choices[0].message.content or "").strip()
+
+
+def _chat_completion_with_empty_retry(
+    messages: list[dict[str, str]],
+    *,
+    deployment: str,
+    temperature: float,
+    timeout: int = 45,
+) -> str:
+    response = _unwrap_answer(
+        _chat_completion(
+            messages,
+            deployment=deployment,
+            temperature=temperature,
+            timeout=timeout,
+        )
+    ).strip()
+    if response:
+        return response
+
+    retry_temperature = 1.0 if float(temperature) != 1.0 else 0.2
+    logger.warning(
+        "Compliance model returned an empty response; retrying once with temperature=%.1f",
+        retry_temperature,
+    )
+    return _unwrap_answer(
+        _chat_completion(
+            messages,
+            deployment=deployment,
+            temperature=retry_temperature,
+            timeout=timeout,
+        )
+    ).strip()
 
 
 def _evaluate(question: str, context: str, answer: str) -> dict[str, Any]:
@@ -2833,12 +3030,10 @@ def generate_compliance_report(request: Request, payload: ComplianceReportReques
             },
         ]
 
-        model_response = _unwrap_answer(
-            _chat_completion(
-                messages,
-                deployment=config.query_deployment,
-                temperature=payload.temperature,
-            )
+        model_response = _chat_completion_with_empty_retry(
+            messages,
+            deployment=config.query_deployment,
+            temperature=payload.temperature,
         )
         validation_error = ""
         report_structured: ComplianceReportStructured | None = None
@@ -2848,6 +3043,13 @@ def generate_compliance_report(request: Request, payload: ComplianceReportReques
 
         try:
             report_payload = _extract_json_object(model_response)
+            report_payload = _normalise_compliance_report_payload(
+                report_payload,
+                question=question,
+                controls=controls,
+                corpus_b_chunks=corpus_b_chunks,
+                corpus_c_chunks=corpus_c_chunks,
+            )
             report_structured = _validate_compliance_report_payload(report_payload)
             report_markdown = _report_to_markdown(report_structured)
             report_csv = _report_findings_to_csv(report_structured)

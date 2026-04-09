@@ -83,7 +83,7 @@ def test_corpus_b_clear_dry_run_uses_count_paths() -> None:
     delete_blobs.assert_not_called()
 
 
-def test_compliance_report_soft_mode_returns_validation_details() -> None:
+def test_compliance_report_soft_mode_normalises_incomplete_payload() -> None:
     client = _test_client()
 
     with patch.object(app_module, "config", _open_auth_config()), patch.object(
@@ -110,13 +110,13 @@ def test_compliance_report_soft_mode_returns_validation_details() -> None:
 
     body = response.json()
     assert response.status_code == 200
-    assert body["schema_valid"] is False
+    assert body["schema_valid"] is True
     assert body["validation_mode"] == "soft"
-    assert body["report_structured"] is None
-    assert body["validation_error"]
+    assert body["report_structured"] is not None
+    assert body["validation_error"] == ""
 
 
-def test_compliance_report_hard_mode_fails_on_schema_mismatch() -> None:
+def test_compliance_report_hard_mode_normalises_incomplete_payload() -> None:
     client = _test_client()
 
     with patch.object(app_module, "config", _open_auth_config()), patch.object(
@@ -142,8 +142,9 @@ def test_compliance_report_hard_mode_fails_on_schema_mismatch() -> None:
         )
 
     body = response.json()
-    assert response.status_code == 500
-    assert "schema validation failed" in body["error"].lower()
+    assert response.status_code == 200
+    assert body["schema_valid"] is True
+    assert body["report_structured"] is not None
 
 
 def test_compliance_report_valid_schema_returns_csv() -> None:
@@ -201,3 +202,211 @@ def test_compliance_report_valid_schema_returns_csv() -> None:
     assert body["schema_valid"] is True
     assert body["report_structured"]["schema_version"] == "v1.1"
     assert "finding_id,requirement_id,framework,status,severity" in body["report_findings_csv"]
+
+
+def test_compliance_report_retries_after_empty_model_response() -> None:
+    client = _test_client()
+
+    valid_report_json = (
+        "{"
+        '"schema_version":"v1.1",'
+        '"executive_summary":"Summary",'
+        '"scope_and_inputs":["Corpus A","Corpus B","Corpus C"],'
+        '"controls_assessed":["REQ-1"],'
+        '"guidance_applied":["Guide 1"],'
+        '"findings":[{'
+        '"finding_id":"F-1",'
+        '"requirement_id":"REQ-1",'
+        '"framework":"NIST CSF",'
+        '"status":"compliant",'
+        '"severity":"low",'
+        '"rationale":"Met",'
+        '"evidence_sources":["doc1"],'
+        '"gaps":[], '
+        '"recommendations":["Keep monitoring"]'
+        '}],'
+        '"overall_risk_rating":"low",'
+        '"missing_evidence":[],'
+        '"recommended_actions":["Continue"],'
+        '"citations":["REQ-1:doc1"]'
+        "}"
+    )
+
+    with patch.object(app_module, "config", _open_auth_config()), patch.object(
+        app_module,
+        "_controls_search",
+        return_value=([], {"controls_search_s": 0.01}),
+    ), patch.object(
+        app_module,
+        "_hybrid_search",
+        side_effect=[([], {"search_s": 0.01}), ([], {"search_s": 0.02})],
+    ), patch.object(
+        app_module,
+        "_chat_completion",
+        side_effect=["", valid_report_json],
+    ) as completion_mock:
+        response = client.post(
+            "/api/compliance/report",
+            json={
+                "question": "Assess control coverage.",
+                "validation_mode": "hard",
+                "auth_token": "",
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["schema_valid"] is True
+    assert completion_mock.call_count == 2
+
+
+def test_compliance_report_normalises_incomplete_model_json() -> None:
+    client = _test_client()
+
+    incomplete_report_json = (
+        "{"
+        '"schema_version":"v1.1",'
+        '"executive_summary":"Draft summary",'
+        '"scope_and_inputs":["Corpus A","Corpus B","Corpus C"],'
+        '"controls_assessed":[],'
+        '"guidance_applied":[],'
+        '"findings":[{'
+        '"finding_id":"F-1",'
+        '"requirement_id":"",'
+        '"framework":"",'
+        '"status":"insufficient_evidence",'
+        '"severity":"medium",'
+        '"rationale":"Need more evidence",'
+        '"evidence_sources":[],'
+        '"gaps":[], '
+        '"recommendations":[]'
+        '}],'
+        '"overall_risk_rating":"medium",'
+        '"missing_evidence":[], '
+        '"recommended_actions":[], '
+        '"citations":[]'
+        "}"
+    )
+
+    with patch.object(app_module, "config", _open_auth_config()), patch.object(
+        app_module,
+        "_controls_search",
+        return_value=(
+            [
+                {
+                    "requirement_id": "REQ-1",
+                    "framework": "NIST CSF",
+                    "framework_version": "2.0",
+                    "control_family": "Access Control",
+                    "requirement_text": "Use MFA",
+                    "guidance_text": "Apply MFA broadly",
+                    "source_uri": "controls://req-1",
+                }
+            ],
+            {"controls_search_s": 0.01},
+        ),
+    ), patch.object(
+        app_module,
+        "_hybrid_search",
+        side_effect=[
+            ([{"source_name": "Guide-A", "content": "guidance"}], {"search_s": 0.01}),
+            ([{"source_name": "Artifact-1", "content": "artifact"}], {"search_s": 0.02}),
+        ],
+    ), patch.object(
+        app_module,
+        "_chat_completion",
+        return_value=incomplete_report_json,
+    ):
+        response = client.post(
+            "/api/compliance/report",
+            json={
+                "question": "Assess control coverage.",
+                "validation_mode": "hard",
+                "auth_token": "",
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["schema_valid"] is True
+    assert body["report_structured"]["controls_assessed"]
+    assert body["report_structured"]["findings"][0]["requirement_id"]
+    assert body["report_structured"]["findings"][0]["framework"]
+    assert body["report_structured"]["findings"][0]["evidence_sources"]
+
+
+def test_compliance_report_corrects_model_claims_when_grounding_exists() -> None:
+    client = _test_client()
+
+    contradictory_report_json = (
+        "{"
+        '"schema_version":"v1.1",'
+        '"executive_summary":"No normative requirements or assessed artifacts were available.",'
+        '"scope_and_inputs":["Corpus A: No controls retrieved"],'
+        '"controls_assessed":[],'
+        '"guidance_applied":[],'
+        '"findings":[{'
+        '"finding_id":"F-1",'
+        '"requirement_id":"",'
+        '"framework":"",'
+        '"status":"insufficient_evidence",'
+        '"severity":"high",'
+        '"rationale":"No evidence",'
+        '"evidence_sources":[],'
+        '"gaps":[], '
+        '"recommendations":[]'
+        '}],'
+        '"overall_risk_rating":"high",'
+        '"missing_evidence":[], '
+        '"recommended_actions":[], '
+        '"citations":[]'
+        "}"
+    )
+
+    with patch.object(app_module, "config", _open_auth_config()), patch.object(
+        app_module,
+        "_controls_search",
+        return_value=(
+            [
+                {
+                    "requirement_id": "REQ-99",
+                    "framework": "NIST CSF",
+                    "framework_version": "2.0",
+                    "control_family": "Protect",
+                    "requirement_text": "Control text",
+                    "guidance_text": "Guidance text",
+                    "source_uri": "controls://req-99",
+                }
+            ],
+            {"controls_search_s": 0.01},
+        ),
+    ), patch.object(
+        app_module,
+        "_hybrid_search",
+        side_effect=[
+            ([{"source_name": "Guide-X", "content": "guidance"}], {"search_s": 0.01}),
+            ([{"source_name": "Artifact-X", "content": "artifact"}], {"search_s": 0.02}),
+        ],
+    ), patch.object(
+        app_module,
+        "_chat_completion",
+        return_value=contradictory_report_json,
+    ):
+        response = client.post(
+            "/api/compliance/report",
+            json={
+                "question": "Assess control coverage.",
+                "validation_mode": "hard",
+                "auth_token": "",
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["schema_valid"] is True
+    assert body["report_structured"]["controls_assessed"] == ["REQ-99"]
+    assert body["report_structured"]["scope_and_inputs"] == [
+        "Corpus A controls retrieved: 1",
+        "Corpus B guidance retrieved: 1",
+        "Corpus C artifacts retrieved: 1",
+    ]
