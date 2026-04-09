@@ -70,7 +70,8 @@ module "observability" {
   source              = "./modules/observability"
   resource_group_name = module.foundation.resource_group_name
   location            = var.location
-  workspace_name      = "law-${local.naming_suffix}"
+  workspace_name      = trimspace(var.log_analytics_workspace_name_override) != "" ? var.log_analytics_workspace_name_override : "law-${local.naming_suffix}"
+  monitor_workspace_name_override = var.monitor_workspace_name_override
   tags                = local.tags
 }
 
@@ -80,6 +81,9 @@ module "data_services" {
   location                            = var.location
   suffix                              = local.naming_suffix
   search_service_name_override        = var.search_service_name_override
+  storage_account_name_override       = var.storage_account_name_override
+  acr_name_override                   = var.acr_name_override
+  cosmos_account_name_override        = var.cosmos_account_name_override
   cosmos_database_name                = var.cosmos_database_name
   cosmos_container_name               = var.cosmos_container_name
   cosmos_orchestration_container_name = var.cosmos_orchestration_container_name
@@ -126,6 +130,7 @@ module "identity" {
   resource_group_name                 = module.foundation.resource_group_name
   location                            = var.location
   suffix                              = local.naming_suffix
+  agent_runtime_identity_name_override = var.agent_runtime_identity_name_override
   deployment_principal_object_id      = data.azurerm_client_config.current.object_id
   search_service_principal_id         = module.data_services.search_service_principal_id
   terraform_state_storage_account_id  = local.use_bootstrap_state_storage ? data.azurerm_storage_account.bootstrap_state[0].id : ""

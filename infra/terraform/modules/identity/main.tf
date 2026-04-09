@@ -1,7 +1,7 @@
 data "azurerm_client_config" "current" {}
 
 resource "azurerm_user_assigned_identity" "agent_runtime" {
-  name                = "id-agent-runtime-${var.suffix}"
+  name                = trimspace(var.agent_runtime_identity_name_override) != "" ? var.agent_runtime_identity_name_override : "id-agent-runtime-${var.suffix}"
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags

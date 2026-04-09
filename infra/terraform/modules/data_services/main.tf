@@ -5,7 +5,7 @@ resource "random_string" "storage_suffix" {
 }
 
 resource "azurerm_storage_account" "this" {
-  name                            = substr(replace("st${var.suffix}${random_string.storage_suffix.result}", "-", ""), 0, 24)
+  name                            = trimspace(var.storage_account_name_override) != "" ? var.storage_account_name_override : substr(replace("st${var.suffix}${random_string.storage_suffix.result}", "-", ""), 0, 24)
   resource_group_name             = var.resource_group_name
   location                        = var.location
   account_tier                    = "Standard"
@@ -38,7 +38,7 @@ resource "azurerm_search_service" "this" {
 }
 
 resource "azurerm_cosmosdb_account" "this" {
-  name                          = "cosmos-${var.suffix}"
+  name                          = trimspace(var.cosmos_account_name_override) != "" ? var.cosmos_account_name_override : "cosmos-${var.suffix}"
   location                      = var.location
   resource_group_name           = var.resource_group_name
   offer_type                    = "Standard"
@@ -107,7 +107,7 @@ resource "azurerm_cosmosdb_sql_container" "orchestration_state" {
 # Azure Container Registry — Premium SKU required for private endpoint.
 # Admin credentials disabled; access is exclusively via managed identity (AcrPull).
 resource "azurerm_container_registry" "this" {
-  name                          = "acr${replace(var.suffix, "-", "")}"
+  name                          = trimspace(var.acr_name_override) != "" ? var.acr_name_override : "acr${replace(var.suffix, "-", "")}"
   resource_group_name           = var.resource_group_name
   location                      = var.location
   sku                           = "Premium"

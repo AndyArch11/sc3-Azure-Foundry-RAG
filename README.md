@@ -201,9 +201,9 @@ On the jumpbox:
   - Intitial Clone: `git clone [NAME-OF-REPO]`
   - Subsequent Pull: `git pull --ff-only`
 3. Change directory into downloaded repo: `cd sc3-Azure-Foundry-RAG/`
-4a. Run the jumpbox bootstrap helper (default path; auto-discovers a single attached UAMI):
+4. a) Run the jumpbox bootstrap helper (default path; auto-discovers a single attached UAMI):
   - `sudo ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --init-terraform-backend "${TARGET_ENV}" --run-unit-tests`
-4b. If the VM has multiple user-assigned identities, pass the intended client ID explicitly:
+4. b) If the VM has multiple user-assigned identities, pass the intended client ID explicitly:
   - `sudo ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --az-login-client-id "<agent-runtime-uami-client-id>" --init-terraform-backend "${TARGET_ENV}" --run-unit-tests`
 5. If using Entra group-gated query web auth, run the external/admin Entra bootstrap first to create the query web app registration target:
   - `./ops/scripts/rollout-query-web-entra.sh "${TARGET_ENV}" apply`

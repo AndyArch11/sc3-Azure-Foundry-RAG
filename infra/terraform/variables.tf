@@ -221,9 +221,45 @@ variable "search_service_name_override" {
   default     = ""
 }
 
+variable "storage_account_name_override" {
+  type        = string
+  description = "Optional explicit Storage account name override. Leave empty to use generated st<suffix><random>."
+  default     = ""
+}
+
+variable "acr_name_override" {
+  type        = string
+  description = "Optional explicit ACR name override. Leave empty to use acr<suffix-without-dashes>."
+  default     = ""
+}
+
 variable "foundry_account_name_override" {
   type        = string
   description = "Optional explicit Foundry/Cognitive account name override. Leave empty to use foundry-<environment>-<location_short>-<instance>."
+  default     = ""
+}
+
+variable "cosmos_account_name_override" {
+  type        = string
+  description = "Optional explicit Cosmos DB account name override. Leave empty to use cosmos-<environment>-<location_short>-<instance>."
+  default     = ""
+}
+
+variable "log_analytics_workspace_name_override" {
+  type        = string
+  description = "Optional explicit Log Analytics workspace name override. Leave empty to use law-<environment>-<location_short>-<instance>."
+  default     = ""
+}
+
+variable "monitor_workspace_name_override" {
+  type        = string
+  description = "Optional explicit Azure Monitor workspace name override. Leave empty to use amw-<law-suffix>."
+  default     = ""
+}
+
+variable "agent_runtime_identity_name_override" {
+  type        = string
+  description = "Optional explicit runtime UAMI name override. Leave empty to use id-agent-runtime-<environment>-<location_short>-<instance>."
   default     = ""
 }
 

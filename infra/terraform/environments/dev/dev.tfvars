@@ -25,6 +25,12 @@ controls_index_name          = "controls-index"
 # Optional overrides for globally-unique resource names (use when 409 name collisions occur).
 search_service_name_override  = "srch-dev-aue-20260408"
 foundry_account_name_override = "foundry-dev-aue-20260408"
+storage_account_name_override = "stdevaue04or4t4u"
+acr_name_override             = "acrdevaue04"
+cosmos_account_name_override  = "cosmos-dev-aue-04"
+log_analytics_workspace_name_override = "law-dev-aue-04"
+monitor_workspace_name_override       = "amw-dev-aue-20260408"
+agent_runtime_identity_name_override  = "id-agent-runtime-dev-aue-04"
 query_top_k                   = 5
 query_default_temperature     = 1.0
 query_evaluator_temperature   = 1.0

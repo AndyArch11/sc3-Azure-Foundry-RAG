@@ -8,7 +8,7 @@ resource "azurerm_log_analytics_workspace" "this" {
 }
 
 resource "azurerm_monitor_workspace" "prometheus" {
-  name                = "amw-${replace(var.workspace_name, "law-", "")}"
+  name                = trimspace(var.monitor_workspace_name_override) != "" ? var.monitor_workspace_name_override : "amw-${replace(var.workspace_name, "law-", "")}"
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
