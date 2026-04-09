@@ -24,7 +24,6 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-APP_DIR="${REPO_ROOT}/query_web"
 TF_DIR="${REPO_ROOT}/infra/terraform"
 
 DOCKER_CMD=(docker)
@@ -173,7 +172,11 @@ _assert_private_acr_resolution "${ACR_LOGIN_SERVER}"
 _assert_private_acr_data_endpoint_if_enabled "${ACR_LOGIN_SERVER%%.*}"
 az acr login --name "${ACR_LOGIN_SERVER%%.*}"
 
-"${DOCKER_CMD[@]}" build --platform linux/amd64 --tag "${FULL_IMAGE}" "${APP_DIR}"
+"${DOCKER_CMD[@]}" build \
+  --platform linux/amd64 \
+  --file "${REPO_ROOT}/query_web/Dockerfile" \
+  --tag "${FULL_IMAGE}" \
+  "${REPO_ROOT}"
 "${DOCKER_CMD[@]}" push "${FULL_IMAGE}"
 
 echo "==> Done: ${FULL_IMAGE}"
