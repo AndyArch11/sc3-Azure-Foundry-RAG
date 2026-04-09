@@ -3,7 +3,7 @@ location                     = "australiaeast"
 location_short               = "aue"
 environment                  = "dev"
 resource_group_name          = "rg-ai-platform-dev"
-instance                     = "04"
+instance                     = "20260408"
 vnet_cidr                    = "10.20.0.0/16"
 private_endpoint_subnet_cidr = "10.20.1.0/24"
 agent_subnet_cidr            = "10.20.2.0/24"
@@ -19,7 +19,7 @@ enable_confluence_poller_app = true
 query_web_public_endpoint    = true                   # Set true for public query web ingress. Creation-level: switching later requires CAE replacement.
 ingestion_job_image_tag      = "202604090522-d9b1efb" # Immutable tag. Update when a new ingestion image is pushed.
 query_web_image_tag          = "202604090523-d9b1efb" # Immutable tag. Update when a new query-web image is pushed.
-confluence_poller_image_tag  = "202604090524-d9b1efb" # Set to an immutable tag during deployment.
+confluence_poller_image_tag  = "202604090524-d9b1efb" # Immutable tag. Update when a new confluence poller image is pushed.
 search_index_name            = "grounding-index"
 controls_index_name          = "controls-index"
 # Optional overrides for globally-unique resource names (use when 409 name collisions occur).

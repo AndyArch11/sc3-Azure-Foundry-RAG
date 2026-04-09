@@ -314,7 +314,7 @@ resource "azurerm_container_app" "query_web" {
 
 resource "azurerm_container_app" "confluence_poller" {
   count                        = var.enable_confluence_poller_app ? 1 : 0
-  name                         = "ca-confluence-poller-${var.suffix}"
+  name                         = "ca-conf-poller-${var.suffix}"
   resource_group_name          = var.resource_group_name
   container_app_environment_id = azurerm_container_app_environment.this.id
   revision_mode                = "Single"
