@@ -178,7 +178,7 @@ az acr login --name "${ACR_LOGIN_SERVER%%.*}"
   --platform linux/amd64 \
   --file "${RUNTIME_DIR}/Dockerfile.poller" \
   --tag "${FULL_IMAGE}" \
-  "${RUNTIME_DIR}"
+  "${REPO_ROOT}"
 
 "${DOCKER_CMD[@]}" push "${FULL_IMAGE}"
 

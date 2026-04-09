@@ -2,13 +2,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+ENV PYTHONPATH=/app
 
-COPY assessment_orchestration/ ./assessment_orchestration/
+COPY runtime/requirements.txt ./runtime-requirements.txt
+RUN pip install --no-cache-dir -r runtime-requirements.txt
+
+COPY runtime ./runtime
 
 RUN useradd -m -u 1000 appuser
 USER appuser
 
-ENTRYPOINT ["python", "-m", "assessment_orchestration.polling_worker_main"]
+ENTRYPOINT ["python", "-m", "runtime.assessment_orchestration.polling_worker_main"]
 CMD ["--once"]
