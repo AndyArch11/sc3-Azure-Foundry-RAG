@@ -779,6 +779,8 @@ def _validate_compliance_report_payload(payload: dict[str, Any]) -> ComplianceRe
 
 
 def _clean_non_empty_string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        value = [value]
     if not isinstance(value, list):
         return []
     items: list[str] = []
@@ -1160,6 +1162,14 @@ def _assess_control_finding_with_llm(
         "recommendations": ["Provide corroborating evidence and reassess this control."],
     }
     fallback.update(parsed)
+
+    fallback["evidence_sources"] = _clean_non_empty_string_list(
+        fallback.get("evidence_sources")
+    ) or ["No evidence sources retrieved"]
+    fallback["gaps"] = _clean_non_empty_string_list(fallback.get("gaps"))
+    fallback["recommendations"] = _clean_non_empty_string_list(
+        fallback.get("recommendations")
+    )
     return fallback
 
 

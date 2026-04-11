@@ -147,7 +147,7 @@
 </head>
 <body>
   <div class="wrap">
-    <script id="server-data" type="application/json">{"question": {{ question | tojson }}, "answer": {{ answer | tojson }}, "user_id": {{ user_id | tojson }}}</script>
+    <script id="server-data" type="application/json">{"question": {{ question | tojson }}, "answer": {{ answer | tojson }}, "error": {{ error | tojson }}, "user_id": {{ user_id | tojson }}}</script>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
         <h1 style="margin-bottom:2px">RAG Query Console</h1>
@@ -171,7 +171,7 @@
         <div id="conversation-thread" class="chat-thread"></div>
       </div>
 
-      <form method="post" action="/ask">
+      <form method="post" action="/ask" id="ask-form">
         <label for="question"><strong>Question</strong></label>
         <textarea id="question" name="question" placeholder="Ask about your indexed documents...">{{ question or '' }}</textarea>
 
@@ -215,7 +215,7 @@
         </div>
         <input type="hidden" name="session_id" id="session_id_field" value="{{ session_id or '' }}" />
         <input type="hidden" name="conversation_id" id="conversation_id_field" value="{{ conversation_id or '' }}" />
-        <button type="submit">Ask</button>
+        <button type="submit" id="ask-submit-btn">Ask</button>
       </form>
 
       <div class="source" id="corpus-a-ops">
@@ -1103,6 +1103,8 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     const sd = JSON.parse(document.getElementById('server-data').textContent);
+    const pendingKey = 'rag_pending_question';
+    const pendingAtKey = 'rag_pending_question_at';
 
     let session = loadSession();
     if (!session) {
@@ -1135,17 +1137,45 @@
     document.getElementById('session_id_field').value = session.session_id;
     document.getElementById('conversation_id_field').value = session.conversation_id;
 
-    // Append the server-rendered response to local history
-    if (sd.question && sd.answer) {
+    // If server confirmed the pending question, clear pending marker.
+    const pendingQuestion = (sessionStorage.getItem(pendingKey) || '').trim();
+    if (pendingQuestion && sd.question && pendingQuestion === sd.question) {
+      sessionStorage.removeItem(pendingKey);
+      sessionStorage.removeItem(pendingAtKey);
+    }
+
+    // Append the server-rendered turn to local history.
+    // Also append when there is an error so the latest asked question is not lost.
+    if (sd.question && (sd.answer || sd.error)) {
+      const renderedAnswer = (sd.answer && sd.answer.trim())
+        ? sd.answer
+        : ('Request failed: ' + (sd.error || 'No response returned.'));
       const last = session.turns[session.turns.length - 1];
-      if (!last || last.q !== sd.question || last.a !== sd.answer) {
-        session.turns.push({ q: sd.question, a: sd.answer });
+      if (!last || last.q !== sd.question || last.a !== renderedAnswer) {
+        session.turns.push({ q: sd.question, a: renderedAnswer });
         saveSession(session);
       }
     }
 
     renderThread(session.turns);
     refreshCorpusAStatus();
+
+    const askForm = document.getElementById('ask-form');
+    const askBtn = document.getElementById('ask-submit-btn');
+    if (askForm && askBtn) {
+      askForm.addEventListener('submit', function () {
+        const questionField = document.getElementById('question');
+        const submitted = questionField && typeof questionField.value === 'string'
+          ? questionField.value.trim()
+          : '';
+        if (submitted) {
+          sessionStorage.setItem(pendingKey, submitted);
+          sessionStorage.setItem(pendingAtKey, String(Date.now()));
+        }
+        askBtn.disabled = true;
+        askBtn.textContent = 'Asking...';
+      });
+    }
   });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js" crossorigin="anonymous"></script>

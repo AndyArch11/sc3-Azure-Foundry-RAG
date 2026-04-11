@@ -518,6 +518,35 @@ def test_compliance_report_uses_corpus_b_upload_batch_filter() -> None:
     assert first_call_kwargs["evidence_filter"] == "corpus eq 'b' and upload_batch eq 'batch-b-123'"
 
 
+def test_assess_control_finding_coerces_scalar_list_fields() -> None:
+    with patch.object(
+        app_module,
+        "_chat_completion_with_empty_retry",
+        return_value=(
+            '{"finding_id":"F-1","requirement_id":"REQ-1","framework":"NIST CSF",'
+            '"status":"insufficient_evidence","severity":"medium","rationale":"Need more evidence",'
+            '"evidence_sources":"Artifact-A","gaps":"Missing proof","recommendations":"Collect logs"}'
+        ),
+    ):
+        finding = app_module._assess_control_finding_with_llm(
+            question="Which frameworks require MFA?",
+            control={
+                "requirement_id": "REQ-1",
+                "framework": "NIST CSF",
+                "control_family": "Access",
+                "requirement_text": "MFA is required.",
+                "guidance_text": "",
+            },
+            corpus_b_chunks=[],
+            corpus_c_chunks=[],
+            temperature=0.2,
+        )
+
+    assert finding["evidence_sources"] == ["Artifact-A"]
+    assert finding["gaps"] == ["Missing proof"]
+    assert finding["recommendations"] == ["Collect logs"]
+
+
 def test_corpus_a_list_with_framework_filter() -> None:
     client = _test_client()
 
