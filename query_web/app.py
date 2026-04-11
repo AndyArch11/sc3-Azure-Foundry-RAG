@@ -2468,6 +2468,121 @@ def _infer_framework_filter(question: str) -> str | None:
     return None
 
 
+def _controls_query_variants(question: str) -> list[str]:
+    text = (question or "").strip()
+    if not text:
+        return [""]
+
+    variants = [text]
+
+    stopwords = {
+        "a",
+        "an",
+        "and",
+        "any",
+        "are",
+        "as",
+        "at",
+        "be",
+        "between",
+        "by",
+        "can",
+        "does",
+        "for",
+        "framework",
+        "frameworks",
+        "from",
+        "have",
+        "has",
+        "in",
+        "is",
+        "it",
+        "of",
+        "on",
+        "or",
+        "require",
+        "required",
+        "requires",
+        "that",
+        "the",
+        "to",
+        "what",
+        "which",
+    }
+    framework_tokens = {
+        "nists",
+        "nist",
+        "csf",
+        "essential",
+        "eight",
+        "aescsf",
+        "ism",
+        "cis",
+        "controls",
+        "pci",
+        "dss",
+        "pspf",
+    }
+    short_keep = {"mfa", "2fa", "iam", "sso"}
+
+    tokens = re.findall(r"[a-z0-9][a-z0-9_-]{1,}", text.lower())
+    focus_terms: list[str] = []
+    seen_terms: set[str] = set()
+    for token in tokens:
+        if token in stopwords or token in framework_tokens:
+            continue
+        if len(token) < 3 and token not in short_keep:
+            continue
+        if token in seen_terms:
+            continue
+        seen_terms.add(token)
+        focus_terms.append(token)
+
+    if focus_terms:
+        variants.append(" ".join(focus_terms))
+        variants.append(" ".join([*focus_terms, "control", "requirement"]))
+
+    # Preserve order while deduplicating.
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for candidate in variants:
+        key = candidate.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+
+    return deduped
+
+
+def _merge_control_candidates(
+    base_items: list[dict[str, Any]],
+    new_items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged = list(base_items)
+    seen_keys = {
+        (
+            str(item.get("requirement_id") or "").strip(),
+            str(item.get("framework") or "").strip(),
+            str(item.get("source_uri") or "").strip(),
+        )
+        for item in base_items
+    }
+
+    for candidate in new_items:
+        key = (
+            str(candidate.get("requirement_id") or "").strip(),
+            str(candidate.get("framework") or "").strip(),
+            str(candidate.get("source_uri") or "").strip(),
+        )
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        merged.append(candidate)
+
+    return merged
+
+
 def _fetch_controls(
     search_text: str,
     retrieve_k: int,
@@ -2553,30 +2668,47 @@ def _controls_search(
     timings["controls_comparison_detected"] = 1.0 if detected_comparison else 0.0
     timings["controls_comparison_forced"] = 1.0 if forced_comparison else 0.0
     timings["controls_diversity_mode_enabled"] = 1.0 if diversity_mode else 0.0
+    query_variants = _controls_query_variants(question)
+    timings["controls_query_variants"] = float(len(query_variants))
 
     t0 = time.perf_counter()
     fetch_k = retrieve_k if framework_filter else max(retrieve_k, retrieve_k * 4)
-    try:
-        items = _fetch_controls(
-            question,
-            fetch_k,
-            use_semantic,
-            framework_filter=framework_filter,
+
+    def _fetch_controls_with_fallback(
+        search_text: str,
+        *,
+        top_k: int,
+        framework_name: str | None,
+    ) -> list[dict[str, Any]]:
+        try:
+            return _fetch_controls(
+                search_text,
+                top_k,
+                use_semantic,
+                framework_filter=framework_name,
+            )
+        except Exception:
+            # Fall back to keyword search whenever semantic retrieval fails.
+            if use_semantic:
+                try:
+                    return _fetch_controls(
+                        search_text,
+                        top_k,
+                        use_semantic=False,
+                        framework_filter=framework_name,
+                    )
+                except Exception:
+                    return []
+            return []
+
+    items: list[dict[str, Any]] = []
+    for variant in query_variants:
+        variant_items = _fetch_controls_with_fallback(
+            variant,
+            top_k=fetch_k,
+            framework_name=framework_filter,
         )
-    except Exception as e:
-        # Fall back to keyword search when semantic is unavailable on this tier.
-        if use_semantic and "SemanticQueriesNotAvailable" in str(e):
-            try:
-                items = _fetch_controls(
-                    question,
-                    fetch_k,
-                    use_semantic=False,
-                    framework_filter=framework_filter,
-                )
-            except Exception:
-                items = []
-        else:
-            items = []
+        items = _merge_control_candidates(items, variant_items)
 
     if diversity_mode:
         # Backfill candidates per framework so a single crowded top-k slice
@@ -2591,47 +2723,15 @@ def _controls_search(
             "PSPF",
         )
         per_framework_k = max(2, min(5, retrieve_k))
-        seen_keys = {
-            (
-                str(item.get("requirement_id") or "").strip(),
-                str(item.get("framework") or "").strip(),
-                str(item.get("source_uri") or "").strip(),
-            )
-            for item in items
-        }
 
         for framework_name in framework_backfill:
-            try:
-                framework_items = _fetch_controls(
-                    question,
-                    per_framework_k,
-                    use_semantic,
-                    framework_filter=framework_name,
+            for variant in query_variants:
+                framework_items = _fetch_controls_with_fallback(
+                    variant,
+                    top_k=per_framework_k,
+                    framework_name=framework_name,
                 )
-            except Exception:
-                if use_semantic:
-                    try:
-                        framework_items = _fetch_controls(
-                            question,
-                            per_framework_k,
-                            use_semantic=False,
-                            framework_filter=framework_name,
-                        )
-                    except Exception:
-                        framework_items = []
-                else:
-                    framework_items = []
-
-            for candidate in framework_items:
-                key = (
-                    str(candidate.get("requirement_id") or "").strip(),
-                    str(candidate.get("framework") or "").strip(),
-                    str(candidate.get("source_uri") or "").strip(),
-                )
-                if key in seen_keys:
-                    continue
-                seen_keys.add(key)
-                items.append(candidate)
+                items = _merge_control_candidates(items, framework_items)
 
     ranked_items = _apply_framework_authority_preference(
         items, top_k=max(len(items), retrieve_k), question=question

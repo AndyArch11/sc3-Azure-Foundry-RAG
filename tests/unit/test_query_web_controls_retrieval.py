@@ -260,6 +260,74 @@ def test_controls_search_plural_framework_query_enables_diversity() -> None:
     assert "Essential Eight" in frameworks
 
 
+def test_controls_search_keyword_query_variants_recover_missed_matches() -> None:
+    irrelevant = [
+        {
+            "requirement_id": "E-irrelevant-1",
+            "framework": "Essential Eight",
+            "control_family": "User application hardening",
+            "requirement_text": "Disable legacy framework components.",
+            "source_uri": "controls://e-irrelevant-1",
+            "score": 9.0,
+        },
+        {
+            "requirement_id": "I-irrelevant-1",
+            "framework": "ISM",
+            "control_family": "Guidelines for email",
+            "requirement_text": "SPF is used to specify authorised email servers.",
+            "source_uri": "controls://i-irrelevant-1",
+            "score": 8.5,
+        },
+    ]
+    keyword_hits = [
+        {
+            "requirement_id": "N-1",
+            "framework": "NIST CSF",
+            "control_family": "Identity and access management",
+            "requirement_text": "Multi-factor authentication is required for privileged access.",
+            "source_uri": "controls://n-1",
+            "score": 7.0,
+        },
+        {
+            "requirement_id": "A-1",
+            "framework": "AESCSF",
+            "control_family": "Access",
+            "requirement_text": "MFA is enforced for administrative accounts.",
+            "source_uri": "controls://a-1",
+            "score": 6.9,
+        },
+    ]
+
+    def _fake_fetch(
+        search_text: str,
+        retrieve_k: int,
+        use_semantic: bool,
+        framework_filter: str | None = None,
+    ) -> list[dict[str, object]]:
+        if framework_filter is None:
+            if "mfa" in search_text.lower() or "multi-factor authentication" in search_text.lower():
+                return keyword_hits
+            return irrelevant
+        return []
+
+    with patch.object(app_module, "_fetch_controls", side_effect=_fake_fetch), patch.object(
+        app_module,
+        "_apply_framework_authority_preference",
+        side_effect=lambda items, top_k, question: items,
+    ):
+        controls, timings = app_module._controls_search(
+            "Which frameworks require MFA?",
+            retrieve_k=4,
+            use_semantic=False,
+            framework_filter_override=None,
+        )
+
+    requirement_ids = {str(item.get("requirement_id")) for item in controls}
+    assert "N-1" in requirement_ids
+    assert "A-1" in requirement_ids
+    assert timings["controls_query_variants"] >= 2.0
+
+
 def test_summarise_controls_distribution_includes_framework_and_family_counts() -> None:
     controls = _controls_items_for_diversity()[:4] + _controls_items_for_diversity()[4:5]
     timings = {
