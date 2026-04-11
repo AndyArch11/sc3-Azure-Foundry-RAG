@@ -11,7 +11,6 @@ from runtime.ingestion.controls_index import ControlsIndexConfig, ensure_control
 from runtime.ingestion.parsers.pspf import PspfParser
 from runtime.ingestion.publish_controls import upload_controls_records
 
-
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.private_network,

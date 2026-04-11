@@ -14,6 +14,7 @@ Usage::
     records = AescsfParser().parse()
     print(len(records))  # 354
 """
+
 from __future__ import annotations
 
 import io
@@ -69,17 +70,57 @@ _DOMAIN_NAMES: Dict[str, str] = {
 
 # Domain keywords for search enrichment
 _DOMAIN_KEYWORDS: Dict[str, List[str]] = {
-    "ACCESS": ["identity", "authentication", "authorisation", "access control", "credentials", "privilege", "MFA"],
-    "ARCHITECTURE": ["architecture", "network design", "segmentation", "cybersecurity design", "zero trust"],
+    "ACCESS": [
+        "identity",
+        "authentication",
+        "authorisation",
+        "access control",
+        "credentials",
+        "privilege",
+        "MFA",
+    ],
+    "ARCHITECTURE": [
+        "architecture",
+        "network design",
+        "segmentation",
+        "cybersecurity design",
+        "zero trust",
+    ],
     "ASSET": ["asset inventory", "asset management", "change management", "configuration", "CMDB"],
-    "PRIVACY": ["privacy", "personal information", "data protection", "APP", "NDB", "notifiable data breach"],
+    "PRIVACY": [
+        "privacy",
+        "personal information",
+        "data protection",
+        "APP",
+        "NDB",
+        "notifiable data breach",
+    ],
     "PROGRAM": ["governance", "cybersecurity program", "policy", "strategy", "compliance"],
-    "RESPONSE": ["incident response", "incident management", "recovery", "forensics", "breach response"],
+    "RESPONSE": [
+        "incident response",
+        "incident management",
+        "recovery",
+        "forensics",
+        "breach response",
+    ],
     "RISK": ["risk management", "risk assessment", "risk register", "treatment", "cyber risk"],
     "SITUATION": ["situational awareness", "monitoring", "logging", "threat intelligence", "SIEM"],
     "THIRD-PARTIES": ["third party", "vendor", "supply chain", "outsourcing", "supplier risk"],
-    "THREAT": ["threat", "vulnerability management", "patching", "penetration testing", "threat intelligence"],
-    "WORKFORCE": ["workforce", "training", "awareness", "personnel", "human resources", "security culture"],
+    "THREAT": [
+        "threat",
+        "vulnerability management",
+        "patching",
+        "penetration testing",
+        "threat intelligence",
+    ],
+    "WORKFORCE": [
+        "workforce",
+        "training",
+        "awareness",
+        "personnel",
+        "human resources",
+        "security culture",
+    ],
 }
 
 # Practice ID pattern: DOMAIN-MILletter (e.g. ACCESS-1a, PRIVACY-1A)
@@ -90,6 +131,7 @@ _PRACTICE_RE = re.compile(r"^[A-Z][A-Z0-9-]+-(?:AP\d+|\d+[A-Za-z])$")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
@@ -106,6 +148,7 @@ def _parse_maturity_level(value: object) -> Optional[int]:
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
+
 
 class AescsfParser(BaseParser):
     """Parse the AESCSF v2 core workbook from the AEMO-hosted Excel workbook.
@@ -155,8 +198,7 @@ class AescsfParser(BaseParser):
             import openpyxl  # noqa: PLC0415
         except ImportError as exc:
             raise RuntimeError(
-                "openpyxl is required for AESCSF parsing. "
-                "Install with: pip install openpyxl"
+                "openpyxl is required for AESCSF parsing. " "Install with: pip install openpyxl"
             ) from exc
 
         wb = openpyxl.load_workbook(io.BytesIO(workbook_bytes), read_only=True, data_only=True)
@@ -172,7 +214,17 @@ class AescsfParser(BaseParser):
         records: List[RequirementRecord] = []
 
         for row in rows[1:]:
-            domain_value, objective_id, objective, practice_id, practice, guidance, mil_value, security_profile, *_rest = row
+            (
+                domain_value,
+                objective_id,
+                objective,
+                practice_id,
+                practice,
+                guidance,
+                mil_value,
+                security_profile,
+                *_rest,
+            ) = row
 
             domain_slug = str(domain_value).strip() if domain_value is not None else ""
             objective_id_text = str(objective_id).strip() if objective_id is not None else ""
@@ -180,7 +232,9 @@ class AescsfParser(BaseParser):
             practice_id_text = str(practice_id).strip() if practice_id is not None else ""
             practice_text = str(practice).strip() if practice is not None else ""
             guidance_text = str(guidance).strip() if guidance is not None else ""
-            security_profile_text = str(security_profile).strip() if security_profile is not None else ""
+            security_profile_text = (
+                str(security_profile).strip() if security_profile is not None else ""
+            )
 
             if not _PRACTICE_RE.match(practice_id_text) or not practice_text:
                 continue

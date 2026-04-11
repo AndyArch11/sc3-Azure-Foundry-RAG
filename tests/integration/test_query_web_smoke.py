@@ -7,7 +7,6 @@ from typing import Any
 import pytest
 import requests
 
-
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.private_network,
@@ -71,7 +70,9 @@ def config_payload(base_url: str, session: requests.Session, timeout_s: float) -
 
 
 @pytest.fixture(scope="session")
-def openapi_paths(base_url: str, session: requests.Session, timeout_s: float) -> dict[str, Any] | None:
+def openapi_paths(
+    base_url: str, session: requests.Session, timeout_s: float
+) -> dict[str, Any] | None:
     try:
         openapi_resp = session.get(f"{base_url}/openapi.json", timeout=timeout_s)
     except requests.RequestException:
@@ -329,8 +330,7 @@ def test_conversation_list_includes_new_thread(
     conversations = payload.get("conversations")
     assert isinstance(conversations, list)
     assert any(
-        isinstance(c, dict)
-        and c.get("conversation_id") == conversation_seed["conversation_id"]
+        isinstance(c, dict) and c.get("conversation_id") == conversation_seed["conversation_id"]
         for c in conversations
     )
 
@@ -375,7 +375,9 @@ def test_api_ask_blocks_prompt_injection(
     auth_token: str,
 ) -> None:
     if not _bool_env("QUERY_WEB_RUN_API_ASK", default=False):
-        pytest.skip("QUERY_WEB_RUN_API_ASK is false; skipping prompt-injection /api/ask integration call.")
+        pytest.skip(
+            "QUERY_WEB_RUN_API_ASK is false; skipping prompt-injection /api/ask integration call."
+        )
 
     _require_auth_token_if_enabled(config_payload, auth_token)
     _require_prompt_injection_guard(config_payload)
@@ -413,7 +415,9 @@ def test_form_ask_blocks_prompt_injection(
     auth_token: str,
 ) -> None:
     if not _bool_env("QUERY_WEB_RUN_API_ASK", default=False):
-        pytest.skip("QUERY_WEB_RUN_API_ASK is false; skipping prompt-injection /ask integration call.")
+        pytest.skip(
+            "QUERY_WEB_RUN_API_ASK is false; skipping prompt-injection /ask integration call."
+        )
 
     _require_auth_token_if_enabled(config_payload, auth_token)
     _require_prompt_injection_guard(config_payload)
@@ -451,7 +455,9 @@ def test_conversation_rating_todo_and_follow_up_ask(
     conversation_seed: dict[str, str],
 ) -> None:
     if not _bool_env("QUERY_WEB_RUN_API_ASK", default=False):
-        pytest.skip("QUERY_WEB_RUN_API_ASK is false; skipping rating+follow-up /ask integration call.")
+        pytest.skip(
+            "QUERY_WEB_RUN_API_ASK is false; skipping rating+follow-up /ask integration call."
+        )
 
     _require_auth_token_if_enabled(config_payload, auth_token)
     _require_conversation_api(conversation_api_state)

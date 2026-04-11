@@ -4,11 +4,10 @@ import json
 
 from azure.core.exceptions import ResourceNotFoundError
 
-from runtime.assessment_orchestration.assessment_runtime import (
-    AssessmentRuntimeConfig,
-    SearchBackedAssessmentAgent,
-)
-from runtime.assessment_orchestration.models import AssessedArtifactPackage, CorpusGroundingPackage, PersonReference
+from runtime.assessment_orchestration.assessment_runtime import (AssessmentRuntimeConfig,
+                                                                 SearchBackedAssessmentAgent)
+from runtime.assessment_orchestration.models import (AssessedArtifactPackage,
+                                                     CorpusGroundingPackage, PersonReference)
 from runtime.assessment_orchestration.polling_worker import _render_assessment_comment
 
 
@@ -80,7 +79,10 @@ def _artifact() -> AssessedArtifactPackage:
         owner=PersonReference(principal_id="owner-1", display_name="Owner One"),
         last_editor=PersonReference(principal_id="editor-1", display_name="Editor One"),
         discussion_context=[
-            {"author": "Auditor", "text": "Please review administrative controls and privileged access."}
+            {
+                "author": "Auditor",
+                "text": "Please review administrative controls and privileged access.",
+            }
         ],
     )
 
@@ -233,7 +235,9 @@ def test_search_backed_assessment_agent_generates_validated_report() -> None:
                 "guidance_text": "Apply MFA.",
             }
         ],
-        corpus_b_results=[{"source_name": "Essential Eight Guidance", "content": "Apply MFA everywhere."}],
+        corpus_b_results=[
+            {"source_name": "Essential Eight Guidance", "content": "Apply MFA everywhere."}
+        ],
     )
 
     report = agent.generate_assessment(_artifact(), grounding)
@@ -324,15 +328,24 @@ def test_search_backed_assessment_agent_includes_azure_applicability_guidance() 
         discussion_context=[],
     )
 
-    report = agent.generate_assessment(artifact, CorpusGroundingPackage(corpus_a_results=[], corpus_b_results=[]))
+    report = agent.generate_assessment(
+        artifact, CorpusGroundingPackage(corpus_a_results=[], corpus_b_results=[])
+    )
 
     assert any(
-        "do not mark process, governance, training, incident-response" in message.get("content", "").lower()
+        "do not mark process, governance, training, incident-response"
+        in message.get("content", "").lower()
         for message in captured_messages
         if message.get("role") == "user"
     )
-    assert report["metadata"]["assessment_evidence_scope"] == "azure_resource_configuration_and_policy_assignments"
-    assert report["metadata"]["framework_applicability_model"] == "azure_technical_control_prefilter_v1"
+    assert (
+        report["metadata"]["assessment_evidence_scope"]
+        == "azure_resource_configuration_and_policy_assignments"
+    )
+    assert (
+        report["metadata"]["framework_applicability_model"]
+        == "azure_technical_control_prefilter_v1"
+    )
 
 
 def test_search_backed_assessment_agent_filters_non_technical_azure_controls() -> None:

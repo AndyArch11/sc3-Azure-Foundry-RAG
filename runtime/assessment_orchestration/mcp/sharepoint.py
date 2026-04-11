@@ -5,15 +5,16 @@ import re
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-import requests
-from requests.auth import AuthBase
+import requests  # type: ignore[import-untyped]
+from requests.auth import AuthBase  # type: ignore[import-untyped]
 
-from ..models import AccessDecision, AssessedArtifactPackage, DeliveryOutcome, PersonReference, ResolvedTarget
-
+from ..models import (AccessDecision, AssessedArtifactPackage, DeliveryOutcome, PersonReference,
+                      ResolvedTarget)
 
 # --------------------------------------------------------------------------- #
 # Custom bearer token auth                                                     #
 # --------------------------------------------------------------------------- #
+
 
 class BearerTokenAuth(AuthBase):
     """Http Bearer token authentication."""
@@ -29,6 +30,7 @@ class BearerTokenAuth(AuthBase):
 # --------------------------------------------------------------------------- #
 # URL helpers                                                                  #
 # --------------------------------------------------------------------------- #
+
 
 def _parse_sharepoint_url(url: str) -> tuple[str | None, str | None, str | None]:
     """Parse SharePoint URL and extract tenant, site, and item IDs.
@@ -50,7 +52,7 @@ def _parse_sharepoint_url(url: str) -> tuple[str | None, str | None, str | None]
     tenant = host.split(".")[0]
 
     # Try to extract item ID from query params
-    item_id = (qs.get("id") or [None])[0]
+    item_id = (qs.get("id") or [""])[0]
 
     # Try to extract site and page from path
     path_parts = [p for p in path.split("/") if p]
@@ -83,10 +85,18 @@ def _url_fallback_id(url: str) -> str:
 # SharePoint REST API client                                                   #
 # --------------------------------------------------------------------------- #
 
+
 class SharePointClient:
     """Thin wrapper around Microsoft Graph API for SharePoint access."""
 
-    def __init__(self, *, tenant: str, site_id: str, graph_token: str, base_url: str = "https://graph.microsoft.com/v1.0") -> None:
+    def __init__(
+        self,
+        *,
+        tenant: str,
+        site_id: str,
+        graph_token: str,
+        base_url: str = "https://graph.microsoft.com/v1.0",
+    ) -> None:
         self._tenant = tenant
         self._site_id = site_id
         self._base_url = base_url.rstrip("/")
@@ -154,6 +164,7 @@ class SharePointClient:
 # HTML stripping (reused from Confluence)                                     #
 # --------------------------------------------------------------------------- #
 
+
 def _strip_html(html: str) -> str:
     """Strip HTML tags from content."""
     from html.parser import HTMLParser
@@ -179,6 +190,7 @@ def _strip_html(html: str) -> str:
 # --------------------------------------------------------------------------- #
 # MCP server                                                                   #
 # --------------------------------------------------------------------------- #
+
 
 class SharePointMCPServer:
     provider = "sharepoint"
@@ -313,7 +325,9 @@ class SharePointMCPServer:
         discussion: list[dict[str, Any]] = []
         if include_discussion_context:
             try:
-                comments_result = self._client._get(f"/sites/{self._client._site_id}/drive/items/{target_id}/comments")
+                comments_result = self._client._get(
+                    f"/sites/{self._client._site_id}/drive/items/{target_id}/comments"
+                )
                 raw_comments = comments_result.get("value", [])
                 discussion = _normalise_comments(raw_comments)
             except Exception:
@@ -391,7 +405,12 @@ class SharePointMCPServer:
         editor_id = (item.get("lastModifiedBy") or {}).get("user", {}).get("id") or ""
         modified_at = item.get("lastModifiedDateTime") or ""
         if not editor_id:
-            return {"principal_id": "", "display_name": "Unknown", "email": "", "modified_at": modified_at}
+            return {
+                "principal_id": "",
+                "display_name": "Unknown",
+                "email": "",
+                "modified_at": modified_at,
+            }
         user = self._client.get_user(editor_id)
         return {
             "principal_id": user.get("id") or editor_id,
@@ -409,7 +428,9 @@ class SharePointMCPServer:
         idempotency_key: str,
     ) -> DeliveryOutcome:
         if self._client is None:
-            raise NotImplementedError("SharePoint comment publication requires a live SharePointClient")
+            raise NotImplementedError(
+                "SharePoint comment publication requires a live SharePointClient"
+            )
         try:
             # Embed idempotency key in comment for deduplication
             safe_key = re.sub(r"[^a-zA-Z0-9_\-]", "", idempotency_key)
@@ -475,14 +496,17 @@ class SharePointMCPServer:
 # Module helpers                                                               #
 # --------------------------------------------------------------------------- #
 
+
 def _normalise_comments(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result = []
     for comment in raw:
         text = comment.get("body", {}).get("content") or ""
         author_id = (comment.get("from") or {}).get("user", {}).get("id") or ""
-        result.append({
-            "comment_id": comment.get("id") or "",
-            "author_id": author_id,
-            "text": text,
-        })
+        result.append(
+            {
+                "comment_id": comment.get("id") or "",
+                "author_id": author_id,
+                "text": text,
+            }
+        )
     return result

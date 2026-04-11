@@ -8,7 +8,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-
 _ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\u2060\ufeff]")
 _WHITESPACE_RE = re.compile(r"\s+")
 _BASE64_TOKEN_RE = re.compile(r"\b[A-Za-z0-9+/]{24,}={0,2}\b")
@@ -118,6 +117,7 @@ class GuardrailAssessment:
 @dataclass(frozen=True)
 class ValidatorAssessment:
     """Result from optional LLM-based prompt injection validator."""
+
     malicious: bool
     confidence: float
     categories: tuple[str, ...]
@@ -129,6 +129,7 @@ class ValidatorAssessment:
 @dataclass(frozen=True)
 class GuardrailDecision:
     """Final guardrail decision combining deterministic and optional validator."""
+
     allowed: bool
     reason: str
     blocked_by_deterministic: bool
@@ -166,7 +167,9 @@ def _decode_base64_candidate(token: str) -> str:
         return ""
 
 
-def assess_prompt_injection(text: str, *, allow_academic_context: bool = True) -> GuardrailAssessment:
+def assess_prompt_injection(
+    text: str, *, allow_academic_context: bool = True
+) -> GuardrailAssessment:
     normalised = _normalise_text(text)
     lowered = normalised.lower()
     compact = _compact_text(normalised)
@@ -361,7 +364,11 @@ def evaluate_prompt_risk(
         metrics["validator_confidence"] = validator_result.confidence
         metrics["validator_invoked"] = float(validator_result.invoked)
 
-        if validator_result.invoked and validator_result.malicious and validator_result.confidence >= validator_threshold:
+        if (
+            validator_result.invoked
+            and validator_result.malicious
+            and validator_result.confidence >= validator_threshold
+        ):
             if validator_mode == "enforce":
                 return GuardrailDecision(
                     allowed=False,

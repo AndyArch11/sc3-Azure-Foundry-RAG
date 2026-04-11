@@ -48,8 +48,7 @@ class AssessmentSnapshot:
 
 
 class PollingStateStore(Protocol):
-    def load_state(self, source: str) -> PollingState:
-        ...
+    def load_state(self, source: str) -> PollingState: ...
 
     def commit_state(
         self,
@@ -60,32 +59,31 @@ class PollingStateStore(Protocol):
         last_error: dict[str, Any] | None = None,
         poll_count_increment: int = 0,
         expected_etag: str = "",
-    ) -> PollingState:
-        ...
+    ) -> PollingState: ...
 
-    def try_acquire_lease(self, source: str, *, owner_run_id: str, ttl_seconds: int) -> bool:
-        ...
+    def try_acquire_lease(self, source: str, *, owner_run_id: str, ttl_seconds: int) -> bool: ...
 
-    def renew_lease(self, source: str, *, owner_run_id: str, ttl_seconds: int) -> bool:
-        ...
+    def renew_lease(self, source: str, *, owner_run_id: str, ttl_seconds: int) -> bool: ...
 
-    def release_lease(self, source: str, *, owner_run_id: str) -> None:
-        ...
+    def release_lease(self, source: str, *, owner_run_id: str) -> None: ...
 
-    def is_event_processed(self, source: str, event_id: str) -> bool:
-        ...
+    def is_event_processed(self, source: str, event_id: str) -> bool: ...
 
-    def mark_processed_event(self, source: str, *, event_id: str, run_id: str, ttl_hours: int = 48) -> None:
-        ...
+    def mark_processed_event(
+        self, source: str, *, event_id: str, run_id: str, ttl_hours: int = 48
+    ) -> None: ...
 
-    def increment_failure_count(self, source: str, *, event_id: str, error_message: str, run_id: str) -> int:
-        ...
+    def increment_failure_count(
+        self, source: str, *, event_id: str, error_message: str, run_id: str
+    ) -> int: ...
 
-    def mark_terminal_failure(self, source: str, *, event_id: str, error_message: str, run_id: str) -> None:
-        ...
+    def mark_terminal_failure(
+        self, source: str, *, event_id: str, error_message: str, run_id: str
+    ) -> None: ...
 
-    def get_assessment_snapshot(self, source: str, *, target_id: str, framework_scope: str) -> AssessmentSnapshot | None:
-        ...
+    def get_assessment_snapshot(
+        self, source: str, *, target_id: str, framework_scope: str
+    ) -> AssessmentSnapshot | None: ...
 
     def upsert_assessment_snapshot(
         self,
@@ -95,8 +93,7 @@ class PollingStateStore(Protocol):
         framework_scope: str,
         page_version: str,
         content_hash: str,
-    ) -> AssessmentSnapshot:
-        ...
+    ) -> AssessmentSnapshot: ...
 
 
 class InMemoryPollingStateStore:
@@ -173,7 +170,9 @@ class InMemoryPollingStateStore:
             return False
         return True
 
-    def mark_processed_event(self, source: str, *, event_id: str, run_id: str, ttl_hours: int = 48) -> None:
+    def mark_processed_event(
+        self, source: str, *, event_id: str, run_id: str, ttl_hours: int = 48
+    ) -> None:
         self._processed[(source, event_id)] = {
             "source": source,
             "event_id": event_id,
@@ -182,7 +181,9 @@ class InMemoryPollingStateStore:
             "expires_at": (datetime.now(UTC) + timedelta(hours=ttl_hours)).isoformat(),
         }
 
-    def increment_failure_count(self, source: str, *, event_id: str, error_message: str, run_id: str) -> int:
+    def increment_failure_count(
+        self, source: str, *, event_id: str, error_message: str, run_id: str
+    ) -> int:
         key = (source, event_id)
         row = self._failures.get(key) or {
             "source": source,
@@ -198,7 +199,9 @@ class InMemoryPollingStateStore:
         self._failures[key] = row
         return int(row["attempt_count"])
 
-    def mark_terminal_failure(self, source: str, *, event_id: str, error_message: str, run_id: str) -> None:
+    def mark_terminal_failure(
+        self, source: str, *, event_id: str, error_message: str, run_id: str
+    ) -> None:
         key = (source, event_id)
         row = self._failures.get(key) or {
             "source": source,
@@ -211,7 +214,9 @@ class InMemoryPollingStateStore:
         row["run_id"] = run_id
         self._failures[key] = row
 
-    def get_assessment_snapshot(self, source: str, *, target_id: str, framework_scope: str) -> AssessmentSnapshot | None:
+    def get_assessment_snapshot(
+        self, source: str, *, target_id: str, framework_scope: str
+    ) -> AssessmentSnapshot | None:
         key = (source, target_id, framework_scope)
         payload = self._assessment_snapshots.get(key)
         if payload is None:
@@ -359,7 +364,9 @@ class CosmosPollingStateStore:
         doc = self._read(source, self._processed_id(source, event_id))
         return doc is not None
 
-    def mark_processed_event(self, source: str, *, event_id: str, run_id: str, ttl_hours: int = 48) -> None:
+    def mark_processed_event(
+        self, source: str, *, event_id: str, run_id: str, ttl_hours: int = 48
+    ) -> None:
         payload = {
             "id": self._processed_id(source, event_id),
             "doc_type": "processed",
@@ -372,7 +379,9 @@ class CosmosPollingStateStore:
         }
         self._upsert(payload)
 
-    def increment_failure_count(self, source: str, *, event_id: str, error_message: str, run_id: str) -> int:
+    def increment_failure_count(
+        self, source: str, *, event_id: str, error_message: str, run_id: str
+    ) -> int:
         doc = self._read(source, self._failure_id(source, event_id)) or {
             "id": self._failure_id(source, event_id),
             "doc_type": "failure",
@@ -389,7 +398,9 @@ class CosmosPollingStateStore:
         saved = self._upsert(doc)
         return int(saved.get("attempt_count") or 0)
 
-    def mark_terminal_failure(self, source: str, *, event_id: str, error_message: str, run_id: str) -> None:
+    def mark_terminal_failure(
+        self, source: str, *, event_id: str, error_message: str, run_id: str
+    ) -> None:
         doc = self._read(source, self._failure_id(source, event_id)) or {
             "id": self._failure_id(source, event_id),
             "doc_type": "failure",
@@ -403,7 +414,9 @@ class CosmosPollingStateStore:
         doc["run_id"] = run_id
         self._upsert(doc)
 
-    def get_assessment_snapshot(self, source: str, *, target_id: str, framework_scope: str) -> AssessmentSnapshot | None:
+    def get_assessment_snapshot(
+        self, source: str, *, target_id: str, framework_scope: str
+    ) -> AssessmentSnapshot | None:
         doc_id = self._assessment_snapshot_id(source, target_id, framework_scope)
         payload = self._read(source, doc_id)
         if payload is None:

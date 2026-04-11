@@ -1,31 +1,39 @@
 """Integration tests for Confluence MCP with orchestrator, worker, and intake."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from runtime.assessment_orchestration.intake import (
-    build_assessment_job_from_provider_event,
-    build_queue_message,
-)
+from runtime.assessment_orchestration.intake import (build_assessment_job_from_provider_event,
+                                                     build_queue_message)
 from runtime.assessment_orchestration.interfaces import OrchestratorAdapter
 from runtime.assessment_orchestration.mcp.confluence import ConfluenceMCPServer
-from runtime.assessment_orchestration.models import AssessedArtifactPackage, CorpusGroundingPackage, DeliveryOutcome
+from runtime.assessment_orchestration.models import (AssessedArtifactPackage,
+                                                     CorpusGroundingPackage, DeliveryOutcome)
 from runtime.assessment_orchestration.queue import serialise_queue_message
 from runtime.assessment_orchestration.worker import process_queue_message_json
-
 
 # --------------------------------------------------------------------------- #
 # Test fixtures                                                                #
 # --------------------------------------------------------------------------- #
 
+
 class FakeAssessmentAgent:
     """Mock assessment agent for orchestration tests."""
 
-    def retrieve_corpus_grounding(self, artifact: AssessedArtifactPackage) -> CorpusGroundingPackage:
-        return CorpusGroundingPackage(corpus_a_results=[{"requirement_id": "SEC-001"}], corpus_b_results=[])
+    def retrieve_corpus_grounding(
+        self, artifact: AssessedArtifactPackage
+    ) -> CorpusGroundingPackage:
+        return CorpusGroundingPackage(
+            corpus_a_results=[{"requirement_id": "SEC-001"}], corpus_b_results=[]
+        )
 
     def generate_assessment(
-        self, artifact: AssessedArtifactPackage, grounding: CorpusGroundingPackage, *, validation_mode: str = "hard"
+        self,
+        artifact: AssessedArtifactPackage,
+        grounding: CorpusGroundingPackage,
+        *,
+        validation_mode: str = "hard",
     ) -> dict:
         return {
             "schema_version": "v1.1",
@@ -65,6 +73,7 @@ class FakeAuditSink:
 # Test 1: Orchestrator adapter integration with Confluence                     #
 # --------------------------------------------------------------------------- #
 
+
 def _make_confluence_client_mock() -> ConfluenceMCPServer:
     """Create a mocked ConfluenceMCPServer with injected mock client."""
     mock_client = MagicMock()
@@ -82,8 +91,8 @@ def _make_confluence_client_mock() -> ConfluenceMCPServer:
         "displayName": "Alice Engineer",
         "email": "alice@example.com",
     }
-    mock_client.resolve_canonical_url.side_effect = (
-        lambda p: f"https://example.atlassian.net{p}" if not p.startswith("http") else p
+    mock_client.resolve_canonical_url.side_effect = lambda p: (
+        f"https://example.atlassian.net{p}" if not p.startswith("http") else p
     )
     return ConfluenceMCPServer(client=mock_client)
 
@@ -126,7 +135,9 @@ def test_orchestrator_adapter_with_confluence_client() -> None:
 def test_confluence_resolve_target_in_orchestrator_context() -> None:
     """Verify Confluence target resolution within orchestrator pattern."""
     confluence = _make_confluence_client_mock()
-    target = confluence.resolve_target("https://example.atlassian.net/wiki/spaces/SEC/pages/1234/Security+Policy")
+    target = confluence.resolve_target(
+        "https://example.atlassian.net/wiki/spaces/SEC/pages/1234/Security+Policy"
+    )
 
     assert target.provider == "confluence"
     assert target.target_id == "1234"
@@ -140,6 +151,7 @@ def test_confluence_resolve_target_in_orchestrator_context() -> None:
 # Test 2: Worker end-to-end with Confluence provider event                    #
 # --------------------------------------------------------------------------- #
 
+
 def test_worker_processes_confluence_queue_message() -> None:
     """
     Test 2: Worker end-to-end test
@@ -150,7 +162,9 @@ def test_worker_processes_confluence_queue_message() -> None:
         {
             "event_id": "conf-evt-security-1",
             "target_id": "1234",
-            "target_url": "https://example.atlassian.net/wiki/spaces/SEC/pages/1234/Page+Title",            "event_type": "mention_notification",            "trigger_type": "mention",
+            "target_url": "https://example.atlassian.net/wiki/spaces/SEC/pages/1234/Page+Title",
+            "event_type": "mention_notification",
+            "trigger_type": "mention",
         },
         provider_hint="confluence",
         request_identity_mode="app_only",
@@ -209,6 +223,7 @@ def test_worker_routing_confluence_vs_sharepoint() -> None:
 # --------------------------------------------------------------------------- #
 # Test 3: Confluence provider event intake contract mapping                    #
 # --------------------------------------------------------------------------- #
+
 
 def test_build_assessment_job_from_confluence_mention_event() -> None:
     """

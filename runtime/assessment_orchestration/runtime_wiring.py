@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from .assessment_runtime import create_search_backed_assessment_agent_from_env
 from .interfaces import OrchestratorAdapter
@@ -16,7 +16,9 @@ from .skill_catalog import SkillCatalog, load_skill_catalog
 class DefaultAssessmentAgent:
     """Minimal default assessment agent used for runtime wiring smoke flows."""
 
-    def retrieve_corpus_grounding(self, artifact: AssessedArtifactPackage) -> CorpusGroundingPackage:
+    def retrieve_corpus_grounding(
+        self, artifact: AssessedArtifactPackage
+    ) -> CorpusGroundingPackage:
         return CorpusGroundingPackage(corpus_a_results=[], corpus_b_results=[])
 
     def generate_assessment(
@@ -104,7 +106,9 @@ def _resolve_cloud_id(base_url: str, timeout_s: float = 10.0) -> str:
     return cloud_id
 
 
-def create_confluence_mcp_server_from_env(env: Mapping[str, str] | None = None) -> ConfluenceMCPServer:
+def create_confluence_mcp_server_from_env(
+    env: Mapping[str, str] | None = None,
+) -> ConfluenceMCPServer:
     values = dict(os.environ) if env is None else dict(env)
     base_url = _required(values, "CONFLUENCE_BASE_URL")
     auth_mode = (values.get("CONFLUENCE_AUTH_MODE") or "basic").strip().lower()
@@ -137,9 +141,8 @@ def create_confluence_mcp_server_from_env(env: Mapping[str, str] | None = None) 
         oauth_client_id = (values.get("CONFLUENCE_OAUTH_CLIENT_ID") or "").strip()
         oauth_client_secret = (values.get("CONFLUENCE_OAUTH_CLIENT_SECRET") or "").strip()
         oauth_token_url = (
-            (values.get("CONFLUENCE_OAUTH_TOKEN_URL") or "").strip()
-            or "https://auth.atlassian.com/oauth/token"
-        )
+            values.get("CONFLUENCE_OAUTH_TOKEN_URL") or ""
+        ).strip() or "https://auth.atlassian.com/oauth/token"
         oauth_scope = (values.get("CONFLUENCE_OAUTH_SCOPE") or "").strip() or None
         oauth_audience = (values.get("CONFLUENCE_OAUTH_AUDIENCE") or "").strip() or None
         if not oauth_access_token and not (oauth_client_id and oauth_client_secret):
@@ -163,13 +166,15 @@ def create_confluence_mcp_server_from_env(env: Mapping[str, str] | None = None) 
     raise ValueError("CONFLUENCE_AUTH_MODE must be either 'basic', 'bearer', or 'oauth'")
 
 
-def create_orchestrator_adapter_from_env(env: Mapping[str, str] | None = None) -> OrchestratorAdapter:
+def create_orchestrator_adapter_from_env(
+    env: Mapping[str, str] | None = None,
+) -> OrchestratorAdapter:
     values = dict(os.environ) if env is None else dict(env)
     content_client = create_confluence_mcp_server_from_env(env)
     try:
         assessment_agent = create_search_backed_assessment_agent_from_env(values)
     except ValueError:
-        assessment_agent = DefaultAssessmentAgent()
+        assessment_agent = DefaultAssessmentAgent()  # type: ignore[assignment]
 
     skills_root_raw = (values.get("ASSESSMENT_SKILLS_ROOT") or "").strip()
     if skills_root_raw:

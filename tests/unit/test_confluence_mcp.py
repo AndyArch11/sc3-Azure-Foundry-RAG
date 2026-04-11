@@ -5,22 +5,18 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 
-from runtime.assessment_orchestration.mcp.confluence import (
-    ConfluenceClient,
-    ConfluenceMCPServer,
-    MentionPoller,
-    _iso_duration_to_since,
-    _iso_to_cql_datetime,
-    _normalise_comments,
-    _normalise_mention_result,
-    _parse_confluence_url_path,
-    _strip_html,
-)
-
+from runtime.assessment_orchestration.mcp.confluence import (ConfluenceClient, ConfluenceMCPServer,
+                                                             MentionPoller, _iso_duration_to_since,
+                                                             _iso_to_cql_datetime,
+                                                             _normalise_comments,
+                                                             _normalise_mention_result,
+                                                             _parse_confluence_url_path,
+                                                             _strip_html)
 
 # --------------------------------------------------------------------------- #
 # Unit helpers                                                                 #
 # --------------------------------------------------------------------------- #
+
 
 def test_strip_html_basic() -> None:
     assert _strip_html("<p>Hello <strong>world</strong></p>") == "Hello\nworld"
@@ -71,9 +67,12 @@ def test_normalise_comments_strips_html() -> None:
 # Offline (no client) tests                                                    #
 # --------------------------------------------------------------------------- #
 
+
 def test_resolve_target_offline_parses_url() -> None:
     sp = ConfluenceMCPServer()
-    target = sp.resolve_target("https://example.atlassian.net/wiki/spaces/SEC/pages/1234/Page+Title")
+    target = sp.resolve_target(
+        "https://example.atlassian.net/wiki/spaces/SEC/pages/1234/Page+Title"
+    )
     assert target.provider == "confluence"
     assert target.target_id == "1234"
     assert target.container_id == "SEC"
@@ -100,7 +99,9 @@ def test_resolve_target_offline_lookalike_atlassian_host_raises() -> None:
 
 def test_get_content_by_id_offline_returns_stub() -> None:
     sp = ConfluenceMCPServer()
-    artifact = sp.get_content_by_id("1234", identity_mode="app_only", include_discussion_context=True)
+    artifact = sp.get_content_by_id(
+        "1234", identity_mode="app_only", include_discussion_context=True
+    )
     assert artifact.provider == "confluence"
     assert artifact.target_id == "1234"
     assert artifact.content
@@ -136,7 +137,9 @@ def test_get_recent_mentions_offline_returns_empty() -> None:
 def test_post_comment_offline_raises_not_implemented() -> None:
     sp = ConfluenceMCPServer()
     with pytest.raises(NotImplementedError):
-        sp.post_comment("1234", comment_body="hello", identity_mode="app_only", idempotency_key="key-1")
+        sp.post_comment(
+            "1234", comment_body="hello", identity_mode="app_only", idempotency_key="key-1"
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -172,9 +175,11 @@ def _make_client(
     mock.get_user.return_value = user if user is not None else dict(_DEFAULT_USER)
     mock.get_space.return_value = {"id": "space-id-1", "key": "SEC", "name": "Security"}
     mock.get_footer_comments.return_value = comments if comments is not None else []
-    mock.post_footer_comment.return_value = comment_post_result if comment_post_result is not None else {"id": "comment-999"}
-    mock.resolve_canonical_url.side_effect = (
-        lambda p: f"https://example.atlassian.net{p}" if not p.startswith("http") else p
+    mock.post_footer_comment.return_value = (
+        comment_post_result if comment_post_result is not None else {"id": "comment-999"}
+    )
+    mock.resolve_canonical_url.side_effect = lambda p: (
+        f"https://example.atlassian.net{p}" if not p.startswith("http") else p
     )
     mock.site_base_url = "https://example.atlassian.net"
     return mock
@@ -183,6 +188,7 @@ def _make_client(
 # --------------------------------------------------------------------------- #
 # Live client path (mocked) tests                                              #
 # --------------------------------------------------------------------------- #
+
 
 def test_get_content_by_id_with_client_fetches_page() -> None:
     client = _make_client()
@@ -198,14 +204,18 @@ def test_get_content_by_id_with_client_fetches_page() -> None:
 
 def test_get_content_by_id_with_discussion_context() -> None:
     client = _make_client(
-        comments=[{
-            "id": "c-1",
-            "version": {"authorId": "user-abc"},
-            "body": {"storage": {"value": "<p>Needs revision</p>"}},
-        }]
+        comments=[
+            {
+                "id": "c-1",
+                "version": {"authorId": "user-abc"},
+                "body": {"storage": {"value": "<p>Needs revision</p>"}},
+            }
+        ]
     )
     sp = ConfluenceMCPServer(client=client)
-    artifact = sp.get_content_by_id("1234", identity_mode="app_only", include_discussion_context=True)
+    artifact = sp.get_content_by_id(
+        "1234", identity_mode="app_only", include_discussion_context=True
+    )
     assert len(artifact.discussion_context) == 1
     assert artifact.discussion_context[0]["text"] == "Needs revision"
 
@@ -230,7 +240,11 @@ def test_resolve_target_with_client_resolves_space_from_api() -> None:
 
 
 def test_resolve_page_owner_with_client() -> None:
-    owner_user = {"accountId": "user-def", "displayName": "Page Owner", "email": "owner@example.com"}
+    owner_user = {
+        "accountId": "user-def",
+        "displayName": "Page Owner",
+        "email": "owner@example.com",
+    }
     client = _make_client(user=owner_user)
     sp = ConfluenceMCPServer(client=client)
     result = sp.resolve_page_owner("1234")
@@ -271,7 +285,9 @@ def test_post_comment_http_error_returns_failure() -> None:
     http_err.response = mock_resp
     client.post_footer_comment.side_effect = http_err
     sp = ConfluenceMCPServer(client=client)
-    outcome = sp.post_comment("1234", comment_body="test", identity_mode="app_only", idempotency_key="idem-2")
+    outcome = sp.post_comment(
+        "1234", comment_body="test", identity_mode="app_only", idempotency_key="idem-2"
+    )
     assert not outcome.success
     assert "http_403" in outcome.failures
 
@@ -333,9 +349,11 @@ def test_get_flagged_item_context_merges_trigger() -> None:
     assert artifact.metadata["trigger_context"]["event_id"] == "evt-1"
     assert artifact.title == "Test Page"
 
+
 # --------------------------------------------------------------------------- #
 # CQL polling helpers                                                          #
 # --------------------------------------------------------------------------- #
+
 
 def test_iso_to_cql_datetime_z_suffix() -> None:
     assert _iso_to_cql_datetime("2026-04-04T10:05:00Z") == "2026-04-04 10:05"
@@ -347,6 +365,7 @@ def test_iso_to_cql_datetime_offset() -> None:
 
 def test_iso_duration_to_since_returns_past_timestamp() -> None:
     from datetime import UTC, datetime
+
     result = _iso_duration_to_since("PT1H")
     dt = datetime.fromisoformat(result)
     diff = datetime.now(UTC) - dt
@@ -355,6 +374,7 @@ def test_iso_duration_to_since_returns_past_timestamp() -> None:
 
 def test_iso_duration_to_since_pt24h() -> None:
     from datetime import UTC, datetime
+
     result = _iso_duration_to_since("PT24H")
     dt = datetime.fromisoformat(result)
     diff = datetime.now(UTC) - dt
@@ -421,7 +441,9 @@ def test_get_recent_mentions_space_keys_allowlist() -> None:
     client = _make_client()
     client.search_cql.return_value = []
     sp = ConfluenceMCPServer(client=client, account_id="acc-1")
-    sp.get_recent_mentions(since="2026-04-04T00:00:00Z", scope_filter={"space_keys": ["SEC", "COMP"]})
+    sp.get_recent_mentions(
+        since="2026-04-04T00:00:00Z", scope_filter={"space_keys": ["SEC", "COMP"]}
+    )
     cql_arg = client.search_cql.call_args[0][0]
     assert 'space.key IN ("SEC", "COMP")' in cql_arg
 
@@ -547,6 +569,7 @@ def test_post_footer_comment_basic_falls_back_to_v1_when_v2_unauthorized() -> No
 # --------------------------------------------------------------------------- #
 # MentionPoller                                                                #
 # --------------------------------------------------------------------------- #
+
 
 def test_mention_poller_uses_initial_lookback_on_first_poll() -> None:
     client = _make_client()

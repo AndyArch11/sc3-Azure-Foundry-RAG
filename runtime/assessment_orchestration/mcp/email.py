@@ -43,9 +43,9 @@ class EmailMCPServer:
                 host == "api.atlassian.com" and "/ex/confluence/" in (parsed.path or "")
             ):
                 provider = "confluence"
-            elif self._host_is_exact_or_subdomain(host, "sharepoint.com") or self._host_is_exact_or_subdomain(
-                host, "office.com"
-            ):
+            elif self._host_is_exact_or_subdomain(
+                host, "sharepoint.com"
+            ) or self._host_is_exact_or_subdomain(host, "office.com"):
                 provider = "sharepoint"
 
         return {
@@ -83,7 +83,9 @@ class EmailMCPServer:
     ) -> DeliveryOutcome:
         raise NotImplementedError("Email delivery is not implemented yet")
 
-    def mark_notification_processed(self, message_id: str, *, processing_state: str) -> dict[str, Any]:
+    def mark_notification_processed(
+        self, message_id: str, *, processing_state: str
+    ) -> dict[str, Any]:
         return {
             "success": True,
             "message_id": str(message_id).strip(),

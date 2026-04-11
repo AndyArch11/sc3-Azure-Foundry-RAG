@@ -36,6 +36,9 @@ class _FakeAssessmentAgent:
             "metadata": {"framework_scope": "NIST CSF"},
         }
 
+    def generate_per_control_assessment(self, artifact, grounding, *, progress_cb=None):
+        return self.generate_assessment(artifact, grounding)
+
 
 class _FakeAzureMcp:
     def __init__(self, *, credential=None):
@@ -58,7 +61,9 @@ class _FakeAzureMcp:
             },
         )()
 
-    def get_content_by_id(self, target_id: str, *, identity_mode: str, include_discussion_context: bool = False):
+    def get_content_by_id(
+        self, target_id: str, *, identity_mode: str, include_discussion_context: bool = False
+    ):
         return type(
             "Artifact",
             (),
@@ -79,7 +84,9 @@ class _FakeAzureMcp:
         raise AssertionError("not expected in app_only mode")
 
 
-def test_run_azure_assessment_uses_shared_orchestrator_path(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_azure_assessment_uses_shared_orchestrator_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(azure_assessment, "AzureMCPServer", _FakeAzureMcp)
     monkeypatch.setattr(
         azure_assessment,
@@ -118,3 +125,27 @@ def test_run_azure_assessment_accepts_non_nist_framework(monkeypatch: pytest.Mon
     )
 
     assert result["schema_version"] == "v1.1"
+
+
+def test_collect_azure_grounding_returns_artifact_and_grounding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(azure_assessment, "AzureMCPServer", _FakeAzureMcp)
+    monkeypatch.setattr(
+        azure_assessment,
+        "create_search_backed_assessment_agent_from_env",
+        lambda env: _FakeAssessmentAgent(),
+    )
+
+    artifact, grounding = azure_assessment.collect_azure_grounding(
+        subscription_id="sub-1",
+        resource_group="rg-1",
+        resource_ids=[],
+        controls_framework="NIST CSF",
+        env={},
+        credential=None,
+    )
+
+    assert artifact.provider == "azure"
+    assert hasattr(grounding, "corpus_a_results")
+    assert hasattr(grounding, "corpus_b_results")

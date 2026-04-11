@@ -7,14 +7,13 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Mapping, Protocol, cast
 
-import requests
+import requests  # type: ignore[import-untyped]
 from azure.core.exceptions import ResourceNotFoundError
 from azure.identity import DefaultAzureCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
 
 from .models import AssessedArtifactPackage, CorpusGroundingPackage
-
 
 COMPLIANCE_REPORT_SCHEMA_VERSION = "v1.1"
 COMPLIANCE_REPORT_PROMPT = (
@@ -32,27 +31,27 @@ COMPLIANCE_REPORT_JSON_SCHEMA_HINT = (
     "Required JSON shape:\n"
     "{\n"
     "  \"schema_version\": string (must be 'v1.1'),\n"
-    "  \"executive_summary\": string,\n"
-    "  \"scope_and_inputs\": string[],\n"
-    "  \"controls_assessed\": string[],\n"
-    "  \"guidance_applied\": string[],\n"
-    "  \"findings\": [\n"
+    '  "executive_summary": string,\n'
+    '  "scope_and_inputs": string[],\n'
+    '  "controls_assessed": string[],\n'
+    '  "guidance_applied": string[],\n'
+    '  "findings": [\n'
     "    {\n"
-    "      \"finding_id\": string,\n"
-    "      \"requirement_id\": string,\n"
-    "      \"framework\": string,\n"
-    "      \"status\": \"compliant\"|\"partially_compliant\"|\"non_compliant\"|\"not_applicable\"|\"insufficient_evidence\",\n"
-    "      \"severity\": \"low\"|\"medium\"|\"high\"|\"critical\",\n"
-    "      \"rationale\": string,\n"
-    "      \"evidence_sources\": string[],\n"
-    "      \"gaps\": string[],\n"
-    "      \"recommendations\": string[]\n"
+    '      "finding_id": string,\n'
+    '      "requirement_id": string,\n'
+    '      "framework": string,\n'
+    '      "status": "compliant"|"partially_compliant"|"non_compliant"|"not_applicable"|"insufficient_evidence",\n'
+    '      "severity": "low"|"medium"|"high"|"critical",\n'
+    '      "rationale": string,\n'
+    '      "evidence_sources": string[],\n'
+    '      "gaps": string[],\n'
+    '      "recommendations": string[]\n'
     "    }\n"
     "  ],\n"
-    "  \"overall_risk_rating\": \"low\"|\"medium\"|\"high\"|\"critical\",\n"
-    "  \"missing_evidence\": string[],\n"
-    "  \"recommended_actions\": string[],\n"
-    "  \"citations\": string[]\n"
+    '  "overall_risk_rating": "low"|"medium"|"high"|"critical",\n'
+    '  "missing_evidence": string[],\n'
+    '  "recommended_actions": string[],\n'
+    '  "citations": string[]\n'
     "}"
 )
 FILTERED_UNTRUSTED_TEXT = "[filtered instruction-like content from untrusted source]"
@@ -83,8 +82,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class SearchClientLike(Protocol):
-    def search(self, **kwargs: Any) -> Iterable[dict[str, Any]]:
-        ...
+    def search(self, **kwargs: Any) -> Iterable[dict[str, Any]]: ...
 
 
 @dataclass(frozen=True)
@@ -153,29 +151,47 @@ def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
     return tuple(ordered or default_order)
 
 
-def load_assessment_runtime_config_from_env(env: Mapping[str, str] | None = None) -> AssessmentRuntimeConfig:
+def load_assessment_runtime_config_from_env(
+    env: Mapping[str, str] | None = None,
+) -> AssessmentRuntimeConfig:
     values = dict(os.environ) if env is None else dict(env)
     return AssessmentRuntimeConfig(
         search_endpoint=_required(values, "AZURE_SEARCH_ENDPOINT"),
         openai_endpoint=_required(values, "AZURE_OPENAI_ENDPOINT"),
         search_index_name=(values.get("AZURE_SEARCH_INDEX_NAME") or "grounding-index").strip(),
-        controls_index_name=(values.get("AZURE_SEARCH_CONTROLS_INDEX_NAME") or "controls-index").strip(),
-        embedding_deployment=(values.get("EMBEDDING_DEPLOYMENT_NAME") or "text-embedding-ada-002").strip(),
+        controls_index_name=(
+            values.get("AZURE_SEARCH_CONTROLS_INDEX_NAME") or "controls-index"
+        ).strip(),
+        embedding_deployment=(
+            values.get("EMBEDDING_DEPLOYMENT_NAME") or "text-embedding-ada-002"
+        ).strip(),
         query_deployment=(values.get("QUERY_DEPLOYMENT_NAME") or "gpt-5.1-chat").strip(),
         controls_top_k=max(1, int(values.get("CONTROLS_TOP_K") or "4")),
-        guidance_top_k=max(1, int(values.get("ASSESSMENT_GUIDANCE_TOP_K") or values.get("SEARCH_TOP_K") or "5")),
+        guidance_top_k=max(
+            1, int(values.get("ASSESSMENT_GUIDANCE_TOP_K") or values.get("SEARCH_TOP_K") or "5")
+        ),
         temperature=float(values.get("ASSESSMENT_TEMPERATURE") or "0.2"),
         controls_semantic_default=_env_bool(values, "CONTROLS_SEMANTIC_DEFAULT", default=False),
         controls_semantic_configuration_name=(
             values.get("AZURE_SEARCH_CONTROLS_SEMANTIC_CONFIG") or "controls-semantic"
         ).strip(),
-        framework_authority_order=_parse_framework_authority_order(values.get("CONTROLS_FRAMEWORK_AUTHORITY_ORDER")),
+        framework_authority_order=_parse_framework_authority_order(
+            values.get("CONTROLS_FRAMEWORK_AUTHORITY_ORDER")
+        ),
         validation_mode=(values.get("ASSESSMENT_VALIDATION_MODE") or "hard").strip().lower(),
-        artifact_content_chars=max(1000, int(values.get("ASSESSMENT_ARTIFACT_CONTENT_CHARS") or "6000")),
-        discussion_comment_limit=max(1, int(values.get("ASSESSMENT_DISCUSSION_COMMENT_LIMIT") or "8")),
-        discussion_comment_chars=max(200, int(values.get("ASSESSMENT_DISCUSSION_COMMENT_CHARS") or "1200")),
+        artifact_content_chars=max(
+            1000, int(values.get("ASSESSMENT_ARTIFACT_CONTENT_CHARS") or "6000")
+        ),
+        discussion_comment_limit=max(
+            1, int(values.get("ASSESSMENT_DISCUSSION_COMMENT_LIMIT") or "8")
+        ),
+        discussion_comment_chars=max(
+            200, int(values.get("ASSESSMENT_DISCUSSION_COMMENT_CHARS") or "1200")
+        ),
         control_llm_review_enabled=_env_bool(values, "CONTROL_LLM_REVIEW_ENABLED", default=False),
-        control_llm_review_heuristic_threshold=float(values.get("CONTROL_LLM_REVIEW_HEURISTIC_THRESHOLD") or "0.75"),
+        control_llm_review_heuristic_threshold=float(
+            values.get("CONTROL_LLM_REVIEW_HEURISTIC_THRESHOLD") or "0.75"
+        ),
     )
 
 
@@ -330,7 +346,9 @@ def _framework_authority_rank(item: dict[str, Any], order: tuple[str, ...]) -> i
 
 def _infer_framework_filter(text: str) -> str | None:
     value = text.lower()
-    if re.search(r"\baescsf\b|\baustralian\s+energy\s+sector\s+cyber\s+security\s+framework\b", value):
+    if re.search(
+        r"\baescsf\b|\baustralian\s+energy\s+sector\s+cyber\s+security\s+framework\b", value
+    ):
         return "AESCSF"
     if re.search(r"\bnist\b|\bnist\s*csf\b|\bcsf\s*2(\.0)?\b", value):
         return "NIST CSF"
@@ -362,7 +380,11 @@ def _fetch_controls(
     ]
     search_kwargs: dict[str, Any] = {
         "search_text": question,
-        "top": config.controls_top_k if framework_filter else max(config.controls_top_k, config.controls_top_k * 3),
+        "top": (
+            config.controls_top_k
+            if framework_filter
+            else max(config.controls_top_k, config.controls_top_k * 3)
+        ),
         "select": select_fields,
     }
     if framework_filter:
@@ -444,7 +466,7 @@ def _azure_control_is_likely_applicable(control: dict[str, Any]) -> bool:
     scope = str(control.get("control_applicability_scope") or "").strip()
     confidence = float(control.get("applicability_confidence") or 0.0)
     uncertain = bool(control.get("applicability_uncertain", False))
-    
+
     if scope:
         # Pre-classified control: exclude clearly process/governance scopes with high confidence
         if scope == "governance" and confidence >= 0.90:
@@ -453,7 +475,7 @@ def _azure_control_is_likely_applicable(control: dict[str, Any]) -> bool:
             return False
         # Include all others: technical, mixed, and low-confidence classifications
         return True
-    
+
     # Fallback to runtime heuristics if no pre-computed metadata
     requirement_id = str(control.get("requirement_id") or "").strip()
     if requirement_id and _AZURE_GOVERNANCE_ID_RE.search(requirement_id):
@@ -505,7 +527,9 @@ def _hybrid_search(
         return False
 
     vector = embed_query(question)
-    vector_query = VectorizedQuery(vector=vector, k_nearest_neighbors=retrieve_k, fields="content_vector")
+    vector_query = VectorizedQuery(
+        vector=vector, k_nearest_neighbors=retrieve_k, fields="content_vector"
+    )
     try:
         results = client.search(
             search_text=question,
@@ -599,10 +623,18 @@ def validate_compliance_report_payload(payload: dict[str, Any]) -> dict[str, Any
     report: dict[str, Any] = {
         "schema_version": schema_version,
         "executive_summary": _ensure_string(payload.get("executive_summary"), "executive_summary"),
-        "scope_and_inputs": _ensure_string_list(payload.get("scope_and_inputs"), "scope_and_inputs", min_items=1),
-        "controls_assessed": _ensure_string_list(payload.get("controls_assessed"), "controls_assessed", min_items=1),
-        "guidance_applied": _ensure_string_list(payload.get("guidance_applied") or [], "guidance_applied"),
-        "missing_evidence": _ensure_string_list(payload.get("missing_evidence") or [], "missing_evidence"),
+        "scope_and_inputs": _ensure_string_list(
+            payload.get("scope_and_inputs"), "scope_and_inputs", min_items=1
+        ),
+        "controls_assessed": _ensure_string_list(
+            payload.get("controls_assessed"), "controls_assessed", min_items=1
+        ),
+        "guidance_applied": _ensure_string_list(
+            payload.get("guidance_applied") or [], "guidance_applied"
+        ),
+        "missing_evidence": _ensure_string_list(
+            payload.get("missing_evidence") or [], "missing_evidence"
+        ),
         "recommended_actions": _ensure_string_list(
             payload.get("recommended_actions"),
             "recommended_actions",
@@ -632,15 +664,21 @@ def validate_compliance_report_payload(payload: dict[str, Any]) -> dict[str, Any
             raise ValueError(f"findings[{index}].severity has unsupported value {severity}")
         findings.append(
             {
-                "finding_id": _ensure_string(finding.get("finding_id"), f"findings[{index}].finding_id"),
+                "finding_id": _ensure_string(
+                    finding.get("finding_id"), f"findings[{index}].finding_id"
+                ),
                 "requirement_id": _ensure_string(
                     finding.get("requirement_id"),
                     f"findings[{index}].requirement_id",
                 ),
-                "framework": _ensure_string(finding.get("framework"), f"findings[{index}].framework"),
+                "framework": _ensure_string(
+                    finding.get("framework"), f"findings[{index}].framework"
+                ),
                 "status": status,
                 "severity": severity,
-                "rationale": _ensure_string(finding.get("rationale"), f"findings[{index}].rationale"),
+                "rationale": _ensure_string(
+                    finding.get("rationale"), f"findings[{index}].rationale"
+                ),
                 "evidence_sources": _ensure_string_list(
                     finding.get("evidence_sources"),
                     f"findings[{index}].evidence_sources",
@@ -694,12 +732,16 @@ def _fallback_report(
                 ),
                 "evidence_sources": evidence_sources,
                 "gaps": ["Structured assessment output validation failed"],
-                "recommendations": ["Review the page manually and rerun the assessment after remediation."],
+                "recommendations": [
+                    "Review the page manually and rerun the assessment after remediation."
+                ],
             }
         ],
         "overall_risk_rating": "medium",
         "missing_evidence": ["Validated structured assessment response from the model"],
-        "recommended_actions": ["Review the generated assessment fallback and inspect orchestration logs."],
+        "recommended_actions": [
+            "Review the generated assessment fallback and inspect orchestration logs."
+        ],
         "citations": [artifact.canonical_url],
     }
 
@@ -709,7 +751,9 @@ def _artifact_excerpt(artifact: AssessedArtifactPackage, limit: int) -> str:
     return content[:limit].strip()
 
 
-def _discussion_excerpt(artifact: AssessedArtifactPackage, *, comment_limit: int, char_limit: int) -> str:
+def _discussion_excerpt(
+    artifact: AssessedArtifactPackage, *, comment_limit: int, char_limit: int
+) -> str:
     lines: list[str] = []
     for item in artifact.discussion_context[:comment_limit]:
         author = str(item.get("author") or item.get("display_name") or "unknown")
@@ -733,10 +777,10 @@ def _apply_llm_control_applicability_review(
     """
     if not config.control_llm_review_enabled:
         return controls
-    
+
     try:
         from .validate_control_applicability import review_ambiguous_controls_with_llm
-        
+
         # Build a minimal control list with just the fields needed for review
         review_controls = controls.copy()
         review_result = review_ambiguous_controls_with_llm(
@@ -745,7 +789,7 @@ def _apply_llm_control_applicability_review(
             max_controls=len(controls),  # Review up to all provided controls
             chat_completion=chat_completion,
         )
-        
+
         # Create lookup table from results
         llm_results_by_id = {}
         for result in review_result.get("results", []):
@@ -753,7 +797,7 @@ def _apply_llm_control_applicability_review(
             framework = result.get("framework")
             key = (req_id, framework)
             llm_results_by_id[key] = result
-        
+
         # Enrich controls with LLM results
         enriched = []
         for control in controls:
@@ -761,21 +805,26 @@ def _apply_llm_control_applicability_review(
             req_id = control.get("requirement_id")
             framework = control.get("framework")
             key = (req_id, framework)
-            
+
             if key in llm_results_by_id:
                 llm_result = llm_results_by_id[key]
                 enriched_control["llm_scope"] = llm_result.get("llm_scope")
                 enriched_control["llm_confidence"] = llm_result.get("llm_confidence", 0.0)
                 enriched_control["llm_rationale"] = llm_result.get("llm_rationale", "")
-                enriched_control["llm_agrees_with_heuristic"] = llm_result.get("agrees_with_heuristic", False)
-            
+                enriched_control["llm_agrees_with_heuristic"] = llm_result.get(
+                    "agrees_with_heuristic", False
+                )
+
             enriched.append(enriched_control)
-        
+
         return enriched
     except Exception as exc:
         # Graceful fallback if LLM review fails
         import logging
-        logging.warning(f"Control LLM applicability review failed, continuing without LLM enrichment: {exc}")
+
+        logging.warning(
+            f"Control LLM applicability review failed, continuing without LLM enrichment: {exc}"
+        )
         return controls
 
 
@@ -851,24 +900,35 @@ class SearchBackedAssessmentAgent:
         # to select backend based on LLM_BACKEND env var, with automatic Azure fallback.
         if not embed_query and not chat_completion:
             try:
-                from .dev_llms import create_embedding_fn, create_chat_completion_fn
+                from .dev_llms import create_chat_completion_fn, create_embedding_fn
+
                 embed_query = create_embedding_fn(config=self._config, credential=self._credential)
-                chat_completion = create_chat_completion_fn(config=self._config, credential=self._credential)
+                chat_completion = create_chat_completion_fn(
+                    config=self._config, credential=self._credential
+                )
             except Exception:
                 # Fallback to Azure if factory fails (shouldn't happen but safe)
                 pass
 
         self._embed_query = embed_query or (
-            lambda question: _embed_query(question, config=self._config, credential=self._credential)
+            lambda question: _embed_query(
+                question, config=self._config, credential=self._credential
+            )
         )
         self._chat_completion = chat_completion or (
-            lambda messages: _chat_completion(messages, config=self._config, credential=self._credential)
+            lambda messages: _chat_completion(
+                messages, config=self._config, credential=self._credential
+            )
         )
 
-    def retrieve_corpus_grounding(self, artifact: AssessedArtifactPackage) -> CorpusGroundingPackage:
+    def retrieve_corpus_grounding(
+        self, artifact: AssessedArtifactPackage
+    ) -> CorpusGroundingPackage:
         query = self._build_assessment_query(artifact)
         framework_override = str(artifact.metadata.get("framework_filter_override") or "").strip()
-        framework_filter = framework_override or _infer_framework_filter(f"{artifact.title}\n{artifact.content[:1200]}")
+        framework_filter = framework_override or _infer_framework_filter(
+            f"{artifact.title}\n{artifact.content[:1200]}"
+        )
         controls = _fetch_controls(
             self._controls_search_client,
             question=query,
@@ -876,14 +936,14 @@ class SearchBackedAssessmentAgent:
             framework_filter=framework_filter,
         )
         controls = _filter_controls_for_artifact(artifact, controls)
-        
+
         # Optional: Enrich controls with Mistral-based applicability confidence
         controls = _apply_llm_control_applicability_review(
             controls,
             config=self._config,
             chat_completion=self._chat_completion,
         )
-        
+
         guidance = _hybrid_search(
             self._evidence_search_client,
             question=query,
@@ -977,7 +1037,9 @@ class SearchBackedAssessmentAgent:
             )
 
         report.setdefault("metadata", {})
-        framework_scope = str(artifact.metadata.get("framework_filter_override") or "").strip() or "default_auto"
+        framework_scope = (
+            str(artifact.metadata.get("framework_filter_override") or "").strip() or "default_auto"
+        )
         report["metadata"] = {
             **dict(report.get("metadata") or {}),
             "provider": artifact.provider,
@@ -986,8 +1048,12 @@ class SearchBackedAssessmentAgent:
             "title": artifact.title,
             "framework_scope": framework_scope,
             "validation_mode": validation_mode,
-            "assessment_evidence_scope": str(artifact.metadata.get("assessment_evidence_scope") or ""),
-            "framework_applicability_model": str(artifact.metadata.get("framework_applicability_model") or ""),
+            "assessment_evidence_scope": str(
+                artifact.metadata.get("assessment_evidence_scope") or ""
+            ),
+            "framework_applicability_model": str(
+                artifact.metadata.get("framework_applicability_model") or ""
+            ),
             "grounding_counts": {
                 "corpus_a": len(grounding.corpus_a_results),
                 "corpus_b": len(grounding.corpus_b_results),
@@ -995,11 +1061,15 @@ class SearchBackedAssessmentAgent:
             },
             "applicability_filtering": {
                 "controls_retrieved_before_filter": int(
-                    artifact.metadata.get("controls_retrieved_before_applicability_filter") or len(grounding.corpus_a_results)
+                    artifact.metadata.get("controls_retrieved_before_applicability_filter")
+                    or len(grounding.corpus_a_results)
                 ),
-                "controls_filtered": int(artifact.metadata.get("controls_filtered_for_applicability") or 0),
+                "controls_filtered": int(
+                    artifact.metadata.get("controls_filtered_for_applicability") or 0
+                ),
                 "controls_retained": int(
-                    artifact.metadata.get("controls_retained_after_applicability_filter") or len(grounding.corpus_a_results)
+                    artifact.metadata.get("controls_retained_after_applicability_filter")
+                    or len(grounding.corpus_a_results)
                 ),
             },
         }
@@ -1078,7 +1148,8 @@ class SearchBackedAssessmentAgent:
         missing_evidence = [
             f"Control {f.get('requirement_id', '')}: additional evidence required"
             for f in findings
-            if str(f.get("status") or "").lower() in {"insufficient_evidence", "partially_compliant"}
+            if str(f.get("status") or "").lower()
+            in {"insufficient_evidence", "partially_compliant"}
         ][:40]
 
         framework_override = (
@@ -1189,7 +1260,8 @@ class SearchBackedAssessmentAgent:
             "evidence_sources": [
                 str(item.get("source_name") or "evidence")
                 for item in (corpus_c_chunks or corpus_b_chunks)[:3]
-            ] or ["No evidence sources retrieved"],
+            ]
+            or ["No evidence sources retrieved"],
             "gaps": ["Additional artifact evidence needed for this control."],
             "recommendations": ["Provide corroborating evidence and reassess this control."],
         }

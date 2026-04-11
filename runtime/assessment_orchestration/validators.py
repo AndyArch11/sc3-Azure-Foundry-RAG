@@ -2,16 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping, cast
 
-from .models import (
-    AccessDecision,
-    AssessedArtifactPackage,
-    AssessmentJob,
-    CorpusGroundingPackage,
-    DeliveryOutcome,
-    DeliveryPlan,
-    PersonReference,
-    ResolvedTarget,
-)
+from .models import (AccessDecision, AssessedArtifactPackage, AssessmentJob, CorpusGroundingPackage,
+                     DeliveryOutcome, DeliveryPlan, PersonReference, ResolvedTarget)
 
 _ALLOWED_IDENTITY_MODES = {"app_only", "delegated"}
 
@@ -55,8 +47,12 @@ def validate_assessment_job(payload: Mapping[str, Any]) -> AssessmentJob:
         target_id=_require_non_empty_string("target_id", payload.get("target_id")),
         target_url=_require_non_empty_string("target_url", payload.get("target_url")),
         trigger_type=_require_non_empty_string("trigger_type", payload.get("trigger_type")),
-        request_identity_mode=cast("Any", validate_identity_mode(payload.get("request_identity_mode"))),
-        delivery_policy=_require_non_empty_string("delivery_policy", payload.get("delivery_policy")),
+        request_identity_mode=cast(
+            "Any", validate_identity_mode(payload.get("request_identity_mode"))
+        ),
+        delivery_policy=_require_non_empty_string(
+            "delivery_policy", payload.get("delivery_policy")
+        ),
         correlation_id=_require_non_empty_string("correlation_id", payload.get("correlation_id")),
         requester_id=_optional_string(payload.get("requester_id")),
         requester_email=_optional_string(payload.get("requester_email")),
@@ -99,8 +95,14 @@ def validate_assessed_artifact_package(payload: Mapping[str, Any]) -> AssessedAr
         title=_require_non_empty_string("title", payload.get("title")),
         content=_require_non_empty_string("content", payload.get("content")),
         metadata=dict(payload.get("metadata") or {}),
-        owner=validate_person_reference(owner_payload) if isinstance(owner_payload, Mapping) else None,
-        last_editor=validate_person_reference(editor_payload) if isinstance(editor_payload, Mapping) else None,
+        owner=(
+            validate_person_reference(owner_payload) if isinstance(owner_payload, Mapping) else None
+        ),
+        last_editor=(
+            validate_person_reference(editor_payload)
+            if isinstance(editor_payload, Mapping)
+            else None
+        ),
         discussion_context=list(payload.get("discussion_context") or []),
     )
 
@@ -118,7 +120,9 @@ def validate_delivery_plan(payload: Mapping[str, Any]) -> DeliveryPlan:
     if not isinstance(recipients, list):
         raise ValueError("email_recipients must be a list")
     return DeliveryPlan(
-        delivery_policy=_require_non_empty_string("delivery_policy", payload.get("delivery_policy")),
+        delivery_policy=_require_non_empty_string(
+            "delivery_policy", payload.get("delivery_policy")
+        ),
         email_recipients=tuple(str(item).strip() for item in recipients if str(item).strip()),
         inline_target=_mapping_to_str_dict(payload.get("inline_target")),
         fallback_to_email=bool(payload.get("fallback_to_email", False)),

@@ -22,6 +22,7 @@ If CONFLUENCE_AUTH_MODE=oauth:
 Skip tag: pytest -m confluence_live
 To run: pytest tests/integration/test_confluence_live.py -v -m confluence_live
 """
+
 from __future__ import annotations
 
 import os
@@ -32,13 +33,13 @@ import requests
 
 from runtime.assessment_orchestration.mcp.confluence import ConfluenceClient, ConfluenceMCPServer
 
-
 pytestmark = pytest.mark.confluence_live
 
 
 # --------------------------------------------------------------------------- #
 # Session-scoped fixtures                                                      #
 # --------------------------------------------------------------------------- #
+
 
 @pytest.fixture(scope="session")
 def _require_live_opt_in() -> None:
@@ -110,7 +111,9 @@ def oauth_client_secret(auth_mode: str) -> str:
 def oauth_token_url(auth_mode: str) -> str:
     if auth_mode != "oauth":
         return ""
-    return (os.getenv("CONFLUENCE_OAUTH_TOKEN_URL") or "").strip() or "https://auth.atlassian.com/oauth/token"
+    return (
+        os.getenv("CONFLUENCE_OAUTH_TOKEN_URL") or ""
+    ).strip() or "https://auth.atlassian.com/oauth/token"
 
 
 @pytest.fixture(scope="session")
@@ -244,6 +247,7 @@ def first_page(live_client: ConfluenceClient, first_space: dict) -> dict:
 # Tests                                                                        #
 # --------------------------------------------------------------------------- #
 
+
 def test_list_spaces_returns_at_least_one(live_client: ConfluenceClient) -> None:
     """Confirms authentication is working and the account can access at least one space."""
     spaces = live_client.list_spaces(limit=10)
@@ -266,11 +270,7 @@ def test_cql_search_returns_results(live_client: ConfluenceClient) -> None:
 
 def test_get_page_by_id(live_client: ConfluenceClient, first_page: dict) -> None:
     """Fetch a specific page by ID and confirm expected fields are present."""
-    page_id = (
-        first_page.get("id")
-        or (first_page.get("content") or {}).get("id")
-        or ""
-    )
+    page_id = first_page.get("id") or (first_page.get("content") or {}).get("id") or ""
     if not page_id:
         pytest.skip("Could not extract page ID from CQL result")
 
@@ -280,13 +280,11 @@ def test_get_page_by_id(live_client: ConfluenceClient, first_page: dict) -> None
     assert "version" in page, f"Page missing 'version': {page.keys()}"
 
 
-def test_resolve_target_live(live_mcp: ConfluenceMCPServer, live_client: ConfluenceClient, first_page: dict) -> None:
+def test_resolve_target_live(
+    live_mcp: ConfluenceMCPServer, live_client: ConfluenceClient, first_page: dict
+) -> None:
     """resolve_target should parse a real Confluence page URL and return canonical form."""
-    page_id = (
-        first_page.get("id")
-        or (first_page.get("content") or {}).get("id")
-        or ""
-    )
+    page_id = first_page.get("id") or (first_page.get("content") or {}).get("id") or ""
     if not page_id:
         pytest.skip("Could not extract page ID from CQL result")
 
@@ -307,11 +305,7 @@ def test_resolve_target_live(live_mcp: ConfluenceMCPServer, live_client: Conflue
 
 def test_get_content_by_id_live(live_mcp: ConfluenceMCPServer, first_page: dict) -> None:
     """get_content_by_id should return a populated AssessedArtifactPackage."""
-    page_id = (
-        first_page.get("id")
-        or (first_page.get("content") or {}).get("id")
-        or ""
-    )
+    page_id = first_page.get("id") or (first_page.get("content") or {}).get("id") or ""
     if not page_id:
         pytest.skip("Could not extract page ID from CQL result")
 
@@ -338,11 +332,7 @@ def test_get_recent_mentions_live(live_mcp: ConfluenceMCPServer, first_space: di
 
 def test_resolve_page_owner_live(live_mcp: ConfluenceMCPServer, first_page: dict) -> None:
     """resolve_page_owner should return a dict with principal_id."""
-    page_id = (
-        first_page.get("id")
-        or (first_page.get("content") or {}).get("id")
-        or ""
-    )
+    page_id = first_page.get("id") or (first_page.get("content") or {}).get("id") or ""
     if not page_id:
         pytest.skip("Could not extract page ID from CQL result")
 
@@ -354,11 +344,7 @@ def test_resolve_page_owner_live(live_mcp: ConfluenceMCPServer, first_page: dict
 
 def test_resolve_last_editor_live(live_mcp: ConfluenceMCPServer, first_page: dict) -> None:
     """resolve_last_editor should return a dict with principal_id and modified_at."""
-    page_id = (
-        first_page.get("id")
-        or (first_page.get("content") or {}).get("id")
-        or ""
-    )
+    page_id = first_page.get("id") or (first_page.get("content") or {}).get("id") or ""
     if not page_id:
         pytest.skip("Could not extract page ID from CQL result")
 
@@ -368,13 +354,13 @@ def test_resolve_last_editor_live(live_mcp: ConfluenceMCPServer, first_page: dic
     assert "modified_at" in editor, f"Missing modified_at: {editor}"
 
 
-
-
 @pytest.mark.skipif(
-    not all([
-        os.environ.get("TEST_CONFLUENCE_SPACE_KEY"),
-        os.environ.get("TEST_CONFLUENCE_PAGE_ID"),
-    ]),
+    not all(
+        [
+            os.environ.get("TEST_CONFLUENCE_SPACE_KEY"),
+            os.environ.get("TEST_CONFLUENCE_PAGE_ID"),
+        ]
+    ),
     reason="TEST_CONFLUENCE_SPACE_KEY and TEST_CONFLUENCE_PAGE_ID required for CQL event capture test",
 )
 def test_post_comment_and_capture_mention_event_live(
@@ -396,9 +382,7 @@ def test_post_comment_and_capture_mention_event_live(
         pytest.skip("TEST_CONFLUENCE_SPACE_KEY or TEST_CONFLUENCE_PAGE_ID not set")
 
     # Storage-format mention using account-id, compatible with Confluence Cloud.
-    comment_body = (
-        f"<p>CQL event capture test <ac:link><ri:user ri:account-id=\"{service_account_id}\"/></ac:link></p>"
-    )
+    comment_body = f'<p>CQL event capture test <ac:link><ri:user ri:account-id="{service_account_id}"/></ac:link></p>'
     comment_response = live_client.post_footer_comment(page_id, body_html=comment_body)
     assert comment_response, "post_footer_comment returned empty response"
 

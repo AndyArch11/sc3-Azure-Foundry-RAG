@@ -1,31 +1,39 @@
 """Integration tests for SharePoint MCP with orchestrator, worker, and intake."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from runtime.assessment_orchestration.intake import (
-    build_assessment_job_from_provider_event,
-    build_queue_message,
-)
+from runtime.assessment_orchestration.intake import (build_assessment_job_from_provider_event,
+                                                     build_queue_message)
 from runtime.assessment_orchestration.interfaces import OrchestratorAdapter
 from runtime.assessment_orchestration.mcp.sharepoint import SharePointMCPServer
-from runtime.assessment_orchestration.models import AssessedArtifactPackage, CorpusGroundingPackage, DeliveryOutcome
+from runtime.assessment_orchestration.models import (AssessedArtifactPackage,
+                                                     CorpusGroundingPackage, DeliveryOutcome)
 from runtime.assessment_orchestration.queue import serialise_queue_message
 from runtime.assessment_orchestration.worker import process_queue_message_json
-
 
 # --------------------------------------------------------------------------- #
 # Test fixtures                                                                #
 # --------------------------------------------------------------------------- #
 
+
 class FakeAssessmentAgent:
     """Mock assessment agent for orchestration tests."""
 
-    def retrieve_corpus_grounding(self, artifact: AssessedArtifactPackage) -> CorpusGroundingPackage:
-        return CorpusGroundingPackage(corpus_a_results=[{"requirement_id": "SEC-001"}], corpus_b_results=[])
+    def retrieve_corpus_grounding(
+        self, artifact: AssessedArtifactPackage
+    ) -> CorpusGroundingPackage:
+        return CorpusGroundingPackage(
+            corpus_a_results=[{"requirement_id": "SEC-001"}], corpus_b_results=[]
+        )
 
     def generate_assessment(
-        self, artifact: AssessedArtifactPackage, grounding: CorpusGroundingPackage, *, validation_mode: str = "hard"
+        self,
+        artifact: AssessedArtifactPackage,
+        grounding: CorpusGroundingPackage,
+        *,
+        validation_mode: str = "hard",
     ) -> dict:
         return {
             "schema_version": "v1.1",
@@ -65,6 +73,7 @@ class FakeAuditSink:
 # Test 1: Orchestrator adapter integration with SharePoint                     #
 # --------------------------------------------------------------------------- #
 
+
 def _make_sharepoint_client_mock() -> SharePointMCPServer:
     """Create a mocked SharePointMCPServer with injected mock client."""
     mock_client = MagicMock()
@@ -75,8 +84,20 @@ def _make_sharepoint_client_mock() -> SharePointMCPServer:
         "name": "Security Policy Review",
         "webUrl": "https://tenant.sharepoint.com/sites/sec/SitePages/policy.aspx",
         "lastModifiedDateTime": "2026-04-02T10:00:00Z",
-        "createdBy": {"user": {"id": "user-alice", "displayName": "Alice Engineer", "mail": "alice@example.com"}},
-        "lastModifiedBy": {"user": {"id": "user-alice", "displayName": "Alice Engineer", "mail": "alice@example.com"}},
+        "createdBy": {
+            "user": {
+                "id": "user-alice",
+                "displayName": "Alice Engineer",
+                "mail": "alice@example.com",
+            }
+        },
+        "lastModifiedBy": {
+            "user": {
+                "id": "user-alice",
+                "displayName": "Alice Engineer",
+                "mail": "alice@example.com",
+            }
+        },
     }
     mock_client.get_user.return_value = {
         "id": "user-alice",
@@ -127,7 +148,9 @@ def test_orchestrator_adapter_with_sharepoint_client() -> None:
 def test_sharepoint_resolve_target_in_orchestrator_context() -> None:
     """Verify SharePoint target resolution within orchestrator pattern."""
     sharepoint = _make_sharepoint_client_mock()
-    target = sharepoint.resolve_target("https://tenant.sharepoint.com/sites/sec/SitePages/policy.aspx?id=abc-123")
+    target = sharepoint.resolve_target(
+        "https://tenant.sharepoint.com/sites/sec/SitePages/policy.aspx?id=abc-123"
+    )
 
     assert target.provider == "sharepoint"
     assert target.target_id == "abc-123"
@@ -138,6 +161,7 @@ def test_sharepoint_resolve_target_in_orchestrator_context() -> None:
 # --------------------------------------------------------------------------- #
 # Test 2: Worker end-to-end with SharePoint provider event                    #
 # --------------------------------------------------------------------------- #
+
 
 def test_worker_processes_sharepoint_queue_message() -> None:
     """
@@ -198,6 +222,7 @@ def test_worker_routing_sharepoint_events() -> None:
 # --------------------------------------------------------------------------- #
 # Test 3: SharePoint provider event intake contract mapping                    #
 # --------------------------------------------------------------------------- #
+
 
 def test_build_assessment_job_from_sharepoint_mention_event() -> None:
     """

@@ -9,7 +9,6 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-
 _AZURE_TECHNICAL_CONTROL_RE = re.compile(
     r"\b(mfa|multi-factor|authentication|access control|least privilege|rbac|network|firewall|segment|encrypt|encryption|key management|tls|certificate|logging|monitor|alert|backup|restore|patch|vulnerab|malware|endpoint|hardening|configuration|baseline|disable|enable|restrict|private endpoint|managed identity|secret|key vault|diagnostic|defender|inventory|discover|secure transfer|immutability|retention|deny|auditifnotexists|deployifnotexists|modify)\b",
     re.IGNORECASE,

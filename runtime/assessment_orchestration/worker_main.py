@@ -23,7 +23,9 @@ def _read_message(args: argparse.Namespace) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Assessment orchestrator worker entrypoint")
     parser.add_argument("--message-json", default="", help="Raw queue message JSON payload")
-    parser.add_argument("--message-file", default="", help="Path to file containing queue message JSON")
+    parser.add_argument(
+        "--message-file", default="", help="Path to file containing queue message JSON"
+    )
     args = parser.parse_args()
 
     try:

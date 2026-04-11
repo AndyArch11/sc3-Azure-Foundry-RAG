@@ -2,21 +2,21 @@ from __future__ import annotations
 
 import re
 import time
+from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlparse
 
-from datetime import UTC, datetime, timedelta
+import requests  # type: ignore[import-untyped]
+from requests.auth import AuthBase, HTTPBasicAuth  # type: ignore[import-untyped]
 
-import requests
-from requests.auth import AuthBase, HTTPBasicAuth
-
-from ..models import AccessDecision, AssessedArtifactPackage, DeliveryOutcome, PersonReference, ResolvedTarget
-
+from ..models import (AccessDecision, AssessedArtifactPackage, DeliveryOutcome, PersonReference,
+                      ResolvedTarget)
 
 # --------------------------------------------------------------------------- #
 # HTML stripping                                                               #
 # --------------------------------------------------------------------------- #
+
 
 class _HTMLTextExtractor(HTMLParser):
     """Minimal HTML tag stripper using stdlib – no extra dependencies."""
@@ -49,6 +49,7 @@ def _host_is_exact_or_subdomain(host: str, domain: str) -> bool:
 # --------------------------------------------------------------------------- #
 # CQL / datetime helpers                                                       #
 # --------------------------------------------------------------------------- #
+
 
 def _iso_to_cql_datetime(iso_str: str) -> str:
     """Convert ISO 8601 datetime to Confluence CQL datetime format (YYYY-MM-DD HH:mm)."""
@@ -131,6 +132,7 @@ def _normalise_mention_result(result: dict[str, Any], *, site_base_url: str) -> 
 # URL helpers                                                                  #
 # --------------------------------------------------------------------------- #
 
+
 def _parse_confluence_url_path(path: str) -> tuple[str | None, str | None]:
     """Return (page_id, space_key) from a Confluence Cloud URL path.
 
@@ -156,6 +158,7 @@ def _parse_confluence_url_path(path: str) -> tuple[str | None, str | None]:
 
 def _url_fallback_id(url: str) -> str:
     import hashlib
+
     return hashlib.sha256(url.encode()).hexdigest()[:24]
 
 
@@ -178,6 +181,7 @@ def _raise_for_status_with_body(resp: requests.Response) -> None:
 # --------------------------------------------------------------------------- #
 # Confluence REST API client                                                   #
 # --------------------------------------------------------------------------- #
+
 
 class ConfluenceClient:
     """Thin wrapper around the Confluence Cloud REST API (v2 primary, v1 for search/users)."""
@@ -248,7 +252,9 @@ class ConfluenceClient:
                 oauth_id = oauth_client_id
                 oauth_secret = oauth_client_secret
                 if oauth_id is None or oauth_secret is None:
-                    raise ValueError("oauth_client_id and oauth_client_secret are required in oauth mode")
+                    raise ValueError(
+                        "oauth_client_id and oauth_client_secret are required in oauth mode"
+                    )
                 self._session.auth = _OAuthClientCredentialsAuth(
                     token_url=oauth_token_url,
                     client_id=oauth_id,
@@ -435,7 +441,8 @@ class ConfluenceClient:
                     "version": {"authorId": by.get("accountId") or ""},
                     "body": {
                         "storage": {
-                            "value": ((comment.get("body") or {}).get("storage") or {}).get("value") or ""
+                            "value": ((comment.get("body") or {}).get("storage") or {}).get("value")
+                            or ""
                         }
                     },
                 }
@@ -510,6 +517,7 @@ class _OAuthClientCredentialsAuth(AuthBase):
 # MCP server                                                                   #
 # --------------------------------------------------------------------------- #
 
+
 class ConfluenceMCPServer:
     provider = "confluence"
 
@@ -551,10 +559,7 @@ class ConfluenceMCPServer:
             auth_mode == "oauth"
             and base_url
             and cloud_id
-            and (
-                oauth_access_token
-                or (oauth_client_id and oauth_client_secret)
-            )
+            and (oauth_access_token or (oauth_client_id and oauth_client_secret))
         ):
             self._client = ConfluenceClient(
                 base_url=base_url,
@@ -798,7 +803,12 @@ class ConfluenceMCPServer:
         author_id = version_block.get("authorId") or ""
         modified_at = version_block.get("createdAt") or ""
         if not author_id:
-            return {"principal_id": "", "display_name": "Unknown", "email": "", "modified_at": modified_at}
+            return {
+                "principal_id": "",
+                "display_name": "Unknown",
+                "email": "",
+                "modified_at": modified_at,
+            }
         user = self._client.get_user(author_id)
         return {
             "principal_id": user.get("accountId") or author_id,
@@ -816,7 +826,9 @@ class ConfluenceMCPServer:
         idempotency_key: str,
     ) -> DeliveryOutcome:
         if self._client is None:
-            raise NotImplementedError("Confluence comment publication requires a live ConfluenceClient")
+            raise NotImplementedError(
+                "Confluence comment publication requires a live ConfluenceClient"
+            )
         # Sanitise key so it cannot break the embedded HTML comment.
         safe_key = re.sub(r"[^a-zA-Z0-9_\-]", "", idempotency_key)
         body_html = f"<!-- assessment-idempotency-key: {safe_key} -->\n{comment_body}"
@@ -882,6 +894,7 @@ class ConfluenceMCPServer:
 # Module helpers                                                               #
 # --------------------------------------------------------------------------- #
 
+
 class MentionPoller:
     """Stateful CQL polling loop for Confluence @mention detection.
 
@@ -938,9 +951,11 @@ def _normalise_comments(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
         body_html = (comment.get("body") or {}).get("storage", {}).get("value") or ""
         text = _strip_html(body_html)
         version = comment.get("version") or {}
-        result.append({
-            "comment_id": comment.get("id") or "",
-            "author_id": version.get("authorId") or "",
-            "text": text,
-        })
+        result.append(
+            {
+                "comment_id": comment.get("id") or "",
+                "author_id": version.get("authorId") or "",
+                "text": text,
+            }
+        )
     return result

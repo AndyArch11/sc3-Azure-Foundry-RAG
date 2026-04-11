@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     from azure.identity import DefaultAzureCredential
+
     from .assessment_runtime import AssessmentRuntimeConfig
 
 logger = logging.getLogger(__name__)
@@ -73,7 +74,11 @@ def create_chat_completion_fn(
             logger.info(f"Using Ollama backend: {ollama_model} @ {ollama_url}")
 
             num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", "65536"))
-            force_json = os.environ.get("OLLAMA_FORCE_JSON", "true").lower() not in ("0", "false", "no")
+            force_json = os.environ.get("OLLAMA_FORCE_JSON", "true").lower() not in (
+                "0",
+                "false",
+                "no",
+            )
 
             def ollama_wrapper(messages: list[dict[str, str]]) -> str:
                 return ollama_chat_completion(
@@ -95,8 +100,7 @@ def create_chat_completion_fn(
             raise ValueError("config and credential required for Azure backend")
 
         logger.info(
-            f"Using Azure backend: {config.query_deployment} "
-            f"@ {config.openai_endpoint}"
+            f"Using Azure backend: {config.query_deployment} " f"@ {config.openai_endpoint}"
         )
 
         def azure_wrapper(messages: list[dict[str, str]]) -> str:
@@ -167,8 +171,7 @@ def create_embedding_fn(
             raise ValueError("config and credential required for Azure backend")
 
         logger.info(
-            f"Using Azure embeddings: {config.embedding_deployment} "
-            f"@ {config.openai_endpoint}"
+            f"Using Azure embeddings: {config.embedding_deployment} " f"@ {config.openai_endpoint}"
         )
 
         def azure_wrapper(text: str) -> list[float]:

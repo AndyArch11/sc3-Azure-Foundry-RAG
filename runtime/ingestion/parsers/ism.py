@@ -14,12 +14,13 @@ Usage::
     records = IsmParser().parse()
     print(len(records))  # 1130+ depending on ISM version
 """
+
 from __future__ import annotations
 
+import json
 import logging
 import re
 import urllib.request
-import json
 from typing import Dict, List, Optional, Tuple
 
 from .base import BaseParser, RequirementRecord, filter_keywords
@@ -59,6 +60,7 @@ _APPLICABILITY_LABELS: Dict[str, str] = {
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _slugify(text: str) -> str:
     """Convert arbitrary text to a lowercase slug."""
@@ -122,6 +124,7 @@ def _collect_controls(
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
+
 
 class IsmParser(BaseParser):
     """Parse the ASD Information Security Manual from its OSCAL catalog.

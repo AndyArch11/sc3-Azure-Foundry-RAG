@@ -11,6 +11,7 @@ Covers:
 
 No network connections are made; all HTTP calls are replaced with unittest.mock.patch.
 """
+
 from __future__ import annotations
 
 import json
@@ -23,28 +24,21 @@ from bs4 import BeautifulSoup
 
 from runtime.ingestion.parsers.base import BaseParser, RequirementRecord, filter_keywords
 from runtime.ingestion.parsers.cis_controls import CisControlsParser, _build_control_guidance_map
-from runtime.ingestion.parsers.pci_dss import (
-    PciDssParser,
-    _build_requirement_and_guidance_maps,
-    _extract_full_text,
-)
+from runtime.ingestion.parsers.essential_eight import (CONTROL_FAMILIES, EssentialEightParser,
+                                                       _extract_cell_requirements,
+                                                       _extract_introduction,
+                                                       _normalise_family_name,
+                                                       _parse_maturity_model_page,
+                                                       _parse_requirement_table, _slugify)
+from runtime.ingestion.parsers.pci_dss import (PciDssParser, _build_requirement_and_guidance_maps,
+                                               _extract_full_text)
 from runtime.ingestion.parsers.pspf import PspfParser, _parse_pspf_release_text, _pspf_keywords
-from runtime.ingestion.parsers.essential_eight import (
-    CONTROL_FAMILIES,
-    EssentialEightParser,
-    _extract_cell_requirements,
-    _extract_introduction,
-    _normalise_family_name,
-    _parse_maturity_model_page,
-    _parse_requirement_table,
-    _slugify,
-)
 from runtime.ingestion.publish_controls import _batched, load_controls_jsonl
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_record(**overrides: Any) -> RequirementRecord:
     """Build a minimal valid RequirementRecord, merging any *overrides*."""
@@ -102,6 +96,7 @@ def _cell_soup(inner_html: str):
 # RequirementRecord
 # ---------------------------------------------------------------------------
 
+
 class TestRequirementRecord:
     def test_to_dict_preserves_all_fields(self):
         rec = _make_record()
@@ -124,10 +119,13 @@ class TestRequirementRecord:
 # BaseParser.to_jsonl
 # ---------------------------------------------------------------------------
 
+
 class _ConcreteParser(BaseParser):
     """Minimal concrete subclass for testing BaseParser.to_jsonl."""
+
     def __init__(self, records):
         self._records = records
+
     def parse(self):
         return self._records
 
@@ -156,31 +154,34 @@ class TestBaseParserToJsonl:
 
 class TestKeywordFiltering:
     def test_removes_noise_and_stopword_tokens(self):
-        filtered = filter_keywords([
-            "account",
-            "ro",
-            "sp",
-            "and",
-            "def",
-            "wireless",
-            "pci",
-            "dss",
-            "v4",
-            "cis",
-            "v8",
-            "guidelines",
-            "defined",
-            "documented",
-            "examine",
-            "requirement",
-            "verify",
-        ])
+        filtered = filter_keywords(
+            [
+                "account",
+                "ro",
+                "sp",
+                "and",
+                "def",
+                "wireless",
+                "pci",
+                "dss",
+                "v4",
+                "cis",
+                "v8",
+                "guidelines",
+                "defined",
+                "documented",
+                "examine",
+                "requirement",
+                "verify",
+            ]
+        )
         assert filtered == ["account", "wireless"]
 
 
 # ---------------------------------------------------------------------------
 # _slugify
 # ---------------------------------------------------------------------------
+
 
 class TestSlugify:
     def test_lowercase_and_spaces_to_hyphens(self):
@@ -204,6 +205,7 @@ class TestSlugify:
 # ---------------------------------------------------------------------------
 # _normalise_family_name
 # ---------------------------------------------------------------------------
+
 
 class TestNormaliseFamilyName:
     def test_exact_match(self):
@@ -234,6 +236,7 @@ class TestNormaliseFamilyName:
 # _extract_introduction
 # ---------------------------------------------------------------------------
 
+
 class TestExtractIntroduction:
     def test_returns_empty_when_no_heading(self):
         result = _extract_introduction(_soup("<div><p>Just a paragraph.</p></div>"))
@@ -245,7 +248,9 @@ class TestExtractIntroduction:
         assert "This is the intro" in result
 
     def test_stops_at_same_level_heading(self):
-        html = "<div><h2>Introduction</h2><p>Intro text.</p><h2>Overview</h2><p>Not intro.</p></div>"
+        html = (
+            "<div><h2>Introduction</h2><p>Intro text.</p><h2>Overview</h2><p>Not intro.</p></div>"
+        )
         result = _extract_introduction(_soup(html))
         assert "Intro text" in result
         assert "Not intro" not in result
@@ -266,6 +271,7 @@ class TestExtractIntroduction:
 # ---------------------------------------------------------------------------
 # _extract_cell_requirements
 # ---------------------------------------------------------------------------
+
 
 class TestExtractCellRequirements:
     def test_prefers_li_items(self):
@@ -299,6 +305,7 @@ class TestExtractCellRequirements:
 # _parse_requirement_table
 # ---------------------------------------------------------------------------
 
+
 def _req_table_html(family: str, requirements: list[str]) -> str:
     """Build a minimal two-column requirement table HTML string."""
     li_items = "".join(f"<li>{r}</li>" for r in requirements)
@@ -307,20 +314,30 @@ def _req_table_html(family: str, requirements: list[str]) -> str:
 
 class TestParseRequirementTable:
     def test_parses_basic_single_requirement(self):
-        html = _req_table_html("Patch applications", ["Apply patches within 48 hours of release when critical."])
-        records = _parse_requirement_table(_table_soup(html), 1, "https://example.com", "Appendix A", {})
+        html = _req_table_html(
+            "Patch applications", ["Apply patches within 48 hours of release when critical."]
+        )
+        records = _parse_requirement_table(
+            _table_soup(html), 1, "https://example.com", "Appendix A", {}
+        )
         assert len(records) == 1
         assert records[0].control_family == "Patch applications"
         assert records[0].maturity_level == 1
 
     def test_requirement_id_format_ml1(self):
         html = _req_table_html("Patch applications", ["Requirement statement that is long enough."])
-        records = _parse_requirement_table(_table_soup(html), 1, "https://example.com", "Appendix A", {})
+        records = _parse_requirement_table(
+            _table_soup(html), 1, "https://example.com", "Appendix A", {}
+        )
         assert records[0].requirement_id == "E8-patch-applications-ML1-001"
 
     def test_requirement_id_format_ml2(self):
-        html = _req_table_html("Regular backups", ["Backups must be retained in a secure and resilient manner."])
-        records = _parse_requirement_table(_table_soup(html), 2, "https://example.com", "Appendix B", {})
+        html = _req_table_html(
+            "Regular backups", ["Backups must be retained in a secure and resilient manner."]
+        )
+        records = _parse_requirement_table(
+            _table_soup(html), 2, "https://example.com", "Appendix B", {}
+        )
         assert records[0].requirement_id == "E8-regular-backups-ML2-001"
 
     def test_sequential_ids_within_family(self):
@@ -329,39 +346,59 @@ class TestParseRequirementTable:
             "Second requirement statement that is also long enough.",
         ]
         html = _req_table_html("Regular backups", reqs)
-        records = _parse_requirement_table(_table_soup(html), 1, "https://example.com", "Appendix A", {})
+        records = _parse_requirement_table(
+            _table_soup(html), 1, "https://example.com", "Appendix A", {}
+        )
         assert records[0].requirement_id.endswith("-001")
         assert records[1].requirement_id.endswith("-002")
 
     def test_skips_header_row_by_cell_value(self):
         html = "<table><tr><td>Mitigation strategy</td><td>Maturity Level One</td></tr></table>"
-        records = _parse_requirement_table(_table_soup(html), 1, "https://example.com", "Appendix A", {})
+        records = _parse_requirement_table(
+            _table_soup(html), 1, "https://example.com", "Appendix A", {}
+        )
         assert records == []
 
     def test_guidance_text_injected_from_map(self):
-        html = _req_table_html("Patch applications", ["A long enough patch requirement statement here."])
+        html = _req_table_html(
+            "Patch applications", ["A long enough patch requirement statement here."]
+        )
         guidance = {"Patch applications": "ASD guidance about patching."}
-        records = _parse_requirement_table(_table_soup(html), 1, "https://example.com", "Appendix A", guidance)
+        records = _parse_requirement_table(
+            _table_soup(html), 1, "https://example.com", "Appendix A", guidance
+        )
         assert records[0].guidance_text == "ASD guidance about patching."
 
     def test_family_with_no_guidance_gets_empty_string(self):
-        html = _req_table_html("Patch applications", ["A long enough patch requirement statement here."])
-        records = _parse_requirement_table(_table_soup(html), 1, "https://example.com", "Appendix A", {})
+        html = _req_table_html(
+            "Patch applications", ["A long enough patch requirement statement here."]
+        )
+        records = _parse_requirement_table(
+            _table_soup(html), 1, "https://example.com", "Appendix A", {}
+        )
         assert records[0].guidance_text == ""
 
     def test_unknown_family_produces_no_records(self):
         html = "<table><tr><td>Unknown Control Family</td><td><ul><li>A sufficiently long requirement statement.</li></ul></td></tr></table>"
-        records = _parse_requirement_table(_table_soup(html), 1, "https://example.com", "Appendix A", {})
+        records = _parse_requirement_table(
+            _table_soup(html), 1, "https://example.com", "Appendix A", {}
+        )
         assert records == []
 
     def test_keywords_assigned_per_family(self):
-        html = _req_table_html("Multi-factor authentication", ["MFA must be used for all privileged user accounts."])
-        records = _parse_requirement_table(_table_soup(html), 1, "https://example.com", "Appendix A", {})
+        html = _req_table_html(
+            "Multi-factor authentication", ["MFA must be used for all privileged user accounts."]
+        )
+        records = _parse_requirement_table(
+            _table_soup(html), 1, "https://example.com", "Appendix A", {}
+        )
         assert "MFA" in records[0].keywords
 
     def test_provenance_fields_set_correctly(self):
         html = _req_table_html("Patch applications", ["A long enough patch requirement statement."])
-        records = _parse_requirement_table(_table_soup(html), 1, "https://test.example", "Appendix A – Section", {})
+        records = _parse_requirement_table(
+            _table_soup(html), 1, "https://test.example", "Appendix A – Section", {}
+        )
         assert records[0].source_uri == "https://test.example"
         assert records[0].source_section == "Appendix A – Section"
         assert records[0].framework == "Essential Eight"
@@ -371,6 +408,7 @@ class TestParseRequirementTable:
 # ---------------------------------------------------------------------------
 # _parse_maturity_model_page
 # ---------------------------------------------------------------------------
+
 
 def _model_page_html(appendix_letter: str, family: str, req: str) -> str:
     """Build a minimal maturity model page with one appendix heading and one table."""
@@ -389,19 +427,29 @@ def _model_page_html(appendix_letter: str, family: str, req: str) -> str:
 
 class TestParseMaturityModelPage:
     def test_extracts_records_from_appendix_a(self):
-        html = _model_page_html("a", "Patch applications", "Apply patches within 48 hours when vulnerabilities are critical.")
+        html = _model_page_html(
+            "a",
+            "Patch applications",
+            "Apply patches within 48 hours when vulnerabilities are critical.",
+        )
         records = _parse_maturity_model_page(_soup(html), "https://example.com", {})
         assert len(records) >= 1
         assert records[0].maturity_level == 1
 
     def test_extracts_records_from_appendix_b(self):
-        html = _model_page_html("b", "Regular backups", "Backups must be retained in a secure and resilient manner.")
+        html = _model_page_html(
+            "b", "Regular backups", "Backups must be retained in a secure and resilient manner."
+        )
         records = _parse_maturity_model_page(_soup(html), "https://example.com", {})
         assert len(records) >= 1
         assert records[0].maturity_level == 2
 
     def test_extracts_records_from_appendix_c(self):
-        html = _model_page_html("c", "Application control", "Application control is implemented on all servers and workstations.")
+        html = _model_page_html(
+            "c",
+            "Application control",
+            "Application control is implemented on all servers and workstations.",
+        )
         records = _parse_maturity_model_page(_soup(html), "https://example.com", {})
         assert len(records) >= 1
         assert records[0].maturity_level == 3
@@ -428,7 +476,11 @@ class TestParseMaturityModelPage:
         assert records == []
 
     def test_source_uri_propagated_to_all_records(self):
-        html = _model_page_html("a", "Patch applications", "Apply patches within 48 hours when critical vulnerabilities exist.")
+        html = _model_page_html(
+            "a",
+            "Patch applications",
+            "Apply patches within 48 hours when critical vulnerabilities exist.",
+        )
         records = _parse_maturity_model_page(_soup(html), "https://canonical.example.com", {})
         assert all(r.source_uri == "https://canonical.example.com" for r in records)
 
@@ -509,7 +561,9 @@ class TestEssentialEightParser:
 
     def test_with_guidance_fetches_guidance_urls(self):
         model_soup = BeautifulSoup(_MINIMAL_MODEL_HTML, "html.parser")
-        guidance_soup = BeautifulSoup("<div><h2>Introduction</h2><p>Guidance prose.</p></div>", "html.parser")
+        guidance_soup = BeautifulSoup(
+            "<div><h2>Introduction</h2><p>Guidance prose.</p></div>", "html.parser"
+        )
         # First call returns model page; subsequent calls return guidance page
         call_results = [model_soup] + [guidance_soup] * 10
         with patch(_PATCH_PATH, side_effect=call_results) as mock_fetch:
@@ -534,32 +588,26 @@ class _FakePdfPage:
 class _FakePdfReader:
     def __init__(self, _path: str) -> None:
         self.pages = [
-            _FakePdfPage(
-                """
+            _FakePdfPage("""
 01
  Inventory and Control of Enterprise Assets
 OVERVIEW  Manage enterprise assets.
 Why is this Control critical?
 You cannot defend assets you do not know you have.
-"""
-            ),
-            _FakePdfPage(
-                """
+"""),
+            _FakePdfPage("""
 Control 01: Inventory and Control of Enterprise Assets
 Procedures and tools
 Use inventories, scanners, and supporting processes.
 Safeguards
-"""
-            ),
-            _FakePdfPage(
-                """
+"""),
+            _FakePdfPage("""
 02
  Inventory and Control of Software Assets
 OVERVIEW  Manage software assets.
 Why is this Control critical?
 Vulnerable software expands attack surface.
-"""
-            ),
+"""),
         ]
 
 
@@ -573,7 +621,10 @@ class TestCisControlsParser:
         assert "1" in guidance
         assert "Overview: Manage enterprise assets." in guidance["1"]
         assert "Why critical: You cannot defend assets you do not know you have." in guidance["1"]
-        assert "Procedures and tools: Use inventories, scanners, and supporting processes." in guidance["1"]
+        assert (
+            "Procedures and tools: Use inventories, scanners, and supporting processes."
+            in guidance["1"]
+        )
 
     def test_parse_workbook_rows_into_requirement_records(self, tmp_path: Path):
         import openpyxl
@@ -585,12 +636,84 @@ class TestCisControlsParser:
         wb = openpyxl.Workbook()
         ws = cast(Any, wb.active)
         ws.title = "Controls V8"
-        ws.append(["CIS Control", "CIS Safeguard", "Asset Type", "Security Function", "Title", "Description", "IG1", "IG2", "IG3"])
-        ws.append(["1", "", "", "", "Inventory and Control of Enterprise Assets", "Header description for control 1.", "", "", ""])
-        ws.append(["1", "1.1", "Devices", "Identify", "Establish and Maintain Detailed Enterprise Asset Inventory", "Maintain an accurate inventory.", "x", "x", "x"])
-        ws.append(["1", "1.2", "Devices", "Respond", "Address Unauthorized Assets", "Address unauthorized assets weekly.", "", "x", "x"])
-        ws.append(["1", "1.3", "Devices", "Protect", "Use an Active Discovery Tool", "Use active discovery to detect unmanaged assets.", "", "", "x"])
-        ws.append(["1", "1.4", "Devices", "Protect", "Maintain Asset Metadata", "Maintain metadata for managed assets.", "", "", ""])
+        ws.append(
+            [
+                "CIS Control",
+                "CIS Safeguard",
+                "Asset Type",
+                "Security Function",
+                "Title",
+                "Description",
+                "IG1",
+                "IG2",
+                "IG3",
+            ]
+        )
+        ws.append(
+            [
+                "1",
+                "",
+                "",
+                "",
+                "Inventory and Control of Enterprise Assets",
+                "Header description for control 1.",
+                "",
+                "",
+                "",
+            ]
+        )
+        ws.append(
+            [
+                "1",
+                "1.1",
+                "Devices",
+                "Identify",
+                "Establish and Maintain Detailed Enterprise Asset Inventory",
+                "Maintain an accurate inventory.",
+                "x",
+                "x",
+                "x",
+            ]
+        )
+        ws.append(
+            [
+                "1",
+                "1.2",
+                "Devices",
+                "Respond",
+                "Address Unauthorized Assets",
+                "Address unauthorized assets weekly.",
+                "",
+                "x",
+                "x",
+            ]
+        )
+        ws.append(
+            [
+                "1",
+                "1.3",
+                "Devices",
+                "Protect",
+                "Use an Active Discovery Tool",
+                "Use active discovery to detect unmanaged assets.",
+                "",
+                "",
+                "x",
+            ]
+        )
+        ws.append(
+            [
+                "1",
+                "1.4",
+                "Devices",
+                "Protect",
+                "Maintain Asset Metadata",
+                "Maintain metadata for managed assets.",
+                "",
+                "",
+                "",
+            ]
+        )
         wb.save(workbook_path)
 
         with patch("runtime.ingestion.parsers.cis_controls._PdfReader", _FakePdfReader):
@@ -613,7 +736,12 @@ class TestCisControlsParser:
     def test_parse_real_samples_populates_maturity_levels(self):
         workspace_root = Path(__file__).resolve().parents[2]
         workbook_path = workspace_root / "runtime" / "samples" / "CIS_Controls_Version_8.xlsx"
-        pdf_path = workspace_root / "runtime" / "samples" / "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf"
+        pdf_path = (
+            workspace_root
+            / "runtime"
+            / "samples"
+            / "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf"
+        )
 
         if not workbook_path.exists() or not pdf_path.exists():
             pytest.skip("CIS sample files are not present in runtime/samples")
@@ -769,13 +897,19 @@ class TestPspfParser:
         ciso_keywords = _pspf_keywords(
             "GOV",
             "All entities",
-            {0: ("2", "Entity Protective Security Roles and Responsibilities"), 1: ("2.3", "Chief Information Security Officer")},
+            {
+                0: ("2", "Entity Protective Security Roles and Responsibilities"),
+                1: ("2.3", "Chief Information Security Officer"),
+            },
             "A Chief Information Security Officer is appointed to oversee the entity's cyber security program.",
         )
         sogs_keywords = _pspf_keywords(
             "TECH",
             "System of Government Significance",
-            {0: ("15", "Cyber Security Programs"), 1: ("15.7", "Systems of Government Significance")},
+            {
+                0: ("15", "Cyber Security Programs"),
+                1: ("15.7", "Systems of Government Significance"),
+            },
             "Declared Systems of Government Significance are protected in accordance with the standard.",
         )
 
@@ -791,15 +925,23 @@ class TestPspfParser:
         assert records[0].requirement_id == "PSPF-0001"
         assert records[0].framework == "PSPF"
         assert records[0].control_family == "Departments of State"
-        assert records[0].guidance_text == "Departments of State provide leadership and guidance to supported entities."
+        assert (
+            records[0].guidance_text
+            == "Departments of State provide leadership and guidance to supported entities."
+        )
         assert records[0].effective_date == "31 October 2024"
         assert records[1].control_family == "Chief Information Security Officer"
-        assert records[1].source_section == "GOV > 2 Entity Protective Security Roles and Responsibilities > 2.3 Chief Information Security Officer > Requirement 11"
+        assert (
+            records[1].source_section
+            == "GOV > 2 Entity Protective Security Roles and Responsibilities > 2.3 Chief Information Security Officer > Requirement 11"
+        )
         assert "Ignored table content" not in records[1].requirement_text
 
     def test_parse_uses_downloaded_pdf_content(self):
         with patch("runtime.ingestion.parsers.pspf._download_pdf_bytes", return_value=b"pdf"):
-            with patch("runtime.ingestion.parsers.pspf._extract_full_text", return_value=_PSPF_FAKE_TEXT):
+            with patch(
+                "runtime.ingestion.parsers.pspf._extract_full_text", return_value=_PSPF_FAKE_TEXT
+            ):
                 records = PspfParser().parse()
 
         assert len(records) == 2
@@ -810,6 +952,7 @@ class TestPspfParser:
 # ---------------------------------------------------------------------------
 # load_controls_jsonl
 # ---------------------------------------------------------------------------
+
 
 class TestLoadControlsJsonl:
     def test_loads_single_valid_record(self, tmp_path: Path):
@@ -865,6 +1008,7 @@ class TestLoadControlsJsonl:
 # ---------------------------------------------------------------------------
 # _batched
 # ---------------------------------------------------------------------------
+
 
 def _dicts(n: int) -> list[dict[str, Any]]:
     """Build *n* minimal distinct dicts for use as _batched test data."""

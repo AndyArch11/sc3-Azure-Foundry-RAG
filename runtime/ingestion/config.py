@@ -52,11 +52,15 @@ class IngestionConfig:
         return cls(
             search_endpoint=_require("AZURE_SEARCH_ENDPOINT"),
             search_index_name=index_name,
-            data_source_name=os.environ.get("AZURE_SEARCH_DATASOURCE_NAME", f"{index_name}-datasource"),
+            data_source_name=os.environ.get(
+                "AZURE_SEARCH_DATASOURCE_NAME", f"{index_name}-datasource"
+            ),
             skillset_name=os.environ.get("AZURE_SEARCH_SKILLSET_NAME", f"{index_name}-skillset"),
             indexer_name=os.environ.get("AZURE_SEARCH_INDEXER_NAME", f"{index_name}-indexer"),
             azure_openai_endpoint=_require("AZURE_OPENAI_ENDPOINT"),
-            embedding_deployment_name=os.environ.get("EMBEDDING_DEPLOYMENT_NAME", "text-embedding-ada-002"),
+            embedding_deployment_name=os.environ.get(
+                "EMBEDDING_DEPLOYMENT_NAME", "text-embedding-ada-002"
+            ),
             embedding_dimensions=int(os.environ.get("EMBEDDING_DIMENSIONS", "1536")),
             azure_openai_api_key=os.environ.get("AZURE_OPENAI_API_KEY"),
             storage_account_name=_require("AZURE_STORAGE_ACCOUNT_NAME"),

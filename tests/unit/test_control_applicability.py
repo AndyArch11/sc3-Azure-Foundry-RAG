@@ -5,13 +5,9 @@ from __future__ import annotations
 import pytest
 
 from runtime.assessment_orchestration.control_applicability import (
-    classify_control_applicability,
-    enrich_control_with_applicability,
-)
+    classify_control_applicability, enrich_control_with_applicability)
 from runtime.assessment_orchestration.validate_control_applicability import (
-    review_ambiguous_controls_with_llm,
-    validate_controls_applicability,
-)
+    review_ambiguous_controls_with_llm, validate_controls_applicability)
 
 
 def test_classify_technical_control() -> None:
@@ -119,9 +115,8 @@ def test_enrich_control_with_applicability() -> None:
 
 def test_runtime_filtering_prefers_high_confidence_technical() -> None:
     """Verify that runtime filtering uses pre-computed scores when available."""
-    from runtime.assessment_orchestration.assessment_runtime import (
-        _azure_control_is_likely_applicable,
-    )
+    from runtime.assessment_orchestration.assessment_runtime import \
+        _azure_control_is_likely_applicable
 
     control_with_metadata = {
         "requirement_id": "PR.AC-1",
@@ -135,9 +130,8 @@ def test_runtime_filtering_prefers_high_confidence_technical() -> None:
 
 def test_runtime_filtering_excludes_high_confidence_process() -> None:
     """Verify that runtime filtering excludes high-confidence process controls."""
-    from runtime.assessment_orchestration.assessment_runtime import (
-        _azure_control_is_likely_applicable,
-    )
+    from runtime.assessment_orchestration.assessment_runtime import \
+        _azure_control_is_likely_applicable
 
     control_with_metadata = {
         "requirement_id": "OP-2",
@@ -151,9 +145,8 @@ def test_runtime_filtering_excludes_high_confidence_process() -> None:
 
 def test_runtime_filtering_includes_mixed_control() -> None:
     """Verify that runtime filtering includes mixed-signal controls."""
-    from runtime.assessment_orchestration.assessment_runtime import (
-        _azure_control_is_likely_applicable,
-    )
+    from runtime.assessment_orchestration.assessment_runtime import \
+        _azure_control_is_likely_applicable
 
     control_with_metadata = {
         "requirement_id": "AC-5",

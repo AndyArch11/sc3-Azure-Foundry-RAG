@@ -221,6 +221,5 @@ def test_skill_selection_eval_cases() -> None:
         assert_named_schema(schemas, "eval_result", result)
 
         assert selected.name == expected, (
-            f"Case {case_id} failed: expected {expected}, got {selected.name}. "
-            f"Prompt: {prompt}"
+            f"Case {case_id} failed: expected {expected}, got {selected.name}. " f"Prompt: {prompt}"
         )

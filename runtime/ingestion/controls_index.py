@@ -5,16 +5,10 @@ from dataclasses import dataclass
 
 from azure.core.credentials import TokenCredential
 from azure.search.documents.indexes import SearchIndexClient
-from azure.search.documents.indexes.models import (
-    SearchField,
-    SearchFieldDataType,
-    SearchIndex,
-    SemanticConfiguration,
-    SemanticField,
-    SemanticPrioritizedFields,
-    SemanticSearch,
-    SimpleField,
-)
+from azure.search.documents.indexes.models import (SearchField, SearchFieldDataType, SearchIndex,
+                                                   SemanticConfiguration, SemanticField,
+                                                   SemanticPrioritizedFields, SemanticSearch,
+                                                   SimpleField)
 
 
 @dataclass(frozen=True)
@@ -30,7 +24,9 @@ class ControlsIndexConfig:
 
         return cls(
             search_endpoint=search_endpoint,
-            controls_index_name=os.environ.get("AZURE_SEARCH_CONTROLS_INDEX_NAME", "controls-index"),
+            controls_index_name=os.environ.get(
+                "AZURE_SEARCH_CONTROLS_INDEX_NAME", "controls-index"
+            ),
         )
 
 

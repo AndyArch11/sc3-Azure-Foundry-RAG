@@ -5,7 +5,6 @@ from pathlib import Path
 
 from .models import SourceDocument
 
-
 SUPPORTED_EXTENSIONS = {".pdf", ".xlsx", ".xlsm", ".xltx", ".xltm"}
 logger = logging.getLogger(__name__)
 
@@ -15,9 +14,7 @@ def _extract_pdf_text_ocr(path: Path) -> str:
         import pypdfium2 as pdfium
         import pytesseract
     except ImportError as exc:
-        raise RuntimeError(
-            "pypdfium2 and pytesseract are required for local OCR fallback"
-        ) from exc
+        raise RuntimeError("pypdfium2 and pytesseract are required for local OCR fallback") from exc
 
     pages: list[str] = []
     document = pdfium.PdfDocument(str(path))
@@ -109,5 +106,7 @@ def extract_source_document(
 
 
 def discover_supported_files(input_dir: Path) -> list[Path]:
-    files = [p for p in input_dir.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS]
+    files = [
+        p for p in input_dir.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
+    ]
     return sorted(files)

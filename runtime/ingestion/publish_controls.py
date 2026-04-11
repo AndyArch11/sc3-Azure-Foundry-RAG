@@ -98,8 +98,7 @@ def _framework_version_state(
     escaped_framework = framework.replace("'", "''")
     escaped_version = framework_version.replace("'", "''")
     filter_expr = (
-        f"framework eq '{escaped_framework}' "
-        f"and framework_version eq '{escaped_version}'"
+        f"framework eq '{escaped_framework}' " f"and framework_version eq '{escaped_version}'"
     )
 
     requirement_ids: list[str] = []
@@ -121,10 +120,14 @@ def _framework_version_state(
     return requirement_ids, manifest_hashes
 
 
-def _delete_requirements(client: SearchClient, requirement_ids: list[str], batch_size: int = 500) -> None:
+def _delete_requirements(
+    client: SearchClient, requirement_ids: list[str], batch_size: int = 500
+) -> None:
     if not requirement_ids:
         return
-    for batch in [requirement_ids[i : i + batch_size] for i in range(0, len(requirement_ids), batch_size)]:
+    for batch in [
+        requirement_ids[i : i + batch_size] for i in range(0, len(requirement_ids), batch_size)
+    ]:
         docs = [{"requirement_id": req_id} for req_id in batch]
         client.delete_documents(docs)
 
@@ -155,16 +158,17 @@ def upload_controls_records(
     enriched_records = []
     for record in records:
         enriched = dict(record)
-        
+
         # Apply control applicability enrichment if not already present
         if "control_applicability_scope" not in enriched:
             try:
                 from ..assessment_orchestration import enrich_control_with_applicability
+
                 enriched = enrich_control_with_applicability(enriched)
             except Exception:
                 # Fallback: skip enrichment if unavailable (backward compatibility)
                 pass
-        
+
         enriched["ingestion_manifest_hash"] = manifest_hash
         enriched["ingestion_loaded_at"] = loaded_at
         enriched_records.append(enriched)

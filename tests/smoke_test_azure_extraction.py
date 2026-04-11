@@ -24,10 +24,8 @@ from pathlib import Path
 # Add workspace root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from runtime.assessment_orchestration.mcp.azure_resource import (
-    AzureMCPServer,
-    build_azure_target_reference,
-)
+from runtime.assessment_orchestration.mcp.azure_resource import (AzureMCPServer,
+                                                                 build_azure_target_reference)
 
 
 def validate_azure_extraction(
@@ -162,13 +160,9 @@ Examples:
         """,
     )
 
-    parser.add_argument(
-        "--subscription-id", required=True, help="Azure subscription ID (UUID)"
-    )
+    parser.add_argument("--subscription-id", required=True, help="Azure subscription ID (UUID)")
     parser.add_argument("--resource-group", required=True, help="Azure resource group name")
-    parser.add_argument(
-        "--verbose", action="store_true", help="Print detailed extraction info"
-    )
+    parser.add_argument("--verbose", action="store_true", help="Print detailed extraction info")
     parser.add_argument("--json", action="store_true", help="Output results as JSON")
 
     args = parser.parse_args()

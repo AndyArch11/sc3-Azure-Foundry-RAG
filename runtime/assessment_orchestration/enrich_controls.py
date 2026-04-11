@@ -20,35 +20,35 @@ def enrich_controls_file(
 ) -> dict[str, Any]:
     """
     Read controls from input JSONL, enrich with applicability metadata, write to output.
-    
+
     Args:
         input_file: Input JSONL file path
         output_file: Output JSONL file path (or "-" for stdout)
         skip_if_present: If True, skip enrichment for controls that already have applicability fields
-    
+
     Returns: Statistics dict with counts
     """
     enriched = 0
     skipped = 0
     errors = 0
-    
+
     output_handle = sys.stdout if output_file == "-" else open(output_file, "w")
-    
+
     try:
         with open(input_file) as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
-                
+
                 try:
                     control = json.loads(line)
-                    
+
                     if skip_if_present and "control_applicability_scope" in control:
                         skipped += 1
                         output_handle.write(json.dumps(control) + "\n")
                         continue
-                    
+
                     enriched_control = enrich_control_with_applicability(control)
                     enriched += 1
                     output_handle.write(json.dumps(enriched_control) + "\n")
@@ -58,7 +58,7 @@ def enrich_controls_file(
     finally:
         if output_file != "-":
             output_handle.close()
-    
+
     return {
         "enriched": enriched,
         "skipped": skipped,
@@ -87,9 +87,9 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Enrich even if applicability fields already present",
     )
-    
+
     args = parser.parse_args(argv)
-    
+
     try:
         stats = enrich_controls_file(
             args.input_file,

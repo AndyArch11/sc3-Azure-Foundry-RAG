@@ -72,7 +72,7 @@ def is_ollama_available(base_url: str | None = None) -> bool:
     """Check if Ollama is running and accessible."""
     url = _resolve_base_url(base_url)
     try:
-        import requests
+        import requests  # type: ignore[import-untyped]
 
         response = requests.get(f"{url}/api/tags", timeout=2)
         return response.status_code == 200

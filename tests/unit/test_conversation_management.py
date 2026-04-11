@@ -1,7 +1,9 @@
 """Unit tests for Foundry chat completion and conversation management."""
+
 from __future__ import annotations
 
 import os
+
 # Set up required environment variables BEFORE importing app
 os.environ.setdefault("AZURE_SEARCH_ENDPOINT", "https://test.search.windows.net")
 os.environ.setdefault("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
@@ -9,21 +11,15 @@ os.environ.setdefault("AZURE_COSMOS_ENDPOINT", "https://test.documents.azure.com
 os.environ.setdefault("AZURE_COSMOS_DATABASE_NAME", "rag-conversations")
 os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 
-import pytest
 import datetime
-from unittest.mock import Mock, patch, MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 from azure.cosmos.exceptions import CosmosResourceNotFoundError
 
-
-from query_web.app import (
-    ConversationMessage,
-    ResponseRating,
-    ConversationSession,
-    _build_feedback_context,
-    _get_user_id,
-    _load_conversation,
-    _save_conversation,
-)
+from query_web.app import (ConversationMessage, ConversationSession, ResponseRating,
+                           _build_feedback_context, _get_user_id, _load_conversation,
+                           _save_conversation)
 
 
 class TestConversationMessage:
@@ -65,7 +61,7 @@ class TestConversationSession:
             conversation_id="conv-789",
         )
         session.messages.append(ConversationMessage(role="user", content="Q"))
-        
+
         doc = session.to_dict()
         assert doc["id"] == "user_456_conv_789"
         assert doc["session_id"] == "sess-123"
@@ -84,7 +80,9 @@ class TestConversationSession:
             conversation_id="conv-789",
         )
         session.response_ratings.append(
-            ResponseRating(rating=2, todo="Add mitigation checklist", assistant_timestamp="t-assist")
+            ResponseRating(
+                rating=2, todo="Add mitigation checklist", assistant_timestamp="t-assist"
+            )
         )
 
         doc = session.to_dict()
@@ -103,10 +101,10 @@ class TestConversationSession:
             evaluation_threshold=0.8,
         )
         original.messages.append(ConversationMessage(role="user", content="Q"))
-        
+
         doc = original.to_dict()
         restored = ConversationSession.from_dict(doc)
-        
+
         assert restored.session_id == original.session_id
         assert restored.user_id == original.user_id
         assert restored.conversation_id == original.conversation_id
@@ -123,7 +121,7 @@ class TestUserIdGeneration:
         # Hashed auth token should be consistent and deterministic
         user_id1 = _get_user_id("secret-token-123", "session-456")
         user_id2 = _get_user_id("secret-token-123", "session-789")
-        
+
         # Same token → same user ID
         assert user_id1 == user_id2
         # Length is 16 (sha256[:16])
@@ -161,14 +159,22 @@ class TestConversationLoadSave:
             "user_id": "user-456",
             "conversation_id": "conv-789",
             "messages": [
-                {"role": "user", "content": "Q", "timestamp": datetime.datetime.now(datetime.UTC).isoformat()},
-                {"role": "assistant", "content": "A", "timestamp": datetime.datetime.now(datetime.UTC).isoformat()},
+                {
+                    "role": "user",
+                    "content": "Q",
+                    "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+                },
+                {
+                    "role": "assistant",
+                    "content": "A",
+                    "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+                },
             ],
             "created_at": datetime.datetime.now(datetime.UTC).isoformat(),
             "updated_at": datetime.datetime.now(datetime.UTC).isoformat(),
             "type": "conversation",
         }
-        
+
         with patch("query_web.app.conversations_container", mock_container):
             session = _load_conversation("user-456", "conv-789")
             assert session.user_id == "user-456"
@@ -181,7 +187,7 @@ class TestConversationLoadSave:
         """If CosmosDB read raises exception, return new session."""
         mock_container = MagicMock()
         mock_container.read_item.side_effect = CosmosResourceNotFoundError(message="Not found")
-        
+
         with patch("query_web.app.conversations_container", mock_container):
             session = _load_conversation("user-123", "conv-456")
             assert session.conversation_id == "conv-456"
@@ -196,7 +202,7 @@ class TestConversationLoadSave:
             conversation_id="conv-789",
         )
         session.messages.append(ConversationMessage(role="user", content="Q"))
-        
+
         with patch("query_web.app.conversations_container", mock_container):
             _save_conversation(session)
             mock_container.upsert_item.assert_called_once()
@@ -226,11 +232,11 @@ class TestConversationMessageHistory:
             user_id="user-456",
             conversation_id="conv-789",
         )
-        
+
         session.messages.append(ConversationMessage(role="user", content="What is X?"))
         session.messages.append(ConversationMessage(role="assistant", content="X is..."))
         session.messages.append(ConversationMessage(role="user", content="Tell me more"))
-        
+
         assert len(session.messages) == 3
         assert session.messages[0].role == "user"
         assert session.messages[1].role == "assistant"
@@ -242,14 +248,14 @@ class TestConversationMessageHistory:
             user_id="user-456",
             conversation_id="conv-789",
         )
-        
+
         for i, content in enumerate(["Q1", "A1", "Q2", "A2"]):
             role = "user" if i % 2 == 0 else "assistant"
             session.messages.append(ConversationMessage(role=role, content=content))
-        
+
         doc = session.to_dict()
         restored = ConversationSession.from_dict(doc)
-        
+
         assert len(restored.messages) == 4
         restored_contents = [m.content for m in restored.messages]
         assert restored_contents == ["Q1", "A1", "Q2", "A2"]

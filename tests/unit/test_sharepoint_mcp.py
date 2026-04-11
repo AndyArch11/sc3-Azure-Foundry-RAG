@@ -1,4 +1,5 @@
 """SharePoint MCP implementation and testing."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -6,19 +7,15 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 
-from runtime.assessment_orchestration.mcp.sharepoint import (
-    SharePointClient,
-    SharePointMCPServer,
-    _normalise_comments,
-    _parse_sharepoint_url,
-    _strip_html,
-    _url_fallback_id,
-)
-
+from runtime.assessment_orchestration.mcp.sharepoint import (SharePointClient, SharePointMCPServer,
+                                                             _normalise_comments,
+                                                             _parse_sharepoint_url, _strip_html,
+                                                             _url_fallback_id)
 
 # --------------------------------------------------------------------------- #
 # Unit helpers                                                                 #
 # --------------------------------------------------------------------------- #
+
 
 def test_strip_html_basic() -> None:
     assert _strip_html("<p>Hello <strong>world</strong></p>") == "Hello\nworld"
@@ -76,9 +73,12 @@ def test_normalise_comments_extracts_text() -> None:
 # Offline (no client) tests                                                    #
 # --------------------------------------------------------------------------- #
 
+
 def test_resolve_target_offline_parses_url() -> None:
     sp = SharePointMCPServer()
-    target = sp.resolve_target("https://tenant.sharepoint.com/sites/sec/SitePages/page.aspx?id=abc-123")
+    target = sp.resolve_target(
+        "https://tenant.sharepoint.com/sites/sec/SitePages/page.aspx?id=abc-123"
+    )
     assert target.provider == "sharepoint"
     assert target.target_id == "abc-123"
     assert target.container_id == "sec"
@@ -99,7 +99,9 @@ def test_resolve_target_offline_non_sharepoint_raises() -> None:
 
 def test_get_content_by_id_offline_returns_stub() -> None:
     sp = SharePointMCPServer()
-    artifact = sp.get_content_by_id("abc-123", identity_mode="app_only", include_discussion_context=True)
+    artifact = sp.get_content_by_id(
+        "abc-123", identity_mode="app_only", include_discussion_context=True
+    )
     assert artifact.provider == "sharepoint"
     assert artifact.target_id == "abc-123"
     assert artifact.content
@@ -120,7 +122,9 @@ def test_check_user_access_offline_no_principal_denied() -> None:
 
 def test_check_user_access_offline_with_principal_granted() -> None:
     sp = SharePointMCPServer()
-    decision = sp.check_user_access("abc-123", {"principal_id": "user-1", "email": "user@example.com"})
+    decision = sp.check_user_access(
+        "abc-123", {"principal_id": "user-1", "email": "user@example.com"}
+    )
     assert decision.granted
 
 
@@ -133,7 +137,9 @@ def test_get_recent_mentions_offline_returns_empty() -> None:
 def test_post_comment_offline_raises_not_implemented() -> None:
     sp = SharePointMCPServer()
     with pytest.raises(NotImplementedError):
-        sp.post_comment("abc-123", comment_body="hello", identity_mode="app_only", idempotency_key="key-1")
+        sp.post_comment(
+            "abc-123", comment_body="hello", identity_mode="app_only", idempotency_key="key-1"
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -145,8 +151,12 @@ _DEFAULT_ITEM = {
     "name": "Policy Document",
     "webUrl": "https://tenant.sharepoint.com/sites/sec/Shared%20Documents/policy.docx",
     "lastModifiedDateTime": "2026-04-02T10:00:00Z",
-    "createdBy": {"user": {"id": "user-owner", "displayName": "Owner User", "mail": "owner@example.com"}},
-    "lastModifiedBy": {"user": {"id": "user-editor", "displayName": "Editor User", "mail": "editor@example.com"}},
+    "createdBy": {
+        "user": {"id": "user-owner", "displayName": "Owner User", "mail": "owner@example.com"}
+    },
+    "lastModifiedBy": {
+        "user": {"id": "user-editor", "displayName": "Editor User", "mail": "editor@example.com"}
+    },
 }
 
 _DEFAULT_USER = {
@@ -179,6 +189,7 @@ def _make_sharepoint_client(
 # Live client path (mocked) tests                                              #
 # --------------------------------------------------------------------------- #
 
+
 def test_get_content_by_id_with_client_fetches_item() -> None:
     client = _make_sharepoint_client()
     sp = SharePointMCPServer(client=client)
@@ -193,14 +204,18 @@ def test_get_content_by_id_with_client_fetches_item() -> None:
 
 def test_get_content_by_id_with_discussion_context() -> None:
     client = _make_sharepoint_client(
-        comments=[{
-            "id": "c-1",
-            "from": {"user": {"id": "user-abc"}},
-            "body": {"content": "Needs revision"},
-        }]
+        comments=[
+            {
+                "id": "c-1",
+                "from": {"user": {"id": "user-abc"}},
+                "body": {"content": "Needs revision"},
+            }
+        ]
     )
     sp = SharePointMCPServer(client=client)
-    artifact = sp.get_content_by_id("abc-123", identity_mode="app_only", include_discussion_context=True)
+    artifact = sp.get_content_by_id(
+        "abc-123", identity_mode="app_only", include_discussion_context=True
+    )
     assert len(artifact.discussion_context) == 1
     assert artifact.discussion_context[0]["text"] == "Needs revision"
 
@@ -208,7 +223,9 @@ def test_get_content_by_id_with_discussion_context() -> None:
 def test_resolve_target_with_client_enriches_title() -> None:
     client = _make_sharepoint_client()
     sp = SharePointMCPServer(client=client)
-    target = sp.resolve_target("https://tenant.sharepoint.com/sites/sec/SitePages/OldTitle?id=abc-123")
+    target = sp.resolve_target(
+        "https://tenant.sharepoint.com/sites/sec/SitePages/OldTitle?id=abc-123"
+    )
     assert target.title == "Policy Document"
     assert target.container_id == "sec"
     assert target.target_id == "abc-123"
@@ -255,7 +272,9 @@ def test_post_comment_http_error_returns_failure() -> None:
     http_err.response = mock_resp
     client.post_comment.side_effect = http_err
     sp = SharePointMCPServer(client=client)
-    outcome = sp.post_comment("abc-123", comment_body="test", identity_mode="app_only", idempotency_key="idem-2")
+    outcome = sp.post_comment(
+        "abc-123", comment_body="test", identity_mode="app_only", idempotency_key="idem-2"
+    )
     assert not outcome.success
     assert "http_403" in outcome.failures
 

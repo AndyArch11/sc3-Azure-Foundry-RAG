@@ -50,7 +50,9 @@ modes:
         help="(azure mode) skip blob upload; files must already be in the grounding-data container",
     )
     # local mode
-    parser.add_argument("--output-jsonl", default="./out/chunks.jsonl", help="(local mode) JSONL output path")
+    parser.add_argument(
+        "--output-jsonl", default="./out/chunks.jsonl", help="(local mode) JSONL output path"
+    )
     parser.add_argument("--chunk-size", type=int, default=1200)
     parser.add_argument("--chunk-overlap", type=int, default=200)
     parser.add_argument(
@@ -74,7 +76,16 @@ modes:
     # controls mode
     parser.add_argument(
         "--controls-framework",
-        choices=["all", "aescsf", "cis_controls", "essential_eight", "ism", "nist_csf", "pci_dss", "pspf"],
+        choices=[
+            "all",
+            "aescsf",
+            "cis_controls",
+            "essential_eight",
+            "ism",
+            "nist_csf",
+            "pci_dss",
+            "pspf",
+        ],
         default="all",
         help="(controls mode) framework(s) to parse and publish",
     )
@@ -176,14 +187,8 @@ def _run_azure(args: argparse.Namespace) -> int:
 
     from .blob_uploader import upload_source_files
     from .config import IngestionConfig
-    from .search_pipeline import (
-        ensure_data_source,
-        ensure_indexer,
-        ensure_search_index,
-        ensure_skillset,
-        run_indexer,
-        wait_for_indexer,
-    )
+    from .search_pipeline import (ensure_data_source, ensure_indexer, ensure_search_index,
+                                  ensure_skillset, run_indexer, wait_for_indexer)
 
     try:
         config = IngestionConfig.from_env()

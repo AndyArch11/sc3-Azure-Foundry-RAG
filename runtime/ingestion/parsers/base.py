@@ -1,4 +1,5 @@
 """Base classes for standards document pre-parsers."""
+
 from __future__ import annotations
 
 import json
@@ -6,7 +7,6 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from typing import Iterable, List, Optional
-
 
 _KEYWORD_STOPWORDS = frozenset(
     {
@@ -130,25 +130,25 @@ class RequirementRecord:
     requirement_id: str
 
     # Framework and version metadata
-    framework: str               # e.g. "Essential Eight"
-    framework_version: str       # e.g. "November 2023"
+    framework: str  # e.g. "Essential Eight"
+    framework_version: str  # e.g. "November 2023"
 
     # Control classification
-    control_family: str          # e.g. "Patch applications"
+    control_family: str  # e.g. "Patch applications"
     maturity_level: Optional[int]  # 1, 2 or 3 for Essential Eight; None for flat frameworks
 
     # Content
-    requirement_text: str        # The normative statement as written in the standard
-    guidance_text: str           # Introductory guidance from the corresponding ASD page
+    requirement_text: str  # The normative statement as written in the standard
+    guidance_text: str  # Introductory guidance from the corresponding ASD page
 
     # Search enrichment
-    keywords: List[str]          # Derived terms to improve keyword-based retrieval
+    keywords: List[str]  # Derived terms to improve keyword-based retrieval
 
     # Provenance
-    source_uri: str              # Canonical URL of the source page
-    source_section: str          # Section name within the source document
-    effective_date: str          # Publication or effective date string
-    jurisdiction_or_scope: str   # e.g. "Australia"
+    source_uri: str  # Canonical URL of the source page
+    source_section: str  # Section name within the source document
+    effective_date: str  # Publication or effective date string
+    jurisdiction_or_scope: str  # e.g. "Australia"
 
     def to_dict(self) -> dict:
         return asdict(self)

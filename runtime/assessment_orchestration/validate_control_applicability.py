@@ -15,7 +15,6 @@ from typing import Any
 from .control_applicability import classify_control_applicability
 from .dev_llms import create_chat_completion_fn, get_llm_backend
 
-
 _APPLICABILITY_REVIEW_PROMPT = (
     "You classify cybersecurity controls by applicability scope for cloud posture assessment. "
     "Return JSON only with keys: scope, confidence, rationale. "
@@ -194,11 +193,11 @@ def validate_controls_applicability(
     """
     Gauge heuristics against Corpus A controls.
     Returns classification distribution, confidence histogram, and ambiguous cases.
-    
+
     If controls_source is None, loads all local parsed-controls/*.jsonl files.
     """
     controls_data: list[dict[str, Any]] = []
-    
+
     if controls_source:
         with open(controls_source) as f:
             for line in f:
@@ -215,7 +214,7 @@ def validate_controls_applicability(
                     line = line.strip()
                     if line:
                         controls_data.append(json.loads(line))
-    
+
     sampled_controls = controls_data[:max_results]
 
     classifications: list[dict[str, Any]] = []
@@ -234,17 +233,17 @@ def validate_controls_applicability(
             classifications.append(classification)
         except Exception as exc:
             print(f"Warning: failed to classify {control.get('requirement_id')}: {exc}")
-    
-    scope_counts = {}
-    confidence_histogram = {}
+
+    scope_counts: dict[str, int] = {}
+    confidence_histogram: dict[float, int] = {}
     ambiguous = []
-    
+
     for classification in classifications:
         scope_counts[classification["scope"]] = scope_counts.get(classification["scope"], 0) + 1
-        
+
         confidence_bucket = int(classification["confidence"] * 10) / 10
         confidence_histogram[confidence_bucket] = confidence_histogram.get(confidence_bucket, 0) + 1
-        
+
         if classification["confidence"] < confidence_threshold:
             ambiguous.append(
                 {
@@ -257,22 +256,26 @@ def validate_controls_applicability(
                     "uncertain": classification["uncertain"],
                 }
             )
-    
+
     result = {
         "total_controls_classified": len(classifications),
         "scope_distribution": dict(sorted(scope_counts.items())),
         "average_confidence": round(
-            sum(c["confidence"] for c in classifications) / len(classifications) if classifications else 0,
+            (
+                sum(c["confidence"] for c in classifications) / len(classifications)
+                if classifications
+                else 0
+            ),
             3,
         ),
-        "confidence_histogram": {
-            f"{k:.0%}": v for k, v in sorted(confidence_histogram.items())
-        },
+        "confidence_histogram": {f"{k:.0%}": v for k, v in sorted(confidence_histogram.items())},
         "ambiguous_controls_below_threshold": len(ambiguous),
         "ambiguous_controls": sorted(
             ambiguous,
             key=lambda x: (x["confidence"], x["framework"], x["requirement_id"]),
-        )[:20],  # Top 20 most ambiguous
+        )[
+            :20
+        ],  # Top 20 most ambiguous
     }
 
     if review_with_llm:
@@ -287,7 +290,9 @@ def validate_controls_applicability(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Validate control applicability heuristics and optionally review ambiguous controls with an LLM")
+    parser = argparse.ArgumentParser(
+        description="Validate control applicability heuristics and optionally review ambiguous controls with an LLM"
+    )
     parser.add_argument("threshold", nargs="?", type=float, default=0.75)
     parser.add_argument("controls_file", nargs="?", default=None)
     parser.add_argument("--llm-review", action="store_true", default=False)

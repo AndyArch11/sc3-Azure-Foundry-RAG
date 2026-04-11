@@ -3,14 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from runtime.assessment_orchestration.interfaces import OrchestratorAdapter
-from runtime.assessment_orchestration.models import (
-    AccessDecision,
-    AssessedArtifactPackage,
-    AssessmentJob,
-    CorpusGroundingPackage,
-    DeliveryOutcome,
-    ResolvedTarget,
-)
+from runtime.assessment_orchestration.models import (AccessDecision, AssessedArtifactPackage,
+                                                     AssessmentJob, CorpusGroundingPackage,
+                                                     DeliveryOutcome, ResolvedTarget)
 from runtime.assessment_orchestration.runtime_wiring import create_orchestrator_adapter_from_env
 from runtime.assessment_orchestration.skill_catalog import load_skill_catalog
 
@@ -33,7 +28,9 @@ class _FakeContentClient:
             audit_fields={"target_id": target_id},
         )
 
-    def get_content_by_id(self, target_id: str, *, identity_mode: str, include_discussion_context: bool = False) -> AssessedArtifactPackage:
+    def get_content_by_id(
+        self, target_id: str, *, identity_mode: str, include_discussion_context: bool = False
+    ) -> AssessedArtifactPackage:
         return AssessedArtifactPackage(
             provider="confluence",
             target_id=target_id,
@@ -53,10 +50,20 @@ class _FakeContentClient:
 
 
 class _FakeAssessmentAgent:
-    def retrieve_corpus_grounding(self, artifact: AssessedArtifactPackage) -> CorpusGroundingPackage:
-        return CorpusGroundingPackage(corpus_a_results=[{"requirement_id": "REQ-1"}], corpus_b_results=[])
+    def retrieve_corpus_grounding(
+        self, artifact: AssessedArtifactPackage
+    ) -> CorpusGroundingPackage:
+        return CorpusGroundingPackage(
+            corpus_a_results=[{"requirement_id": "REQ-1"}], corpus_b_results=[]
+        )
 
-    def generate_assessment(self, artifact: AssessedArtifactPackage, grounding: CorpusGroundingPackage, *, validation_mode: str = "hard"):
+    def generate_assessment(
+        self,
+        artifact: AssessedArtifactPackage,
+        grounding: CorpusGroundingPackage,
+        *,
+        validation_mode: str = "hard",
+    ):
         return {
             "schema_version": "v1.1",
             "executive_summary": "ok",
@@ -66,10 +73,14 @@ class _FakeAssessmentAgent:
 
 
 class _FakeDeliveryPublisher:
-    def post_comment(self, target_id: str, *, comment_body: str, identity_mode: str, idempotency_key: str) -> DeliveryOutcome:
+    def post_comment(
+        self, target_id: str, *, comment_body: str, identity_mode: str, idempotency_key: str
+    ) -> DeliveryOutcome:
         return DeliveryOutcome(success=True, attempted_channels=("inline",))
 
-    def send_email(self, recipients: list[str], *, subject: str, body: str, idempotency_key: str) -> DeliveryOutcome:
+    def send_email(
+        self, recipients: list[str], *, subject: str, body: str, idempotency_key: str
+    ) -> DeliveryOutcome:
         return DeliveryOutcome(success=True, attempted_channels=("email",))
 
 

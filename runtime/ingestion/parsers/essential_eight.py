@@ -16,6 +16,7 @@ Usage::
     records = parser.parse()
     print(parser.to_jsonl(records))
 """
+
 from __future__ import annotations
 
 import logging
@@ -55,36 +56,70 @@ CONTROL_FAMILIES: List[str] = [
 # Search-enrichment keywords per control family.
 FAMILY_KEYWORDS: Dict[str, List[str]] = {
     "Patch applications": [
-        "patching", "vulnerability", "patch management", "applications",
-        "updates", "critical patches", "vulnerability scanner",
+        "patching",
+        "vulnerability",
+        "patch management",
+        "applications",
+        "updates",
+        "critical patches",
+        "vulnerability scanner",
     ],
     "Patch operating systems": [
-        "patching", "vulnerability", "operating system", "OS", "updates",
-        "critical patches", "vulnerability scanner",
+        "patching",
+        "vulnerability",
+        "operating system",
+        "OS",
+        "updates",
+        "critical patches",
+        "vulnerability scanner",
     ],
     "Multi-factor authentication": [
-        "MFA", "multi-factor authentication", "phishing-resistant",
-        "identity", "authentication", "security key",
+        "MFA",
+        "multi-factor authentication",
+        "phishing-resistant",
+        "identity",
+        "authentication",
+        "security key",
     ],
     "Restrict administrative privileges": [
-        "privileged accounts", "administrative privileges", "admin",
-        "least privilege", "administrative access", "privileged access",
+        "privileged accounts",
+        "administrative privileges",
+        "admin",
+        "least privilege",
+        "administrative access",
+        "privileged access",
     ],
     "Application control": [
-        "application control", "allowlisting", "WDAC", "AppLocker",
-        "execution control", "malware prevention",
+        "application control",
+        "allowlisting",
+        "WDAC",
+        "AppLocker",
+        "execution control",
+        "malware prevention",
     ],
     "Restrict Microsoft Office macros": [
-        "macros", "VBA", "Office macros", "macro security",
-        "Microsoft Office", "trusted publisher",
+        "macros",
+        "VBA",
+        "Office macros",
+        "macro security",
+        "Microsoft Office",
+        "trusted publisher",
     ],
     "User application hardening": [
-        "hardening", "web browser", "PDF software", "Flash",
-        "security configuration", "user applications",
+        "hardening",
+        "web browser",
+        "PDF software",
+        "Flash",
+        "security configuration",
+        "user applications",
     ],
     "Regular backups": [
-        "backup", "recovery", "business continuity", "data protection",
-        "restore", "offline backups",
+        "backup",
+        "recovery",
+        "business continuity",
+        "data protection",
+        "restore",
+        "offline backups",
     ],
 }
 
@@ -181,7 +216,7 @@ def _normalise_family_name(raw: str) -> Optional[str]:
 def _fetch_soup(url: str):
     """Fetch *url* and return a BeautifulSoup parse tree."""
     try:
-        import requests  # noqa: PLC0415
+        import requests  # noqa: PLC0415  # type: ignore
         from bs4 import BeautifulSoup  # noqa: PLC0415
     except ImportError as exc:
         raise RuntimeError(
@@ -307,9 +342,7 @@ def _parse_requirement_table(
 
             records.append(
                 RequirementRecord(
-                    requirement_id=(
-                        f"E8-{_slugify(current_family)}-ML{maturity_level}-{seq:03d}"
-                    ),
+                    requirement_id=(f"E8-{_slugify(current_family)}-ML{maturity_level}-{seq:03d}"),
                     framework=FRAMEWORK,
                     framework_version=FRAMEWORK_VERSION,
                     control_family=current_family,
@@ -362,9 +395,7 @@ def _parse_maturity_model_page(
                 if "appendix d" in heading_text or (
                     current_appendix_level is not None
                     and element.name in ("h1", "h2")
-                    and not any(
-                        f"appendix {l}" in heading_text for l in APPENDIX_MAP
-                    )
+                    and not any(f"appendix {l}" in heading_text for l in APPENDIX_MAP)
                 ):
                     current_appendix_level = None
                     current_section_name = None
@@ -451,8 +482,7 @@ class EssentialEightParser(BaseParser):
 
         if not records:
             logger.warning(
-                "No requirement records extracted from %s. "
-                "The page structure may have changed.",
+                "No requirement records extracted from %s. " "The page structure may have changed.",
                 self.maturity_model_url,
             )
         else:

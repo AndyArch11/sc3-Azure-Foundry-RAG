@@ -10,6 +10,7 @@ Licensing: PCI DSS is © 2006-2024 PCI Security Standards Council, LLC. The
 operator is responsible for complying with any terms associated with downloading
 and using the document. Derived artefacts should not be redistributed.
 """
+
 from __future__ import annotations
 
 import logging
@@ -36,9 +37,7 @@ EFFECTIVE_DATE = "June 2024"
 JURISDICTION = "Global"
 SOURCE_URI = "https://docs-prv.pcisecuritystandards.org/PCI%20DSS/Standard/PCI-DSS-v4_0_1.pdf"
 
-_DEFAULT_PDF_PATH = (
-    Path(__file__).resolve().parents[2] / "samples" / "PCI-DSS-v4_0_1.pdf"
-)
+_DEFAULT_PDF_PATH = Path(__file__).resolve().parents[2] / "samples" / "PCI-DSS-v4_0_1.pdf"
 
 # Top-level requirement number → (domain family, requirement title)
 _REQUIREMENT_FAMILIES: dict[str, tuple[str, str]] = {
@@ -161,9 +160,7 @@ def _build_requirement_and_guidance_maps(
     """
     # Split the document into x.y section blocks based on section headers.
     # Pattern matches lines like "1.2  Network security controls (NSCs) are configured…"
-    section_split_re = re.compile(
-        r"(?=^(\d+\.\d+)\s{1,4}[A-Z].{10,}?\.?\s*$)", re.MULTILINE
-    )
+    section_split_re = re.compile(r"(?=^(\d+\.\d+)\s{1,4}[A-Z].{10,}?\.?\s*$)", re.MULTILINE)
     blocks = section_split_re.split(full_text)
 
     # blocks will be: [text, "1.1", text, "1.2", text, ...]  (split inserts group 1)
@@ -231,9 +228,7 @@ def _build_requirement_and_guidance_maps(
         raw_guidance = " ".join(guidance_parts)
         lines = raw_guidance.splitlines()
         # Pattern matches the section header itself, e.g. "1.2 Network security controls…"
-        section_header_re = re.compile(
-            r"^\d+\.\d+\s{1,4}[A-Z].{10,}?\.?\s*$"
-        )
+        section_header_re = re.compile(r"^\d+\.\d+\s{1,4}[A-Z].{10,}?\.?\s*$")
         cleaned_lines = []
         for line in lines:
             stripped = line.strip()
@@ -292,7 +287,9 @@ class PciDssParser(BaseParser):
 
             family_info = _REQUIREMENT_FAMILIES.get(major)
             if family_info is None:
-                logger.warning("Unknown top-level requirement number %s — skipping %s", major, req_id)
+                logger.warning(
+                    "Unknown top-level requirement number %s — skipping %s", major, req_id
+                )
                 continue
 
             _, req_title = family_info

@@ -14,7 +14,9 @@ from .config import IngestionConfig
 logger = logging.getLogger(__name__)
 
 
-def _purge_index_documents(config: IngestionConfig, credential: TokenCredential, batch_size: int = 500) -> int:
+def _purge_index_documents(
+    config: IngestionConfig, credential: TokenCredential, batch_size: int = 500
+) -> int:
     """Delete all indexed chunk documents while preserving the index schema."""
     client = SearchClient(
         endpoint=config.search_endpoint,
@@ -99,7 +101,9 @@ def reset_loaded_data(
         try:
             deleted_blobs = _purge_source_blobs(config, credential)
         except ResourceNotFoundError as exc:
-            raise RuntimeError(f"Storage container not found: {config.storage_container_name}") from exc
+            raise RuntimeError(
+                f"Storage container not found: {config.storage_container_name}"
+            ) from exc
         except HttpResponseError as exc:
             raise RuntimeError(f"Failed to purge source blobs: {exc.message or str(exc)}") from exc
 

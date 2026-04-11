@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import time
 import uuid
-import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from html import escape
@@ -15,12 +15,15 @@ from azure.identity import DefaultAzureCredential
 from .intake import build_assessment_job_from_provider_event
 from .interfaces import OrchestratorAdapter
 from .mcp.confluence import ConfluenceMCPServer
-from .runtime_wiring import create_confluence_mcp_server_from_env, create_orchestrator_adapter_from_env
+from .runtime_wiring import (create_confluence_mcp_server_from_env,
+                             create_orchestrator_adapter_from_env)
 from .state_store import CosmosPollingStateStore, PollingStateStore
 
-
 _FRAMEWORK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("Essential Eight", re.compile(r"\b(essential\s*eight|essential_eight|essential\s*8|\be8\b)\b", re.IGNORECASE)),
+    (
+        "Essential Eight",
+        re.compile(r"\b(essential\s*eight|essential_eight|essential\s*8|\be8\b)\b", re.IGNORECASE),
+    ),
     (
         "AESCSF",
         re.compile(
@@ -34,7 +37,9 @@ _FRAMEWORK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 _ALL_FRAMEWORK_ORDER: tuple[str, ...] = ("Essential Eight", "AESCSF", "ISM", "NIST CSF")
 _ALL_FRAMEWORK_INTENT_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b(all\s+frameworks)\b", re.IGNORECASE),
-    re.compile(r"\b(review|assess|evaluate)\s+.*\b(all\s+(controls\s+)?frameworks)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(review|assess|evaluate)\s+.*\b(all\s+(controls\s+)?frameworks)\b", re.IGNORECASE
+    ),
     re.compile(r"\b(full|complete)\s+(framework\s+)?review\b", re.IGNORECASE),
 )
 _GENERIC_CSF_PHRASE_RE = re.compile(r"\bcyber\s+security\s+framework\b", re.IGNORECASE)
@@ -86,7 +91,9 @@ def _render_finding_html(finding: dict[str, Any]) -> str:
     if evidence_sources or gaps or recommendations:
         parts.append("<ul>")
         if evidence_sources:
-            parts.append(f"<li><strong>Evidence:</strong> {escape(', '.join(evidence_sources))}</li>")
+            parts.append(
+                f"<li><strong>Evidence:</strong> {escape(', '.join(evidence_sources))}</li>"
+            )
         for gap in gaps[:3]:
             parts.append(f"<li><strong>Gap:</strong> {gap}</li>")
         for recommendation in recommendations[:3]:
@@ -219,8 +226,8 @@ def _post_assessment_comments(
     total = len(bodies)
     for i, body in enumerate(bodies):
         part_key = idempotency_key if total == 1 else f"{idempotency_key}-part{i + 1}of{total}"
-        part_body = body if total == 1 else (
-            f"<p><em>Assessment comment {i + 1} of {total}</em></p>{body}"
+        part_body = (
+            body if total == 1 else (f"<p><em>Assessment comment {i + 1} of {total}</em></p>{body}")
         )
         delivery = server.post_comment(
             target_id,
@@ -375,7 +382,9 @@ def _process_assessment_event(
                 continue
 
             event_key = str(event.get("event_id") or target_id)
-            scope_key = re.sub(r"[^a-zA-Z0-9_\-]", "", framework_snapshot_scope.lower().replace(" ", "-"))
+            scope_key = re.sub(
+                r"[^a-zA-Z0-9_\-]", "", framework_snapshot_scope.lower().replace(" ", "-")
+            )
             idempotency_key = f"{event_key}-{scope_key}-nochange"
             delivery = server.post_comment(
                 target_id,
@@ -395,7 +404,9 @@ def _process_assessment_event(
         metadata: dict[str, Any] = {
             "trigger_text": str(event.get("trigger_text") or ""),
             "requested_frameworks": list(requested_frameworks),
-            "review_scope_mode": "all" if requested_frameworks == _ALL_FRAMEWORK_ORDER else "selected",
+            "review_scope_mode": (
+                "all" if requested_frameworks == _ALL_FRAMEWORK_ORDER else "selected"
+            ),
         }
         if framework_scope:
             metadata["requested_framework"] = framework_scope
@@ -420,7 +431,10 @@ def _process_assessment_event(
         assessment_metadata = dict(assessment.get("metadata") or {})
         if current_page_version:
             assessment_metadata["page_version"] = current_page_version
-        if framework_snapshot_scope and not str(assessment_metadata.get("framework_scope") or "").strip():
+        if (
+            framework_snapshot_scope
+            and not str(assessment_metadata.get("framework_scope") or "").strip()
+        ):
             assessment_metadata["framework_scope"] = framework_snapshot_scope
         assessment["metadata"] = assessment_metadata
         if dry_run:
@@ -569,17 +583,27 @@ def run_poll_cycle(
         state_store.release_lease(config.source, owner_run_id=run_id)
 
 
-def run_forever(config: PollerConfig, *, state_store: PollingStateStore, server: ConfluenceMCPServer, adapter: OrchestratorAdapter) -> None:
+def run_forever(
+    config: PollerConfig,
+    *,
+    state_store: PollingStateStore,
+    server: ConfluenceMCPServer,
+    adapter: OrchestratorAdapter,
+) -> None:
     while True:
         run_poll_cycle(config=config, state_store=state_store, server=server, adapter=adapter)
         time.sleep(max(1, config.poll_interval_seconds))
 
 
-def create_cosmos_state_store_from_env(env: dict[str, str] | None = None) -> CosmosPollingStateStore:
+def create_cosmos_state_store_from_env(
+    env: dict[str, str] | None = None,
+) -> CosmosPollingStateStore:
     values = dict(os.environ) if env is None else dict(env)
     endpoint = str(values.get("AZURE_COSMOS_ENDPOINT") or "").strip()
     database_name = str(values.get("AZURE_COSMOS_DATABASE_NAME") or "").strip()
-    container_name = str(values.get("AZURE_COSMOS_ORCHESTRATION_CONTAINER_NAME") or "orchestration-state").strip()
+    container_name = str(
+        values.get("AZURE_COSMOS_ORCHESTRATION_CONTAINER_NAME") or "orchestration-state"
+    ).strip()
     if not endpoint or not database_name:
         raise ValueError("AZURE_COSMOS_ENDPOINT and AZURE_COSMOS_DATABASE_NAME are required")
 
@@ -602,7 +626,9 @@ def load_poller_config_from_env(env: dict[str, str] | None = None) -> PollerConf
     dry_run = dry_run_raw in {"1", "true", "yes", "on"}
     space_keys_raw = str(values.get("CONFLUENCE_POLL_SPACE_KEYS") or "").strip()
     space_keys = tuple(x.strip() for x in space_keys_raw.split(",") if x.strip())
-    strategy_raw = str(values.get("CONFLUENCE_ASSESSMENT_STRATEGY") or "single_pass").strip().lower()
+    strategy_raw = (
+        str(values.get("CONFLUENCE_ASSESSMENT_STRATEGY") or "single_pass").strip().lower()
+    )
     assessment_strategy = "per_control" if strategy_raw == "per_control" else "single_pass"
     return PollerConfig(
         poll_interval_seconds=max(1, poll_interval_seconds),

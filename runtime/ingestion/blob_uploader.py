@@ -6,7 +6,18 @@ from pathlib import Path
 from azure.core.credentials import TokenCredential
 from azure.storage.blob import BlobServiceClient
 
-SUPPORTED_EXTENSIONS = {".pdf", ".xlsx", ".xlsm", ".xltx", ".xltm", ".docx", ".doc", ".pptx", ".ppt", ".html"}
+SUPPORTED_EXTENSIONS = {
+    ".pdf",
+    ".xlsx",
+    ".xlsm",
+    ".xltx",
+    ".xltm",
+    ".docx",
+    ".doc",
+    ".pptx",
+    ".ppt",
+    ".html",
+}
 
 
 @dataclass

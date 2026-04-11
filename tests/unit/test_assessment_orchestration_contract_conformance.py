@@ -4,10 +4,10 @@ from pathlib import Path
 
 import yaml
 
-from runtime.assessment_orchestration.schema_validation import assert_schema_value
 from runtime.assessment_orchestration.mcp.confluence import ConfluenceMCPServer
 from runtime.assessment_orchestration.mcp.email import EmailMCPServer
 from runtime.assessment_orchestration.mcp.sharepoint import SharePointMCPServer
+from runtime.assessment_orchestration.schema_validation import assert_schema_value
 
 
 def _load_yaml(path: str) -> dict:
@@ -95,8 +95,12 @@ def test_mcp_tool_contract_examples_match_declared_schemas() -> None:
             example_input = tool.get("example_input")
             example_output = tool.get("example_output")
 
-            assert isinstance(input_schema, dict), f"{contract_path} {tool_name} missing input_schema"
-            assert isinstance(output_schema, dict), f"{contract_path} {tool_name} missing output_schema"
+            assert isinstance(
+                input_schema, dict
+            ), f"{contract_path} {tool_name} missing input_schema"
+            assert isinstance(
+                output_schema, dict
+            ), f"{contract_path} {tool_name} missing output_schema"
             assert example_input is not None, f"{contract_path} {tool_name} missing example_input"
             assert example_output is not None, f"{contract_path} {tool_name} missing example_output"
 
@@ -126,7 +130,11 @@ def test_queue_contract_mentions_message_types() -> None:
     assert payload["contract_type"] == "orchestrator_queue_message"
     message_types = payload.get("message_types") or []
     assert isinstance(message_types, list)
-    values = {item["message_type"] for item in message_types if isinstance(item, dict) and "message_type" in item}
+    values = {
+        item["message_type"]
+        for item in message_types
+        if isinstance(item, dict) and "message_type" in item
+    }
     assert "assessment_requested" in values
     assert "assessment_retry_requested" in values
 
@@ -149,12 +157,20 @@ def test_provider_event_contract_examples_match_required_fields_and_normalisatio
             normalised_output = event_type.get("normalised_output") or {}
             example_event = event_type.get("example_event") or {}
 
-            assert isinstance(required_fields, list), f"{contract_path} {event_name} invalid required_fields"
-            assert isinstance(normalised_output, dict), f"{contract_path} {event_name} invalid normalised_output"
-            assert isinstance(example_event, dict) and example_event, f"{contract_path} {event_name} missing example_event"
+            assert isinstance(
+                required_fields, list
+            ), f"{contract_path} {event_name} invalid required_fields"
+            assert isinstance(
+                normalised_output, dict
+            ), f"{contract_path} {event_name} invalid normalised_output"
+            assert (
+                isinstance(example_event, dict) and example_event
+            ), f"{contract_path} {event_name} missing example_event"
 
             for field_name in required_fields:
-                assert field_name in example_event, f"{contract_path} {event_name} example missing required field {field_name}"
+                assert (
+                    field_name in example_event
+                ), f"{contract_path} {event_name} example missing required field {field_name}"
 
             assert "provider" in normalised_output
             assert "trigger_type" in normalised_output

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any, Callable
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-import requests
+import requests  # type: ignore[import-untyped]
 from azure.identity import DefaultAzureCredential
 
 from ..models import AccessDecision, AssessedArtifactPackage, PersonReference, ResolvedTarget
@@ -20,10 +20,10 @@ def build_azure_target_reference(
 ) -> str:
     encoded_sub = quote(subscription_id.strip(), safe="")
     encoded_rg = quote(resource_group.strip(), safe="")
-    encoded_ids = ",".join(quote(item.strip(), safe="") for item in (resource_ids or []) if item.strip())
-    return (
-        f"azure://scope?subscription_id={encoded_sub}&resource_group={encoded_rg}&resource_ids={encoded_ids}"
+    encoded_ids = ",".join(
+        quote(item.strip(), safe="") for item in (resource_ids or []) if item.strip()
     )
+    return f"azure://scope?subscription_id={encoded_sub}&resource_group={encoded_rg}&resource_ids={encoded_ids}"
 
 
 class AzureMCPServer:
@@ -43,7 +43,9 @@ class AzureMCPServer:
         self._max_resources = max(1, max_resources)
         self._http_get = http_get or requests.get
 
-    def resolve_target(self, target_reference: str, *, requester_context: dict[str, Any] | None = None) -> ResolvedTarget:
+    def resolve_target(
+        self, target_reference: str, *, requester_context: dict[str, Any] | None = None
+    ) -> ResolvedTarget:
         scope = self._parse_target_reference(target_reference)
         canonical_scope = json.dumps(scope, sort_keys=True)
         target_id = hashlib.sha256(canonical_scope.encode("utf-8")).hexdigest()[:24]
@@ -65,7 +67,9 @@ class AzureMCPServer:
             metadata=scope,
         )
 
-    def check_user_access(self, target_id: str, delegated_user_context: dict[str, Any]) -> AccessDecision:
+    def check_user_access(
+        self, target_id: str, delegated_user_context: dict[str, Any]
+    ) -> AccessDecision:
         return AccessDecision(
             granted=True,
             identity_mode="delegated",
@@ -118,7 +122,9 @@ class AzureMCPServer:
         identity_mode: str,
         trigger_context: dict[str, Any] | None = None,
     ) -> AssessedArtifactPackage:
-        return self.get_content_by_id(target_id, identity_mode=identity_mode, include_discussion_context=False)
+        return self.get_content_by_id(
+            target_id, identity_mode=identity_mode, include_discussion_context=False
+        )
 
     def resolve_page_owner(self, target_id: str) -> dict[str, Any]:
         return {"principal_id": "", "display_name": "", "email": ""}
@@ -142,10 +148,14 @@ class AzureMCPServer:
         resource_ids = [unquote(item).strip() for item in encoded_ids.split(",") if item.strip()]
 
         if resource_ids:
-            return self._scope_from_resource_ids(resource_ids, fallback_subscription=subscription_id)
+            return self._scope_from_resource_ids(
+                resource_ids, fallback_subscription=subscription_id
+            )
 
         if not subscription_id or not resource_group:
-            raise ValueError("Azure scope requires subscription_id and resource_group when resource_ids are not supplied")
+            raise ValueError(
+                "Azure scope requires subscription_id and resource_group when resource_ids are not supplied"
+            )
         return {
             "subscription_id": subscription_id,
             "resource_group": resource_group,
@@ -163,17 +173,27 @@ class AzureMCPServer:
             raise ValueError("At least one Azure resource ID is required")
 
         first_parts = [part for part in normalised[0].split("/") if part]
-        if len(first_parts) < 8 or first_parts[0].lower() != "subscriptions" or first_parts[2].lower() != "resourcegroups":
+        if (
+            len(first_parts) < 8
+            or first_parts[0].lower() != "subscriptions"
+            or first_parts[2].lower() != "resourcegroups"
+        ):
             raise ValueError(f"Invalid Azure resource ID: {normalised[0]}")
 
         subscription_id = first_parts[1]
         resource_group = first_parts[3]
         for item in normalised[1:]:
             parts = [part for part in item.split("/") if part]
-            if len(parts) < 8 or parts[0].lower() != "subscriptions" or parts[2].lower() != "resourcegroups":
+            if (
+                len(parts) < 8
+                or parts[0].lower() != "subscriptions"
+                or parts[2].lower() != "resourcegroups"
+            ):
                 raise ValueError(f"Invalid Azure resource ID: {item}")
             if parts[1] != subscription_id or parts[3].lower() != resource_group.lower():
-                raise ValueError("All resource_ids must belong to the same subscription and resource group")
+                raise ValueError(
+                    "All resource_ids must belong to the same subscription and resource group"
+                )
 
         if fallback_subscription and fallback_subscription != subscription_id:
             raise ValueError("resource_ids subscription does not match subscription_id")
@@ -234,7 +254,9 @@ class AzureMCPServer:
             f"/subscriptions/{subscription_id}",
             f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}",
         ]
-        scope_paths.extend(resource_id for resource_id in resource_ids if resource_id not in scope_paths)
+        scope_paths.extend(
+            resource_id for resource_id in resource_ids if resource_id not in scope_paths
+        )
 
         assignments_by_id: dict[str, dict[str, Any]] = {}
         for scope_path in scope_paths:
@@ -272,7 +294,8 @@ class AzureMCPServer:
             for item in value:
                 if not isinstance(item, dict):
                     continue
-                properties = item.get("properties") if isinstance(item.get("properties"), dict) else {}
+                raw_props = item.get("properties")
+                properties: dict[str, Any] = raw_props if isinstance(raw_props, dict) else {}
                 assignments.append(
                     {
                         "id": str(item.get("id") or ""),
@@ -313,13 +336,17 @@ class AzureMCPServer:
         }
         if str(payload.get("type") or "").endswith("/policyDefinitions"):
             raw_policy_rule = properties.get("policyRule")
-            policy_rule: dict[str, Any] = raw_policy_rule if isinstance(raw_policy_rule, dict) else {}
+            policy_rule: dict[str, Any] = (
+                raw_policy_rule if isinstance(raw_policy_rule, dict) else {}
+            )
             summary["effect"] = self._extract_policy_effect(policy_rule)
         if str(payload.get("type") or "").endswith("/policySetDefinitions"):
             raw_definitions = properties.get("policyDefinitions")
             definitions = raw_definitions if isinstance(raw_definitions, list) else []
             summary["policy_definition_ids"] = [
-                str(item.get("policyDefinitionId") or "") for item in definitions if isinstance(item, dict)
+                str(item.get("policyDefinitionId") or "")
+                for item in definitions
+                if isinstance(item, dict)
             ]
             summary["policy_definition_count"] = len(summary["policy_definition_ids"])
         return summary
@@ -369,10 +396,10 @@ class AzureMCPServer:
             "kind": payload.get("kind") or "",
         }
 
-    def _list_resources_in_group(self, subscription_id: str, resource_group: str) -> list[dict[str, Any]]:
-        next_url = (
-            f"{self._management_base_url}/subscriptions/{subscription_id}/resourceGroups/{resource_group}/resources"
-        )
+    def _list_resources_in_group(
+        self, subscription_id: str, resource_group: str
+    ) -> list[dict[str, Any]]:
+        next_url = f"{self._management_base_url}/subscriptions/{subscription_id}/resourceGroups/{resource_group}/resources"
         resources: list[dict[str, Any]] = []
 
         while next_url and len(resources) < self._max_resources:

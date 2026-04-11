@@ -29,7 +29,9 @@ def _infer_provider_from_url(target_url: str) -> str:
         host == "api.atlassian.com" and "/ex/confluence/" in path
     ):
         return "confluence"
-    if _host_is_exact_or_subdomain(host, "sharepoint.com") or _host_is_exact_or_subdomain(host, "office.com"):
+    if _host_is_exact_or_subdomain(host, "sharepoint.com") or _host_is_exact_or_subdomain(
+        host, "office.com"
+    ):
         return "sharepoint"
     return "email"
 
@@ -63,8 +65,12 @@ def build_assessment_job_from_provider_event(
     if not target_id:
         raise ValueError("Provider event payload must include target_id")
 
-    source_event_id = _first_non_empty(payload, ["event_id", "message_id", "source_event_id"]) or str(uuid.uuid4())
-    correlation_id = _first_non_empty(payload, ["correlation_id"]) or _stable_correlation(source_event_id, target_url)
+    source_event_id = _first_non_empty(
+        payload, ["event_id", "message_id", "source_event_id"]
+    ) or str(uuid.uuid4())
+    correlation_id = _first_non_empty(payload, ["correlation_id"]) or _stable_correlation(
+        source_event_id, target_url
+    )
     trigger_type = _first_non_empty(payload, ["trigger_type"]) or "mention"
     metadata = {
         "source_event_id": source_event_id,
@@ -97,17 +103,25 @@ def build_assessment_job_from_email_notification(
     request_identity_mode: IdentityMode = "app_only",
     delivery_policy: str = "inline_else_email",
 ) -> AssessmentJob:
-    target_reference = _first_non_empty(parsed_email_notification, ["target_reference", "target_url", "url"])
+    target_reference = _first_non_empty(
+        parsed_email_notification, ["target_reference", "target_url", "url"]
+    )
     if not target_reference:
         raise ValueError("Email notification must include target_reference")
 
-    provider = _first_non_empty(parsed_email_notification, ["provider"]).lower() or _infer_provider_from_url(target_reference)
+    provider = _first_non_empty(
+        parsed_email_notification, ["provider"]
+    ).lower() or _infer_provider_from_url(target_reference)
     target_id = _first_non_empty(parsed_email_notification, ["target_id", "id"])
     if not target_id:
         target_id = hashlib.sha256(target_reference.encode("utf-8")).hexdigest()[:24]
 
-    source_event_id = _first_non_empty(parsed_email_notification, ["message_id", "source_event_id"]) or str(uuid.uuid4())
-    correlation_id = _first_non_empty(parsed_email_notification, ["correlation_id"]) or _stable_correlation(source_event_id, target_reference)
+    source_event_id = _first_non_empty(
+        parsed_email_notification, ["message_id", "source_event_id"]
+    ) or str(uuid.uuid4())
+    correlation_id = _first_non_empty(
+        parsed_email_notification, ["correlation_id"]
+    ) or _stable_correlation(source_event_id, target_reference)
 
     job_payload = {
         "job_id": str(uuid.uuid4()),
@@ -120,7 +134,9 @@ def build_assessment_job_from_email_notification(
         "delivery_policy": delivery_policy,
         "correlation_id": correlation_id,
         "requester_id": _first_non_empty(parsed_email_notification, ["requester_id"]),
-        "requester_email": _first_non_empty(parsed_email_notification, ["requester_email", "mentioner_email"]),
+        "requester_email": _first_non_empty(
+            parsed_email_notification, ["requester_email", "mentioner_email"]
+        ),
         "metadata": {
             "source_event_id": source_event_id,
             "mailbox_id": _first_non_empty(parsed_email_notification, ["mailbox_id"]),

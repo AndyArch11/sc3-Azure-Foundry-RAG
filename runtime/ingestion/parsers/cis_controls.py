@@ -3,6 +3,7 @@
 The workbook provides the structured safeguard rows. The PDF provides narrative
 guidance per control (overview, why critical, and procedures/tools).
 """
+
 from __future__ import annotations
 
 import io
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 try:
     from pypdf import PdfReader as _PdfReader
 except ImportError:
-    _PdfReader = None
+    _PdfReader = None  # type: ignore[misc,assignment]
 
 FRAMEWORK = "CIS Controls"
 FRAMEWORK_VERSION = "v8"
@@ -26,8 +27,14 @@ EFFECTIVE_DATE = "May 2021"
 JURISDICTION = "Global"
 SOURCE_URI = "https://www.cisecurity.org/controls/v8"
 
-_DEFAULT_WORKBOOK_PATH = Path(__file__).resolve().parents[2] / "samples" / "CIS_Controls_Version_8.xlsx"
-_DEFAULT_PDF_PATH = Path(__file__).resolve().parents[2] / "samples" / "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf"
+_DEFAULT_WORKBOOK_PATH = (
+    Path(__file__).resolve().parents[2] / "samples" / "CIS_Controls_Version_8.xlsx"
+)
+_DEFAULT_PDF_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "samples"
+    / "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf"
+)
 
 
 def _slugify(text: str) -> str:
@@ -70,7 +77,9 @@ def _extract_section(text: str, start_label: str, end_labels: list[str]) -> str:
 
 def _build_control_guidance_map(pdf_path: Path) -> dict[str, str]:
     if _PdfReader is None:
-        raise RuntimeError("pypdf is required for CIS Controls PDF parsing. Install with: pip install pypdf")
+        raise RuntimeError(
+            "pypdf is required for CIS Controls PDF parsing. Install with: pip install pypdf"
+        )
 
     reader = _PdfReader(str(pdf_path))
     sections_by_control: dict[str, list[str]] = {}
@@ -125,7 +134,9 @@ class CisControlsParser(BaseParser):
         try:
             import openpyxl  # noqa: PLC0415
         except ImportError as exc:
-            raise RuntimeError("openpyxl is required for CIS Controls workbook parsing. Install with: pip install openpyxl") from exc
+            raise RuntimeError(
+                "openpyxl is required for CIS Controls workbook parsing. Install with: pip install openpyxl"
+            ) from exc
 
         if not self._workbook_path.exists():
             raise RuntimeError(f"CIS workbook not found: {self._workbook_path}")
@@ -144,7 +155,18 @@ class CisControlsParser(BaseParser):
         control_descriptions: dict[str, str] = {}
 
         for row in sheet.iter_rows(min_row=2, values_only=True):
-            control_raw, safeguard_raw, asset_type_raw, security_function_raw, title_raw, description_raw, ig1_raw, ig2_raw, ig3_raw, *_rest = row
+            (
+                control_raw,
+                safeguard_raw,
+                asset_type_raw,
+                security_function_raw,
+                title_raw,
+                description_raw,
+                ig1_raw,
+                ig2_raw,
+                ig3_raw,
+                *_rest,
+            ) = row
             control_number = str(control_raw or "").strip()
             safeguard = str(safeguard_raw or "").strip()
             title = str(title_raw or "").strip()
@@ -170,7 +192,9 @@ class CisControlsParser(BaseParser):
             ]
             maturity_level = _maturity_level_from_igs(ig1_raw, ig2_raw, ig3_raw)
 
-            guidance_text = guidance_map.get(control_key) or control_descriptions.get(control_key, "")
+            guidance_text = guidance_map.get(control_key) or control_descriptions.get(
+                control_key, ""
+            )
             keyword_values = [
                 FRAMEWORK,
                 FRAMEWORK_VERSION,

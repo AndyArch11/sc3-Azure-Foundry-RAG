@@ -2,14 +2,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from runtime.assessment_orchestration.polling_worker import (
-    PollerConfig,
-    _build_recent_mentions_query,
-    _requested_frameworks_from_text,
-    _requested_frameworks_for_event,
-    _process_assessment_event,
-    run_poll_cycle,
-)
+from runtime.assessment_orchestration.polling_worker import (PollerConfig,
+                                                             _build_recent_mentions_query,
+                                                             _process_assessment_event,
+                                                             _requested_frameworks_for_event,
+                                                             _requested_frameworks_from_text,
+                                                             run_poll_cycle)
 from runtime.assessment_orchestration.state_store import InMemoryPollingStateStore
 
 
@@ -61,7 +59,9 @@ class _PostingServer(_FakeServer):
         super().__init__(mentions)
         self.posts: list[dict] = []
 
-    def post_comment(self, target_id: str, *, comment_body: str, identity_mode: str, idempotency_key: str):
+    def post_comment(
+        self, target_id: str, *, comment_body: str, identity_mode: str, idempotency_key: str
+    ):
         self.posts.append(
             {
                 "target_id": target_id,
@@ -85,10 +85,34 @@ class _LeaseRejectedStateStore(InMemoryPollingStateStore):
 
 def test_run_poll_cycle_orders_by_occurred_at_then_title_then_event_id() -> None:
     mentions = [
-        {"event_id": "e-3", "occurred_at": "2026-04-04T10:00:00+00:00", "title": "zeta", "target_id": "1", "target_url": "https://x/1"},
-        {"event_id": "e-1", "occurred_at": "2026-04-04T09:00:00+00:00", "title": "beta", "target_id": "2", "target_url": "https://x/2"},
-        {"event_id": "e-2", "occurred_at": "2026-04-04T10:00:00+00:00", "title": "alpha", "target_id": "3", "target_url": "https://x/3"},
-        {"event_id": "e-0", "occurred_at": "2026-04-04T10:00:00+00:00", "title": "alpha", "target_id": "4", "target_url": "https://x/4"},
+        {
+            "event_id": "e-3",
+            "occurred_at": "2026-04-04T10:00:00+00:00",
+            "title": "zeta",
+            "target_id": "1",
+            "target_url": "https://x/1",
+        },
+        {
+            "event_id": "e-1",
+            "occurred_at": "2026-04-04T09:00:00+00:00",
+            "title": "beta",
+            "target_id": "2",
+            "target_url": "https://x/2",
+        },
+        {
+            "event_id": "e-2",
+            "occurred_at": "2026-04-04T10:00:00+00:00",
+            "title": "alpha",
+            "target_id": "3",
+            "target_url": "https://x/3",
+        },
+        {
+            "event_id": "e-0",
+            "occurred_at": "2026-04-04T10:00:00+00:00",
+            "title": "alpha",
+            "target_id": "4",
+            "target_url": "https://x/4",
+        },
     ]
     server = _FakeServer(mentions)
     state_store = InMemoryPollingStateStore()
@@ -111,8 +135,20 @@ def test_run_poll_cycle_orders_by_occurred_at_then_title_then_event_id() -> None
 
 def test_run_poll_cycle_advances_watermark_after_each_event() -> None:
     mentions = [
-        {"event_id": "e-1", "occurred_at": "2026-04-04T10:00:00+00:00", "title": "a", "target_id": "1", "target_url": "https://x/1"},
-        {"event_id": "e-2", "occurred_at": "2026-04-04T10:01:00+00:00", "title": "b", "target_id": "2", "target_url": "https://x/2"},
+        {
+            "event_id": "e-1",
+            "occurred_at": "2026-04-04T10:00:00+00:00",
+            "title": "a",
+            "target_id": "1",
+            "target_url": "https://x/1",
+        },
+        {
+            "event_id": "e-2",
+            "occurred_at": "2026-04-04T10:01:00+00:00",
+            "title": "b",
+            "target_id": "2",
+            "target_url": "https://x/2",
+        },
     ]
     server = _FakeServer(mentions)
     state_store = InMemoryPollingStateStore()
@@ -138,8 +174,20 @@ def test_run_poll_cycle_advances_watermark_after_each_event() -> None:
 
 def test_run_poll_cycle_terminal_failure_does_not_block_next_event() -> None:
     mentions = [
-        {"event_id": "bad", "occurred_at": "2026-04-04T10:00:00+00:00", "title": "a", "target_id": "1", "target_url": "https://x/1"},
-        {"event_id": "good", "occurred_at": "2026-04-04T10:01:00+00:00", "title": "b", "target_id": "2", "target_url": "https://x/2"},
+        {
+            "event_id": "bad",
+            "occurred_at": "2026-04-04T10:00:00+00:00",
+            "title": "a",
+            "target_id": "1",
+            "target_url": "https://x/1",
+        },
+        {
+            "event_id": "good",
+            "occurred_at": "2026-04-04T10:01:00+00:00",
+            "title": "b",
+            "target_id": "2",
+            "target_url": "https://x/2",
+        },
     ]
     server = _FakeServer(mentions)
     state_store = InMemoryPollingStateStore()
@@ -298,7 +346,9 @@ def test_requested_frameworks_from_text_maps_generic_cyber_security_framework_to
     assert _requested_frameworks_from_text(text) == ("NIST CSF",)
 
 
-def test_requested_frameworks_from_text_maps_full_australian_energy_sector_phrase_to_aescsf_only() -> None:
+def test_requested_frameworks_from_text_maps_full_australian_energy_sector_phrase_to_aescsf_only() -> (
+    None
+):
     text = "Assess this page against the full Australian Energy Sector Cyber Security Framework."
     assert _requested_frameworks_from_text(text) == ("AESCSF",)
 

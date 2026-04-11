@@ -46,6 +46,7 @@ Prerequisites
   for OpenAI are not required for the skill itself but are still recommended
   for runtime query access.
 """
+
 from __future__ import annotations
 
 import logging
@@ -55,40 +56,26 @@ from typing import Any, Optional, cast
 from azure.core.credentials import TokenCredential
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
-from azure.search.documents.indexes.models import (
-    AzureOpenAIEmbeddingSkill,
-    BlobIndexerImageAction,
-    CognitiveServicesAccountKey,
-    DocumentExtractionSkill,
-    HnswAlgorithmConfiguration,
-    IndexingParameters,
-    IndexingParametersConfiguration,
-    IndexProjectionMode,
-    InputFieldMappingEntry,
-    LexicalAnalyzerName,
-    MergeSkill,
-    OcrSkill,
-    OutputFieldMappingEntry,
-    SearchField,
-    SearchFieldDataType,
-    SearchIndex,
-    SearchIndexer,
-    SearchIndexerDataContainer,
-    SearchIndexerDataSourceConnection,
-    SearchIndexerDataSourceType,
-    SearchIndexerIndexProjectionSelector,
-    SearchIndexerIndexProjection,
-    SearchIndexerIndexProjectionsParameters,
-    SearchIndexerSkillset,
-    SemanticConfiguration,
-    SemanticField,
-    SemanticPrioritizedFields,
-    SemanticSearch,
-    SimpleField,
-    SplitSkill,
-    VectorSearch,
-    VectorSearchProfile,
-)
+from azure.search.documents.indexes.models import (AzureOpenAIEmbeddingSkill,
+                                                   BlobIndexerImageAction,
+                                                   CognitiveServicesAccountKey,
+                                                   DocumentExtractionSkill,
+                                                   HnswAlgorithmConfiguration, IndexingParameters,
+                                                   IndexingParametersConfiguration,
+                                                   IndexProjectionMode, InputFieldMappingEntry,
+                                                   LexicalAnalyzerName, MergeSkill, OcrSkill,
+                                                   OutputFieldMappingEntry, SearchField,
+                                                   SearchFieldDataType, SearchIndex, SearchIndexer,
+                                                   SearchIndexerDataContainer,
+                                                   SearchIndexerDataSourceConnection,
+                                                   SearchIndexerDataSourceType,
+                                                   SearchIndexerIndexProjection,
+                                                   SearchIndexerIndexProjectionSelector,
+                                                   SearchIndexerIndexProjectionsParameters,
+                                                   SearchIndexerSkillset, SemanticConfiguration,
+                                                   SemanticField, SemanticPrioritizedFields,
+                                                   SemanticSearch, SimpleField, SplitSkill,
+                                                   VectorSearch, VectorSearchProfile)
 
 from .config import IngestionConfig
 
@@ -118,6 +105,7 @@ def _reset_search_artifacts_for_schema_change(
 # ---------------------------------------------------------------------------
 # Index
 # ---------------------------------------------------------------------------
+
 
 def ensure_search_index(config: IngestionConfig, credential: TokenCredential) -> None:
     """Create or update the target Search index schema."""
@@ -251,7 +239,9 @@ def ensure_search_index(config: IngestionConfig, credential: TokenCredential) ->
 
     vector_search = VectorSearch(
         algorithms=[HnswAlgorithmConfiguration(name="hnsw-config")],
-        profiles=[VectorSearchProfile(name="hnsw-profile", algorithm_configuration_name="hnsw-config")],
+        profiles=[
+            VectorSearchProfile(name="hnsw-profile", algorithm_configuration_name="hnsw-config")
+        ],
     )
 
     semantic_search = SemanticSearch(
@@ -276,7 +266,10 @@ def ensure_search_index(config: IngestionConfig, credential: TokenCredential) ->
         client.create_or_update_index(index)
     except HttpResponseError as exc:
         error_text = str(exc)
-        if "CannotChangeExistingField" not in error_text and "Existing field 'id' cannot be changed" not in error_text:
+        if (
+            "CannotChangeExistingField" not in error_text
+            and "Existing field 'id' cannot be changed" not in error_text
+        ):
             raise
 
         logger.warning(
@@ -292,6 +285,7 @@ def ensure_search_index(config: IngestionConfig, credential: TokenCredential) ->
 # ---------------------------------------------------------------------------
 # Data source
 # ---------------------------------------------------------------------------
+
 
 def ensure_data_source(config: IngestionConfig, credential: TokenCredential) -> None:
     """Create or update the blob storage data source using managed identity auth."""
@@ -316,6 +310,7 @@ def ensure_data_source(config: IngestionConfig, credential: TokenCredential) -> 
 # ---------------------------------------------------------------------------
 # Skillset
 # ---------------------------------------------------------------------------
+
 
 def _cognitive_services_account(config: IngestionConfig) -> Optional[CognitiveServicesAccountKey]:
     """
@@ -358,7 +353,11 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         ],
         parsing_mode="default",
         data_to_extract="contentAndMetadata",
-        configuration={"imageAction": "generateNormalizedImages", "normalizedImageMaxWidth": 2000, "normalizedImageMaxHeight": 2000},
+        configuration={
+            "imageAction": "generateNormalizedImages",
+            "normalizedImageMaxWidth": 2000,
+            "normalizedImageMaxHeight": 2000,
+        },
     )
 
     # 2. OcrSkill ────────────────────────────────────────────────────────────
@@ -522,6 +521,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
 # Indexer
 # ---------------------------------------------------------------------------
 
+
 def ensure_indexer(config: IngestionConfig, credential: TokenCredential) -> None:
     """Create or update the blob indexer binding the pipeline together."""
     client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
@@ -554,6 +554,7 @@ def ensure_indexer(config: IngestionConfig, credential: TokenCredential) -> None
 # ---------------------------------------------------------------------------
 # Run and monitor
 # ---------------------------------------------------------------------------
+
 
 def run_indexer(config: IngestionConfig, credential: TokenCredential) -> None:
     """Trigger an indexer run."""
@@ -620,7 +621,8 @@ def wait_for_indexer(
                 "status": run.status,
                 "items_processed": run.item_count,
                 "items_failed": run.failed_item_count,
-                "error_message": run.error_message or (errors[0]["error_message"] if errors else None),
+                "error_message": run.error_message
+                or (errors[0]["error_message"] if errors else None),
                 "errors": errors,
                 "warnings": warnings,
             }

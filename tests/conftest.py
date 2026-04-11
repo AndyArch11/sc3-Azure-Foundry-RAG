@@ -49,9 +49,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
                         missing.append(str(candidate))
         # Also catch non-parametrised sample_fixtures tests: skip if samples dir
         # itself is empty (no non-.gitignore files).
-        if not missing and not any(
-            f for f in SAMPLES_DIR.iterdir() if f.name != ".gitignore"
-        ):
+        if not missing and not any(f for f in SAMPLES_DIR.iterdir() if f.name != ".gitignore"):
             missing.append(str(SAMPLES_DIR))
         if missing:
             item.add_marker(skip_marker)

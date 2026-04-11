@@ -7,7 +7,9 @@ import pytest
 from runtime.assessment_orchestration import azure_assessment_main
 
 
-def test_azure_assessment_main_emits_json_success(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_azure_assessment_main_emits_json_success(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setattr(
         azure_assessment_main,
         "run_azure_assessment",
@@ -25,7 +27,9 @@ def test_azure_assessment_main_emits_json_success(monkeypatch: pytest.MonkeyPatc
     assert payload["result"]["schema_version"] == "v1.1"
 
 
-def test_azure_assessment_main_returns_nonzero_on_error(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_azure_assessment_main_returns_nonzero_on_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     def _boom(**kwargs):
         raise ValueError("broken")
 

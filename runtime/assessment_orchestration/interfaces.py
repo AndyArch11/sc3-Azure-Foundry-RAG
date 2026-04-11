@@ -2,25 +2,20 @@ from __future__ import annotations
 
 from typing import Any, Callable, Protocol
 
-from .models import (
-    AccessDecision,
-    AssessedArtifactPackage,
-    AssessmentJob,
-    CorpusGroundingPackage,
-    DeliveryOutcome,
-    DeliveryPlan,
-    ResolvedTarget,
-)
+from .models import (AccessDecision, AssessedArtifactPackage, AssessmentJob, CorpusGroundingPackage,
+                     DeliveryOutcome, DeliveryPlan, ResolvedTarget)
 from .queue import QueueMessage
 from .skill_catalog import SkillCatalog
 
 
 class MCPContentClient(Protocol):
-    def resolve_target(self, target_reference: str, *, requester_context: dict[str, Any] | None = None) -> ResolvedTarget:
-        ...
+    def resolve_target(
+        self, target_reference: str, *, requester_context: dict[str, Any] | None = None
+    ) -> ResolvedTarget: ...
 
-    def check_user_access(self, target_id: str, delegated_user_context: dict[str, Any]) -> AccessDecision:
-        ...
+    def check_user_access(
+        self, target_id: str, delegated_user_context: dict[str, Any]
+    ) -> AccessDecision: ...
 
     def get_content_by_id(
         self,
@@ -28,8 +23,7 @@ class MCPContentClient(Protocol):
         *,
         identity_mode: str,
         include_discussion_context: bool = False,
-    ) -> AssessedArtifactPackage:
-        ...
+    ) -> AssessedArtifactPackage: ...
 
     def get_flagged_item_context(
         self,
@@ -37,19 +31,17 @@ class MCPContentClient(Protocol):
         *,
         identity_mode: str,
         trigger_context: dict[str, Any] | None = None,
-    ) -> AssessedArtifactPackage:
-        ...
+    ) -> AssessedArtifactPackage: ...
 
-    def resolve_page_owner(self, target_id: str) -> dict[str, Any]:
-        ...
+    def resolve_page_owner(self, target_id: str) -> dict[str, Any]: ...
 
-    def resolve_last_editor(self, target_id: str) -> dict[str, Any]:
-        ...
+    def resolve_last_editor(self, target_id: str) -> dict[str, Any]: ...
 
 
 class AssessmentAgent(Protocol):
-    def retrieve_corpus_grounding(self, artifact: AssessedArtifactPackage) -> CorpusGroundingPackage:
-        ...
+    def retrieve_corpus_grounding(
+        self, artifact: AssessedArtifactPackage
+    ) -> CorpusGroundingPackage: ...
 
     def generate_assessment(
         self,
@@ -57,8 +49,7 @@ class AssessmentAgent(Protocol):
         grounding: CorpusGroundingPackage,
         *,
         validation_mode: str = "hard",
-    ) -> dict[str, Any]:
-        ...
+    ) -> dict[str, Any]: ...
 
     def generate_per_control_assessment(
         self,
@@ -66,8 +57,7 @@ class AssessmentAgent(Protocol):
         grounding: CorpusGroundingPackage,
         *,
         progress_cb: Callable[[int, int, str, str], None] | None = None,
-    ) -> dict[str, Any]:
-        ...
+    ) -> dict[str, Any]: ...
 
 
 class DeliveryPublisher(Protocol):
@@ -78,8 +68,7 @@ class DeliveryPublisher(Protocol):
         comment_body: str,
         identity_mode: str,
         idempotency_key: str,
-    ) -> DeliveryOutcome:
-        ...
+    ) -> DeliveryOutcome: ...
 
     def send_email(
         self,
@@ -88,13 +77,11 @@ class DeliveryPublisher(Protocol):
         subject: str,
         body: str,
         idempotency_key: str,
-    ) -> DeliveryOutcome:
-        ...
+    ) -> DeliveryOutcome: ...
 
 
 class AuditSink(Protocol):
-    def record_stage(self, job: AssessmentJob, stage: str, payload: dict[str, Any]) -> None:
-        ...
+    def record_stage(self, job: AssessmentJob, stage: str, payload: dict[str, Any]) -> None: ...
 
 
 class OrchestratorAdapter:
@@ -215,7 +202,9 @@ class OrchestratorAdapter:
         self._audit_sink.record_stage(
             job,
             "assessment_generated",
-            self._stage_payload("assessment_generated", {"schema_version": assessment.get("schema_version", "")}),
+            self._stage_payload(
+                "assessment_generated", {"schema_version": assessment.get("schema_version", "")}
+            ),
         )
         return assessment
 

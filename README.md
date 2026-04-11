@@ -465,4 +465,24 @@ QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn)
 QUERY_WEB_RUN_API_ASK=true \
 QUERY_WEB_REQUIRE_CONVERSATIONS=true \
 ./ops/scripts/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
+
+# Format
+python -m black query_web runtime/assessment_orchestration runtime/ingestion tests --line-length 100
+python -m isort query_web runtime/assessment_orchestration runtime/ingestion tests --line-length 100
+
+python -m black --check query_web runtime/assessment_orchestration runtime/ingestion tests --line-length 100
+python -m isort --check query_web runtime/assessment_orchestration runtime/ingestion tests --line-length 100
+
+# Lint
+python -m pylint query_web --disable=C0114,C0103,R0913,R0914,C0301,C0303 --max-line-length=100 --fail-under=8
+python -m pylint runtime.assessment_orchestration --disable=C0114,C0103,R0913,R0914,C0301,C0303 --max-line-length=100 --fail-under=8
+python -m pylint runtime.ingestion --disable=C0114,C0103,R0913,R0914,C0301,C0303 --max-line-length=100 --fail-under=8
+
+# Type check
+python -m mypy query_web --ignore-missing-imports
+python -m mypy runtime/assessment_orchestration --ignore-missing-imports
+python -m mypy runtime/ingestion --ignore-missing-imports
+
+# Test Coverage
+pytest tests --cov-report=term-missing --cov=query_web --cov=runtime
 ```

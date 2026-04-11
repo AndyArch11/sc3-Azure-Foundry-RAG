@@ -7,6 +7,7 @@ Source documents:
 The release PDF contains the authoritative numbered PSPF requirements and the
 section-level guidance text that introduces each requirement group.
 """
+
 from __future__ import annotations
 
 import io
@@ -14,7 +15,7 @@ import logging
 import re
 from typing import Any, List
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from .base import BaseParser, RequirementRecord, keywordise_values
 
@@ -67,18 +68,42 @@ _CONTROL_KEYWORDS = {
     "chief information security officer": ["ciso", "cyber leadership", "cyber program"],
     "security governance": ["governance committee", "executive oversight"],
     "security incidents": ["incident response", "incident reporting", "security event"],
-    "externally reportable security incidents and referral obligations": ["incident reporting", "referral obligations", "reportable incidents"],
+    "externally reportable security incidents and referral obligations": [
+        "incident reporting",
+        "referral obligations",
+        "reportable incidents",
+    ],
     "security investigations": ["investigations", "misconduct", "security inquiry"],
     "security classifications": ["official", "protected", "secret", "top secret"],
     "information security manual": ["ism", "asd", "cyber controls"],
-    "technology system authorisation": ["authorisation to operate", "authorising officer", "security assessor"],
-    "technology system reauthorisation": ["reauthorisation", "authorisation review", "residual risk"],
+    "technology system authorisation": [
+        "authorisation to operate",
+        "authorising officer",
+        "security assessor",
+    ],
+    "technology system reauthorisation": [
+        "reauthorisation",
+        "authorisation review",
+        "residual risk",
+    ],
     "secure cloud": ["cloud", "irap", "cloud hosting"],
     "gateway security": ["gateway", "security service edge", "sse"],
-    "vulnerability disclosure program": ["vdp", "coordinated disclosure", "vulnerability reporting"],
+    "vulnerability disclosure program": [
+        "vdp",
+        "coordinated disclosure",
+        "vulnerability reporting",
+    ],
     "cyber security partnership program": ["acsc", "partnership program", "cyber collaboration"],
-    "cyber threat intelligence sharing platform": ["ctis", "threat intelligence", "machine-speed sharing"],
-    "systems of government significance": ["sogs", "critical digital services", "government significance"],
+    "cyber threat intelligence sharing platform": [
+        "ctis",
+        "threat intelligence",
+        "machine-speed sharing",
+    ],
+    "systems of government significance": [
+        "sogs",
+        "critical digital services",
+        "government significance",
+    ],
     "security clearances": ["security clearance", "vetting", "clearance eligibility"],
     "authorised vetting agencies": ["ava", "vetting authority", "security clearance"],
     "eligibility waivers": ["waiver", "citizenship waiver", "background waiver"],
@@ -86,19 +111,43 @@ _CONTROL_KEYWORDS = {
     "ongoing access to resources": ["need-to-know", "access control", "authorised access"],
     "temporary access to resources": ["temporary access", "visitor access", "short-term access"],
     "working remotely in australia": ["remote work", "telework", "work from home"],
-    "working remotely outside of australia (international)": ["international travel", "overseas remote work", "foreign travel"],
-    "physical security measures and controls": ["security zones", "physical protections", "facility controls"],
-    "security zone certification authorities": ["certification authority", "zone certification", "physical accreditation"],
-    "security zone accreditation authorities": ["accreditation authority", "security zone", "physical accreditation"],
+    "working remotely outside of australia (international)": [
+        "international travel",
+        "overseas remote work",
+        "foreign travel",
+    ],
+    "physical security measures and controls": [
+        "security zones",
+        "physical protections",
+        "facility controls",
+    ],
+    "security zone certification authorities": [
+        "certification authority",
+        "zone certification",
+        "physical accreditation",
+    ],
+    "security zone accreditation authorities": [
+        "accreditation authority",
+        "security zone",
+        "physical accreditation",
+    ],
     "tiktok application": ["tiktok", "social media", "mobile application risk"],
     "quantum computing": ["post-quantum", "pqc", "cryptography"],
     "patch applications": ["patching", "vulnerability", "application updates"],
     "patch operating systems": ["patching", "operating system", "os updates"],
     "multi-factor authentication": ["mfa", "phishing-resistant", "strong authentication"],
-    "restrict administrative privileges": ["least privilege", "privileged access", "privileged accounts"],
+    "restrict administrative privileges": [
+        "least privilege",
+        "privileged access",
+        "privileged accounts",
+    ],
     "application control": ["allowlisting", "wdac", "applocker"],
     "restrict microsoft office macro settings": ["macro security", "vba", "office macros"],
-    "user application hardening": ["browser hardening", "application hardening", "security configuration"],
+    "user application hardening": [
+        "browser hardening",
+        "application hardening",
+        "security configuration",
+    ],
     "regular backups": ["backup", "restore", "recovery"],
 }
 
@@ -107,7 +156,9 @@ _REQ_HEADER_RE = re.compile(
     r"(?P<applicability>.*?)\s*\|\s*(?P<start_date>\d{1,2}\s+[A-Za-z]+\s+\d{4})$"
 )
 _HEADING_RE = re.compile(r"^(?P<number>\d{1,2}(?:\.\d+){0,2})\s+(?P<title>[A-Z][^\n]+?)$")
-_HEADER_RE = re.compile(r"Australian Government\s+Protective Security Policy Framework\s+Release 2025", re.IGNORECASE)
+_HEADER_RE = re.compile(
+    r"Australian Government\s+Protective Security Policy Framework\s+Release 2025", re.IGNORECASE
+)
 _ROMAN_OR_PAGE_RE = re.compile(r"^(?:[ivxlcdm]+|\d+)$", re.IGNORECASE)
 
 
@@ -143,7 +194,9 @@ def _download_pdf_bytes(url: str) -> bytes:
 
 def _extract_full_text(pdf_bytes: bytes) -> str:
     if _PdfReader is None:
-        raise RuntimeError("pypdf is required for PSPF PDF parsing. Install with: pip install pypdf")
+        raise RuntimeError(
+            "pypdf is required for PSPF PDF parsing. Install with: pip install pypdf"
+        )
 
     reader = _PdfReader(io.BytesIO(pdf_bytes))
     pages = [_clean_page_text(page.extract_text() or "") for page in reader.pages]
@@ -158,7 +211,9 @@ def _format_heading(number: str, title: str) -> str:
     return f"{number} {title}".strip()
 
 
-def _build_source_section(domain_code: str, headings: dict[int, tuple[str, str]], requirement_number: str) -> str:
+def _build_source_section(
+    domain_code: str, headings: dict[int, tuple[str, str]], requirement_number: str
+) -> str:
     parts = [domain_code]
     for level in sorted(headings):
         number, title = headings[level]

@@ -61,7 +61,5 @@ def chunk_documents(
 ) -> list[ChunkRecord]:
     all_chunks: list[ChunkRecord] = []
     for doc in docs:
-        all_chunks.extend(
-            chunk_document(doc, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-        )
+        all_chunks.extend(chunk_document(doc, chunk_size=chunk_size, chunk_overlap=chunk_overlap))
     return all_chunks

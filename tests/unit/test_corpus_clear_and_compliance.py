@@ -30,9 +30,7 @@ def test_corpus_a_clear_dry_run_returns_would_delete_counts() -> None:
         app_module,
         "_count_search_documents_by_filter",
         side_effect=[{"would_delete": 2}, {"would_delete": 3}],
-    ) as count_mock, patch.object(
-        app_module, "_delete_search_documents_by_filter"
-    ) as delete_mock:
+    ) as count_mock, patch.object(app_module, "_delete_search_documents_by_filter") as delete_mock:
         response = client.post(
             "/api/corpus-a/clear",
             json={
@@ -167,7 +165,7 @@ def test_compliance_report_valid_schema_returns_csv() -> None:
         '"evidence_sources":["doc1"],'
         '"gaps":[], '
         '"recommendations":["Keep monitoring"]'
-        '}],'
+        "}],"
         '"overall_risk_rating":"low",'
         '"missing_evidence":[],'
         '"recommended_actions":["Continue"],'
@@ -224,7 +222,7 @@ def test_compliance_report_retries_after_empty_model_response() -> None:
         '"evidence_sources":["doc1"],'
         '"gaps":[], '
         '"recommendations":["Keep monitoring"]'
-        '}],'
+        "}],"
         '"overall_risk_rating":"low",'
         '"missing_evidence":[],'
         '"recommended_actions":["Continue"],'
@@ -280,7 +278,7 @@ def test_compliance_report_normalises_incomplete_model_json() -> None:
         '"evidence_sources":[],'
         '"gaps":[], '
         '"recommendations":[]'
-        '}],'
+        "}],"
         '"overall_risk_rating":"medium",'
         '"missing_evidence":[], '
         '"recommended_actions":[], '
@@ -355,7 +353,7 @@ def test_compliance_report_corrects_model_claims_when_grounding_exists() -> None
         '"evidence_sources":[],'
         '"gaps":[], '
         '"recommendations":[]'
-        '}],'
+        "}],"
         '"overall_risk_rating":"high",'
         '"missing_evidence":[], '
         '"recommended_actions":[], '
@@ -435,7 +433,10 @@ def test_compliance_report_soft_mode_returns_fallback_report_on_empty_model_outp
     ), patch.object(
         app_module,
         "_hybrid_search",
-        side_effect=[([], {"search_s": 0.01}), ([{"source_name": "Artifact-Z", "content": "artifact"}], {"search_s": 0.02})],
+        side_effect=[
+            ([], {"search_s": 0.01}),
+            ([{"source_name": "Artifact-Z", "content": "artifact"}], {"search_s": 0.02}),
+        ],
     ), patch.object(
         app_module,
         "_chat_completion",
@@ -478,7 +479,7 @@ def test_compliance_report_uses_corpus_b_upload_batch_filter() -> None:
         '"evidence_sources":["doc1"],'
         '"gaps":[], '
         '"recommendations":["Keep monitoring"]'
-        '}],'
+        "}],"
         '"overall_risk_rating":"low",'
         '"missing_evidence":[], '
         '"recommended_actions":["Continue"], '
@@ -523,7 +524,11 @@ def test_corpus_a_list_with_framework_filter() -> None:
     with patch.object(app_module, "config", _open_auth_config()), patch.object(
         app_module,
         "_list_search_documents_by_filter",
-        return_value={"total_count": 2, "returned_count": 2, "items": [{"requirement_id": "REQ-1"}]},
+        return_value={
+            "total_count": 2,
+            "returned_count": 2,
+            "items": [{"requirement_id": "REQ-1"}],
+        },
     ) as list_mock:
         response = client.get(
             "/api/corpus-a/list",

@@ -25,8 +25,7 @@ class QueueMessage:
 
 
 class JobRunner(Protocol):
-    def run(self, message: QueueMessage) -> dict[str, Any]:
-        ...
+    def run(self, message: QueueMessage) -> dict[str, Any]: ...
 
 
 def _require_non_empty_string(name: str, value: object) -> str:
@@ -49,7 +48,9 @@ def validate_queue_message(payload: Mapping[str, Any]) -> QueueMessage:
         raise ValueError("delivery_count must be a non-negative integer")
 
     return QueueMessage(
-        queue_message_id=_require_non_empty_string("queue_message_id", payload.get("queue_message_id")),
+        queue_message_id=_require_non_empty_string(
+            "queue_message_id", payload.get("queue_message_id")
+        ),
         message_type=cast("Any", message_type),
         enqueued_at=_require_non_empty_string("enqueued_at", payload.get("enqueued_at")),
         correlation_id=_require_non_empty_string("correlation_id", payload.get("correlation_id")),

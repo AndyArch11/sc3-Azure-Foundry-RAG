@@ -18,11 +18,8 @@ os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 from starlette.requests import Request
 
 from query_web import app as app_module
-from query_web.app import (
-    _group_auth_failure_message,
-    _groups_from_client_principal_header,
-    _is_authorised_request,
-)
+from query_web.app import (_group_auth_failure_message, _groups_from_client_principal_header,
+                           _is_authorised_request)
 
 
 def _encode_principal(claims: list[dict[str, str]]) -> str:
@@ -92,7 +89,10 @@ def test_group_auth_failure_message_reports_group_overage() -> None:
         {
             "x-ms-client-principal": _encode_principal(
                 [
-                    {"typ": "http://schemas.microsoft.com/identity/claims/objectidentifier", "val": "abc"},
+                    {
+                        "typ": "http://schemas.microsoft.com/identity/claims/objectidentifier",
+                        "val": "abc",
+                    },
                     {"typ": "hasgroups", "val": "true"},
                 ]
             )
@@ -152,9 +152,7 @@ def test_clear_endpoint_allows_valid_group_header_in_dry_run_mode() -> None:
         required_group_object_id=required_group,
         auth_token="",
     )
-    principal_header = _encode_principal(
-        [{"typ": "groups", "val": required_group.upper()}]
-    )
+    principal_header = _encode_principal([{"typ": "groups", "val": required_group.upper()}])
 
     with patch.object(app_module, "config", patched_config), patch.object(
         app_module,

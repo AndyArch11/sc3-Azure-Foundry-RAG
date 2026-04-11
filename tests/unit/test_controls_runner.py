@@ -45,19 +45,27 @@ def registry_with_optional_and_required(monkeypatch):
     return registry
 
 
-def test_run_parse_all_skips_optional_missing_sources(tmp_path: Path, registry_with_optional_and_required):
+def test_run_parse_all_skips_optional_missing_sources(
+    tmp_path: Path, registry_with_optional_and_required
+):
     outputs = controls_runner._run_parse(framework="all", output_dir=tmp_path, no_guidance=False)
     assert "required_remote" in outputs
     assert "optional_local" not in outputs
     assert outputs["required_remote"].name == "required.jsonl"
 
 
-def test_run_parse_single_optional_framework_still_fails(tmp_path: Path, registry_with_optional_and_required):
+def test_run_parse_single_optional_framework_still_fails(
+    tmp_path: Path, registry_with_optional_and_required
+):
     with pytest.raises(RuntimeError, match="not found"):
-        controls_runner._run_parse(framework="optional_local", output_dir=tmp_path, no_guidance=False)
+        controls_runner._run_parse(
+            framework="optional_local", output_dir=tmp_path, no_guidance=False
+        )
 
 
-def test_run_parse_detailed_reports_parsed_and_skipped(tmp_path: Path, registry_with_optional_and_required):
+def test_run_parse_detailed_reports_parsed_and_skipped(
+    tmp_path: Path, registry_with_optional_and_required
+):
     outputs, skipped = controls_runner._run_parse_detailed(
         framework="all",
         output_dir=tmp_path,
@@ -78,7 +86,9 @@ def test_run_parse_still_returns_outputs_only(tmp_path: Path, registry_with_opti
     assert sorted(outputs.keys()) == ["required_remote"]
 
 
-def test_framework_all_summary_logs_counts(caplog, tmp_path: Path, registry_with_optional_and_required):
+def test_framework_all_summary_logs_counts(
+    caplog, tmp_path: Path, registry_with_optional_and_required
+):
     outputs, skipped = controls_runner._run_parse_detailed(
         framework="all",
         output_dir=tmp_path,
@@ -103,7 +113,9 @@ def test_missing_source_detector_handles_not_found():
 
 def test_resolve_controls_index_config_uses_cli_endpoint_without_env(monkeypatch):
     monkeypatch.delenv("AZURE_SEARCH_ENDPOINT", raising=False)
-    args = argparse.Namespace(search_endpoint="https://search.example", controls_index_name="controls-index")
+    args = argparse.Namespace(
+        search_endpoint="https://search.example", controls_index_name="controls-index"
+    )
     config = controls_runner._resolve_controls_index_config(args)
     assert config.search_endpoint == "https://search.example"
     assert config.controls_index_name == "controls-index"

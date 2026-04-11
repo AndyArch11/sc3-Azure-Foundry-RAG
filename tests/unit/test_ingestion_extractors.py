@@ -3,6 +3,7 @@
 Uses in-memory file construction (pypdf.PdfWriter, openpyxl.Workbook) so that
 no sample fixture files are required.
 """
+
 from __future__ import annotations
 
 import io
@@ -11,16 +12,13 @@ from unittest.mock import patch
 
 import pytest
 
-from runtime.ingestion.extractors import (
-    discover_supported_files,
-    extract_source_document,
-    _extract_pdf_text,
-)
-
+from runtime.ingestion.extractors import (_extract_pdf_text, discover_supported_files,
+                                          extract_source_document)
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_pdf_bytes(pages: list[str]) -> bytes:
     """Return minimal valid PDF bytes containing the supplied page texts.
@@ -41,16 +39,22 @@ def _make_pdf_bytes(pages: list[str]) -> bytes:
 
         # Font and resource dicts must be DictionaryObject, not plain dict,
         # so that _add_object can set .indirect_reference on them.
-        font = DictionaryObject({
-            NameObject("/Type"): NameObject("/Font"),
-            NameObject("/Subtype"): NameObject("/Type1"),
-            NameObject("/BaseFont"): NameObject("/Helvetica"),
-        })
-        resources = DictionaryObject({
-            NameObject("/Font"): DictionaryObject({
-                NameObject("/F1"): font,
-            }),
-        })
+        font = DictionaryObject(
+            {
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/Type1"),
+                NameObject("/BaseFont"): NameObject("/Helvetica"),
+            }
+        )
+        resources = DictionaryObject(
+            {
+                NameObject("/Font"): DictionaryObject(
+                    {
+                        NameObject("/F1"): font,
+                    }
+                ),
+            }
+        )
 
         page[NameObject("/Resources")] = resources
         page[NameObject("/Contents")] = writer._add_object(stream)
@@ -80,6 +84,7 @@ def _make_excel_bytes(sheets: dict[str, list[list]]) -> bytes:
 # ---------------------------------------------------------------------------
 # PDF extraction
 # ---------------------------------------------------------------------------
+
 
 def test_extract_pdf_produces_source_document(tmp_path: Path) -> None:
     pdf_file = tmp_path / "test.pdf"
@@ -124,7 +129,9 @@ def test_extract_pdf_raises_runtime_error_when_pypdf_missing(tmp_path: Path) -> 
 
 def test_extract_pdf_ocr_not_triggered_when_text_sufficient(tmp_path: Path) -> None:
     pdf_file = tmp_path / "text-rich.pdf"
-    pdf_file.write_bytes(_make_pdf_bytes(["This page has enough extracted text to skip OCR fallback."]))
+    pdf_file.write_bytes(
+        _make_pdf_bytes(["This page has enough extracted text to skip OCR fallback."])
+    )
 
     with patch("runtime.ingestion.extractors._extract_pdf_text_ocr") as ocr_mock:
         text = _extract_pdf_text(pdf_file, enable_ocr=True, min_text_chars=10)
@@ -137,7 +144,9 @@ def test_extract_pdf_ocr_triggered_when_text_sparse(tmp_path: Path) -> None:
     pdf_file = tmp_path / "sparse.pdf"
     pdf_file.write_bytes(_make_pdf_bytes([""]))
 
-    with patch("runtime.ingestion.extractors._extract_pdf_text_ocr", return_value="ocr recovered text") as ocr_mock:
+    with patch(
+        "runtime.ingestion.extractors._extract_pdf_text_ocr", return_value="ocr recovered text"
+    ) as ocr_mock:
         text = _extract_pdf_text(pdf_file, enable_ocr=True, min_text_chars=1)
 
     assert "ocr recovered text" in text
@@ -160,6 +169,7 @@ def test_extract_pdf_ocr_failure_falls_back_to_extracted_text(tmp_path: Path) ->
 # ---------------------------------------------------------------------------
 # Excel extraction
 # ---------------------------------------------------------------------------
+
 
 def test_extract_excel_produces_source_document(tmp_path: Path) -> None:
     xlsx_file = tmp_path / "data.xlsx"
@@ -192,9 +202,7 @@ def test_extract_excel_multiple_sheets(tmp_path: Path) -> None:
 
 def test_extract_excel_skips_empty_rows(tmp_path: Path) -> None:
     xlsx_file = tmp_path / "sparse.xlsx"
-    xlsx_file.write_bytes(
-        _make_excel_bytes({"Sheet1": [["hello"], [], [None, None], ["world"]]})
-    )
+    xlsx_file.write_bytes(_make_excel_bytes({"Sheet1": [["hello"], [], [None, None], ["world"]]}))
 
     doc = extract_source_document(xlsx_file)
 
@@ -215,6 +223,7 @@ def test_extract_excel_raises_runtime_error_when_openpyxl_missing(tmp_path: Path
 # Unsupported file types
 # ---------------------------------------------------------------------------
 
+
 def test_extract_unsupported_extension_raises_value_error(tmp_path: Path) -> None:
     txt_file = tmp_path / "notes.txt"
     txt_file.write_text("some text")
@@ -226,6 +235,7 @@ def test_extract_unsupported_extension_raises_value_error(tmp_path: Path) -> Non
 # ---------------------------------------------------------------------------
 # discover_supported_files
 # ---------------------------------------------------------------------------
+
 
 def test_discover_supported_files_finds_pdf_and_xlsx(tmp_path: Path) -> None:
     # Discover only needs valid extensions, not parseable content.

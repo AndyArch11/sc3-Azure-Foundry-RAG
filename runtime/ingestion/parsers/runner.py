@@ -19,6 +19,7 @@ Each line is a JSON-serialised ``RequirementRecord``.  Files are named::
 
 e.g. ``essential_eight_november_2023.jsonl``
 """
+
 from __future__ import annotations
 
 import argparse
@@ -32,18 +33,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 # Registry of supported frameworks.
 # Each entry maps a CLI name → factory callable that accepts fetch_guidance kwarg.
 def _build_registry():
     from .aescsf import AescsfParser  # noqa: PLC0415
-    from .essential_eight import (  # noqa: PLC0415
-        EssentialEightParser,
-        FRAMEWORK_VERSION,
-        _slugify,
-    )
+    from .essential_eight import FRAMEWORK_VERSION, EssentialEightParser, _slugify  # noqa: PLC0415
     from .ism import IsmParser  # noqa: PLC0415
-    from .nist_csf import NistCsfParser  # noqa: PLC0415
     from .nist_csf import FRAMEWORK_VERSION as CSF_VERSION  # noqa: PLC0415
+    from .nist_csf import NistCsfParser  # noqa: PLC0415
 
     FRAMEWORK_VERSION_SLUG = _slugify(FRAMEWORK_VERSION)
 
@@ -54,9 +52,7 @@ def _build_registry():
             "description": "AESCSF v2 Assessment Toolkit (354 practices across 11 domains)",
         },
         "essential_eight": {
-            "factory": lambda fetch_guidance: EssentialEightParser(
-                fetch_guidance=fetch_guidance
-            ),
+            "factory": lambda fetch_guidance: EssentialEightParser(fetch_guidance=fetch_guidance),
             "output_filename": f"essential_eight_{FRAMEWORK_VERSION_SLUG}.jsonl",
             "description": "ASD Essential Eight Maturity Model (all three levels)",
         },
@@ -66,9 +62,7 @@ def _build_registry():
             "description": "ASD Information Security Manual (all controls, latest OSCAL release)",
         },
         "nist_csf": {
-            "factory": lambda fetch_guidance: NistCsfParser(
-                fetch_guidance=fetch_guidance
-            ),
+            "factory": lambda fetch_guidance: NistCsfParser(fetch_guidance=fetch_guidance),
             "output_filename": f"nist_csf_{_slugify(CSF_VERSION)}.jsonl",
             "description": "NIST Cybersecurity Framework 2.0 (all 106 subcategories)",
         },

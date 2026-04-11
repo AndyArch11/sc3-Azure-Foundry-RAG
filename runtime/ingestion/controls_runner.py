@@ -22,16 +22,13 @@ def _is_missing_source_error(exc: Exception) -> bool:
 def _build_parser_registry() -> dict[str, dict]:
     from .parsers.aescsf import AescsfParser  # noqa: PLC0415
     from .parsers.cis_controls import CisControlsParser  # noqa: PLC0415
+    from .parsers.essential_eight import EssentialEightParser  # noqa: PLC0415
+    from .parsers.essential_eight import FRAMEWORK_VERSION, _slugify
+    from .parsers.ism import IsmParser  # noqa: PLC0415
+    from .parsers.nist_csf import FRAMEWORK_VERSION as CSF_VERSION  # noqa: PLC0415
+    from .parsers.nist_csf import NistCsfParser  # noqa: PLC0415
     from .parsers.pci_dss import PciDssParser  # noqa: PLC0415
     from .parsers.pspf import PspfParser  # noqa: PLC0415
-    from .parsers.essential_eight import (  # noqa: PLC0415
-        EssentialEightParser,
-        FRAMEWORK_VERSION,
-        _slugify,
-    )
-    from .parsers.ism import IsmParser  # noqa: PLC0415
-    from .parsers.nist_csf import NistCsfParser  # noqa: PLC0415
-    from .parsers.nist_csf import FRAMEWORK_VERSION as CSF_VERSION  # noqa: PLC0415
 
     return {
         "aescsf": {
@@ -53,9 +50,7 @@ def _build_parser_registry() -> dict[str, dict]:
             "output_filename": "pspf_release_2025.jsonl",
         },
         "essential_eight": {
-            "factory": lambda fetch_guidance: EssentialEightParser(
-                fetch_guidance=fetch_guidance
-            ),
+            "factory": lambda fetch_guidance: EssentialEightParser(fetch_guidance=fetch_guidance),
             "output_filename": f"essential_eight_{_slugify(FRAMEWORK_VERSION)}.jsonl",
         },
         "ism": {
@@ -63,9 +58,7 @@ def _build_parser_registry() -> dict[str, dict]:
             "output_filename": "ism_latest.jsonl",
         },
         "nist_csf": {
-            "factory": lambda fetch_guidance: NistCsfParser(
-                fetch_guidance=fetch_guidance
-            ),
+            "factory": lambda fetch_guidance: NistCsfParser(fetch_guidance=fetch_guidance),
             "output_filename": f"nist_csf_{_slugify(CSF_VERSION)}.jsonl",
         },
     }
@@ -89,7 +82,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--framework",
-        choices=["all", "aescsf", "cis_controls", "essential_eight", "ism", "nist_csf", "pci_dss", "pspf"],
+        choices=[
+            "all",
+            "aescsf",
+            "cis_controls",
+            "essential_eight",
+            "ism",
+            "nist_csf",
+            "pci_dss",
+            "pspf",
+        ],
         default="essential_eight",
         help="Framework parser to run when mode includes parse. Use 'all' to run every supported parser",
     )
@@ -193,7 +195,11 @@ def _run_parse_detailed(
         try:
             records = parser_instance.parse()
         except Exception as exc:
-            if framework == "all" and entry.get("optional_when_all") and _is_missing_source_error(exc):
+            if (
+                framework == "all"
+                and entry.get("optional_when_all")
+                and _is_missing_source_error(exc)
+            ):
                 logger.warning(
                     "Skipping optional framework '%s': %s",
                     selected,

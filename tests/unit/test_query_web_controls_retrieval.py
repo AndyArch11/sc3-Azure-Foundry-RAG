@@ -66,9 +66,15 @@ def _controls_items_for_diversity() -> list[dict[str, object]]:
 
 
 def test_cross_framework_comparison_intent_detection() -> None:
-    assert app_module._is_cross_framework_comparison_intent("Which framework requires inventory controls?")
-    assert app_module._is_cross_framework_comparison_intent("Compare NIST CSF vs Essential Eight for asset inventory")
-    assert not app_module._is_cross_framework_comparison_intent("What does NIST CSF require for asset inventory?")
+    assert app_module._is_cross_framework_comparison_intent(
+        "Which framework requires inventory controls?"
+    )
+    assert app_module._is_cross_framework_comparison_intent(
+        "Compare NIST CSF vs Essential Eight for asset inventory"
+    )
+    assert not app_module._is_cross_framework_comparison_intent(
+        "What does NIST CSF require for asset inventory?"
+    )
 
 
 def test_select_diverse_controls_limits_single_framework_crowding() -> None:
@@ -99,7 +105,10 @@ def test_controls_search_comparison_enables_diversity_and_expands_fetch_k() -> N
 
     assert len(controls) == 5
     assert timings["controls_diversity_mode_enabled"] == 1.0
-    assert any(call.args[1] == 20 and call.kwargs.get("framework_filter") is None for call in fetch_mock.call_args_list)
+    assert any(
+        call.args[1] == 20 and call.kwargs.get("framework_filter") is None
+        for call in fetch_mock.call_args_list
+    )
 
 
 def test_controls_search_framework_override_disables_diversity() -> None:
@@ -180,3 +189,78 @@ def test_summarise_controls_distribution_includes_framework_and_family_counts() 
     assert summary["framework_counts"][0]["count"] == 4
     assert summary["retrieval_modes"]["semantic_enabled"] is True
     assert summary["retrieval_modes"]["diversity_mode_enabled"] is True
+
+
+def test_infer_framework_filter_aliases_and_unknown() -> None:
+    assert app_module._infer_framework_filter("Need NIST CSF alignment") == "NIST CSF"
+    assert app_module._infer_framework_filter("Essential Eight controls") == "Essential Eight"
+    assert app_module._infer_framework_filter("AEMO guidance") == "AESCSF"
+    assert app_module._infer_framework_filter("Information Security Manual requirement") == "ISM"
+    assert app_module._infer_framework_filter("generic cyber security question") is None
+
+
+def test_controls_search_semantic_unavailable_falls_back_to_keyword() -> None:
+    calls: list[tuple[bool, str | None, int]] = []
+
+    def _fake_fetch(
+        search_text: str,
+        retrieve_k: int,
+        use_semantic: bool,
+        framework_filter: str | None = None,
+    ):
+        calls.append((use_semantic, framework_filter, retrieve_k))
+        if use_semantic:
+            raise Exception("SemanticQueriesNotAvailable")
+        return _controls_items_for_diversity()
+
+    with patch.object(app_module, "_fetch_controls", side_effect=_fake_fetch), patch.object(
+        app_module,
+        "_apply_framework_authority_preference",
+        side_effect=lambda items, top_k, question: items,
+    ):
+        controls, timings = app_module._controls_search(
+            "What does NIST CSF require for inventory?",
+            retrieve_k=3,
+            use_semantic=True,
+            framework_filter_override=None,
+        )
+
+    assert len(controls) == 3
+    assert timings["controls_semantic_enabled"] == 1.0
+    assert calls[0][0] is True
+    assert calls[1][0] is False
+
+
+def test_controls_search_diversity_backfill_semantic_error_falls_back_to_keyword() -> None:
+    crowded_items = _controls_items_for_diversity()[:4]
+    aes_item = _controls_items_for_diversity()[4]
+
+    def _fake_fetch(
+        search_text: str,
+        retrieve_k: int,
+        use_semantic: bool,
+        framework_filter: str | None = None,
+    ):
+        if framework_filter is None:
+            return crowded_items
+        if framework_filter == "AESCSF" and use_semantic:
+            raise Exception("backend semantic error")
+        if framework_filter == "AESCSF" and not use_semantic:
+            return [aes_item]
+        return []
+
+    with patch.object(app_module, "_fetch_controls", side_effect=_fake_fetch), patch.object(
+        app_module,
+        "_apply_framework_authority_preference",
+        side_effect=lambda items, top_k, question: items,
+    ):
+        controls, timings = app_module._controls_search(
+            "Which framework requires an inventory?",
+            retrieve_k=5,
+            use_semantic=True,
+            framework_filter_override=None,
+        )
+
+    frameworks = {str(item.get("framework")) for item in controls}
+    assert timings["controls_diversity_mode_enabled"] == 1.0
+    assert "AESCSF" in frameworks

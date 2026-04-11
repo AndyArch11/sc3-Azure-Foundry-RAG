@@ -4,7 +4,8 @@ from typing import Any
 
 import pytest
 
-from runtime.assessment_orchestration.mcp.azure_resource import AzureMCPServer, build_azure_target_reference
+from runtime.assessment_orchestration.mcp.azure_resource import (AzureMCPServer,
+                                                                 build_azure_target_reference)
 
 
 class _FakeCredential:
@@ -33,7 +34,9 @@ def test_build_reference_and_resolve_resource_group_scope() -> None:
         resource_group="rg-1",
         resource_ids=[],
     )
-    server = AzureMCPServer(credential=_FakeCredential(), http_get=lambda *args, **kwargs: _FakeResponse({"value": []}))
+    server = AzureMCPServer(
+        credential=_FakeCredential(), http_get=lambda *args, **kwargs: _FakeResponse({"value": []})
+    )
 
     target = server.resolve_target(target_reference)
 
@@ -121,7 +124,9 @@ def test_get_content_by_id_extracts_resource_list() -> None:
 
 
 def test_resolve_target_rejects_mixed_scope_resource_ids() -> None:
-    server = AzureMCPServer(credential=_FakeCredential(), http_get=lambda *args, **kwargs: _FakeResponse({}))
+    server = AzureMCPServer(
+        credential=_FakeCredential(), http_get=lambda *args, **kwargs: _FakeResponse({})
+    )
 
     with pytest.raises(ValueError, match="same subscription and resource group"):
         server.resolve_target(

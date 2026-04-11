@@ -10,37 +10,28 @@ import os
 import re
 import threading
 import time
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
-import requests
+import requests  # type: ignore[import-untyped]
 from azure.identity import DefaultAzureCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
 from azure.storage.blob import BlobServiceClient, ContentSettings
-from fastapi import FastAPI, Form, Request
-from fastapi import File, UploadFile
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from prompt_injection_guard import (BLOCKED_PROMPT_INJECTION_MESSAGE,
+                                    PROMPT_INJECTION_SYSTEM_PROMPT, VALIDATOR_SYSTEM_PROMPT,
+                                    assess_prompt_injection, evaluate_prompt_risk,
+                                    sanitise_conversation_turn, sanitise_untrusted_text)
 from pydantic import BaseModel, Field
 
-from runtime.assessment_orchestration.azure_assessment import collect_azure_grounding, run_azure_assessment
-
-from prompt_injection_guard import (
-    BLOCKED_PROMPT_INJECTION_MESSAGE,
-    PROMPT_INJECTION_SYSTEM_PROMPT,
-    VALIDATOR_SYSTEM_PROMPT,
-    assess_prompt_injection,
-    evaluate_prompt_risk,
-    sanitise_conversation_turn,
-    sanitise_untrusted_text,
-)
-
-
-import uuid
-from dataclasses import field
-from datetime import UTC, datetime
+from runtime.assessment_orchestration.azure_assessment import (collect_azure_grounding,
+                                                               run_azure_assessment)
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionMessageParam
@@ -48,7 +39,7 @@ if TYPE_CHECKING:
 try:
     from azure.cosmos.exceptions import CosmosResourceNotFoundError as _CosmosResourceNotFoundError
 except Exception:
-    _CosmosResourceNotFoundError = Exception
+    _CosmosResourceNotFoundError = Exception  # type: ignore[misc,assignment]
 
 CosmosResourceNotFoundError: type[Exception] = _CosmosResourceNotFoundError
 
@@ -98,6 +89,7 @@ class QueryConfig:
     prompt_injection_validator_mode: str
     guardrail_metrics_in_response: bool
 
+
 logger = logging.getLogger(__name__)
 
 _INTERNAL_ERROR_MESSAGE = "An internal error occurred."
@@ -127,7 +119,15 @@ _FRAMEWORK_ALIASES = {
     "pspf": "PSPF",
     "protective security policy framework": "PSPF",
 }
-_CANONICAL_FRAMEWORKS = {"NIST CSF", "Essential Eight", "AESCSF", "CIS Controls", "ISM", "PCI DSS", "PSPF"}
+_CANONICAL_FRAMEWORKS = {
+    "NIST CSF",
+    "Essential Eight",
+    "AESCSF",
+    "CIS Controls",
+    "ISM",
+    "PCI DSS",
+    "PSPF",
+}
 
 
 @dataclass(frozen=True)
@@ -254,19 +254,20 @@ def load_config() -> QueryConfig:
         search_top_k=int(os.getenv("SEARCH_TOP_K", "5")),
         controls_top_k=int(os.getenv("CONTROLS_TOP_K", "4")),
         controls_semantic_default=_env_bool("CONTROLS_SEMANTIC_DEFAULT", default=False),
-        controls_semantic_configuration_name=os.getenv("AZURE_SEARCH_CONTROLS_SEMANTIC_CONFIG", "controls-semantic"),
+        controls_semantic_configuration_name=os.getenv(
+            "AZURE_SEARCH_CONTROLS_SEMANTIC_CONFIG", "controls-semantic"
+        ),
         controls_framework_authority_order=_parse_framework_authority_order(
             os.getenv("CONTROLS_FRAMEWORK_AUTHORITY_ORDER")
         ),
-        precedence_policy_path=os.getenv("PRECEDENCE_POLICY_PATH", "/app/policies/precedence_policy.json").strip(),
-
+        precedence_policy_path=os.getenv(
+            "PRECEDENCE_POLICY_PATH", "/app/policies/precedence_policy.json"
+        ).strip(),
         storage_account_name=os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "").strip(),
         storage_container_name=os.getenv("AZURE_STORAGE_CONTAINER_NAME", "grounding-data").strip(),
-
         ingestion_job_subscription_id=os.getenv("INGESTION_JOB_SUBSCRIPTION_ID", "").strip(),
         ingestion_job_resource_group=os.getenv("INGESTION_JOB_RESOURCE_GROUP", "").strip(),
         ingestion_job_name=os.getenv("INGESTION_JOB_NAME", "").strip(),
-
         default_temperature=float(os.getenv("DEFAULT_TEMPERATURE", "1")),
         evaluator_temperature=float(os.getenv("EVALUATOR_TEMPERATURE", "1.0")),
         evaluation_threshold=float(os.getenv("ACCEPTABLE_SCORE_THRESHOLD", "0.72")),
@@ -275,23 +276,31 @@ def load_config() -> QueryConfig:
         cosmos_endpoint=_require_env("AZURE_COSMOS_ENDPOINT"),
         cosmos_database_name=_require_env("AZURE_COSMOS_DATABASE_NAME"),
         cosmos_container_name=_require_env("AZURE_COSMOS_CONTAINER_NAME"),
-        prompt_injection_validator_enabled=_env_bool("PROMPT_INJECTION_VALIDATOR_ENABLED", default=False),
+        prompt_injection_validator_enabled=_env_bool(
+            "PROMPT_INJECTION_VALIDATOR_ENABLED", default=False
+        ),
         prompt_injection_validator_deployment=os.getenv(
             "PROMPT_INJECTION_VALIDATOR_DEPLOYMENT",
             os.getenv("EVALUATOR_DEPLOYMENT_NAME", "gpt-4.1-mini"),
         ),
-        prompt_injection_validator_threshold=float(os.getenv("PROMPT_INJECTION_VALIDATOR_THRESHOLD", "0.85")),
+        prompt_injection_validator_threshold=float(
+            os.getenv("PROMPT_INJECTION_VALIDATOR_THRESHOLD", "0.85")
+        ),
         prompt_injection_validator_temperature=float(
             os.getenv("PROMPT_INJECTION_VALIDATOR_TEMPERATURE", "0.5")
         ),
-        prompt_injection_validator_timeout_s=int(os.getenv("PROMPT_INJECTION_VALIDATOR_TIMEOUT_S", "15")),
+        prompt_injection_validator_timeout_s=int(
+            os.getenv("PROMPT_INJECTION_VALIDATOR_TIMEOUT_S", "15")
+        ),
         prompt_injection_validator_mode=os.getenv("PROMPT_INJECTION_VALIDATOR_MODE", "off").lower(),
         guardrail_metrics_in_response=_env_bool("GUARDRAIL_METRICS_IN_RESPONSE", default=False),
     )
 
+
 @dataclass
 class ConversationMessage:
     """A single message in a conversation."""
+
     role: str  # "user" or "assistant"
     content: str
     timestamp: str = field(default_factory=_utc_now_iso)
@@ -300,6 +309,7 @@ class ConversationMessage:
 @dataclass
 class ResponseRating:
     """User rating and TODO feedback for a prior assistant response."""
+
     rating: int  # 1..5
     todo: str = ""
     assistant_timestamp: str = ""
@@ -309,6 +319,7 @@ class ResponseRating:
 @dataclass
 class ConversationSession:
     """Conversation session stored in CosmosDB."""
+
     session_id: str
     user_id: str  # auth_token hash or session token
     conversation_id: str  # unique per conversation
@@ -326,7 +337,10 @@ class ConversationSession:
             "session_id": self.session_id,
             "user_id": self.user_id,
             "conversation_id": self.conversation_id,
-            "messages": [{"role": m.role, "content": m.content, "timestamp": m.timestamp} for m in self.messages],
+            "messages": [
+                {"role": m.role, "content": m.content, "timestamp": m.timestamp}
+                for m in self.messages
+            ],
             "response_ratings": [
                 {
                     "rating": r.rating,
@@ -345,7 +359,9 @@ class ConversationSession:
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "ConversationSession":
         messages = [
-            ConversationMessage(role=m["role"], content=m["content"], timestamp=m.get("timestamp", _utc_now_iso()))
+            ConversationMessage(
+                role=m["role"], content=m["content"], timestamp=m.get("timestamp", _utc_now_iso())
+            )
             for m in data.get("messages", [])
         ]
         response_ratings = [
@@ -367,6 +383,7 @@ class ConversationSession:
             updated_at=data.get("updated_at", _utc_now_iso()),
             evaluation_threshold=data.get("evaluation_threshold", 0.72),
         )
+
 
 CYBER_PERSONA_PROMPT = (
     "You are a Cyber Security Assistant. Answer questions related to cyber safety, "
@@ -532,14 +549,16 @@ controls_search_client = SearchClient(
 # Initialise CosmosDB client
 try:
     from azure.cosmos import CosmosClient
+
     cosmos_client = CosmosClient(url=config.cosmos_endpoint, credential=credential)
     cosmos_db = cosmos_client.get_database_client(config.cosmos_database_name)
     conversations_container = cosmos_db.get_container_client(config.cosmos_container_name)
 except (ImportError, Exception) as exc:
     # If CosmosDB is unavailable, continue with in-memory conversation tracking
-    cosmos_client = None
-    conversations_container = None
+    cosmos_client = None  # type: ignore[assignment]
+    conversations_container = None  # type: ignore[assignment]
     import logging
+
     logging.warning(f"CosmosDB unavailable: {exc}. Conversations will not be persisted.")
 
 
@@ -558,7 +577,8 @@ class CorpusAIngestRequest(BaseModel):
     dry_run: bool = False
     no_guidance: bool = False
     auth_token: str = ""
-    
+
+
 class ComplianceReportRequest(BaseModel):
     question: str
     retrieve_k: int = Field(default=5, ge=1, le=20)
@@ -644,7 +664,13 @@ class ComplianceFinding(BaseModel):
     finding_id: str = Field(min_length=1, max_length=64)
     requirement_id: str = Field(min_length=1, max_length=128)
     framework: str = Field(min_length=1, max_length=64)
-    status: Literal["compliant", "partially_compliant", "non_compliant", "not_applicable", "insufficient_evidence"]
+    status: Literal[
+        "compliant",
+        "partially_compliant",
+        "non_compliant",
+        "not_applicable",
+        "insufficient_evidence",
+    ]
     severity: Literal["low", "medium", "high", "critical"]
     rationale: str = Field(min_length=1, max_length=3000)
     evidence_sources: list[str] = Field(default_factory=list, min_length=1, max_length=20)
@@ -663,7 +689,8 @@ class ComplianceReportStructured(BaseModel):
     missing_evidence: list[str] = Field(default_factory=list, max_length=80)
     recommended_actions: list[str] = Field(default_factory=list, min_length=1, max_length=80)
     citations: list[str] = Field(default_factory=list, min_length=1, max_length=200)
-    
+
+
 COMPLIANCE_REPORT_PROMPT = (
     "You are a compliance assessment assistant. Build a strict JSON compliance report "
     "using Corpus A and Corpus B as grounding data, and Corpus C as assessed artifacts. "
@@ -677,27 +704,27 @@ COMPLIANCE_REPORT_JSON_SCHEMA_HINT = (
     "Required JSON shape:\n"
     "{\n"
     "  \"schema_version\": string (must be 'v1.1'),\n"
-    "  \"executive_summary\": string,\n"
-    "  \"scope_and_inputs\": string[],\n"
-    "  \"controls_assessed\": string[],\n"
-    "  \"guidance_applied\": string[],\n"
-    "  \"findings\": [\n"
+    '  "executive_summary": string,\n'
+    '  "scope_and_inputs": string[],\n'
+    '  "controls_assessed": string[],\n'
+    '  "guidance_applied": string[],\n'
+    '  "findings": [\n'
     "    {\n"
-    "      \"finding_id\": string,\n"
-    "      \"requirement_id\": string,\n"
-    "      \"framework\": string,\n"
-    "      \"status\": \"compliant\"|\"partially_compliant\"|\"non_compliant\"|\"not_applicable\"|\"insufficient_evidence\",\n"
-    "      \"severity\": \"low\"|\"medium\"|\"high\"|\"critical\",\n"
-    "      \"rationale\": string,\n"
-    "      \"evidence_sources\": string[],\n"
-    "      \"gaps\": string[],\n"
-    "      \"recommendations\": string[]\n"
+    '      "finding_id": string,\n'
+    '      "requirement_id": string,\n'
+    '      "framework": string,\n'
+    '      "status": "compliant"|"partially_compliant"|"non_compliant"|"not_applicable"|"insufficient_evidence",\n'
+    '      "severity": "low"|"medium"|"high"|"critical",\n'
+    '      "rationale": string,\n'
+    '      "evidence_sources": string[],\n'
+    '      "gaps": string[],\n'
+    '      "recommendations": string[]\n'
     "    }\n"
     "  ],\n"
-    "  \"overall_risk_rating\": \"low\"|\"medium\"|\"high\"|\"critical\",\n"
-    "  \"missing_evidence\": string[],\n"
-    "  \"recommended_actions\": string[],\n"
-    "  \"citations\": string[]\n"
+    '  "overall_risk_rating": "low"|"medium"|"high"|"critical",\n'
+    '  "missing_evidence": string[],\n'
+    '  "recommended_actions": string[],\n'
+    '  "citations": string[]\n'
     "}"
 )
 
@@ -719,7 +746,7 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     if first == -1 or last == -1 or last <= first:
         raise ValueError("Model response did not contain a JSON object")
 
-    parsed = json.loads(cleaned[first:last + 1])
+    parsed = json.loads(cleaned[first : last + 1])
     if not isinstance(parsed, dict):
         raise ValueError("Model JSON payload is not an object")
     return parsed
@@ -779,7 +806,9 @@ def _normalise_compliance_report_payload(
     default_framework = control_frameworks[0] if control_frameworks else "Unknown"
     default_sources = source_names or ["No direct evidence source available"]
 
-    report["schema_version"] = str(report.get("schema_version") or COMPLIANCE_REPORT_SCHEMA_VERSION).strip()
+    report["schema_version"] = str(
+        report.get("schema_version") or COMPLIANCE_REPORT_SCHEMA_VERSION
+    ).strip()
 
     executive_summary = str(report.get("executive_summary") or "").strip()
     if not executive_summary:
@@ -787,7 +816,9 @@ def _normalise_compliance_report_payload(
             "Automated compliance assessment generated with available grounded evidence. "
             "Some required fields were normalised due to incomplete model output."
         )
-    if (controls_count > 0 or corpus_c_count > 0) and "no normative requirements" in executive_summary.lower():
+    if (
+        controls_count > 0 or corpus_c_count > 0
+    ) and "no normative requirements" in executive_summary.lower():
         executive_summary = (
             "Automated compliance assessment generated from retrieved corpus evidence. "
             "Some model statements were corrected to match retrieved control and artifact counts."
@@ -832,7 +863,13 @@ def _normalise_compliance_report_payload(
         ]
 
     normalised_findings: list[dict[str, Any]] = []
-    valid_status = {"compliant", "partially_compliant", "non_compliant", "not_applicable", "insufficient_evidence"}
+    valid_status = {
+        "compliant",
+        "partially_compliant",
+        "non_compliant",
+        "not_applicable",
+        "insufficient_evidence",
+    }
     valid_severity = {"low", "medium", "high", "critical"}
     for idx, finding in enumerate(findings):
         finding_id = str(finding.get("finding_id") or "").strip() or f"finding-{idx + 1}"
@@ -1098,7 +1135,8 @@ def _assess_control_finding_with_llm(
         "severity": "medium",
         "rationale": "Insufficient evidence for deterministic assessment in per-control mode.",
         "evidence_sources": [
-            str(item.get("source_name") or "evidence") for item in (corpus_c_chunks or corpus_b_chunks)[:3]
+            str(item.get("source_name") or "evidence")
+            for item in (corpus_c_chunks or corpus_b_chunks)[:3]
         ]
         or ["No evidence sources retrieved"],
         "gaps": ["Additional artifact evidence needed for this control."],
@@ -1145,7 +1183,11 @@ def _build_per_control_report_payload(
         f"Corpus C artifacts retrieved: {len(corpus_c_chunks)}",
         "Assessment strategy: per_control",
     ]
-    control_ids = [str(c.get("requirement_id") or "").strip() for c in controls if str(c.get("requirement_id") or "").strip()]
+    control_ids = [
+        str(c.get("requirement_id") or "").strip()
+        for c in controls
+        if str(c.get("requirement_id") or "").strip()
+    ]
     source_names = [
         str(item.get("source_name") or "").strip()
         for item in [*corpus_b_chunks, *corpus_c_chunks]
@@ -1163,7 +1205,8 @@ def _build_per_control_report_payload(
     missing_evidence = [
         f"Control {item.get('requirement_id', '')}: additional corroborating evidence required"
         for item in findings
-        if str(item.get("status") or "").strip().lower() in {"insufficient_evidence", "partially_compliant"}
+        if str(item.get("status") or "").strip().lower()
+        in {"insufficient_evidence", "partially_compliant"}
     ][:40]
 
     return {
@@ -1326,7 +1369,9 @@ def _generate_compliance_report_result(
         logger.exception("Compliance report schema validation failed: %s", exc)
         validation_error = "Compliance report schema validation failed."
         if payload.validation_mode == "hard":
-            raise RuntimeError(f"Compliance report schema validation failed: {validation_error}") from exc
+            raise RuntimeError(
+                f"Compliance report schema validation failed: {validation_error}"
+            ) from exc
         fallback_payload = _build_fallback_compliance_report_payload(
             question=question,
             controls=controls,
@@ -1419,7 +1464,9 @@ def _generate_azure_compliance_report_result(
             f"subscription={subscription_id}, resource_group={resource_group or ', '.join(resource_ids[:3])}"
         )
         if progress_cb:
-            progress_cb(0, len(controls), "", f"Starting per-control assessment: {len(controls)} controls")
+            progress_cb(
+                0, len(controls), "", f"Starting per-control assessment: {len(controls)} controls"
+            )
         report_payload = _build_per_control_report_payload(
             question=scope_desc,
             controls=controls,
@@ -1669,6 +1716,7 @@ class AskResponse(BaseModel):
 def _get_user_id(auth_token: str, session_id: str) -> str:
     """Generate a stable user identifier from auth token or session ID."""
     import hashlib
+
     if auth_token.strip():
         return hashlib.sha256(auth_token.encode()).hexdigest()[:16]
     return session_id[:16]
@@ -1683,7 +1731,7 @@ def _load_conversation(user_id: str, conversation_id: str) -> ConversationSessio
             user_id=user_id,
             conversation_id=conversation_id,
         )
-    
+
     # Sanitise ID by replacing hyphens from UUIDs with underscores for Cosmos compatibility
     doc_id = f"{user_id.replace('-', '_')}_{conversation_id.replace('-', '_')}"
     try:
@@ -1722,6 +1770,7 @@ def _build_feedback_context(session: ConversationSession, limit: int = 5) -> str
 
     return "Recent user feedback on prior answers:\n" + "\n".join(lines)
 
+
 def _cognitive_token() -> str:
     return credential.get_token("https://cognitiveservices.azure.com/.default").token
 
@@ -1744,11 +1793,7 @@ def _normalise_object_id(value: str) -> str:
 
 
 def _split_group_values(raw_value: str) -> set[str]:
-    return {
-        _normalise_object_id(part)
-        for part in re.split(r"[,;\s]+", raw_value)
-        if part.strip()
-    }
+    return {_normalise_object_id(part) for part in re.split(r"[,;\s]+", raw_value) if part.strip()}
 
 
 def _decode_client_principal(encoded_principal: str) -> dict[str, Any] | None:
@@ -1917,7 +1962,7 @@ def _hybrid_search(
     evidence_filter: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, float]]:
     """hybrid search over documents.
-    
+
     This path is resilient: if the grounding-index does not exist yet (e.g., ingestion
     not yet run), it returns an empty result set rather than failing the query.
     """
@@ -1983,7 +2028,7 @@ def _hybrid_search(
         # Grounding-index may not exist if document ingestion hasn't run yet.
         # Gracefully return empty results so query can proceed with controls-only.
         items = []
-    
+
     timings["search_s"] = round(time.perf_counter() - t1, 3)
     return items, timings
 
@@ -2157,8 +2202,7 @@ def _precedence_policy_summary() -> str:
     return (
         f"Policy version: {precedence_policy.version}\n"
         f"Default framework precedence: {order}\n"
-        "Specific precedence rules:\n"
-        + "\n".join(rule_lines)
+        "Specific precedence rules:\n" + "\n".join(rule_lines)
     )
 
 
@@ -2216,9 +2260,7 @@ def _is_cross_framework_comparison_intent(question: str) -> bool:
         "PSPF": r"\bpspf\b|\bprotective\s+security\s+policy\s+framework\b",
     }
     mentioned_frameworks = {
-        framework
-        for framework, pattern in framework_patterns.items()
-        if re.search(pattern, text)
+        framework for framework, pattern in framework_patterns.items() if re.search(pattern, text)
     }
     return len(mentioned_frameworks) >= 2
 
@@ -2281,7 +2323,9 @@ def _select_diverse_controls(items: list[dict[str, Any]], top_k: int) -> list[di
     return selected[:top_k]
 
 
-def _summarise_controls_distribution(controls: list[dict[str, Any]], controls_timings: dict[str, float]) -> dict[str, Any]:
+def _summarise_controls_distribution(
+    controls: list[dict[str, Any]], controls_timings: dict[str, float]
+) -> dict[str, Any]:
     framework_counts: dict[str, int] = {}
     family_counts: dict[str, int] = {}
 
@@ -2305,8 +2349,12 @@ def _summarise_controls_distribution(controls: list[dict[str, Any]], controls_ti
         "control_family_counts": _as_sorted_items(family_counts),
         "retrieval_modes": {
             "semantic_enabled": bool(controls_timings.get("controls_semantic_enabled", 0.0) >= 0.5),
-            "framework_filter_enabled": bool(controls_timings.get("controls_framework_filter_enabled", 0.0) >= 0.5),
-            "diversity_mode_enabled": bool(controls_timings.get("controls_diversity_mode_enabled", 0.0) >= 0.5),
+            "framework_filter_enabled": bool(
+                controls_timings.get("controls_framework_filter_enabled", 0.0) >= 0.5
+            ),
+            "diversity_mode_enabled": bool(
+                controls_timings.get("controls_diversity_mode_enabled", 0.0) >= 0.5
+            ),
         },
     }
 
@@ -2339,8 +2387,14 @@ def _fetch_controls(
     Raises exceptions on error so callers can decide how to handle them.
     """
     _SELECT = [
-        "requirement_id", "framework", "framework_version", "control_family",
-        "maturity_level", "requirement_text", "guidance_text", "source_uri",
+        "requirement_id",
+        "framework",
+        "framework_version",
+        "control_family",
+        "maturity_level",
+        "requirement_text",
+        "guidance_text",
+        "source_uri",
     ]
     search_kwargs: dict[str, Any] = {
         "search_text": search_text,
@@ -2476,7 +2530,9 @@ def _controls_search(
                 seen_keys.add(key)
                 items.append(candidate)
 
-    ranked_items = _apply_framework_authority_preference(items, top_k=max(len(items), retrieve_k), question=question)
+    ranked_items = _apply_framework_authority_preference(
+        items, top_k=max(len(items), retrieve_k), question=question
+    )
     if diversity_mode:
         items = _select_diverse_controls(ranked_items, top_k=retrieve_k)
     else:
@@ -2487,25 +2543,24 @@ def _controls_search(
 
 def _is_temperature_unsupported_error(exc: Exception) -> bool:
     message = str(exc).lower()
-    return (
-        "temperature" in message
-        and (
-            "must be 1" in message
-            or "only supports" in message
-            or "unsupported" in message
-            or "not supported" in message
-            or "invalid" in message
-        )
+    return "temperature" in message and (
+        "must be 1" in message
+        or "only supports" in message
+        or "unsupported" in message
+        or "not supported" in message
+        or "invalid" in message
     )
 
 
-def _chat_completion(messages: list[dict[str, str]], deployment: str, temperature: float, timeout: int = 45) -> str:
+def _chat_completion(
+    messages: list[dict[str, str]], deployment: str, temperature: float, timeout: int = 45
+) -> str:
     """Call Azure Foundry chat completion API using the OpenAI Python SDK."""
     try:
         from openai import AzureOpenAI
     except ImportError as exc:
         raise RuntimeError("openai package is required for Foundry API integration") from exc
-    
+
     # Use Foundry API via Azure SDK
     client = AzureOpenAI(
         api_key=credential.get_token("https://cognitiveservices.azure.com/.default").token,
@@ -2513,7 +2568,7 @@ def _chat_completion(messages: list[dict[str, str]], deployment: str, temperatur
         azure_endpoint=config.openai_endpoint,
     )
     typed_messages = cast("list[ChatCompletionMessageParam]", messages)
-    
+
     safe_temperature = max(0.0, min(1.0, float(temperature)))
 
     try:
@@ -2600,13 +2655,13 @@ def _evaluate(question: str, context: str, answer: str) -> dict[str, Any]:
 
 def _call_validator(text: str, timeout_s: int = 15) -> dict[str, Any]:
     """Call the validator deployment LLM with strict isolation.
-    
+
     Only processes the current user prompt, returns structured JSON classification.
     Never exposes system prompts, context, or history to the validator.
     """
     if not config.prompt_injection_validator_enabled:
         return {}
-    
+
     try:
         validator_messages = [
             {"role": "system", "content": VALIDATOR_SYSTEM_PROMPT},
@@ -2618,11 +2673,11 @@ def _call_validator(text: str, timeout_s: int = 15) -> dict[str, Any]:
             temperature=config.prompt_injection_validator_temperature,
             timeout=timeout_s,
         )
-        
+
         return _parse_validator_response(raw)
     except Exception:
         pass
-    
+
     return {}
 
 
@@ -2636,7 +2691,7 @@ def _run_rag(
     feedback_context: str = "",
 ) -> dict[str, Any]:
     started = time.perf_counter()
-    
+
     validator_fn = _call_validator if config.prompt_injection_validator_enabled else None
     guardrail_decision = evaluate_prompt_risk(
         question,
@@ -2644,18 +2699,24 @@ def _run_rag(
         validator_threshold=config.prompt_injection_validator_threshold,
         validator_mode=config.prompt_injection_validator_mode,
     )
-    
+
     logger.info(
         "guardrail decision: %s",
-        json.dumps({
-            "allowed": guardrail_decision.allowed,
-            "blocked_by_deterministic": guardrail_decision.blocked_by_deterministic,
-            "categories": list(guardrail_decision.categories),
-            "validator_consulted": guardrail_decision.validator_consulted,
-            "validator_confidence": round(guardrail_decision.validator_confidence, 3),
-            "validator_would_block": bool((guardrail_decision.metrics or {}).get("validator_would_block")),
-            "deterministic_score": (guardrail_decision.metrics or {}).get("deterministic_score", 0),
-        }),
+        json.dumps(
+            {
+                "allowed": guardrail_decision.allowed,
+                "blocked_by_deterministic": guardrail_decision.blocked_by_deterministic,
+                "categories": list(guardrail_decision.categories),
+                "validator_consulted": guardrail_decision.validator_consulted,
+                "validator_confidence": round(guardrail_decision.validator_confidence, 3),
+                "validator_would_block": bool(
+                    (guardrail_decision.metrics or {}).get("validator_would_block")
+                ),
+                "deterministic_score": (guardrail_decision.metrics or {}).get(
+                    "deterministic_score", 0
+                ),
+            }
+        ),
     )
     if not guardrail_decision.allowed:
         blocked = _prompt_injection_response(guardrail_decision.reason)
@@ -2678,12 +2739,20 @@ def _run_rag(
             "results": [],
             "controls_results": [],
             "controls_debug": controls_debug,
-            "evaluation": {"acceptable": False, "score": 0.0, "reason": "No search context returned."},
+            "evaluation": {
+                "acceptable": False,
+                "score": 0.0,
+                "reason": "No search context returned.",
+            },
             "iterations": 1,
             "metrics": {
                 **retrieval_timings,
                 **controls_timings,
-                "rag_retrieval_s": round(retrieval_timings.get("embedding_s", 0.0) + retrieval_timings.get("search_s", 0.0), 3),
+                "rag_retrieval_s": round(
+                    retrieval_timings.get("embedding_s", 0.0)
+                    + retrieval_timings.get("search_s", 0.0),
+                    3,
+                ),
                 "llm_reply_s": 0.0,
                 "evaluator_s": 0.0,
                 "llm_retry_s": 0.0,
@@ -2693,24 +2762,17 @@ def _run_rag(
         }
 
     corpus_b_chunks = [
-        c for c in chunks
-        if c.get("corpus") == "b" or c.get("corpus_role") == "narrative_guidance"
+        c for c in chunks if c.get("corpus") == "b" or c.get("corpus_role") == "narrative_guidance"
     ]
     corpus_c_chunks = [c for c in chunks if c not in corpus_b_chunks]
 
     corpus_b_context = "\n\n".join(
-        (
-            f"Source: {c['source_name']}\n"
-            f"Excerpt: {sanitise_untrusted_text(c['content'][:1500])}"
-        )
+        (f"Source: {c['source_name']}\n" f"Excerpt: {sanitise_untrusted_text(c['content'][:1500])}")
         for c in corpus_b_chunks
     )
 
     evidence_context = "\n\n".join(
-        (
-            f"Source: {c['source_name']}\n"
-            f"Excerpt: {sanitise_untrusted_text(c['content'][:1500])}"
-        )
+        (f"Source: {c['source_name']}\n" f"Excerpt: {sanitise_untrusted_text(c['content'][:1500])}")
         for c in corpus_c_chunks
     )
 
@@ -2739,8 +2801,7 @@ def _run_rag(
         context_sections.append("Corpus B (narrative guidance):\n" + corpus_b_context)
     else:
         context_sections.append(
-            "Corpus B (narrative guidance):\n"
-            "No Corpus B items were retrieved for this query."
+            "Corpus B (narrative guidance):\n" "No Corpus B items were retrieved for this query."
         )
     if evidence_context:
         context_sections.append("Corpus C (assessed artifacts/evidence):\n" + evidence_context)
@@ -2799,7 +2860,9 @@ def _run_rag(
     )
 
     t_llm = time.perf_counter()
-    answer = _unwrap_answer(_chat_completion(messages, deployment=config.query_deployment, temperature=temperature))
+    answer = _unwrap_answer(
+        _chat_completion(messages, deployment=config.query_deployment, temperature=temperature)
+    )
     llm_reply_s = round(time.perf_counter() - t_llm, 3)
 
     t_eval = time.perf_counter()
@@ -2828,7 +2891,9 @@ def _run_rag(
         )
 
         t_retry = time.perf_counter()
-        answer = _chat_completion(messages, deployment=config.query_deployment, temperature=temperature)
+        answer = _chat_completion(
+            messages, deployment=config.query_deployment, temperature=temperature
+        )
         llm_retry_s = round(time.perf_counter() - t_retry, 3)
 
         # Re-evaluate final answer and expose reason used for retry.
@@ -2838,7 +2903,9 @@ def _run_rag(
         evaluation["retry_reason"] = retry_reason
         iterations = 3
 
-    rag_retrieval_s = round(retrieval_timings.get("embedding_s", 0.0) + retrieval_timings.get("search_s", 0.0), 3)
+    rag_retrieval_s = round(
+        retrieval_timings.get("embedding_s", 0.0) + retrieval_timings.get("search_s", 0.0), 3
+    )
     llm_total_s = round(llm_reply_s + llm_retry_s, 3)
 
     metrics = {
@@ -3036,7 +3103,9 @@ def _upload_corpus_files(
                 data=content,
                 overwrite=True,
                 metadata=metadata,
-                content_settings=ContentSettings(content_type=file.content_type or "application/octet-stream"),
+                content_settings=ContentSettings(
+                    content_type=file.content_type or "application/octet-stream"
+                ),
             )
 
             uploaded.append(
@@ -3103,6 +3172,7 @@ def health() -> JSONResponse:
 @app.get("/api/index-status")
 def index_status() -> JSONResponse:
     """Diagnostic endpoint — returns document counts and reachability for both indexes."""
+
     def _probe(client: SearchClient, index_name: str) -> dict[str, Any]:
         try:
             pager = client.search(search_text="*", top=1, include_total_count=True)
@@ -3116,8 +3186,14 @@ def index_status() -> JSONResponse:
 
     return JSONResponse(
         {
-            "grounding_index": {"name": config.search_index_name, **_probe(search_client, config.search_index_name)},
-            "controls_index": {"name": config.controls_index_name, **_probe(controls_search_client, config.controls_index_name)},
+            "grounding_index": {
+                "name": config.search_index_name,
+                **_probe(search_client, config.search_index_name),
+            },
+            "controls_index": {
+                "name": config.controls_index_name,
+                **_probe(controls_search_client, config.controls_index_name),
+            },
         }
     )
 
@@ -3169,13 +3245,15 @@ def get_conversations(request: Request, user_id: str, auth_token: str = "") -> J
 
     if not conversations_container:
         return JSONResponse({"conversations": []})
-    
+
     try:
         query = "SELECT c.session_id, c.conversation_id, c.created_at, c.updated_at, c.messages FROM c WHERE c.user_id = @user_id AND c.type = 'conversation' ORDER BY c.updated_at DESC"
-        items = list(conversations_container.query_items(
-            query=query,
-            parameters=[{"name": "@user_id", "value": user_id}],
-        ))
+        items = list(
+            conversations_container.query_items(
+                query=query,
+                parameters=[{"name": "@user_id", "value": user_id}],
+            )
+        )
         return JSONResponse({"conversations": items})
     except Exception as exc:
         logger.exception("Failed to list conversations for user_id=%s: %s", user_id, exc)
@@ -3183,32 +3261,36 @@ def get_conversations(request: Request, user_id: str, auth_token: str = "") -> J
 
 
 @app.get("/api/conversations/{user_id}/{conversation_id}")
-def get_conversation_history(request: Request, user_id: str, conversation_id: str, auth_token: str = "") -> JSONResponse:
+def get_conversation_history(
+    request: Request, user_id: str, conversation_id: str, auth_token: str = ""
+) -> JSONResponse:
     """Get full conversation history."""
     if not _is_authorised_request(auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
     try:
         session = _load_conversation(user_id, conversation_id)
-        return JSONResponse({
-            "session_id": session.session_id,
-            "conversation_id": session.conversation_id,
-            "created_at": session.created_at,
-            "updated_at": session.updated_at,
-            "messages": [
-                {"role": m.role, "content": m.content, "timestamp": m.timestamp}
-                for m in session.messages
-            ],
-            "response_ratings": [
-                {
-                    "rating": r.rating,
-                    "todo": r.todo,
-                    "assistant_timestamp": r.assistant_timestamp,
-                    "timestamp": r.timestamp,
-                }
-                for r in session.response_ratings
-            ],
-        })
+        return JSONResponse(
+            {
+                "session_id": session.session_id,
+                "conversation_id": session.conversation_id,
+                "created_at": session.created_at,
+                "updated_at": session.updated_at,
+                "messages": [
+                    {"role": m.role, "content": m.content, "timestamp": m.timestamp}
+                    for m in session.messages
+                ],
+                "response_ratings": [
+                    {
+                        "rating": r.rating,
+                        "todo": r.todo,
+                        "assistant_timestamp": r.assistant_timestamp,
+                        "timestamp": r.timestamp,
+                    }
+                    for r in session.response_ratings
+                ],
+            }
+        )
     except Exception as exc:
         logger.exception(
             "Failed to get conversation history for user_id=%s conversation_id=%s: %s",
@@ -3228,7 +3310,7 @@ def create_conversation(request: Request, auth_token: str = Form("")) -> JSONRes
     session_id = str(uuid.uuid4())
     conversation_id = str(uuid.uuid4())
     user_id = _get_user_id(auth_token, session_id)
-    
+
     try:
         session = ConversationSession(
             session_id=session_id,
@@ -3237,11 +3319,13 @@ def create_conversation(request: Request, auth_token: str = Form("")) -> JSONRes
         )
         _save_conversation(session)
 
-        return JSONResponse({
-            "session_id": session_id,
-            "conversation_id": conversation_id,
-            "user_id": user_id,
-        })
+        return JSONResponse(
+            {
+                "session_id": session_id,
+                "conversation_id": conversation_id,
+                "user_id": user_id,
+            }
+        )
     except Exception as exc:
         logger.exception("Failed to create conversation for user_id=%s: %s", user_id, exc)
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
@@ -3266,11 +3350,13 @@ def add_message_to_conversation(
         session.updated_at = _utc_now_iso()
         _save_conversation(session)
 
-        return JSONResponse({
-            "message_id": len(session.messages),
-            "timestamp": session.messages[-1].timestamp,
-            "updated_at": session.updated_at,
-        })
+        return JSONResponse(
+            {
+                "message_id": len(session.messages),
+                "timestamp": session.messages[-1].timestamp,
+                "updated_at": session.updated_at,
+            }
+        )
     except Exception as exc:
         logger.exception(
             "Failed to add message for user_id=%s conversation_id=%s: %s",
@@ -3302,9 +3388,15 @@ def add_response_rating(
         session = _load_conversation(user_id, conversation_id)
 
         if assistant_timestamp:
-            has_target = any(m.role == "assistant" and m.timestamp == assistant_timestamp for m in session.messages)
+            has_target = any(
+                m.role == "assistant" and m.timestamp == assistant_timestamp
+                for m in session.messages
+            )
             if not has_target:
-                return JSONResponse({"error": "assistant message not found for assistant_timestamp"}, status_code=404)
+                return JSONResponse(
+                    {"error": "assistant message not found for assistant_timestamp"},
+                    status_code=404,
+                )
 
         session.response_ratings.append(
             ResponseRating(
@@ -3330,6 +3422,7 @@ def add_response_rating(
             exc,
         )
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
@@ -3397,7 +3490,9 @@ def ask(
                 "iterations": None,
                 "retrieve_k": retrieve_k,
                 "temperature": temperature,
-                "controls_semantic": _form_bool(controls_semantic, default=config.controls_semantic_default),
+                "controls_semantic": _form_bool(
+                    controls_semantic, default=config.controls_semantic_default
+                ),
                 "controls_framework": (controls_framework or "").strip().lower(),
                 "auth_token": "",
                 "index_name": config.search_index_name,
@@ -3417,7 +3512,9 @@ def ask(
 
     retrieve_k = max(1, min(20, retrieve_k))
     temperature = max(0, min(1.0, temperature))
-    controls_semantic_enabled = _form_bool(controls_semantic, default=config.controls_semantic_default)
+    controls_semantic_enabled = _form_bool(
+        controls_semantic, default=config.controls_semantic_default
+    )
     controls_framework_value = (controls_framework or "").strip().lower()
     controls_framework_filter = _normalise_framework_filter(controls_framework_value)
 
@@ -3434,14 +3531,14 @@ def ask(
             conversation_history=conversation_history,
             feedback_context=feedback_context,
         )
-        
+
         # Add user and assistant messages to conversation history
         if session:
             session.messages.append(ConversationMessage(role="user", content=question))
             session.messages.append(ConversationMessage(role="assistant", content=result["answer"]))
             session.updated_at = _utc_now_iso()
             _save_conversation(session)
-        
+
         error = ""
     except Exception as exc:
         logger.exception("Failed to process /ask request: %s", exc)
@@ -3782,14 +3879,20 @@ def generate_compliance_report(request: Request, payload: ComplianceReportReques
         return JSONResponse(_generate_compliance_report_result(payload))
     except Exception as exc:
         if isinstance(exc, RuntimeError) and "schema validation failed" in str(exc).lower():
-            logger.exception("Failed /api/compliance/report request due to schema validation: %s", exc)
-            return JSONResponse({"error": "Compliance report schema validation failed."}, status_code=500)
+            logger.exception(
+                "Failed /api/compliance/report request due to schema validation: %s", exc
+            )
+            return JSONResponse(
+                {"error": "Compliance report schema validation failed."}, status_code=500
+            )
         logger.exception("Failed /api/compliance/report request: %s", exc)
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
 @app.post("/api/compliance/report/azure")
-def generate_azure_compliance_report(request: Request, payload: AzureComplianceReportRequest) -> JSONResponse:
+def generate_azure_compliance_report(
+    request: Request, payload: AzureComplianceReportRequest
+) -> JSONResponse:
     if not _is_authorised_request(payload.auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
@@ -3797,8 +3900,12 @@ def generate_azure_compliance_report(request: Request, payload: AzureComplianceR
         return JSONResponse(_generate_azure_compliance_report_result(payload))
     except Exception as exc:
         if isinstance(exc, RuntimeError) and "schema validation failed" in str(exc).lower():
-            logger.exception("Failed /api/compliance/report/azure due to schema validation: %s", exc)
-            return JSONResponse({"error": "Compliance report schema validation failed."}, status_code=500)
+            logger.exception(
+                "Failed /api/compliance/report/azure due to schema validation: %s", exc
+            )
+            return JSONResponse(
+                {"error": "Compliance report schema validation failed."}, status_code=500
+            )
         logger.exception("Failed /api/compliance/report/azure request: %s", exc)
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
@@ -3836,14 +3943,18 @@ def start_compliance_report(request: Request, payload: ComplianceReportRequest) 
             )
         except Exception as exc:
             logger.exception("Compliance report job failed: %s", exc)
-            _update_report_job(job.job_id, state="failed", message="Compliance report failed", error=str(exc))
+            _update_report_job(
+                job.job_id, state="failed", message="Compliance report failed", error=str(exc)
+            )
 
     threading.Thread(target=_run, daemon=True).start()
     return JSONResponse({"job_id": job.job_id, "mode": "compliance-report-job"})
 
 
 @app.post("/api/compliance/report/azure/start")
-def start_azure_compliance_report(request: Request, payload: AzureComplianceReportRequest) -> JSONResponse:
+def start_azure_compliance_report(
+    request: Request, payload: AzureComplianceReportRequest
+) -> JSONResponse:
     if not _is_authorised_request(payload.auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
@@ -3863,10 +3974,17 @@ def start_azure_compliance_report(request: Request, payload: AzureComplianceRepo
         _update_report_job(job.job_id, state="running", message="Starting Azure compliance report")
         try:
             result = _generate_azure_compliance_report_result(payload, progress_cb=_progress)
-            _update_report_job(job.job_id, state="completed", message="Azure compliance report completed", result=result)
+            _update_report_job(
+                job.job_id,
+                state="completed",
+                message="Azure compliance report completed",
+                result=result,
+            )
         except Exception as exc:
             logger.exception("Azure compliance report job failed: %s", exc)
-            _update_report_job(job.job_id, state="failed", message="Azure compliance report failed", error=str(exc))
+            _update_report_job(
+                job.job_id, state="failed", message="Azure compliance report failed", error=str(exc)
+            )
 
     threading.Thread(target=_run, daemon=True).start()
     return JSONResponse({"job_id": job.job_id, "mode": "azure-compliance-report-job"})
@@ -3918,7 +4036,9 @@ def corpus_a_status(request: Request, auth_token: str = "") -> JSONResponse:
 
 
 @app.get("/api/corpus-a/list")
-def corpus_a_list(request: Request, auth_token: str = "", limit: int = 100, framework: str = "") -> JSONResponse:
+def corpus_a_list(
+    request: Request, auth_token: str = "", limit: int = 100, framework: str = ""
+) -> JSONResponse:
     if not _is_authorised_request(auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
@@ -3961,7 +4081,9 @@ def corpus_a_list(request: Request, auth_token: str = "", limit: int = 100, fram
 
 
 @app.get("/api/corpus-b/list")
-def corpus_b_list(request: Request, auth_token: str = "", limit: int = 100, upload_batch: str = "") -> JSONResponse:
+def corpus_b_list(
+    request: Request, auth_token: str = "", limit: int = 100, upload_batch: str = ""
+) -> JSONResponse:
     if not _is_authorised_request(auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
@@ -4001,7 +4123,9 @@ def corpus_b_list(request: Request, auth_token: str = "", limit: int = 100, uplo
 
 
 @app.get("/api/corpus-c/list")
-def corpus_c_list(request: Request, auth_token: str = "", limit: int = 100, upload_batch: str = "") -> JSONResponse:
+def corpus_c_list(
+    request: Request, auth_token: str = "", limit: int = 100, upload_batch: str = ""
+) -> JSONResponse:
     if not _is_authorised_request(auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
@@ -4061,7 +4185,11 @@ def corpus_a_ingest(request: Request, payload: CorpusAIngestRequest) -> JSONResp
         status = _controls_framework_ingestion_status()
 
         already_ingested = [fw for fw in selected if status.get(fw, {}).get("ingested")]
-        pending = selected if payload.replace_existing else [fw for fw in selected if fw not in already_ingested]
+        pending = (
+            selected
+            if payload.replace_existing
+            else [fw for fw in selected if fw not in already_ingested]
+        )
 
         triggered: list[dict[str, Any]] = []
         skipped: list[dict[str, Any]] = []
