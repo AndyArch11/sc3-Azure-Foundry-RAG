@@ -673,10 +673,12 @@
 
   function _renderCorpusCStatus(payload) {
     const target = document.getElementById('cc-status');
-    if (payload && payload.upload && payload.upload.upload_batch_id) {
-      const batchField = document.getElementById('cr-upload-batch');
-      if (batchField) {
+    const batchField = document.getElementById('cr-upload-batch');
+    if (batchField) {
+      if (payload && payload.upload && payload.upload.upload_batch_id) {
         batchField.value = payload.upload.upload_batch_id;
+      } else {
+        batchField.value = '';
       }
     }
     target.textContent = JSON.stringify(payload, null, 2);
@@ -684,10 +686,12 @@
 
   function _renderCorpusBStatus(payload) {
     const target = document.getElementById('cb-status');
-    if (payload && payload.upload && payload.upload.upload_batch_id) {
-      const batchField = document.getElementById('cr-b-upload-batch');
-      if (batchField) {
+    const batchField = document.getElementById('cr-b-upload-batch');
+    if (batchField) {
+      if (payload && payload.upload && payload.upload.upload_batch_id) {
         batchField.value = payload.upload.upload_batch_id;
+      } else {
+        batchField.value = '';
       }
     }
     target.textContent = JSON.stringify(payload, null, 2);

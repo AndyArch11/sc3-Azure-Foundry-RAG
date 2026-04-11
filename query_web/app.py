@@ -3351,7 +3351,7 @@ def _upload_corpus_files(
     failed: list[str] = []
 
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    upload_batch_id = str(uuid.uuid4())
+    upload_batch_id: str | None = None
 
     for file in files:
         original_name = file.filename or "uploaded.bin"
@@ -3375,6 +3375,9 @@ def _upload_corpus_files(
             if hash_blob_client.exists():
                 skipped.append(f"{original_name}: duplicate-{dedupe_method}:{dedupe_hash}")
                 continue
+
+            if upload_batch_id is None:
+                upload_batch_id = str(uuid.uuid4())
 
             metadata = {
                 "corpus": corpus,
@@ -3968,8 +3971,15 @@ async def upload_corpus_b_and_trigger(
     try:
         upload_result = _upload_corpus_b_files(files, user_id=user_id)
         trigger_result: dict[str, Any] | None = None
-        if trigger_job:
+        if trigger_job and upload_result["uploaded"]:
             trigger_result = _trigger_ingestion_job()
+
+        message = ""
+        if not upload_result["uploaded"]:
+            message = (
+                "No new Corpus B files were uploaded; all files were skipped or failed, "
+                "so no ingestion job was triggered and no new upload batch was created."
+            )
 
         status_code = 200
         if upload_result["failed"]:
@@ -3986,6 +3996,7 @@ async def upload_corpus_b_and_trigger(
                 "upload": upload_result,
                 "triggered_job": bool(trigger_result),
                 "job": trigger_result,
+                "message": message,
             },
             status_code=status_code,
         )
@@ -4017,11 +4028,18 @@ async def upload_corpus_c_and_trigger(
             corpus_role="assessed_artifact",
         )
         trigger_result: dict[str, Any] | None = None
-        if trigger_job:
+        if trigger_job and upload_result["uploaded"]:
             # The ingestion job template already defaults to --mode azure --skip-upload.
             # Starting with an args override can be rejected by ARM in some environments
             # unless a full container image spec is supplied in the override payload.
             trigger_result = _trigger_ingestion_job()
+
+        message = ""
+        if not upload_result["uploaded"]:
+            message = (
+                "No new Corpus C files were uploaded; all files were skipped or failed, "
+                "so no ingestion job was triggered and no new upload batch was created."
+            )
 
         status_code = 200
         if upload_result["failed"]:
@@ -4038,6 +4056,7 @@ async def upload_corpus_c_and_trigger(
                 "upload": upload_result,
                 "triggered_job": bool(trigger_result),
                 "job": trigger_result,
+                "message": message,
             },
             status_code=status_code,
         )
