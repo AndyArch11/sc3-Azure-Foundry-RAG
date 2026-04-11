@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+import requests
 
 os.environ.setdefault("AZURE_SEARCH_ENDPOINT", "https://test.search.windows.net")
 os.environ.setdefault("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
@@ -293,6 +295,31 @@ def test_controls_search_plural_framework_query_enables_diversity() -> None:
     assert timings["controls_diversity_mode_enabled"] == 1.0
     assert "AESCSF" in frameworks
     assert "Essential Eight" in frameworks
+
+
+def test_embed_query_retries_on_429_then_succeeds() -> None:
+    throttle_response = requests.Response()
+    throttle_response.status_code = 429
+    throttle_response.headers["Retry-After"] = "0"
+
+    first_http = Mock()
+    first_http.raise_for_status.side_effect = requests.HTTPError(
+        "429 Too Many Requests",
+        response=throttle_response,
+    )
+
+    second_http = Mock()
+    second_http.raise_for_status.return_value = None
+    second_http.json.return_value = {"data": [{"embedding": [0.1, 0.2, 0.3]}]}
+
+    with patch.object(app_module, "_cognitive_token", return_value="test-token"), patch.object(
+        app_module.requests, "post", side_effect=[first_http, second_http]
+    ) as post_mock, patch.object(app_module.time, "sleep") as sleep_mock:
+        vector = app_module._embed_query("Which frameworks require MFA?")
+
+    assert vector == [0.1, 0.2, 0.3]
+    assert post_mock.call_count == 2
+    sleep_mock.assert_called_once_with(0.75)
 
 
 def test_controls_search_keyword_query_variants_recover_missed_matches() -> None:

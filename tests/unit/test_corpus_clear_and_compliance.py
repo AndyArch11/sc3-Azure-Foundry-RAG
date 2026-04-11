@@ -4,6 +4,7 @@ import os
 from dataclasses import replace
 from unittest.mock import patch
 
+import requests
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("AZURE_SEARCH_ENDPOINT", "https://test.search.windows.net")
@@ -545,6 +546,22 @@ def test_assess_control_finding_coerces_scalar_list_fields() -> None:
     assert finding["evidence_sources"] == ["Artifact-A"]
     assert finding["gaps"] == ["Missing proof"]
     assert finding["recommendations"] == ["Collect logs"]
+
+
+def test_hybrid_search_returns_empty_results_when_embedding_is_rate_limited() -> None:
+    response = requests.Response()
+    response.status_code = 429
+    error = requests.HTTPError("429 Too Many Requests", response=response)
+
+    with patch.object(app_module, "_embed_query", side_effect=error):
+        items, timings = app_module._hybrid_search(
+            question="Which frameworks require MFA?",
+            retrieve_k=5,
+        )
+
+    assert items == []
+    assert timings.get("embedding_rate_limited") == 1.0
+    assert timings.get("search_s") == 0.0
 
 
 def test_corpus_a_list_with_framework_filter() -> None:

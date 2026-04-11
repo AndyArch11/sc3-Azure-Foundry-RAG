@@ -1978,15 +1978,46 @@ def _embed_query(question: str) -> list[float]:
         f"{config.openai_endpoint}/openai/deployments/"
         f"{config.embedding_deployment}/embeddings?api-version=2023-05-15"
     )
-    response = requests.post(
-        url,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json={"input": question},
-        timeout=30,
-    )
-    response.raise_for_status()
-    payload = response.json()
-    return payload["data"][0]["embedding"]
+    max_attempts = 4
+    base_delay_s = 0.75
+
+    for attempt in range(max_attempts):
+        try:
+            response = requests.post(
+                url,
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json={"input": question},
+                timeout=30,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            return payload["data"][0]["embedding"]
+        except requests.RequestException as exc:
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+            retryable = status_code in {429, 500, 502, 503, 504}
+            if attempt >= max_attempts - 1 or not retryable:
+                raise
+
+            retry_after = getattr(getattr(exc, "response", None), "headers", {}).get(
+                "Retry-After"
+            )
+            try:
+                delay_s = max(float(retry_after), 0.0) if retry_after else 0.0
+            except (TypeError, ValueError):
+                delay_s = 0.0
+            if delay_s <= 0:
+                delay_s = base_delay_s * (2**attempt)
+
+            logger.warning(
+                "Embedding request failed with status %s (attempt %d/%d); retrying in %.2fs",
+                status_code,
+                attempt + 1,
+                max_attempts,
+                delay_s,
+            )
+            time.sleep(delay_s)
+
+    raise RuntimeError("Embedding request failed after retries")
 
 
 def _hybrid_search(
@@ -2002,7 +2033,17 @@ def _hybrid_search(
     timings: dict[str, float] = {}
 
     t0 = time.perf_counter()
-    vector = _embed_query(question)
+    try:
+        vector = _embed_query(question)
+    except Exception as exc:
+        timings["embedding_s"] = round(time.perf_counter() - t0, 3)
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        if status_code == 429:
+            timings["embedding_rate_limited"] = 1.0
+        logger.warning("Embedding failed; returning empty hybrid results: %s", exc)
+        timings["search_s"] = 0.0
+        return [], timings
+
     timings["embedding_s"] = round(time.perf_counter() - t0, 3)
 
     vector_query = VectorizedQuery(
