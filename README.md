@@ -221,6 +221,8 @@ On the jumpbox:
   sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-confluence-poller.sh
   ```
   Update the corresponding `*_image_tag` values in `infra/terraform/environments/${TARGET_ENV}/${TARGET_ENV}.tfvars` with the immutable tags produced above.
+  - After creating a new container image, you may want to run the optional RBAC reconcilliation command: 
+    - `./ops/scripts/reconcile-rbac-admin.sh ${TARGET_ENV} apply`
 9. Roll out the standard agent hosting resources from jumpbox (non-RBAC app resources only):
   - `sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply --ingestion-tag "<immutable-ingestion-tag>" --query-web-tag "<immutable-query-web-tag>" --confluence-poller-tag "<immutable-confluence-poller-tag>" --enable-confluence-poller --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
 10. After pushing a new query-web container, you may need to remap the web redirect url, with the command provided by the `rollout-agent-hosting.sh` if it is needed.
