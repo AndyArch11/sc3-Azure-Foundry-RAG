@@ -8,10 +8,11 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
 import requests
 from azure.identity import DefaultAzureCredential
@@ -24,7 +25,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from runtime.assessment_orchestration.azure_assessment import run_azure_assessment
+from runtime.assessment_orchestration.azure_assessment import collect_azure_grounding, run_azure_assessment
 
 from prompt_injection_guard import (
     BLOCKED_PROMPT_INJECTION_MESSAGE,
@@ -563,7 +564,9 @@ class ComplianceReportRequest(BaseModel):
     retrieve_k: int = Field(default=5, ge=1, le=20)
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
     controls_framework: str | None = None
+    corpus_b_upload_batch: str | None = None
     corpus_c_upload_batch: str | None = None
+    assessment_strategy: Literal["single_pass", "per_control"] = "single_pass"
     validation_mode: Literal["hard", "soft"] = "hard"
     auth_token: str = ""
 
@@ -573,8 +576,56 @@ class AzureComplianceReportRequest(BaseModel):
     resource_group: str
     resource_ids: list[str] = Field(default_factory=list)
     controls_framework: str = "NIST CSF"
+    assessment_strategy: Literal["single_pass", "per_control"] = "single_pass"
     validation_mode: Literal["hard", "soft"] = "hard"
     auth_token: str = ""
+
+
+@dataclass
+class _ReportJob:
+    job_id: str
+    kind: Literal["compliance", "azure"]
+    created_at: str
+    updated_at: str
+    state: Literal["queued", "running", "completed", "failed"] = "queued"
+    message: str = "Queued"
+    total_controls: int = 0
+    completed_controls: int = 0
+    current_requirement_id: str = ""
+    result: dict[str, Any] | None = None
+    error: str = ""
+
+
+_REPORT_JOBS: dict[str, _ReportJob] = {}
+_REPORT_JOBS_LOCK = threading.Lock()
+
+
+def _new_report_job(kind: Literal["compliance", "azure"]) -> _ReportJob:
+    now = _utc_now_iso()
+    job = _ReportJob(
+        job_id=str(uuid.uuid4()),
+        kind=kind,
+        created_at=now,
+        updated_at=now,
+    )
+    with _REPORT_JOBS_LOCK:
+        _REPORT_JOBS[job.job_id] = job
+    return job
+
+
+def _get_report_job(job_id: str) -> _ReportJob | None:
+    with _REPORT_JOBS_LOCK:
+        return _REPORT_JOBS.get(job_id)
+
+
+def _update_report_job(job_id: str, **updates: Any) -> None:
+    with _REPORT_JOBS_LOCK:
+        job = _REPORT_JOBS.get(job_id)
+        if not job:
+            return
+        for key, value in updates.items():
+            setattr(job, key, value)
+        job.updated_at = _utc_now_iso()
 
 
 class CorpusClearRequest(BaseModel):
@@ -880,6 +931,551 @@ def _report_findings_to_csv(report: ComplianceReportStructured) -> str:
     return buffer.getvalue()
 
 
+def _build_fallback_compliance_report_payload(
+    *,
+    question: str,
+    controls: list[dict[str, Any]],
+    corpus_b_chunks: list[dict[str, Any]],
+    corpus_c_chunks: list[dict[str, Any]],
+    validation_error: str,
+) -> dict[str, Any]:
+    control_ids = [
+        str(item.get("requirement_id") or "").strip()
+        for item in controls
+        if str(item.get("requirement_id") or "").strip()
+    ]
+    framework_names = [
+        str(item.get("framework") or "").strip()
+        for item in controls
+        if str(item.get("framework") or "").strip()
+    ]
+    evidence_sources = [
+        str(item.get("source_name") or "").strip()
+        for item in [*corpus_c_chunks, *corpus_b_chunks]
+        if str(item.get("source_name") or "").strip()
+    ]
+
+    return {
+        "schema_version": COMPLIANCE_REPORT_SCHEMA_VERSION,
+        "executive_summary": (
+            "Fallback compliance report generated because the model returned an unusable or invalid response. "
+            "Retrieved evidence counts are preserved below."
+        ),
+        "scope_and_inputs": [
+            f"Assessment question: {question[:200]}",
+            f"Corpus A controls retrieved: {len(controls)}",
+            f"Corpus B guidance retrieved: {len(corpus_b_chunks)}",
+            f"Corpus C artifacts retrieved: {len(corpus_c_chunks)}",
+        ],
+        "controls_assessed": control_ids or ["UNMAPPED"],
+        "guidance_applied": evidence_sources[:10],
+        "findings": [
+            {
+                "finding_id": "fallback-1",
+                "requirement_id": control_ids[0] if control_ids else "UNMAPPED",
+                "framework": framework_names[0] if framework_names else "Unknown",
+                "status": "insufficient_evidence",
+                "severity": "medium",
+                "rationale": (
+                    "The model response could not be validated; this fallback finding preserves the retrieved evidence "
+                    f"state instead. Validation error: {validation_error}"
+                )[:3000],
+                "evidence_sources": evidence_sources or ["No evidence sources retrieved"],
+                "gaps": ["Model output failed schema validation"],
+                "recommendations": ["Review retrieved sources and re-run the report."],
+            }
+        ],
+        "overall_risk_rating": "medium",
+        "missing_evidence": [
+            "Additional corroborating evidence may be required for a final compliance conclusion."
+        ],
+        "recommended_actions": [
+            "Retry the report or review source grounding manually.",
+        ],
+        "citations": evidence_sources or ["No evidence sources retrieved"],
+    }
+
+
+def _control_terms(control: dict[str, Any]) -> set[str]:
+    text = " ".join(
+        [
+            str(control.get("requirement_id") or ""),
+            str(control.get("control_family") or ""),
+            str(control.get("requirement_text") or ""),
+            str(control.get("guidance_text") or ""),
+        ]
+    ).lower()
+    return {token for token in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", text) if len(token) >= 4}
+
+
+def _select_chunks_for_control(
+    control: dict[str, Any],
+    chunks: list[dict[str, Any]],
+    *,
+    max_chunks: int,
+) -> list[dict[str, Any]]:
+    if not chunks:
+        return []
+
+    terms = _control_terms(control)
+    scored: list[tuple[int, float, dict[str, Any]]] = []
+    for chunk in chunks:
+        content = str(chunk.get("content") or "")
+        lower_content = content.lower()
+        overlap = sum(1 for term in terms if term in lower_content)
+        score = float(chunk.get("score") or 0.0)
+        scored.append((overlap, score, chunk))
+
+    scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [item[2] for item in scored[:max_chunks]]
+
+
+def _assess_control_finding_with_llm(
+    *,
+    question: str,
+    control: dict[str, Any],
+    corpus_b_chunks: list[dict[str, Any]],
+    corpus_c_chunks: list[dict[str, Any]],
+    temperature: float,
+) -> dict[str, Any]:
+    requirement_id = str(control.get("requirement_id") or "").strip() or "UNMAPPED"
+    framework = str(control.get("framework") or "").strip() or "Unknown"
+
+    b_context = "\n\n".join(
+        f"Source: {c.get('source_name', 'guidance')}\nExcerpt: {sanitise_untrusted_text(str(c.get('content') or '')[:900])}"
+        for c in corpus_b_chunks
+    )
+    c_context = "\n\n".join(
+        f"Source: {c.get('source_name', 'artifact')}\nExcerpt: {sanitise_untrusted_text(str(c.get('content') or '')[:1200])}"
+        for c in corpus_c_chunks
+    )
+
+    messages = [
+        {"role": "system", "content": PROMPT_INJECTION_SYSTEM_PROMPT},
+        {
+            "role": "system",
+            "content": (
+                "Assess one compliance control and return exactly one JSON finding object with fields: "
+                "finding_id, requirement_id, framework, status, severity, rationale, evidence_sources, gaps, recommendations."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Assessment question:\n{sanitise_untrusted_text(question)}\n\n"
+                "Control under assessment:\n"
+                f"Requirement ID: {requirement_id}\n"
+                f"Framework: {framework}\n"
+                f"Control Family: {control.get('control_family', '')}\n"
+                f"Requirement: {sanitise_untrusted_text(str(control.get('requirement_text') or '')[:1600])}\n"
+                f"Guidance: {sanitise_untrusted_text(str(control.get('guidance_text') or '')[:1000])}\n\n"
+                f"Corpus B guidance (optional):\n{b_context or 'No relevant Corpus B guidance.'}\n\n"
+                f"Corpus C evidence:\n{c_context or 'No relevant Corpus C evidence.'}\n\n"
+                "Constraints:\n"
+                "- status must be one of compliant|partially_compliant|non_compliant|not_applicable|insufficient_evidence\n"
+                "- severity must be one of low|medium|high|critical\n"
+                "- include at least one evidence source when possible\n"
+                "- return JSON object only"
+            ),
+        },
+    ]
+
+    try:
+        raw = _chat_completion_with_empty_retry(
+            messages,
+            deployment=config.query_deployment,
+            temperature=temperature,
+        )
+        parsed = _extract_json_object(raw)
+    except Exception:
+        parsed = {}
+
+    fallback = {
+        "finding_id": f"finding-{requirement_id}",
+        "requirement_id": requirement_id,
+        "framework": framework,
+        "status": "insufficient_evidence",
+        "severity": "medium",
+        "rationale": "Insufficient evidence for deterministic assessment in per-control mode.",
+        "evidence_sources": [
+            str(item.get("source_name") or "evidence") for item in (corpus_c_chunks or corpus_b_chunks)[:3]
+        ]
+        or ["No evidence sources retrieved"],
+        "gaps": ["Additional artifact evidence needed for this control."],
+        "recommendations": ["Provide corroborating evidence and reassess this control."],
+    }
+    fallback.update(parsed)
+    return fallback
+
+
+def _build_per_control_report_payload(
+    *,
+    question: str,
+    controls: list[dict[str, Any]],
+    corpus_b_chunks: list[dict[str, Any]],
+    corpus_c_chunks: list[dict[str, Any]],
+    temperature: float,
+    progress_cb: Callable[[int, int, str, str], None] | None = None,
+) -> dict[str, Any]:
+    findings: list[dict[str, Any]] = []
+    total = len(controls)
+
+    for index, control in enumerate(controls, start=1):
+        requirement_id = str(control.get("requirement_id") or "").strip() or f"CTRL-{index}"
+        if progress_cb:
+            progress_cb(index - 1, total, requirement_id, f"Assessing control {index}/{total}")
+
+        relevant_b = _select_chunks_for_control(control, corpus_b_chunks, max_chunks=2)
+        relevant_c = _select_chunks_for_control(control, corpus_c_chunks, max_chunks=3)
+        finding = _assess_control_finding_with_llm(
+            question=question,
+            control=control,
+            corpus_b_chunks=relevant_b,
+            corpus_c_chunks=relevant_c,
+            temperature=temperature,
+        )
+        findings.append(finding)
+        if progress_cb:
+            progress_cb(index, total, requirement_id, f"Completed control {index}/{total}")
+
+    scope_inputs = [
+        f"Assessment question: {question[:200]}",
+        f"Corpus A controls retrieved: {len(controls)}",
+        f"Corpus B guidance retrieved: {len(corpus_b_chunks)}",
+        f"Corpus C artifacts retrieved: {len(corpus_c_chunks)}",
+        "Assessment strategy: per_control",
+    ]
+    control_ids = [str(c.get("requirement_id") or "").strip() for c in controls if str(c.get("requirement_id") or "").strip()]
+    source_names = [
+        str(item.get("source_name") or "").strip()
+        for item in [*corpus_b_chunks, *corpus_c_chunks]
+        if str(item.get("source_name") or "").strip()
+    ]
+
+    statuses = [str(item.get("status") or "").strip().lower() for item in findings]
+    if any(s in {"non_compliant", "critical"} for s in statuses):
+        risk = "high"
+    elif any(s in {"partially_compliant", "insufficient_evidence"} for s in statuses):
+        risk = "medium"
+    else:
+        risk = "low"
+
+    missing_evidence = [
+        f"Control {item.get('requirement_id', '')}: additional corroborating evidence required"
+        for item in findings
+        if str(item.get("status") or "").strip().lower() in {"insufficient_evidence", "partially_compliant"}
+    ][:40]
+
+    return {
+        "schema_version": COMPLIANCE_REPORT_SCHEMA_VERSION,
+        "executive_summary": (
+            "Per-control compliance assessment completed. Findings are generated sequentially per retrieved control "
+            "to improve coverage breadth over single-pass context windows."
+        ),
+        "scope_and_inputs": scope_inputs,
+        "controls_assessed": control_ids or ["UNMAPPED"],
+        "guidance_applied": source_names[:20],
+        "findings": findings,
+        "overall_risk_rating": risk,
+        "missing_evidence": missing_evidence,
+        "recommended_actions": [
+            "Address non-compliant and partially compliant controls in priority order.",
+            "Collect missing evidence for controls marked insufficient_evidence.",
+        ],
+        "citations": source_names[:40] or ["No evidence sources retrieved"],
+    }
+
+
+def _generate_compliance_report_result(
+    payload: ComplianceReportRequest,
+    *,
+    progress_cb: Callable[[int, int, str, str], None] | None = None,
+) -> dict[str, Any]:
+    question = payload.question.strip()
+    if not question:
+        raise ValueError("question must not be empty")
+
+    controls, controls_timings = _controls_search(
+        question,
+        retrieve_k=config.controls_top_k,
+        use_semantic=config.controls_semantic_default,
+        framework_filter_override=_normalise_framework_filter(payload.controls_framework),
+    )
+
+    corpus_b_filter = "corpus eq 'b'"
+    if payload.corpus_b_upload_batch:
+        escaped_batch = payload.corpus_b_upload_batch.replace("'", "''")
+        corpus_b_filter = f"{corpus_b_filter} and upload_batch eq '{escaped_batch}'"
+    corpus_b_chunks, b_timings = _hybrid_search(
+        question,
+        retrieve_k=payload.retrieve_k,
+        evidence_filter=corpus_b_filter,
+    )
+
+    corpus_c_filter = "corpus eq 'c'"
+    if payload.corpus_c_upload_batch:
+        escaped_batch = payload.corpus_c_upload_batch.replace("'", "''")
+        corpus_c_filter = f"{corpus_c_filter} and upload_batch eq '{escaped_batch}'"
+    corpus_c_chunks, c_timings = _hybrid_search(
+        question,
+        retrieve_k=payload.retrieve_k,
+        evidence_filter=corpus_c_filter,
+    )
+
+    strategy = payload.assessment_strategy
+    used_fallback_payload = False
+    if strategy == "per_control" and controls:
+        report_payload = _build_per_control_report_payload(
+            question=question,
+            controls=controls,
+            corpus_b_chunks=corpus_b_chunks,
+            corpus_c_chunks=corpus_c_chunks,
+            temperature=payload.temperature,
+            progress_cb=progress_cb,
+        )
+    else:
+        controls_context = "\n\n".join(
+            (
+                f"Requirement ID: {c['requirement_id']}\n"
+                f"Framework: {c['framework']} {c['framework_version']}\n"
+                f"Control Family: {c['control_family']}\n"
+                f"Requirement: {sanitise_untrusted_text(c['requirement_text'][:1200])}\n"
+                f"Guidance: {sanitise_untrusted_text(c['guidance_text'][:800])}"
+            )
+            for c in controls
+        )
+
+        corpus_b_context = "\n\n".join(
+            (
+                f"Source: {c['source_name']}\n"
+                f"Excerpt: {sanitise_untrusted_text(c['content'][:1500])}"
+            )
+            for c in corpus_b_chunks
+        )
+
+        corpus_c_context = "\n\n".join(
+            (
+                f"Source: {c['source_name']}\n"
+                f"Excerpt: {sanitise_untrusted_text(c['content'][:1500])}"
+            )
+            for c in corpus_c_chunks
+        )
+
+        messages = [
+            {"role": "system", "content": COMPLIANCE_REPORT_PROMPT},
+            {"role": "system", "content": PROMPT_INJECTION_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    f"Assessment question:\n{sanitise_untrusted_text(question)}\n\n"
+                    "Use the following corpora:\n"
+                    f"Corpus A (normative requirements):\n{controls_context or 'No Corpus A controls retrieved.'}\n\n"
+                    f"Corpus B (narrative guidance):\n{corpus_b_context or 'No Corpus B guidance retrieved.'}\n\n"
+                    f"Corpus C (assessed artifacts):\n{corpus_c_context or 'No Corpus C artifacts retrieved.'}\n\n"
+                    "Generate only JSON that matches this exact schema and constraints:\n"
+                    f"{COMPLIANCE_REPORT_JSON_SCHEMA_HINT}\n\n"
+                    "Rules:\n"
+                    f"- Set schema_version to exactly {COMPLIANCE_REPORT_SCHEMA_VERSION}.\n"
+                    "- Use requirement IDs from Corpus A in findings.requirement_id.\n"
+                    "- Include evidence source names from Corpus B/C in findings.evidence_sources.\n"
+                    "- If evidence is missing, use status=insufficient_evidence and document it in missing_evidence.\n"
+                    "- Provide at least one finding and at least one citation.\n"
+                    "- Return raw JSON object only."
+                ),
+            },
+        ]
+
+        model_response = _chat_completion_with_empty_retry(
+            messages,
+            deployment=config.query_deployment,
+            temperature=payload.temperature,
+        )
+        try:
+            report_payload = _extract_json_object(model_response)
+            report_payload = _normalise_compliance_report_payload(
+                report_payload,
+                question=question,
+                controls=controls,
+                corpus_b_chunks=corpus_b_chunks,
+                corpus_c_chunks=corpus_c_chunks,
+            )
+        except Exception as exc:
+            if payload.validation_mode == "hard":
+                raise
+            used_fallback_payload = True
+            report_payload = _build_fallback_compliance_report_payload(
+                question=question,
+                controls=controls,
+                corpus_b_chunks=corpus_b_chunks,
+                corpus_c_chunks=corpus_c_chunks,
+                validation_error=str(exc),
+            )
+
+    validation_error = ""
+    report_structured: ComplianceReportStructured | None = None
+    report_markdown = ""
+    report_csv = ""
+    schema_valid = False
+
+    try:
+        report_structured = _validate_compliance_report_payload(report_payload)
+        report_markdown = _report_to_markdown(report_structured)
+        report_csv = _report_findings_to_csv(report_structured)
+        schema_valid = not used_fallback_payload
+    except Exception as exc:
+        logger.exception("Compliance report schema validation failed: %s", exc)
+        validation_error = "Compliance report schema validation failed."
+        if payload.validation_mode == "hard":
+            raise RuntimeError(f"Compliance report schema validation failed: {validation_error}") from exc
+        fallback_payload = _build_fallback_compliance_report_payload(
+            question=question,
+            controls=controls,
+            corpus_b_chunks=corpus_b_chunks,
+            corpus_c_chunks=corpus_c_chunks,
+            validation_error=str(exc),
+        )
+        report_structured = _validate_compliance_report_payload(fallback_payload)
+        report_markdown = _report_to_markdown(report_structured)
+        report_csv = _report_findings_to_csv(report_structured)
+
+    report_filename_base = f"compliance-report-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
+    return {
+        "mode": "compliance-report",
+        "assessment_strategy": strategy,
+        "report": report_markdown,
+        "report_markdown": report_markdown,
+        "report_structured": report_structured.model_dump() if report_structured else None,
+        "report_findings_csv": report_csv,
+        "report_filename_base": report_filename_base,
+        "report_schema_version": COMPLIANCE_REPORT_SCHEMA_VERSION,
+        "validation_mode": payload.validation_mode,
+        "schema_valid": schema_valid,
+        "validation_error": validation_error,
+        "controls_count": len(controls),
+        "corpus_b_count": len(corpus_b_chunks),
+        "corpus_c_count": len(corpus_c_chunks),
+        "timings": {
+            **controls_timings,
+            "corpus_b_search_s": b_timings.get("search_s", 0.0),
+            "corpus_c_search_s": c_timings.get("search_s", 0.0),
+        },
+    }
+
+
+def _chunk_azure_artifact(artifact: Any, chunk_size: int = 2000) -> list[dict[str, Any]]:
+    """Split Azure artifact content into chunk-like dicts for per-control evidence scoring."""
+    content = (getattr(artifact, "content", None) or "").strip()
+    title = str(getattr(artifact, "title", None) or "Azure scope evidence")
+    if not content:
+        return []
+    chunks = []
+    for i in range(0, len(content), chunk_size):
+        chunk_text = content[i : i + chunk_size].strip()
+        if chunk_text:
+            chunks.append({"content": chunk_text, "source_name": title, "cosine_score": 1.0})
+    return chunks
+
+
+def _generate_azure_compliance_report_result(
+    payload: AzureComplianceReportRequest,
+    *,
+    progress_cb: Callable[[int, int, str, str], None] | None = None,
+) -> dict[str, Any]:
+    subscription_id = payload.subscription_id.strip()
+    resource_group = payload.resource_group.strip()
+    resource_ids = [item.strip() for item in payload.resource_ids if item.strip()]
+    if not subscription_id:
+        raise ValueError("subscription_id must not be empty")
+    if not resource_group and not resource_ids:
+        raise ValueError("resource_group is required when resource_ids are not supplied")
+
+    framework = _canonical_framework_name(payload.controls_framework)
+    if framework is None:
+        raise ValueError("controls_framework must be a supported framework value")
+
+    validation_error = ""
+    report_structured: ComplianceReportStructured | None = None
+    report_markdown = ""
+    report_csv = ""
+    schema_valid = False
+    report_payload: dict[str, Any]
+
+    if payload.assessment_strategy == "per_control":
+        if progress_cb:
+            progress_cb(0, 1, "", "Collecting Azure scope evidence")
+        artifact, grounding = collect_azure_grounding(
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+            resource_ids=resource_ids,
+            controls_framework=framework,
+            env=os.environ,
+            credential=credential,
+        )
+        controls = list(grounding.corpus_a_results)
+        corpus_b_chunks = list(grounding.corpus_b_results)
+        corpus_c_chunks = _chunk_azure_artifact(artifact)
+        scope_desc = (
+            f"Azure {framework} compliance assessment: "
+            f"subscription={subscription_id}, resource_group={resource_group or ', '.join(resource_ids[:3])}"
+        )
+        if progress_cb:
+            progress_cb(0, len(controls), "", f"Starting per-control assessment: {len(controls)} controls")
+        report_payload = _build_per_control_report_payload(
+            question=scope_desc,
+            controls=controls,
+            corpus_b_chunks=corpus_b_chunks,
+            corpus_c_chunks=corpus_c_chunks,
+            temperature=float(os.environ.get("ASSESSMENT_TEMPERATURE") or "0.2"),
+            progress_cb=progress_cb,
+        )
+    else:
+        if progress_cb:
+            progress_cb(0, 1, "", "Collecting Azure scope evidence")
+        assessment = run_azure_assessment(
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+            resource_ids=resource_ids,
+            controls_framework=framework,
+            env=os.environ,
+            credential=credential,
+        )
+        if progress_cb:
+            progress_cb(1, 1, "", "Rendering assessment report")
+        report_payload = assessment
+
+    try:
+        report_structured = _validate_compliance_report_payload(report_payload)
+        report_markdown = _report_to_markdown(report_structured)
+        report_csv = _report_findings_to_csv(report_structured)
+        schema_valid = True
+    except Exception as exc:
+        logger.exception("Azure compliance report schema validation failed: %s", exc)
+        validation_error = "Compliance report schema validation failed."
+        if payload.validation_mode == "hard":
+            raise RuntimeError("Compliance report schema validation failed") from exc
+
+    report_filename_base = f"azure-compliance-report-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
+    return {
+        "mode": "azure-compliance-report",
+        "assessment_strategy": payload.assessment_strategy,
+        "framework": framework,
+        "scope": {
+            "subscription_id": subscription_id,
+            "resource_group": resource_group,
+            "resource_ids": resource_ids,
+        },
+        "report": report_markdown,
+        "report_markdown": report_markdown,
+        "report_structured": report_structured.model_dump() if report_structured else None,
+        "report_findings_csv": report_csv,
+        "report_filename_base": report_filename_base,
+        "report_schema_version": COMPLIANCE_REPORT_SCHEMA_VERSION,
+        "validation_mode": payload.validation_mode,
+        "schema_valid": schema_valid,
+        "validation_error": validation_error,
+    }
+
+
 def _delete_search_documents_by_filter(
     client: SearchClient,
     *,
@@ -932,6 +1528,37 @@ def _count_search_documents_by_filter(
         break
     count = pager.get_count() or 0
     return {"would_delete": int(count)}
+
+
+def _list_search_documents_by_filter(
+    client: SearchClient,
+    *,
+    filter_expr: str,
+    select_fields: list[str],
+    limit: int,
+) -> dict[str, Any]:
+    capped_limit = max(1, min(limit, 200))
+    pager = client.search(
+        search_text="*",
+        filter=filter_expr,
+        top=capped_limit,
+        include_total_count=True,
+        select=select_fields,
+    )
+
+    items: list[dict[str, Any]] = []
+    for item in pager:
+        row: dict[str, Any] = {}
+        for field in select_fields:
+            row[field] = item.get(field)
+        items.append(row)
+
+    count = pager.get_count() or len(items)
+    return {
+        "total_count": int(count),
+        "returned_count": len(items),
+        "items": items,
+    }
 
 
 def _delete_blob_prefix(prefix: str) -> dict[str, int]:
@@ -1032,6 +1659,7 @@ class AskResponse(BaseModel):
     answer: str
     results: list[dict[str, Any]]
     controls_results: list[dict[str, Any]] = []
+    controls_debug: dict[str, Any] | None = None
     evaluation: dict[str, Any] | None
     iterations: int | None
     metrics: dict[str, float] | None
@@ -1559,6 +2187,130 @@ def _apply_framework_authority_preference(
     return ranked[:top_k]
 
 
+def _is_cross_framework_comparison_intent(question: str) -> bool:
+    text = (question or "").strip().lower()
+    if not text:
+        return False
+
+    comparison_patterns = (
+        r"\bwhich\s+framework\b",
+        r"\bcompare\b",
+        r"\bcomparison\b",
+        r"\bvs\b",
+        r"\bversus\b",
+        r"\bacross\s+frameworks\b",
+        r"\bbetween\b.*\band\b",
+        r"\bstronger\b",
+        r"\bmore\s+strict\b",
+    )
+    if any(re.search(pattern, text) for pattern in comparison_patterns):
+        return True
+
+    framework_patterns = {
+        "NIST CSF": r"\bnist\b|\bnist\s*csf\b|\bcsf\s*2(\.0)?\b",
+        "Essential Eight": r"\bessential\s*eight\b|\be8\b",
+        "AESCSF": r"\baescsf\b",
+        "ISM": r"\bism\b|\binformation\s+security\s+manual\b",
+        "CIS Controls": r"\bcis\b|\bcis\s*controls\b",
+        "PCI DSS": r"\bpci\b|\bpci\s*dss\b",
+        "PSPF": r"\bpspf\b|\bprotective\s+security\s+policy\s+framework\b",
+    }
+    mentioned_frameworks = {
+        framework
+        for framework, pattern in framework_patterns.items()
+        if re.search(pattern, text)
+    }
+    return len(mentioned_frameworks) >= 2
+
+
+def _select_diverse_controls(items: list[dict[str, Any]], top_k: int) -> list[dict[str, Any]]:
+    if top_k <= 0 or not items:
+        return []
+
+    max_per_framework = max(1, (top_k + 1) // 2)
+    max_per_family = max(1, (top_k + 1) // 2)
+
+    selected: list[dict[str, Any]] = []
+    selected_ids: set[str] = set()
+    framework_counts: dict[str, int] = {}
+    family_counts: dict[str, int] = {}
+
+    def _item_key(item: dict[str, Any]) -> str:
+        requirement_id = str(item.get("requirement_id") or "").strip()
+        source_uri = str(item.get("source_uri") or "").strip()
+        requirement_text = str(item.get("requirement_text") or "").strip()
+        return "||".join((requirement_id, source_uri, requirement_text[:120]))
+
+    def _framework(item: dict[str, Any]) -> str:
+        return str(item.get("framework") or "").strip().lower()
+
+    def _family(item: dict[str, Any]) -> str:
+        return str(item.get("control_family") or "").strip().lower()
+
+    for item in items:
+        if len(selected) >= top_k:
+            break
+        key = _item_key(item)
+        if key in selected_ids:
+            continue
+        framework = _framework(item)
+        family = _family(item)
+        if framework_counts.get(framework, 0) >= max_per_framework:
+            continue
+        if family and family_counts.get(family, 0) >= max_per_family:
+            continue
+
+        selected.append(item)
+        selected_ids.add(key)
+        framework_counts[framework] = framework_counts.get(framework, 0) + 1
+        if family:
+            family_counts[family] = family_counts.get(family, 0) + 1
+
+    if len(selected) >= top_k:
+        return selected[:top_k]
+
+    for item in items:
+        if len(selected) >= top_k:
+            break
+        key = _item_key(item)
+        if key in selected_ids:
+            continue
+        selected.append(item)
+        selected_ids.add(key)
+
+    return selected[:top_k]
+
+
+def _summarise_controls_distribution(controls: list[dict[str, Any]], controls_timings: dict[str, float]) -> dict[str, Any]:
+    framework_counts: dict[str, int] = {}
+    family_counts: dict[str, int] = {}
+
+    for control in controls:
+        framework = str(control.get("framework") or "").strip() or "(unknown)"
+        family = str(control.get("control_family") or "").strip() or "(unknown)"
+        framework_counts[framework] = framework_counts.get(framework, 0) + 1
+        family_counts[family] = family_counts.get(family, 0) + 1
+
+    def _as_sorted_items(counts: dict[str, int]) -> list[dict[str, Any]]:
+        return [
+            {"name": key, "count": value}
+            for key, value in sorted(counts.items(), key=lambda item: (-item[1], item[0].lower()))
+        ]
+
+    return {
+        "total_controls": len(controls),
+        "distinct_frameworks": len(framework_counts),
+        "distinct_control_families": len(family_counts),
+        "framework_counts": _as_sorted_items(framework_counts),
+        "control_family_counts": _as_sorted_items(family_counts),
+        "retrieval_modes": {
+            "semantic_enabled": bool(controls_timings.get("controls_semantic_enabled", 0.0) >= 0.5),
+            "framework_filter_enabled": bool(controls_timings.get("controls_framework_filter_enabled", 0.0) >= 0.5),
+            "diversity_mode_enabled": bool(controls_timings.get("controls_diversity_mode_enabled", 0.0) >= 0.5),
+        },
+    }
+
+
 def _infer_framework_filter(question: str) -> str | None:
     text = question.strip().lower()
     if not text:
@@ -1642,9 +2394,11 @@ def _controls_search(
     framework_filter = framework_filter_override or _infer_framework_filter(question)
     timings["controls_framework_filter_enabled"] = 1.0 if framework_filter else 0.0
     timings["controls_authority_policy_enabled"] = 1.0
+    diversity_mode = framework_filter is None and _is_cross_framework_comparison_intent(question)
+    timings["controls_diversity_mode_enabled"] = 1.0 if diversity_mode else 0.0
 
     t0 = time.perf_counter()
-    fetch_k = retrieve_k if framework_filter else max(retrieve_k, retrieve_k * 3)
+    fetch_k = retrieve_k if framework_filter else max(retrieve_k, retrieve_k * 4)
     try:
         items = _fetch_controls(
             question,
@@ -1667,7 +2421,11 @@ def _controls_search(
         else:
             items = []
 
-    items = _apply_framework_authority_preference(items, top_k=retrieve_k, question=question)
+    ranked_items = _apply_framework_authority_preference(items, top_k=max(len(items), retrieve_k), question=question)
+    if diversity_mode:
+        items = _select_diverse_controls(ranked_items, top_k=retrieve_k)
+    else:
+        items = ranked_items[:retrieve_k]
     timings["controls_search_s"] = round(time.perf_counter() - t0, 3)
     return items, timings
 
@@ -1857,12 +2615,14 @@ def _run_rag(
         use_semantic=controls_semantic,
         framework_filter_override=controls_framework,
     )
+    controls_debug = _summarise_controls_distribution(controls, controls_timings)
 
     if not chunks and not controls:
         return {
             "answer": "No relevant chunks were found in the index.",
             "results": [],
             "controls_results": [],
+            "controls_debug": controls_debug,
             "evaluation": {"acceptable": False, "score": 0.0, "reason": "No search context returned."},
             "iterations": 1,
             "metrics": {
@@ -2043,6 +2803,7 @@ def _run_rag(
         "answer": answer,
         "results": chunks,
         "controls_results": controls,
+        "controls_debug": controls_debug,
         "evaluation": evaluation,
         "iterations": iterations,
         "metrics": metrics,
@@ -2528,6 +3289,7 @@ def home(request: Request) -> HTMLResponse:
             "answer": "",
             "results": [],
             "controls_results": [],
+            "controls_debug": None,
             "error": "",
             "evaluation": None,
             "metrics": None,
@@ -2573,6 +3335,7 @@ def ask(
                 "answer": "",
                 "results": [],
                 "controls_results": [],
+                "controls_debug": None,
                 "error": _unauthorised_message(request),
                 "evaluation": None,
                 "metrics": None,
@@ -2631,6 +3394,7 @@ def ask(
             "answer": "",
             "results": [],
             "controls_results": [],
+            "controls_debug": None,
             "evaluation": None,
             "metrics": None,
             "iterations": None,
@@ -2645,6 +3409,7 @@ def ask(
             "answer": result["answer"],
             "results": result["results"],
             "controls_results": result.get("controls_results", []),
+            "controls_debug": result.get("controls_debug"),
             "error": error,
             "evaluation": result["evaluation"],
             "metrics": result["metrics"],
@@ -2674,6 +3439,7 @@ def ask_api(request: Request, payload: AskRequest) -> AskResponse:
             answer="",
             results=[],
             controls_results=[],
+            controls_debug=None,
             evaluation=None,
             iterations=None,
             metrics=None,
@@ -2685,6 +3451,7 @@ def ask_api(request: Request, payload: AskRequest) -> AskResponse:
             answer="",
             results=[],
             controls_results=[],
+            controls_debug=None,
             evaluation=None,
             iterations=None,
             metrics=None,
@@ -2707,6 +3474,7 @@ def ask_api(request: Request, payload: AskRequest) -> AskResponse:
             answer=result["answer"],
             results=result["results"],
             controls_results=result.get("controls_results", []),
+            controls_debug=result.get("controls_debug"),
             evaluation=result["evaluation"],
             iterations=result["iterations"],
             metrics=result["metrics"],
@@ -2718,6 +3486,7 @@ def ask_api(request: Request, payload: AskRequest) -> AskResponse:
             answer="",
             results=[],
             controls_results=[],
+            controls_debug=None,
             evaluation=None,
             iterations=None,
             metrics=None,
@@ -2951,139 +3720,11 @@ def generate_compliance_report(request: Request, payload: ComplianceReportReques
     if not _is_authorised_request(payload.auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
-    question = payload.question.strip()
-    if not question:
+    if not payload.question.strip():
         return JSONResponse({"error": "question must not be empty"}, status_code=400)
 
     try:
-        controls, controls_timings = _controls_search(
-            question,
-            retrieve_k=config.controls_top_k,
-            use_semantic=config.controls_semantic_default,
-            framework_filter_override=_normalise_framework_filter(payload.controls_framework),
-        )
-
-        corpus_b_chunks, b_timings = _hybrid_search(
-            question,
-            retrieve_k=payload.retrieve_k,
-            evidence_filter="corpus eq 'b'",
-        )
-
-        corpus_c_filter = "corpus eq 'c'"
-        if payload.corpus_c_upload_batch:
-            escaped_batch = payload.corpus_c_upload_batch.replace("'", "''")
-            corpus_c_filter = f"{corpus_c_filter} and upload_batch eq '{escaped_batch}'"
-        corpus_c_chunks, c_timings = _hybrid_search(
-            question,
-            retrieve_k=payload.retrieve_k,
-            evidence_filter=corpus_c_filter,
-        )
-
-        controls_context = "\n\n".join(
-            (
-                f"Requirement ID: {c['requirement_id']}\n"
-                f"Framework: {c['framework']} {c['framework_version']}\n"
-                f"Control Family: {c['control_family']}\n"
-                f"Requirement: {sanitise_untrusted_text(c['requirement_text'][:1200])}\n"
-                f"Guidance: {sanitise_untrusted_text(c['guidance_text'][:800])}"
-            )
-            for c in controls
-        )
-
-        corpus_b_context = "\n\n".join(
-            (
-                f"Source: {c['source_name']}\n"
-                f"Excerpt: {sanitise_untrusted_text(c['content'][:1500])}"
-            )
-            for c in corpus_b_chunks
-        )
-
-        corpus_c_context = "\n\n".join(
-            (
-                f"Source: {c['source_name']}\n"
-                f"Excerpt: {sanitise_untrusted_text(c['content'][:1500])}"
-            )
-            for c in corpus_c_chunks
-        )
-
-        messages = [
-            {"role": "system", "content": COMPLIANCE_REPORT_PROMPT},
-            {"role": "system", "content": PROMPT_INJECTION_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": (
-                    f"Assessment question:\n{sanitise_untrusted_text(question)}\n\n"
-                    "Use the following corpora:\n"
-                    f"Corpus A (normative requirements):\n{controls_context or 'No Corpus A controls retrieved.'}\n\n"
-                    f"Corpus B (narrative guidance):\n{corpus_b_context or 'No Corpus B guidance retrieved.'}\n\n"
-                    f"Corpus C (assessed artifacts):\n{corpus_c_context or 'No Corpus C artifacts retrieved.'}\n\n"
-                    "Generate only JSON that matches this exact schema and constraints:\n"
-                    f"{COMPLIANCE_REPORT_JSON_SCHEMA_HINT}\n\n"
-                    "Rules:\n"
-                    f"- Set schema_version to exactly {COMPLIANCE_REPORT_SCHEMA_VERSION}.\n"
-                    "- Use requirement IDs from Corpus A in findings.requirement_id.\n"
-                    "- Include evidence source names from Corpus B/C in findings.evidence_sources.\n"
-                    "- If evidence is missing, use status=insufficient_evidence and document it in missing_evidence.\n"
-                    "- Provide at least one finding and at least one citation.\n"
-                    "- Return raw JSON object only."
-                ),
-            },
-        ]
-
-        model_response = _chat_completion_with_empty_retry(
-            messages,
-            deployment=config.query_deployment,
-            temperature=payload.temperature,
-        )
-        validation_error = ""
-        report_structured: ComplianceReportStructured | None = None
-        report_markdown = model_response
-        report_csv = ""
-        schema_valid = False
-
-        try:
-            report_payload = _extract_json_object(model_response)
-            report_payload = _normalise_compliance_report_payload(
-                report_payload,
-                question=question,
-                controls=controls,
-                corpus_b_chunks=corpus_b_chunks,
-                corpus_c_chunks=corpus_c_chunks,
-            )
-            report_structured = _validate_compliance_report_payload(report_payload)
-            report_markdown = _report_to_markdown(report_structured)
-            report_csv = _report_findings_to_csv(report_structured)
-            schema_valid = True
-        except Exception as exc:
-            logger.exception("Compliance report schema validation failed: %s", exc)
-            validation_error = "Compliance report schema validation failed."
-            if payload.validation_mode == "hard":
-                raise RuntimeError(f"Compliance report schema validation failed: {validation_error}") from exc
-
-        report_filename_base = f"compliance-report-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
-
-        return JSONResponse(
-            {
-                "mode": "compliance-report",
-                "report": report_markdown,
-                "report_markdown": report_markdown,
-                "report_structured": report_structured.model_dump() if report_structured else None,
-                "report_findings_csv": report_csv,
-                "report_filename_base": report_filename_base,
-                "report_schema_version": COMPLIANCE_REPORT_SCHEMA_VERSION,
-                "validation_mode": payload.validation_mode,
-                "schema_valid": schema_valid,
-                "validation_error": validation_error,
-                "controls_count": len(controls),
-                "corpus_b_count": len(corpus_b_chunks),
-                "corpus_c_count": len(corpus_c_chunks),
-                "timings": {
-                    **controls_timings,
-                    "corpus_b_search_s": b_timings.get("search_s", 0.0),
-                    "corpus_c_search_s": c_timings.get("search_s", 0.0),
-                },
-            }
-        )
+        return JSONResponse(_generate_compliance_report_result(payload))
     except Exception as exc:
         if isinstance(exc, RuntimeError) and "schema validation failed" in str(exc).lower():
             logger.exception("Failed /api/compliance/report request due to schema validation: %s", exc)
@@ -3097,75 +3738,110 @@ def generate_azure_compliance_report(request: Request, payload: AzureComplianceR
     if not _is_authorised_request(payload.auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
-    subscription_id = payload.subscription_id.strip()
-    resource_group = payload.resource_group.strip()
-    resource_ids = [item.strip() for item in payload.resource_ids if item.strip()]
-    if not subscription_id:
-        return JSONResponse({"error": "subscription_id must not be empty"}, status_code=400)
-    if not resource_group and not resource_ids:
-        return JSONResponse(
-            {"error": "resource_group is required when resource_ids are not supplied"},
-            status_code=400,
-        )
-
-    framework = _canonical_framework_name(payload.controls_framework)
-    if framework is None:
-        return JSONResponse({"error": "controls_framework must be a supported framework value"}, status_code=400)
-
     try:
-        assessment = run_azure_assessment(
-            subscription_id=subscription_id,
-            resource_group=resource_group,
-            resource_ids=resource_ids,
-            controls_framework=framework,
-            env=os.environ,
-            credential=credential,
-        )
-
-        validation_error = ""
-        report_structured: ComplianceReportStructured | None = None
-        report_markdown = json.dumps(assessment)
-        report_csv = ""
-        schema_valid = False
-
-        try:
-            report_structured = _validate_compliance_report_payload(assessment)
-            report_markdown = _report_to_markdown(report_structured)
-            report_csv = _report_findings_to_csv(report_structured)
-            schema_valid = True
-        except Exception as exc:
-            logger.exception("Azure compliance report schema validation failed: %s", exc)
-            validation_error = "Compliance report schema validation failed."
-            if payload.validation_mode == "hard":
-                raise RuntimeError("Compliance report schema validation failed") from exc
-
-        report_filename_base = f"azure-compliance-report-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
-        return JSONResponse(
-            {
-                "mode": "azure-compliance-report",
-                "framework": framework,
-                "scope": {
-                    "subscription_id": subscription_id,
-                    "resource_group": resource_group,
-                    "resource_ids": resource_ids,
-                },
-                "report": report_markdown,
-                "report_markdown": report_markdown,
-                "report_structured": report_structured.model_dump() if report_structured else None,
-                "report_findings_csv": report_csv,
-                "report_filename_base": report_filename_base,
-                "report_schema_version": COMPLIANCE_REPORT_SCHEMA_VERSION,
-                "validation_mode": payload.validation_mode,
-                "schema_valid": schema_valid,
-                "validation_error": validation_error,
-            }
-        )
+        return JSONResponse(_generate_azure_compliance_report_result(payload))
     except Exception as exc:
         if isinstance(exc, RuntimeError) and "schema validation failed" in str(exc).lower():
             logger.exception("Failed /api/compliance/report/azure due to schema validation: %s", exc)
             return JSONResponse({"error": "Compliance report schema validation failed."}, status_code=500)
         logger.exception("Failed /api/compliance/report/azure request: %s", exc)
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+
+
+@app.post("/api/compliance/report/start")
+def start_compliance_report(request: Request, payload: ComplianceReportRequest) -> JSONResponse:
+    if not _is_authorised_request(payload.auth_token, request):
+        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+    if not payload.question.strip():
+        return JSONResponse({"error": "question must not be empty"}, status_code=400)
+
+    job = _new_report_job("compliance")
+
+    def _progress(completed: int, total: int, requirement_id: str, message: str) -> None:
+        _update_report_job(
+            job.job_id,
+            state="running",
+            message=message,
+            total_controls=total,
+            completed_controls=completed,
+            current_requirement_id=requirement_id,
+        )
+
+    def _run() -> None:
+        _update_report_job(job.job_id, state="running", message="Starting compliance report")
+        try:
+            result = _generate_compliance_report_result(payload, progress_cb=_progress)
+            _update_report_job(
+                job.job_id,
+                state="completed",
+                message="Compliance report completed",
+                result=result,
+                completed_controls=max(0, int(result.get("controls_count") or 0)),
+                total_controls=max(0, int(result.get("controls_count") or 0)),
+            )
+        except Exception as exc:
+            logger.exception("Compliance report job failed: %s", exc)
+            _update_report_job(job.job_id, state="failed", message="Compliance report failed", error=str(exc))
+
+    threading.Thread(target=_run, daemon=True).start()
+    return JSONResponse({"job_id": job.job_id, "mode": "compliance-report-job"})
+
+
+@app.post("/api/compliance/report/azure/start")
+def start_azure_compliance_report(request: Request, payload: AzureComplianceReportRequest) -> JSONResponse:
+    if not _is_authorised_request(payload.auth_token, request):
+        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+
+    job = _new_report_job("azure")
+
+    def _progress(completed: int, total: int, requirement_id: str, message: str) -> None:
+        _update_report_job(
+            job.job_id,
+            state="running",
+            message=message,
+            total_controls=total,
+            completed_controls=completed,
+            current_requirement_id=requirement_id,
+        )
+
+    def _run() -> None:
+        _update_report_job(job.job_id, state="running", message="Starting Azure compliance report")
+        try:
+            result = _generate_azure_compliance_report_result(payload, progress_cb=_progress)
+            _update_report_job(job.job_id, state="completed", message="Azure compliance report completed", result=result)
+        except Exception as exc:
+            logger.exception("Azure compliance report job failed: %s", exc)
+            _update_report_job(job.job_id, state="failed", message="Azure compliance report failed", error=str(exc))
+
+    threading.Thread(target=_run, daemon=True).start()
+    return JSONResponse({"job_id": job.job_id, "mode": "azure-compliance-report-job"})
+
+
+@app.get("/api/compliance/report/jobs/{job_id}")
+def get_compliance_report_job(job_id: str, request: Request, auth_token: str = "") -> JSONResponse:
+    if not _is_authorised_request(auth_token, request):
+        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+
+    job = _get_report_job(job_id)
+    if not job:
+        return JSONResponse({"error": "Job not found"}, status_code=404)
+
+    return JSONResponse(
+        {
+            "job_id": job.job_id,
+            "kind": job.kind,
+            "state": job.state,
+            "message": job.message,
+            "total_controls": job.total_controls,
+            "completed_controls": job.completed_controls,
+            "current_requirement_id": job.current_requirement_id,
+            "created_at": job.created_at,
+            "updated_at": job.updated_at,
+            "error": job.error,
+            "has_result": job.result is not None,
+            "result": job.result if job.state == "completed" else None,
+        }
+    )
 
 
 @app.get("/api/corpus-a/status")
@@ -3183,6 +3859,129 @@ def corpus_a_status(request: Request, auth_token: str = "") -> JSONResponse:
         )
     except Exception as exc:
         logger.exception("Failed /api/corpus-a/status request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+
+
+@app.get("/api/corpus-a/list")
+def corpus_a_list(request: Request, auth_token: str = "", limit: int = 100, framework: str = "") -> JSONResponse:
+    if not _is_authorised_request(auth_token, request):
+        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+
+    try:
+        filter_expr = "framework ne ''"
+        selected = framework.strip()
+        if selected:
+            canonical = _canonical_framework_name(selected)
+            if canonical is None:
+                key = _normalise_corpus_a_framework_key(selected)
+                canonical = _CORPUS_A_FRAMEWORKS.get(key or "", "") if key else None
+            if canonical:
+                escaped = canonical.replace("'", "''")
+                filter_expr = f"framework eq '{escaped}'"
+
+        listing = _list_search_documents_by_filter(
+            controls_search_client,
+            filter_expr=filter_expr,
+            select_fields=[
+                "requirement_id",
+                "framework",
+                "framework_version",
+                "control_family",
+                "source_uri",
+                "ingestion_loaded_at",
+            ],
+            limit=limit,
+        )
+
+        return JSONResponse(
+            {
+                "mode": "corpus-a-list",
+                "framework_filter": selected or None,
+                **listing,
+            }
+        )
+    except Exception as exc:
+        logger.exception("Failed /api/corpus-a/list request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+
+
+@app.get("/api/corpus-b/list")
+def corpus_b_list(request: Request, auth_token: str = "", limit: int = 100, upload_batch: str = "") -> JSONResponse:
+    if not _is_authorised_request(auth_token, request):
+        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+
+    try:
+        filter_expr = "corpus eq 'b'"
+        batch = upload_batch.strip()
+        if batch:
+            escaped = batch.replace("'", "''")
+            filter_expr = f"{filter_expr} and upload_batch eq '{escaped}'"
+
+        listing = _list_search_documents_by_filter(
+            search_client,
+            filter_expr=filter_expr,
+            select_fields=[
+                "id",
+                "source_name",
+                "source_path",
+                "corpus",
+                "corpus_role",
+                "upload_batch",
+                "uploaded_at",
+                "original_filename",
+            ],
+            limit=limit,
+        )
+
+        return JSONResponse(
+            {
+                "mode": "corpus-b-list",
+                "upload_batch_filter": batch or None,
+                **listing,
+            }
+        )
+    except Exception as exc:
+        logger.exception("Failed /api/corpus-b/list request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+
+
+@app.get("/api/corpus-c/list")
+def corpus_c_list(request: Request, auth_token: str = "", limit: int = 100, upload_batch: str = "") -> JSONResponse:
+    if not _is_authorised_request(auth_token, request):
+        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+
+    try:
+        filter_expr = "corpus eq 'c'"
+        batch = upload_batch.strip()
+        if batch:
+            escaped = batch.replace("'", "''")
+            filter_expr = f"{filter_expr} and upload_batch eq '{escaped}'"
+
+        listing = _list_search_documents_by_filter(
+            search_client,
+            filter_expr=filter_expr,
+            select_fields=[
+                "id",
+                "source_name",
+                "source_path",
+                "corpus",
+                "corpus_role",
+                "upload_batch",
+                "uploaded_at",
+                "original_filename",
+            ],
+            limit=limit,
+        )
+
+        return JSONResponse(
+            {
+                "mode": "corpus-c-list",
+                "upload_batch_filter": batch or None,
+                **listing,
+            }
+        )
+    except Exception as exc:
+        logger.exception("Failed /api/corpus-c/list request: %s", exc)
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 

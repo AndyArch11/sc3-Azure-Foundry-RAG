@@ -779,6 +779,50 @@ def _apply_llm_control_applicability_review(
         return controls
 
 
+def _chunk_artifact_content(
+    artifact: AssessedArtifactPackage,
+    chunk_size: int = 2000,
+) -> list[dict[str, Any]]:
+    """Split artifact content into chunk-like dicts for per-control evidence scoring."""
+    content = artifact.content.strip()
+    title = artifact.title or "Artifact evidence"
+    if not content:
+        return []
+    chunks: list[dict[str, Any]] = []
+    for i in range(0, len(content), chunk_size):
+        text = content[i : i + chunk_size].strip()
+        if text:
+            chunks.append({"content": text, "source_name": title, "cosine_score": 1.0})
+    return chunks
+
+
+def _select_chunks_for_control_rt(
+    control: dict[str, Any],
+    chunks: list[dict[str, Any]],
+    max_chunks: int,
+) -> list[dict[str, Any]]:
+    """Score and select the most relevant chunks for a single control."""
+    if not chunks:
+        return []
+    tokens: set[str] = set()
+    for field in ("requirement_id", "control_family"):
+        for t in re.split(r"[\W_]+", str(control.get(field) or "")):
+            if len(t) > 1:
+                tokens.add(t.lower())
+    for t in re.split(r"[\W_]+", str(control.get("requirement_text") or "")[:200]):
+        if len(t) > 4:
+            tokens.add(t.lower())
+
+    def _score(chunk: dict[str, Any]) -> float:
+        text = str(chunk.get("content") or "").lower()
+        overlap = sum(1 for t in tokens if t in text)
+        term_score = overlap / (len(tokens) + 1)
+        cosine = float(chunk.get("cosine_score") or 0.5)
+        return 0.6 * term_score + 0.4 * cosine
+
+    return sorted(chunks, key=_score, reverse=True)[:max_chunks]
+
+
 class SearchBackedAssessmentAgent:
     def __init__(
         self,
@@ -975,6 +1019,182 @@ class SearchBackedAssessmentAgent:
             if comment_text:
                 excerpts.append(comment_text[:400])
         return "\n".join(part for part in excerpts if part)
+
+    def generate_per_control_assessment(
+        self,
+        artifact: AssessedArtifactPackage,
+        grounding: CorpusGroundingPackage,
+        *,
+        progress_cb: Callable[[int, int, str, str], None] | None = None,
+    ) -> dict[str, Any]:
+        """Run a focused single-control LLM assessment for each control in the grounding.
+
+        Produces the same report schema as :meth:`generate_assessment` but using a
+        separate LLM call per control so the context window is never dominated by a
+        single control family.
+        """
+        controls = list(grounding.corpus_a_results)
+        corpus_b_chunks = list(grounding.corpus_b_results)
+        artifact_chunks = _chunk_artifact_content(artifact)
+
+        findings: list[dict[str, Any]] = []
+        total = len(controls)
+        for index, control in enumerate(controls, start=1):
+            requirement_id = str(control.get("requirement_id") or "").strip() or f"CTRL-{index}"
+            if progress_cb:
+                progress_cb(index - 1, total, requirement_id, f"Assessing control {index}/{total}")
+
+            relevant_b = _select_chunks_for_control_rt(control, corpus_b_chunks, max_chunks=2)
+            relevant_c = _select_chunks_for_control_rt(control, artifact_chunks, max_chunks=3)
+            finding = self._assess_one_control(
+                artifact=artifact,
+                control=control,
+                corpus_b_chunks=relevant_b,
+                corpus_c_chunks=relevant_c,
+            )
+            findings.append(finding)
+            if progress_cb:
+                progress_cb(index, total, requirement_id, f"Completed control {index}/{total}")
+
+        control_ids = [
+            str(c.get("requirement_id") or "").strip()
+            for c in controls
+            if str(c.get("requirement_id") or "").strip()
+        ]
+        source_names: list[str] = []
+        for item in [*corpus_b_chunks, *artifact_chunks[:1]]:
+            name = str(item.get("source_name") or "").strip()
+            if name and name not in source_names:
+                source_names.append(name)
+
+        statuses = [str(f.get("status") or "").lower() for f in findings]
+        if any(s in {"non_compliant", "critical"} for s in statuses):
+            risk = "high"
+        elif any(s in {"partially_compliant", "insufficient_evidence"} for s in statuses):
+            risk = "medium"
+        else:
+            risk = "low"
+
+        missing_evidence = [
+            f"Control {f.get('requirement_id', '')}: additional evidence required"
+            for f in findings
+            if str(f.get("status") or "").lower() in {"insufficient_evidence", "partially_compliant"}
+        ][:40]
+
+        framework_override = (
+            str(artifact.metadata.get("framework_filter_override") or "").strip() or "default_auto"
+        )
+        report: dict[str, Any] = {
+            "schema_version": COMPLIANCE_REPORT_SCHEMA_VERSION,
+            "executive_summary": (
+                "Per-control compliance assessment completed. Each control is assessed individually "
+                "to improve coverage breadth over single-pass context windows."
+            ),
+            "scope_and_inputs": [
+                f"Assessment target: {artifact.title[:200]}",
+                f"Corpus A controls retrieved: {len(controls)}",
+                f"Corpus B guidance retrieved: {len(corpus_b_chunks)}",
+                "Assessment strategy: per_control",
+            ],
+            "controls_assessed": control_ids or ["UNMAPPED"],
+            "guidance_applied": source_names[:20],
+            "findings": findings,
+            "overall_risk_rating": risk,
+            "missing_evidence": missing_evidence,
+            "recommended_actions": [
+                "Address non-compliant and partially compliant controls in priority order.",
+                "Collect missing evidence for controls marked insufficient_evidence.",
+            ],
+            "citations": source_names[:40] or ["No evidence sources retrieved"],
+            "metadata": {
+                "provider": artifact.provider,
+                "target_id": artifact.target_id,
+                "target_url": artifact.canonical_url,
+                "title": artifact.title,
+                "framework_scope": framework_override,
+                "validation_mode": self._config.validation_mode,
+                "assessment_strategy": "per_control",
+                "grounding_counts": {
+                    "corpus_a": len(controls),
+                    "corpus_b": len(corpus_b_chunks),
+                    "discussion_comments": len(artifact.discussion_context),
+                },
+            },
+        }
+        return report
+
+    def _assess_one_control(
+        self,
+        *,
+        artifact: AssessedArtifactPackage,
+        control: dict[str, Any],
+        corpus_b_chunks: list[dict[str, Any]],
+        corpus_c_chunks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        requirement_id = str(control.get("requirement_id") or "").strip() or "UNMAPPED"
+        framework = str(control.get("framework") or "").strip() or "Unknown"
+
+        b_context = "\n\n".join(
+            f"Source: {c.get('source_name', 'guidance')}\n"
+            f"Excerpt: {sanitise_untrusted_text(str(c.get('content') or '')[:900])}"
+            for c in corpus_b_chunks
+        )
+        c_context = "\n\n".join(
+            f"Source: {c.get('source_name', artifact.title or 'artifact')}\n"
+            f"Excerpt: {sanitise_untrusted_text(str(c.get('content') or '')[:1200])}"
+            for c in corpus_c_chunks
+        )
+        messages = [
+            {"role": "system", "content": PROMPT_INJECTION_SYSTEM_PROMPT},
+            {
+                "role": "system",
+                "content": (
+                    "Assess one compliance control and return exactly one JSON finding object with fields: "
+                    "finding_id, requirement_id, framework, status, severity, rationale, "
+                    "evidence_sources, gaps, recommendations."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Assessment target: {sanitise_untrusted_text(artifact.title[:200])}\n\n"
+                    "Control under assessment:\n"
+                    f"Requirement ID: {requirement_id}\n"
+                    f"Framework: {framework}\n"
+                    f"Control Family: {control.get('control_family', '')}\n"
+                    f"Requirement: {sanitise_untrusted_text(str(control.get('requirement_text') or '')[:1600])}\n"
+                    f"Guidance: {sanitise_untrusted_text(str(control.get('guidance_text') or '')[:1000])}\n\n"
+                    f"Corpus B guidance:\n{b_context or 'No relevant Corpus B guidance.'}\n\n"
+                    f"Corpus C evidence:\n{c_context or 'No relevant Corpus C evidence.'}\n\n"
+                    "Constraints:\n"
+                    "- status must be one of compliant|partially_compliant|non_compliant|not_applicable|insufficient_evidence\n"
+                    "- severity must be one of low|medium|high|critical\n"
+                    "- return JSON object only"
+                ),
+            },
+        ]
+        try:
+            raw = self._chat_completion(messages)
+            parsed = _extract_json_object(raw)
+        except Exception:
+            parsed = {}
+
+        fallback: dict[str, Any] = {
+            "finding_id": f"finding-{requirement_id}",
+            "requirement_id": requirement_id,
+            "framework": framework,
+            "status": "insufficient_evidence",
+            "severity": "medium",
+            "rationale": "Insufficient evidence for deterministic assessment in per-control mode.",
+            "evidence_sources": [
+                str(item.get("source_name") or "evidence")
+                for item in (corpus_c_chunks or corpus_b_chunks)[:3]
+            ] or ["No evidence sources retrieved"],
+            "gaps": ["Additional artifact evidence needed for this control."],
+            "recommendations": ["Provide corroborating evidence and reassess this control."],
+        }
+        fallback.update(parsed)
+        return fallback
 
 
 def create_search_backed_assessment_agent_from_env(

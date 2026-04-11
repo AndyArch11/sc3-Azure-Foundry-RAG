@@ -410,3 +410,180 @@ def test_compliance_report_corrects_model_claims_when_grounding_exists() -> None
         "Corpus B guidance retrieved: 1",
         "Corpus C artifacts retrieved: 1",
     ]
+
+
+def test_compliance_report_soft_mode_returns_fallback_report_on_empty_model_output() -> None:
+    client = _test_client()
+
+    with patch.object(app_module, "config", _open_auth_config()), patch.object(
+        app_module,
+        "_controls_search",
+        return_value=(
+            [
+                {
+                    "requirement_id": "REQ-7",
+                    "framework": "NIST CSF",
+                    "framework_version": "2.0",
+                    "control_family": "Identify",
+                    "requirement_text": "Inventory assets",
+                    "guidance_text": "Maintain inventory",
+                    "source_uri": "controls://req-7",
+                }
+            ],
+            {"controls_search_s": 0.01},
+        ),
+    ), patch.object(
+        app_module,
+        "_hybrid_search",
+        side_effect=[([], {"search_s": 0.01}), ([{"source_name": "Artifact-Z", "content": "artifact"}], {"search_s": 0.02})],
+    ), patch.object(
+        app_module,
+        "_chat_completion",
+        side_effect=["", ""],
+    ):
+        response = client.post(
+            "/api/compliance/report",
+            json={
+                "question": "Assess artifact coverage.",
+                "validation_mode": "soft",
+                "auth_token": "",
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["schema_valid"] is False
+    assert body["report_structured"] is not None
+    assert body["report"]
+    assert body["report_structured"]["controls_assessed"] == ["REQ-7"]
+
+
+def test_compliance_report_uses_corpus_b_upload_batch_filter() -> None:
+    client = _test_client()
+
+    valid_report_json = (
+        "{"
+        '"schema_version":"v1.1",'
+        '"executive_summary":"Summary",'
+        '"scope_and_inputs":["Corpus A","Corpus B","Corpus C"],'
+        '"controls_assessed":["REQ-1"],'
+        '"guidance_applied":["Guide 1"],'
+        '"findings":[{'
+        '"finding_id":"F-1",'
+        '"requirement_id":"REQ-1",'
+        '"framework":"NIST CSF",'
+        '"status":"compliant",'
+        '"severity":"low",'
+        '"rationale":"Met",'
+        '"evidence_sources":["doc1"],'
+        '"gaps":[], '
+        '"recommendations":["Keep monitoring"]'
+        '}],'
+        '"overall_risk_rating":"low",'
+        '"missing_evidence":[], '
+        '"recommended_actions":["Continue"], '
+        '"citations":["REQ-1:doc1"]'
+        "}"
+    )
+
+    with patch.object(app_module, "config", _open_auth_config()), patch.object(
+        app_module,
+        "_controls_search",
+        return_value=([], {"controls_search_s": 0.01}),
+    ), patch.object(
+        app_module,
+        "_hybrid_search",
+        side_effect=[([], {"search_s": 0.01}), ([], {"search_s": 0.02})],
+    ) as hybrid_mock, patch.object(
+        app_module,
+        "_chat_completion",
+        return_value=valid_report_json,
+    ):
+        response = client.post(
+            "/api/compliance/report",
+            json={
+                "question": "Assess control coverage.",
+                "corpus_b_upload_batch": "batch-b-123",
+                "validation_mode": "hard",
+                "auth_token": "",
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["schema_valid"] is True
+    assert hybrid_mock.call_count == 2
+    first_call_kwargs = hybrid_mock.call_args_list[0].kwargs
+    assert first_call_kwargs["evidence_filter"] == "corpus eq 'b' and upload_batch eq 'batch-b-123'"
+
+
+def test_corpus_a_list_with_framework_filter() -> None:
+    client = _test_client()
+
+    with patch.object(app_module, "config", _open_auth_config()), patch.object(
+        app_module,
+        "_list_search_documents_by_filter",
+        return_value={"total_count": 2, "returned_count": 2, "items": [{"requirement_id": "REQ-1"}]},
+    ) as list_mock:
+        response = client.get(
+            "/api/corpus-a/list",
+            params={"framework": "nist_csf", "limit": 25, "auth_token": ""},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["mode"] == "corpus-a-list"
+    assert body["framework_filter"] == "nist_csf"
+    assert body["returned_count"] == 2
+
+    call_kwargs = list_mock.call_args.kwargs
+    assert call_kwargs["filter_expr"] == "framework eq 'NIST CSF'"
+    assert call_kwargs["limit"] == 25
+
+
+def test_corpus_b_list_with_upload_batch_filter() -> None:
+    client = _test_client()
+
+    with patch.object(app_module, "config", _open_auth_config()), patch.object(
+        app_module,
+        "_list_search_documents_by_filter",
+        return_value={"total_count": 1, "returned_count": 1, "items": [{"id": "doc-1"}]},
+    ) as list_mock:
+        response = client.get(
+            "/api/corpus-b/list",
+            params={"upload_batch": "batch-b-1", "limit": 10, "auth_token": ""},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["mode"] == "corpus-b-list"
+    assert body["upload_batch_filter"] == "batch-b-1"
+    assert body["returned_count"] == 1
+
+    call_kwargs = list_mock.call_args.kwargs
+    assert call_kwargs["filter_expr"] == "corpus eq 'b' and upload_batch eq 'batch-b-1'"
+    assert call_kwargs["limit"] == 10
+
+
+def test_corpus_c_list_without_upload_batch_filter() -> None:
+    client = _test_client()
+
+    with patch.object(app_module, "config", _open_auth_config()), patch.object(
+        app_module,
+        "_list_search_documents_by_filter",
+        return_value={"total_count": 3, "returned_count": 3, "items": [{"id": "doc-3"}]},
+    ) as list_mock:
+        response = client.get(
+            "/api/corpus-c/list",
+            params={"limit": 50, "auth_token": ""},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["mode"] == "corpus-c-list"
+    assert body["upload_batch_filter"] is None
+    assert body["returned_count"] == 3
+
+    call_kwargs = list_mock.call_args.kwargs
+    assert call_kwargs["filter_expr"] == "corpus eq 'c'"
+    assert call_kwargs["limit"] == 50

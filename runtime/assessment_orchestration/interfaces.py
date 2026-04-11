@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from .models import (
     AccessDecision,
@@ -60,6 +60,15 @@ class AssessmentAgent(Protocol):
     ) -> dict[str, Any]:
         ...
 
+    def generate_per_control_assessment(
+        self,
+        artifact: AssessedArtifactPackage,
+        grounding: CorpusGroundingPackage,
+        *,
+        progress_cb: Callable[[int, int, str, str], None] | None = None,
+    ) -> dict[str, Any]:
+        ...
+
 
 class DeliveryPublisher(Protocol):
     def post_comment(
@@ -112,7 +121,9 @@ class OrchestratorAdapter:
                 enriched["selected_skill"] = selected_skill
         return enriched
 
-    def run_assessment(self, job: AssessmentJob) -> dict[str, Any]:
+    def collect_grounding(
+        self, job: AssessmentJob
+    ) -> tuple[AssessedArtifactPackage, CorpusGroundingPackage]:
         resolved = self._content_client.resolve_target(job.target_url)
         self._audit_sink.record_stage(
             job,
@@ -196,12 +207,39 @@ class OrchestratorAdapter:
                 },
             ),
         )
+        return artifact, grounding
 
+    def run_assessment(self, job: AssessmentJob) -> dict[str, Any]:
+        artifact, grounding = self.collect_grounding(job)
         assessment = self._assessment_agent.generate_assessment(artifact, grounding)
         self._audit_sink.record_stage(
             job,
             "assessment_generated",
             self._stage_payload("assessment_generated", {"schema_version": assessment.get("schema_version", "")}),
+        )
+        return assessment
+
+    def run_per_control_assessment(
+        self,
+        job: AssessmentJob,
+        *,
+        progress_cb: Callable[[int, int, str, str], None] | None = None,
+    ) -> dict[str, Any]:
+        """Like :meth:`run_assessment` but uses a per-control LLM loop for broader coverage."""
+        artifact, grounding = self.collect_grounding(job)
+        assessment = self._assessment_agent.generate_per_control_assessment(
+            artifact, grounding, progress_cb=progress_cb
+        )
+        self._audit_sink.record_stage(
+            job,
+            "assessment_generated",
+            self._stage_payload(
+                "assessment_generated",
+                {
+                    "schema_version": assessment.get("schema_version", ""),
+                    "assessment_strategy": "per_control",
+                },
+            ),
         )
         return assessment
 

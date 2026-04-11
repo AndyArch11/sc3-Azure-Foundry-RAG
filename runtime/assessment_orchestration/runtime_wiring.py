@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import requests
 
@@ -38,6 +38,15 @@ class DefaultAssessmentAgent:
                 "validation_mode": validation_mode,
             },
         }
+
+    def generate_per_control_assessment(
+        self,
+        artifact: AssessedArtifactPackage,
+        grounding: CorpusGroundingPackage,
+        *,
+        progress_cb: Callable[[int, int, str, str], None] | None = None,
+    ) -> dict[str, Any]:
+        return self.generate_assessment(artifact, grounding)
 
 
 class DefaultDeliveryPublisher:

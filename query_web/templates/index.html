@@ -229,6 +229,7 @@
         </div>
         <div class="ops-row">
           <button type="button" class="btn-secondary" onclick="refreshCorpusAStatus()">Refresh Corpus A Status</button>
+          <button type="button" class="btn-secondary" onclick="listCorpusAIndexed()">View Corpus A Indexed</button>
           <button type="button" onclick="triggerCorpusAIngest()">Trigger Corpus A Ingestion</button>
           <button type="button" class="btn-secondary" onclick="clearCorpusA()">Clear Corpus A Index Data</button>
         </div>
@@ -237,10 +238,16 @@
 
       <div class="source" id="corpus-b-ops">
         <h3>Corpus B Operations</h3>
-        <p class="muted">Clear Corpus B vector/index data, with optional blob cleanup.</p>
+        <p class="muted">Upload guidance artifacts, optionally trigger indexing, or clear Corpus B vector/index data.</p>
+        <div class="ops-row">
+          <input id="cb-files" type="file" multiple />
+          <label><input type="checkbox" id="cb-trigger-job" checked /> Trigger ingestion job</label>
+          <button type="button" onclick="uploadCorpusBIngest()">Upload Corpus B</button>
+        </div>
         <div class="ops-row">
           <label><input type="checkbox" id="cb-clear-dry-run" checked /> Dry run</label>
           <label><input type="checkbox" id="cb-clear-blobs" /> Also delete Corpus B blobs</label>
+          <button type="button" class="btn-secondary" onclick="listCorpusBIndexed()">View Corpus B Indexed</button>
           <button type="button" class="btn-secondary" onclick="clearCorpusB()">Clear Corpus B Data</button>
         </div>
         <div id="cb-status" class="ops-status">No Corpus B clear action yet.</div>
@@ -253,6 +260,7 @@
           <input id="cc-files" type="file" multiple />
           <label><input type="checkbox" id="cc-trigger-job" checked /> Trigger ingestion job</label>
           <button type="button" onclick="uploadCorpusCIngest()">Upload Corpus C</button>
+          <button type="button" class="btn-secondary" onclick="listCorpusCIndexed()">View Corpus C Indexed</button>
           <button type="button" class="btn-secondary" onclick="clearCorpusC()">Clear Corpus C Data</button>
           <label><input type="checkbox" id="cc-clear-dry-run" checked /> Dry run</label>
           <label><input type="checkbox" id="cc-clear-blobs" /> Also delete Corpus C blobs</label>
@@ -281,6 +289,10 @@
               <option value="aescsf">AESCSF</option>
               <option value="ism">ISM</option>
             </select>
+          </div>
+          <div class="field">
+            <label for="cr-b-upload-batch">Corpus B upload batch (optional)</label>
+            <input id="cr-b-upload-batch" type="text" placeholder="e.g. 4f1f2..." />
           </div>
           <div class="field">
             <label for="cr-upload-batch">Corpus C upload batch (optional)</label>
@@ -383,6 +395,13 @@
           <div class="metric"><div class="k">Controls mode</div><div class="v">{% if metrics.controls_semantic_enabled|default(0.0) >= 0.5 %}semantic{% else %}keyword{% endif %}</div></div>
           <div class="metric"><div class="k">Evaluator</div><div class="v">{{ '%.3f'|format(metrics.evaluator_s) }} s</div></div>
         </div>
+      </div>
+      {% endif %}
+
+      {% if controls_debug %}
+      <div class="source">
+        <h3>Controls Retrieval Debug</h3>
+        <div class="ops-status">{{ controls_debug | tojson(indent=2) }}</div>
       </div>
       {% endif %}
 
@@ -635,11 +654,23 @@
 
   function _renderCorpusCStatus(payload) {
     const target = document.getElementById('cc-status');
+    if (payload && payload.upload && payload.upload.upload_batch_id) {
+      const batchField = document.getElementById('cr-upload-batch');
+      if (batchField) {
+        batchField.value = payload.upload.upload_batch_id;
+      }
+    }
     target.textContent = JSON.stringify(payload, null, 2);
   }
 
   function _renderCorpusBStatus(payload) {
     const target = document.getElementById('cb-status');
+    if (payload && payload.upload && payload.upload.upload_batch_id) {
+      const batchField = document.getElementById('cr-b-upload-batch');
+      if (batchField) {
+        batchField.value = payload.upload.upload_batch_id;
+      }
+    }
     target.textContent = JSON.stringify(payload, null, 2);
   }
 
@@ -750,6 +781,25 @@
       .catch(err => _renderCorpusAStatus({ error: String(err) }));
   }
 
+  function listCorpusAIndexed() {
+    const token = _currentAuthToken();
+    const frameworks = _selectedCorpusAFrameworks();
+    const params = new URLSearchParams();
+    if (token) params.set('auth_token', token);
+    params.set('limit', '100');
+
+    const hasSingleFramework = frameworks.length === 1 && frameworks[0] !== 'all';
+    if (hasSingleFramework) {
+      params.set('framework', frameworks[0]);
+    }
+
+    const qs = params.toString();
+    fetch('/api/corpus-a/list' + (qs ? ('?' + qs) : ''))
+      .then(r => r.json())
+      .then(data => _renderCorpusAStatus(data))
+      .catch(err => _renderCorpusAStatus({ error: String(err) }));
+  }
+
   function triggerCorpusAIngest() {
     const token = _currentAuthToken();
     const frameworks = _selectedCorpusAFrameworks();
@@ -805,6 +855,45 @@
       .catch(err => _renderCorpusBStatus({ error: String(err) }));
   }
 
+  function listCorpusBIndexed() {
+    const token = _currentAuthToken();
+    const params = new URLSearchParams();
+    if (token) params.set('auth_token', token);
+    params.set('limit', '100');
+
+    const batch = (document.getElementById('cr-b-upload-batch').value || '').trim();
+    if (batch) params.set('upload_batch', batch);
+
+    const qs = params.toString();
+    fetch('/api/corpus-b/list' + (qs ? ('?' + qs) : ''))
+      .then(r => r.json())
+      .then(data => _renderCorpusBStatus(data))
+      .catch(err => _renderCorpusBStatus({ error: String(err) }));
+  }
+
+  function uploadCorpusBIngest() {
+    const input = document.getElementById('cb-files');
+    if (!input.files || !input.files.length) {
+      _renderCorpusBStatus({ error: 'Select at least one file.' });
+      return;
+    }
+
+    const fd = new FormData();
+    for (const file of input.files) {
+      fd.append('files', file);
+    }
+    fd.append('trigger_job', document.getElementById('cb-trigger-job').checked ? 'true' : 'false');
+    fd.append('auth_token', _currentAuthToken());
+
+    fetch('/api/corpus-b/ingest', {
+      method: 'POST',
+      body: fd,
+    })
+      .then(r => r.json())
+      .then(data => _renderCorpusBStatus(data))
+      .catch(err => _renderCorpusBStatus({ error: String(err) }));
+  }
+
   function uploadCorpusCIngest() {
     const input = document.getElementById('cc-files');
     if (!input.files || !input.files.length) {
@@ -845,6 +934,70 @@
       .catch(err => _renderCorpusCStatus({ error: String(err) }));
   }
 
+  function listCorpusCIndexed() {
+    const token = _currentAuthToken();
+    const params = new URLSearchParams();
+    if (token) params.set('auth_token', token);
+    params.set('limit', '100');
+
+    const batch = (document.getElementById('cr-upload-batch').value || '').trim();
+    if (batch) params.set('upload_batch', batch);
+
+    const qs = params.toString();
+    fetch('/api/corpus-c/list' + (qs ? ('?' + qs) : ''))
+      .then(r => r.json())
+      .then(data => _renderCorpusCStatus(data))
+      .catch(err => _renderCorpusCStatus({ error: String(err) }));
+  }
+
+  function _pollComplianceJob(jobId, isAzure) {
+    const token = _currentAuthToken();
+    const params = new URLSearchParams();
+    if (token) params.set('auth_token', token);
+    const qs = params.toString();
+    const endpoint = '/api/compliance/report/jobs/' + encodeURIComponent(jobId) + (qs ? ('?' + qs) : '');
+
+    const render = isAzure ? _renderAzureComplianceReport : _renderComplianceReport;
+    const done = isAzure ? _renderAzureComplianceReport : _renderComplianceReport;
+
+    const tick = function () {
+      fetch(endpoint)
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) {
+            render(data);
+            return;
+          }
+
+          if (data.state === 'completed') {
+            done(data.result || { error: 'Job completed without result payload.' });
+            return;
+          }
+          if (data.state === 'failed') {
+            render({ error: data.error || 'Assessment job failed.' });
+            return;
+          }
+
+          const total = Number(data.total_controls || 0);
+          const completed = Number(data.completed_controls || 0);
+          const current = data.current_requirement_id ? (' [' + data.current_requirement_id + ']') : '';
+          const progressText = total > 0 ? (completed + '/' + total) : (completed > 0 ? String(completed) : '...');
+          render({
+            status: (data.message || 'Processing') + ' (' + progressText + ')' + current,
+            job_id: data.job_id,
+            state: data.state,
+            completed_controls: completed,
+            total_controls: total,
+            current_requirement_id: data.current_requirement_id || '',
+          });
+          setTimeout(tick, 1200);
+        })
+        .catch(err => render({ error: String(err) }));
+    };
+
+    tick();
+  }
+
   function generateComplianceReport() {
     const question = document.getElementById('cr-question').value.trim();
     if (!question) {
@@ -857,19 +1010,31 @@
       retrieve_k: Number(document.getElementById('cr-retrieve-k').value || 5),
       temperature: Number(document.getElementById('cr-temperature').value || 0.2),
       controls_framework: document.getElementById('cr-controls-framework').value || null,
+      corpus_b_upload_batch: document.getElementById('cr-b-upload-batch').value.trim() || null,
       corpus_c_upload_batch: document.getElementById('cr-upload-batch').value.trim() || null,
+      assessment_strategy: 'per_control',
       validation_mode: document.getElementById('cr-validation-mode').value || 'hard',
       auth_token: _currentAuthToken(),
     };
 
-    _renderComplianceReport({ status: 'Generating report...' });
-    fetch('/api/compliance/report', {
+    _renderComplianceReport({ status: 'Starting per-control report job...' });
+    fetch('/api/compliance/report/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
       .then(r => r.json())
-      .then(data => _renderComplianceReport(data))
+      .then(data => {
+        if (data.error) {
+          _renderComplianceReport(data);
+          return;
+        }
+        if (!data.job_id) {
+          _renderComplianceReport({ error: 'No job_id returned from compliance job start.' });
+          return;
+        }
+        _pollComplianceJob(data.job_id, false);
+      })
       .catch(err => _renderComplianceReport({ error: String(err) }));
   }
 
@@ -895,18 +1060,29 @@
       resource_group: resourceGroup,
       resource_ids: resourceIds,
       controls_framework: document.getElementById('az-controls-framework').value || 'NIST CSF',
+      assessment_strategy: 'per_control',
       validation_mode: document.getElementById('az-validation-mode').value || 'hard',
       auth_token: _currentAuthToken(),
     };
 
-    _renderAzureComplianceReport({ status: 'Generating Azure assessment...' });
-    fetch('/api/compliance/report/azure', {
+    _renderAzureComplianceReport({ status: 'Starting Azure assessment job...' });
+    fetch('/api/compliance/report/azure/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
       .then(r => r.json())
-      .then(data => _renderAzureComplianceReport(data))
+      .then(data => {
+        if (data.error) {
+          _renderAzureComplianceReport(data);
+          return;
+        }
+        if (!data.job_id) {
+          _renderAzureComplianceReport({ error: 'No job_id returned from Azure assessment job start.' });
+          return;
+        }
+        _pollComplianceJob(data.job_id, true);
+      })
       .catch(err => _renderAzureComplianceReport({ error: String(err) }));
   }
 

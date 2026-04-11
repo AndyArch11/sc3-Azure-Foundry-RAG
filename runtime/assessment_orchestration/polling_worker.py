@@ -63,7 +63,45 @@ def _event_sort_key(event: dict[str, Any]) -> tuple[str, str, str]:
     return (occurred_at, title.lower(), event_id)
 
 
-def _render_assessment_comment(assessment: dict[str, Any]) -> str:
+CONFLUENCE_COMMENT_MAX_CHARS = 32_767
+
+
+def _render_finding_html(finding: dict[str, Any]) -> str:
+    requirement_id = escape(str(finding.get("requirement_id") or "unknown"))
+    framework = escape(str(finding.get("framework") or "Unknown"))
+    status = escape(str(finding.get("status") or "unknown").replace("_", " "))
+    severity = escape(str(finding.get("severity") or "unknown"))
+    rationale = escape(str(finding.get("rationale") or "No rationale provided."))
+    parts = [
+        "<li>",
+        f"<strong>{requirement_id}</strong> ({framework}; {status}; severity {severity})<br/>{rationale}",
+    ]
+    gaps = [escape(str(item)) for item in (finding.get("gaps") or []) if str(item).strip()]
+    recommendations = [
+        escape(str(item)) for item in (finding.get("recommendations") or []) if str(item).strip()
+    ]
+    evidence_sources = [
+        escape(str(item)) for item in (finding.get("evidence_sources") or []) if str(item).strip()
+    ]
+    if evidence_sources or gaps or recommendations:
+        parts.append("<ul>")
+        if evidence_sources:
+            parts.append(f"<li><strong>Evidence:</strong> {escape(', '.join(evidence_sources))}</li>")
+        for gap in gaps[:3]:
+            parts.append(f"<li><strong>Gap:</strong> {gap}</li>")
+        for recommendation in recommendations[:3]:
+            parts.append(f"<li><strong>Recommendation:</strong> {recommendation}</li>")
+        parts.append("</ul>")
+    parts.append("</li>")
+    return "".join(parts)
+
+
+def _render_assessment_comment_sections(assessment: dict[str, Any]) -> list[str]:
+    """Return the assessment as a list of self-contained HTML sections.
+
+    Each section is independently valid HTML.  Callers can pack them into
+    one or more Confluence comments respecting the 32 767-character limit.
+    """
     summary = str(assessment.get("executive_summary") or "Assessment completed.")
     findings = list(assessment.get("findings") or [])
     overall_risk = str(assessment.get("overall_risk_rating") or "unknown").replace("_", " ").title()
@@ -73,79 +111,128 @@ def _render_assessment_comment(assessment: dict[str, Any]) -> str:
     metadata = dict(assessment.get("metadata") or {})
     framework_scope = str(metadata.get("framework_scope") or "").strip()
     page_version = str(metadata.get("page_version") or "").strip()
+    strategy = str(metadata.get("assessment_strategy") or "").strip()
 
-    parts = [
+    # --- Header section ---
+    header_parts: list[str] = [
         "<p><strong>Automated compliance review</strong></p>",
-        (
-            f"<p><strong>Framework scope:</strong> {escape(framework_scope)}</p>"
-            if framework_scope
-            else ""
-        ),
-        (
-            f"<p><strong>Page version:</strong> {escape(page_version)}</p>"
-            if page_version
-            else ""
-        ),
+    ]
+    if framework_scope:
+        header_parts.append(f"<p><strong>Framework scope:</strong> {escape(framework_scope)}</p>")
+    if page_version:
+        header_parts.append(f"<p><strong>Page version:</strong> {escape(page_version)}</p>")
+    if strategy:
+        header_parts.append(f"<p><strong>Assessment strategy:</strong> {escape(strategy)}</p>")
+    header_parts += [
         f"<p><strong>Overall risk:</strong> {escape(overall_risk)}</p>",
         f"<p>{escape(summary)}</p>",
         f"<p><strong>Findings:</strong> {len(findings)}</p>",
     ]
-
     if findings:
-        parts.append("<p><strong>Key findings</strong></p>")
-        parts.append("<ul>")
-        for finding in findings[:5]:
-            requirement_id = escape(str(finding.get("requirement_id") or "unknown"))
-            framework = escape(str(finding.get("framework") or "Unknown"))
-            status = escape(str(finding.get("status") or "unknown").replace("_", " "))
-            severity = escape(str(finding.get("severity") or "unknown"))
-            rationale = escape(str(finding.get("rationale") or "No rationale provided."))
-            parts.append(
-                "<li>"
-                f"<strong>{requirement_id}</strong> ({framework}; {status}; severity {severity})"
-                f"<br/>{rationale}"
-            )
-            gaps = [escape(str(item)) for item in (finding.get("gaps") or []) if str(item).strip()]
-            recommendations = [
-                escape(str(item)) for item in (finding.get("recommendations") or []) if str(item).strip()
-            ]
-            evidence_sources = [
-                escape(str(item)) for item in (finding.get("evidence_sources") or []) if str(item).strip()
-            ]
-            if evidence_sources or gaps or recommendations:
-                parts.append("<ul>")
-                if evidence_sources:
-                    parts.append(f"<li><strong>Evidence:</strong> {escape(', '.join(evidence_sources))}</li>")
-                for gap in gaps[:3]:
-                    parts.append(f"<li><strong>Gap:</strong> {gap}</li>")
-                for recommendation in recommendations[:3]:
-                    parts.append(f"<li><strong>Recommendation:</strong> {recommendation}</li>")
-                parts.append("</ul>")
-            parts.append("</li>")
-        parts.append("</ul>")
+        header_parts.append("<p><strong>Key findings</strong></p>")
+    sections: list[str] = ["".join(header_parts)]
 
+    # --- Per-finding sections ---
+    for finding in findings:
+        sections.append(f"<ul>{_render_finding_html(finding)}</ul>")
+
+    # --- Footer section ---
+    footer_parts: list[str] = []
     if missing_evidence:
-        parts.append("<p><strong>Missing evidence</strong></p>")
-        parts.append("<ul>")
-        for item in missing_evidence[:5]:
-            parts.append(f"<li>{escape(str(item))}</li>")
-        parts.append("</ul>")
-
+        footer_parts.append("<p><strong>Missing evidence</strong></p><ul>")
+        for item in missing_evidence[:10]:
+            footer_parts.append(f"<li>{escape(str(item))}</li>")
+        footer_parts.append("</ul>")
     if recommended_actions:
-        parts.append("<p><strong>Recommended actions</strong></p>")
-        parts.append("<ul>")
-        for item in recommended_actions[:5]:
-            parts.append(f"<li>{escape(str(item))}</li>")
-        parts.append("</ul>")
-
+        footer_parts.append("<p><strong>Recommended actions</strong></p><ul>")
+        for item in recommended_actions[:10]:
+            footer_parts.append(f"<li>{escape(str(item))}</li>")
+        footer_parts.append("</ul>")
     if citations:
-        parts.append("<p><strong>Citations</strong></p>")
-        parts.append("<ul>")
-        for item in citations[:5]:
-            parts.append(f"<li>{escape(str(item))}</li>")
-        parts.append("</ul>")
+        footer_parts.append("<p><strong>Citations</strong></p><ul>")
+        for item in citations[:10]:
+            footer_parts.append(f"<li>{escape(str(item))}</li>")
+        footer_parts.append("</ul>")
+    if footer_parts:
+        sections.append("".join(footer_parts))
 
-    return "".join(parts)
+    return sections
+
+
+def _pack_comment_bodies(
+    sections: list[str],
+    limit: int = CONFLUENCE_COMMENT_MAX_CHARS,
+) -> list[str]:
+    """Greedily pack sections into comment bodies, each within *limit* characters.
+
+    If a single section exceeds *limit* it is hard-truncated with a suffix so
+    the comment remains valid and within the Confluence storage limit.
+    """
+    comments: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for section in sections:
+        section_len = len(section)
+        # Hard-truncate an oversized individual section
+        if section_len > limit:
+            truncated = section[: limit - 20] + "...[truncated]"
+            section = truncated
+            section_len = len(section)
+
+        if current_len + section_len > limit:
+            if current:
+                comments.append("".join(current))
+            current = [section]
+            current_len = section_len
+        else:
+            current.append(section)
+            current_len += section_len
+
+    if current:
+        comments.append("".join(current))
+
+    return comments or [""]
+
+
+def _render_assessment_comment(assessment: dict[str, Any]) -> str:
+    """Render assessment as a single HTML comment body.
+
+    Kept for backward compatibility. Use :func:`_pack_comment_bodies` with
+    :func:`_render_assessment_comment_sections` for multi-comment splitting.
+    """
+    return "".join(_render_assessment_comment_sections(assessment))
+
+
+def _post_assessment_comments(
+    server: Any,
+    target_id: str,
+    *,
+    assessment: dict[str, Any],
+    identity_mode: str,
+    idempotency_key: str,
+    limit: int = CONFLUENCE_COMMENT_MAX_CHARS,
+) -> None:
+    """Render and post assessment, splitting across multiple comments when needed."""
+    sections = _render_assessment_comment_sections(assessment)
+    bodies = _pack_comment_bodies(sections, limit=limit)
+    total = len(bodies)
+    for i, body in enumerate(bodies):
+        part_key = idempotency_key if total == 1 else f"{idempotency_key}-part{i + 1}of{total}"
+        part_body = body if total == 1 else (
+            f"<p><em>Assessment comment {i + 1} of {total}</em></p>{body}"
+        )
+        delivery = server.post_comment(
+            target_id,
+            comment_body=part_body,
+            identity_mode=identity_mode,
+            idempotency_key=part_key,
+        )
+        if not delivery.success:
+            raise RuntimeError(
+                f"Failed posting Confluence comment part {i + 1}/{total} "
+                f"for event {idempotency_key}: {delivery.failures}"
+            )
 
 
 def _render_no_change_comment(*, framework_scope: str, page_version: str) -> str:
@@ -212,6 +299,7 @@ class PollerConfig:
     max_event_attempts: int = 3
     dry_run: bool = False
     space_keys: tuple[str, ...] = ()
+    assessment_strategy: str = "single_pass"
 
 
 @dataclass(frozen=True)
@@ -252,6 +340,7 @@ def _process_assessment_event(
     source: str,
     event: dict[str, Any],
     dry_run: bool,
+    assessment_strategy: str = "single_pass",
 ) -> None:
     target_url = str(event.get("target_url") or "")
     target_id = str(event.get("target_id") or "")
@@ -324,7 +413,10 @@ def _process_assessment_event(
             request_identity_mode="app_only",
             delivery_policy="inline_else_email",
         )
-        assessment = adapter.run_assessment(job)
+        if assessment_strategy == "per_control":
+            assessment = adapter.run_per_control_assessment(job)
+        else:
+            assessment = adapter.run_assessment(job)
         assessment_metadata = dict(assessment.get("metadata") or {})
         if current_page_version:
             assessment_metadata["page_version"] = current_page_version
@@ -342,18 +434,16 @@ def _process_assessment_event(
             content_hash=current_content_hash,
         )
 
-        comment_body = _render_assessment_comment(assessment)
         event_key = str(event.get("event_id") or job.correlation_id)
         scope_key = re.sub(r"[^a-zA-Z0-9_\-]", "", framework_scope.lower().replace(" ", "-"))
         idempotency_key = event_key if not scope_key else f"{event_key}-{scope_key}"
-        delivery = server.post_comment(
+        _post_assessment_comments(
+            server,
             target_id,
-            comment_body=comment_body,
+            assessment=assessment,
             identity_mode="app_only",
             idempotency_key=idempotency_key,
         )
-        if not delivery.success:
-            raise RuntimeError(f"Failed posting Confluence comment for event {idempotency_key}: {delivery.failures}")
 
 
 def run_poll_cycle(
@@ -406,6 +496,7 @@ def run_poll_cycle(
                 source=config.source,
                 event=event,
                 dry_run=config.dry_run,
+                assessment_strategy=config.assessment_strategy,
             )
         )
 
@@ -511,6 +602,8 @@ def load_poller_config_from_env(env: dict[str, str] | None = None) -> PollerConf
     dry_run = dry_run_raw in {"1", "true", "yes", "on"}
     space_keys_raw = str(values.get("CONFLUENCE_POLL_SPACE_KEYS") or "").strip()
     space_keys = tuple(x.strip() for x in space_keys_raw.split(",") if x.strip())
+    strategy_raw = str(values.get("CONFLUENCE_ASSESSMENT_STRATEGY") or "single_pass").strip().lower()
+    assessment_strategy = "per_control" if strategy_raw == "per_control" else "single_pass"
     return PollerConfig(
         poll_interval_seconds=max(1, poll_interval_seconds),
         lease_ttl_seconds=max(10, lease_ttl_seconds),
@@ -518,6 +611,7 @@ def load_poller_config_from_env(env: dict[str, str] | None = None) -> PollerConf
         max_event_attempts=max(1, max_event_attempts),
         dry_run=dry_run,
         space_keys=space_keys,
+        assessment_strategy=assessment_strategy,
     )
 
 

@@ -66,6 +66,9 @@ class FakeAssessmentAgent:
             "citations": ["REQ-1"],
         }
 
+    def generate_per_control_assessment(self, artifact: AssessedArtifactPackage, grounding: CorpusGroundingPackage, *, progress_cb=None):
+        return self.generate_assessment(artifact, grounding)
+
 
 class FakeDeliveryPublisher:
     def post_comment(self, target_id: str, *, comment_body: str, identity_mode: str, idempotency_key: str) -> DeliveryOutcome:
