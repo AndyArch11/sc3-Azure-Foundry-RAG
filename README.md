@@ -223,6 +223,8 @@ On the jumpbox:
   Update the corresponding `*_image_tag` values in `infra/terraform/environments/${TARGET_ENV}/${TARGET_ENV}.tfvars` with the immutable tags produced above.
 9. Roll out the standard agent hosting resources from jumpbox (non-RBAC app resources only):
   - `sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply --ingestion-tag "<immutable-ingestion-tag>" --query-web-tag "<immutable-query-web-tag>" --confluence-poller-tag "<immutable-confluence-poller-tag>" --enable-confluence-poller --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
+10. After pushing a new query-web container, you may need to remap the web redirect url, with the command provided by the `rollout-agent-hosting.sh` if it is needed.
+  - `az ad app update --id <app id GUID> --web-redirect-uris https://<container_name>.<location>.azurecontainerapps.io/.auth/login/aad/callback`
 
 The standard private-network deployment path uses the Container App ingestion and query services. The `phase3b-agent-hosting.sh` script is only for the preview hosted-query-agent path and is not required for the normal runtime deployment.
 

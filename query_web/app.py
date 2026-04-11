@@ -526,6 +526,21 @@ def _unwrap_answer(text: str) -> str:
     return text.strip()
 
 
+def _clean_markdown_whitespace(text: str) -> str:
+    """Normalise markdown spacing while preserving paragraph separation."""
+    if not text:
+        return ""
+
+    # Normalise line endings and trim trailing whitespace per line.
+    normalised = text.replace("\r\n", "\n").replace("\r", "\n")
+    normalised = "\n".join(line.rstrip() for line in normalised.split("\n"))
+
+    # Collapse runs of 3+ blank lines down to a single paragraph break.
+    normalised = re.sub(r"\n[ \t]*\n(?:[ \t]*\n)+", "\n\n", normalised)
+
+    return normalised.strip()
+
+
 app = FastAPI(title="RAG Query Console")
 templates = Jinja2Templates(directory="templates")
 credential = DefaultAzureCredential()
@@ -569,6 +584,7 @@ class AskRequest(BaseModel):
     auth_token: str = ""
     controls_semantic: bool | None = None
     controls_framework: str | None = None
+    controls_comparison_mode: str = "auto-detect"
 
 
 class CorpusAIngestRequest(BaseModel):
@@ -584,6 +600,7 @@ class ComplianceReportRequest(BaseModel):
     retrieve_k: int = Field(default=5, ge=1, le=20)
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
     controls_framework: str | None = None
+    controls_comparison_mode: str = "auto-detect"
     corpus_b_upload_batch: str | None = None
     corpus_c_upload_batch: str | None = None
     assessment_strategy: Literal["single_pass", "per_control"] = "single_pass"
@@ -1243,6 +1260,7 @@ def _generate_compliance_report_result(
         retrieve_k=config.controls_top_k,
         use_semantic=config.controls_semantic_default,
         framework_filter_override=_normalise_framework_filter(payload.controls_framework),
+        comparison_mode=_normalise_controls_comparison_mode(payload.controls_comparison_mode),
     )
 
     corpus_b_filter = "corpus eq 'b'"
@@ -2150,6 +2168,72 @@ def _normalise_framework_filter(raw_value: str | None) -> str | None:
     return _canonical_framework_name(value)
 
 
+_CONTROLS_COMPARISON_MODES = {
+    "auto-detect",
+    "force_cross_framework_comparison",
+}
+
+
+def _normalise_controls_comparison_mode(raw_value: str | None) -> str:
+    value = (raw_value or "").strip().lower()
+    if not value:
+        return "auto-detect"
+    if value in {"auto", "autodetect", "auto_detect", "auto-detect"}:
+        return "auto-detect"
+    if value in {
+        "force",
+        "force_cross_framework_comparison",
+        "force-cross-framework-comparison",
+        "force_cross_framework",
+    }:
+        return "force_cross_framework_comparison"
+    if value in _CONTROLS_COMPARISON_MODES:
+        return value
+    return "auto-detect"
+
+
+def _controls_coverage_disclaimer(
+    *,
+    controls_debug: dict[str, Any] | None,
+    comparison_detected: bool,
+    comparison_mode: str,
+) -> str | None:
+    if not controls_debug:
+        return None
+
+    forced = comparison_mode == "force_cross_framework_comparison"
+    if not forced and not comparison_detected:
+        return None
+
+    distinct_frameworks = int(controls_debug.get("distinct_frameworks") or 0)
+    if distinct_frameworks > 1:
+        return None
+
+    framework_counts = controls_debug.get("framework_counts")
+    framework_name = "(none)"
+    if isinstance(framework_counts, list) and framework_counts:
+        first = framework_counts[0]
+        if isinstance(first, dict):
+            framework_name = str(first.get("name") or "(unknown)")
+
+    return (
+        "Coverage note: this query requests cross-framework comparison, "
+        f"but retrieved controls came from only one framework ({framework_name}). "
+        "Conclusions may be incomplete across frameworks without broader retrieval evidence."
+    )
+
+
+def _prepend_disclaimer(answer: str, disclaimer: str | None) -> str:
+    text = (answer or "").strip()
+    if not disclaimer:
+        return text
+    if disclaimer in text:
+        return text
+    if not text:
+        return disclaimer
+    return f"> {disclaimer}\n\n{text}"
+
+
 def _framework_authority_rank(framework_name: str) -> int:
     normalised = framework_name.strip().lower()
     for idx, configured in enumerate(precedence_policy.default_framework_order):
@@ -2238,6 +2322,14 @@ def _is_cross_framework_comparison_intent(question: str) -> bool:
 
     comparison_patterns = (
         r"\bwhich\s+framework\b",
+        r"\bwhich\s+frameworks\b",
+        r"\bwhat\s+frameworks\b",
+        r"\bframeworks(?:\s+(?:that|which))?\s+require\b",
+        r"\bframeworks(?:\s+(?:that|which))?\s+requires\b",
+        r"\bframeworks(?:\s+(?:that|which))?\s+contain\b",
+        r"\bframeworks(?:\s+(?:that|which))?\s+contains\b",
+        r"\bframeworks(?:\s+(?:that|which))?\s+has\b",
+        r"\bframeworks(?:\s+(?:that|which))?\s+have\b",
         r"\bcompare\b",
         r"\bcomparison\b",
         r"\bvs\b",
@@ -2436,6 +2528,7 @@ def _controls_search(
     *,
     use_semantic: bool,
     framework_filter_override: str | None = None,
+    comparison_mode: str = "auto-detect",
 ) -> tuple[list[dict[str, Any]], dict[str, float]]:
     """Retrieve requirement records from the dedicated controls index.
 
@@ -2445,10 +2538,20 @@ def _controls_search(
     """
     timings: dict[str, float] = {}
     timings["controls_semantic_enabled"] = 1.0 if use_semantic else 0.0
-    framework_filter = framework_filter_override or _infer_framework_filter(question)
+    detected_comparison = _is_cross_framework_comparison_intent(question)
+    forced_comparison = comparison_mode == "force_cross_framework_comparison"
+
+    explicit_framework_filter = framework_filter_override
+    inferred_framework_filter = _infer_framework_filter(question)
+    framework_filter = explicit_framework_filter or inferred_framework_filter
+    if forced_comparison and explicit_framework_filter is None:
+        framework_filter = None
+
     timings["controls_framework_filter_enabled"] = 1.0 if framework_filter else 0.0
     timings["controls_authority_policy_enabled"] = 1.0
-    diversity_mode = framework_filter is None and _is_cross_framework_comparison_intent(question)
+    diversity_mode = framework_filter is None and (detected_comparison or forced_comparison)
+    timings["controls_comparison_detected"] = 1.0 if detected_comparison else 0.0
+    timings["controls_comparison_forced"] = 1.0 if forced_comparison else 0.0
     timings["controls_diversity_mode_enabled"] = 1.0 if diversity_mode else 0.0
 
     t0 = time.perf_counter()
@@ -2687,6 +2790,7 @@ def _run_rag(
     temperature: float,
     controls_semantic: bool,
     controls_framework: str | None = None,
+    controls_comparison_mode: str = "auto-detect",
     conversation_history: list[ConversationMessage] | None = None,
     feedback_context: str = "",
 ) -> dict[str, Any]:
@@ -2730,8 +2834,14 @@ def _run_rag(
         retrieve_k=config.controls_top_k,
         use_semantic=controls_semantic,
         framework_filter_override=controls_framework,
+        comparison_mode=controls_comparison_mode,
     )
     controls_debug = _summarise_controls_distribution(controls, controls_timings)
+    controls_disclaimer = _controls_coverage_disclaimer(
+        controls_debug=controls_debug,
+        comparison_detected=bool(controls_timings.get("controls_comparison_detected", 0.0) >= 0.5),
+        comparison_mode=controls_comparison_mode,
+    )
 
     if not chunks and not controls:
         return {
@@ -2860,9 +2970,12 @@ def _run_rag(
     )
 
     t_llm = time.perf_counter()
-    answer = _unwrap_answer(
-        _chat_completion(messages, deployment=config.query_deployment, temperature=temperature)
+    answer = _clean_markdown_whitespace(
+        _unwrap_answer(
+            _chat_completion(messages, deployment=config.query_deployment, temperature=temperature)
+        )
     )
+    answer = _prepend_disclaimer(answer, controls_disclaimer)
     llm_reply_s = round(time.perf_counter() - t_llm, 3)
 
     t_eval = time.perf_counter()
@@ -2894,6 +3007,8 @@ def _run_rag(
         answer = _chat_completion(
             messages, deployment=config.query_deployment, temperature=temperature
         )
+        answer = _clean_markdown_whitespace(_unwrap_answer(answer))
+        answer = _prepend_disclaimer(answer, controls_disclaimer)
         llm_retry_s = round(time.perf_counter() - t_retry, 3)
 
         # Re-evaluate final answer and expose reason used for retry.
@@ -3446,6 +3561,7 @@ def home(request: Request) -> HTMLResponse:
             "temperature": config.default_temperature,
             "controls_semantic": config.controls_semantic_default,
             "controls_framework": "",
+            "controls_comparison_mode": "auto-detect",
             "auth_token": "",
             "index_name": config.search_index_name,
             "embedding_deployment": config.embedding_deployment,
@@ -3467,6 +3583,7 @@ def ask(
     temperature: float = Form(...),
     controls_semantic: str = Form(""),
     controls_framework: str = Form(""),
+    controls_comparison_mode: str = Form("auto-detect"),
     auth_token: str = Form(""),
     session_id: str = Form(default=""),
     conversation_id: str = Form(default=""),
@@ -3494,6 +3611,9 @@ def ask(
                     controls_semantic, default=config.controls_semantic_default
                 ),
                 "controls_framework": (controls_framework or "").strip().lower(),
+                "controls_comparison_mode": _normalise_controls_comparison_mode(
+                    controls_comparison_mode
+                ),
                 "auth_token": "",
                 "index_name": config.search_index_name,
                 "embedding_deployment": config.embedding_deployment,
@@ -3517,6 +3637,7 @@ def ask(
     )
     controls_framework_value = (controls_framework or "").strip().lower()
     controls_framework_filter = _normalise_framework_filter(controls_framework_value)
+    controls_comparison_mode_value = _normalise_controls_comparison_mode(controls_comparison_mode)
 
     try:
         conversation_history = session.messages if session else []
@@ -3528,6 +3649,7 @@ def ask(
             temperature=temperature,
             controls_semantic=controls_semantic_enabled,
             controls_framework=controls_framework_filter,
+            controls_comparison_mode=controls_comparison_mode_value,
             conversation_history=conversation_history,
             feedback_context=feedback_context,
         )
@@ -3570,6 +3692,7 @@ def ask(
             "temperature": temperature,
             "controls_semantic": controls_semantic_enabled,
             "controls_framework": controls_framework_value,
+            "controls_comparison_mode": controls_comparison_mode_value,
             "auth_token": auth_token,
             "index_name": config.search_index_name,
             "embedding_deployment": config.embedding_deployment,
@@ -3621,6 +3744,9 @@ def ask_api(request: Request, payload: AskRequest) -> AskResponse:
                 else config.controls_semantic_default
             ),
             controls_framework=_normalise_framework_filter(payload.controls_framework),
+            controls_comparison_mode=_normalise_controls_comparison_mode(
+                payload.controls_comparison_mode
+            ),
         )
         return AskResponse(
             answer=result["answer"],

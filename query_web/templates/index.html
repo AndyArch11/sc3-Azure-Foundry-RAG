@@ -202,6 +202,13 @@
             </select>
           </div>
           <div class="field">
+            <label for="controls_comparison_mode">Comparison mode</label>
+            <select id="controls_comparison_mode" name="controls_comparison_mode">
+              <option value="auto-detect" {% if controls_comparison_mode == "auto-detect" %}selected{% endif %}>Auto detect</option>
+              <option value="force_cross_framework_comparison" {% if controls_comparison_mode == "force_cross_framework_comparison" %}selected{% endif %}>Force cross-framework comparison</option>
+            </select>
+          </div>
+          <div class="field">
             <label for="auth_token">Access token{% if not auth_enabled %} (disabled){% endif %}</label>
             <input id="auth_token" name="auth_token" type="password" value="{{ auth_token or '' }}" {% if not auth_enabled %}disabled{% endif %} />
           </div>
@@ -288,6 +295,13 @@
               <option value="essential_eight">Essential Eight</option>
               <option value="aescsf">AESCSF</option>
               <option value="ism">ISM</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="cr-controls-comparison-mode">Comparison mode</label>
+            <select id="cr-controls-comparison-mode">
+              <option value="auto-detect" selected>Auto detect</option>
+              <option value="force_cross_framework_comparison">Force cross-framework comparison</option>
             </select>
           </div>
           <div class="field">
@@ -1010,6 +1024,7 @@
       retrieve_k: Number(document.getElementById('cr-retrieve-k').value || 5),
       temperature: Number(document.getElementById('cr-temperature').value || 0.2),
       controls_framework: document.getElementById('cr-controls-framework').value || null,
+      controls_comparison_mode: document.getElementById('cr-controls-comparison-mode').value || 'auto-detect',
       corpus_b_upload_batch: document.getElementById('cr-b-upload-batch').value.trim() || null,
       corpus_c_upload_batch: document.getElementById('cr-upload-batch').value.trim() || null,
       assessment_strategy: 'per_control',
