@@ -252,6 +252,7 @@
           <button type="button" class="btn-secondary" onclick="listCorpusAIndexed()">View Corpus A Indexed</button>
           <button type="button" onclick="triggerCorpusAIngest()">Trigger Corpus A Ingestion</button>
           <button type="button" class="btn-secondary" onclick="clearCorpusA()">Clear Corpus A Index Data</button>
+          <button type="button" class="btn-secondary" onclick="checkIngestionJobDiagnostics()">Job Diagnostics</button>
         </div>
         <div id="ca-status" class="ops-status">Status not loaded yet.</div>
       </div>
@@ -839,6 +840,25 @@
       .catch(err => _renderCorpusAStatus({ error: String(err) }));
   }
 
+  function checkIngestionJobDiagnostics() {
+    const token = _currentAuthToken();
+    const qs = token ? ('?auth_token=' + encodeURIComponent(token)) : '';
+    fetch('/api/ingestion-job/diagnostics' + qs)
+      .then(r => r.json())
+      .then(data => {
+        let html = '<div class="answer"><pre>' + JSON.stringify(data, null, 2) + '</pre></div>';
+        if (!data.configured) {
+          html = '<div class="answer"><strong>Job Trigger Not Configured</strong><p>' + data.message + '</p></div>';
+        } else if (data.recent_executions && data.recent_executions.length === 0) {
+          html = '<div class="answer"><strong>No Job Executions Yet</strong><p>' + data.message + '</p></div>';
+        }
+        const target = document.getElementById('ca-status');
+        target.classList.add('markdown');
+        target.innerHTML = html;
+      })
+      .catch(err => _renderCorpusAStatus({ error: String(err) }));
+  }
+
   function triggerCorpusAIngest() {
     const token = _currentAuthToken();
     const frameworks = _selectedCorpusAFrameworks();
@@ -884,8 +904,31 @@
       body: fd,
     })
       .then(r => r.json())
-      .then(data => _renderCorpusAStatus(data))
+      .then(data => {
+        _renderCorpusAStatus(data);
+        input.value = '';
+        if (data && data.triggered_job && !data.error) {
+          _pollCorpusAIndexStatus(5, 0);
+        }
+      })
       .catch(err => _renderCorpusAStatus({ error: String(err) }));
+  }
+
+  function _pollCorpusAIndexStatus(maxPollIntervals, pollCount) {
+    if (pollCount >= maxPollIntervals) return;
+    setTimeout(() => {
+      const token = _currentAuthToken();
+      const qs = token ? ('?auth_token=' + encodeURIComponent(token)) : '';
+      fetch('/api/corpus-a/status' + qs)
+        .then(r => r.json())
+        .then(data => {
+          const statusEl = document.getElementById('ca-status');
+          const pollMsg = `\n[Status refreshed at ${new Date().toLocaleTimeString()}]\n`;
+          statusEl.textContent = pollMsg + JSON.stringify(data, null, 2);
+          _pollCorpusAIndexStatus(maxPollIntervals, pollCount + 1);
+        })
+        .catch(() => _pollCorpusAIndexStatus(maxPollIntervals, pollCount + 1));
+    }, 3000);
   }
 
   function clearCorpusA() {
@@ -957,8 +1000,34 @@
       body: fd,
     })
       .then(r => r.json())
-      .then(data => _renderCorpusBStatus(data))
+      .then(data => {
+        _renderCorpusBStatus(data);
+        input.value = '';
+        if (data && data.triggered_job && !data.error) {
+          _pollCorpusBIndexStatus(5, 0);
+        }
+      })
       .catch(err => _renderCorpusBStatus({ error: String(err) }));
+  }
+
+  function _pollCorpusBIndexStatus(maxPollIntervals, pollCount) {
+    if (pollCount >= maxPollIntervals) return;
+    setTimeout(() => {
+      const token = _currentAuthToken();
+      const params = new URLSearchParams();
+      if (token) params.set('auth_token', token);
+      params.set('limit', '100');
+      const qs = params.toString();
+      fetch('/api/corpus-b/list' + (qs ? ('?' + qs) : ''))
+        .then(r => r.json())
+        .then(data => {
+          const statusEl = document.getElementById('cb-status');
+          const pollMsg = `\n[Indexed count: ${data && data.returned_count ? data.returned_count : 0}; refreshed at ${new Date().toLocaleTimeString()}]\n`;
+          statusEl.textContent = pollMsg + JSON.stringify(data, null, 2);
+          _pollCorpusBIndexStatus(maxPollIntervals, pollCount + 1);
+        })
+        .catch(() => _pollCorpusBIndexStatus(maxPollIntervals, pollCount + 1));
+    }, 3000);
   }
 
   function uploadCorpusCIngest() {
@@ -980,8 +1049,34 @@
       body: fd,
     })
       .then(r => r.json())
-      .then(data => _renderCorpusCStatus(data))
+      .then(data => {
+        _renderCorpusCStatus(data);
+        input.value = '';
+        if (data && data.triggered_job && !data.error) {
+          _pollCorpusCIndexStatus(5, 0);
+        }
+      })
       .catch(err => _renderCorpusCStatus({ error: String(err) }));
+  }
+
+  function _pollCorpusCIndexStatus(maxPollIntervals, pollCount) {
+    if (pollCount >= maxPollIntervals) return;
+    setTimeout(() => {
+      const token = _currentAuthToken();
+      const params = new URLSearchParams();
+      if (token) params.set('auth_token', token);
+      params.set('limit', '100');
+      const qs = params.toString();
+      fetch('/api/corpus-c/list' + (qs ? ('?' + qs) : ''))
+        .then(r => r.json())
+        .then(data => {
+          const statusEl = document.getElementById('cc-status');
+          const pollMsg = `\n[Indexed count: ${data && data.returned_count ? data.returned_count : 0}; refreshed at ${new Date().toLocaleTimeString()}]\n`;
+          statusEl.textContent = pollMsg + JSON.stringify(data, null, 2);
+          _pollCorpusCIndexStatus(maxPollIntervals, pollCount + 1);
+        })
+        .catch(() => _pollCorpusCIndexStatus(maxPollIntervals, pollCount + 1));
+    }, 3000);
   }
 
   function clearCorpusC() {

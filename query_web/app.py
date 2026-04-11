@@ -4405,6 +4405,12 @@ async def upload_corpus_a_reference_documents(
             message = "One or more Corpus A source files failed to upload; ingestion job not started."
         elif not trigger_job:
             message = "Corpus A source files staged successfully. Trigger the controls ingestion job separately if needed."
+        elif trigger_result:
+            message = (
+                f"Corpus A {upload_result['framework_name']} source files uploaded and ingestion job triggered. "
+                "Check job status with the 'Job Diagnostics' button, or check Azure Container Apps > Job > Execution History in Azure Portal. "
+                "Indexing typically completes within 1-2 minutes."
+            )
 
         status_code = 200 if not upload_result["failed"] else 207
         return JSONResponse(
@@ -4643,6 +4649,88 @@ def corpus_a_list(
         )
     except Exception as exc:
         logger.exception("Failed /api/corpus-a/list request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+
+
+@app.get("/api/ingestion-job/diagnostics")
+def ingestion_job_diagnostics(request: Request, auth_token: str = "") -> JSONResponse:
+    """Fetch Container App Job execution history and logs for debugging."""
+    if not _is_authorised_request(auth_token, request):
+        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+
+    if not _is_ingestion_job_trigger_enabled():
+        return JSONResponse(
+            {
+                "configured": False,
+                "message": "Ingestion job trigger is not configured.",
+            }
+        )
+
+    try:
+        token = credential.get_token("https://management.azure.com/.default").token
+        url = (
+            f"https://management.azure.com/subscriptions/{config.ingestion_job_subscription_id}"
+            f"/resourceGroups/{config.ingestion_job_resource_group}"
+            f"/providers/Microsoft.App/jobs/{config.ingestion_job_name}/executions"
+            "?api-version=2024-03-01"
+        )
+        response = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+
+        if response.status_code >= 400:
+            return JSONResponse(
+                {
+                    "configured": True,
+                    "error": f"Failed to fetch job executions: {response.status_code}",
+                    "details": response.text,
+                }
+            )
+
+        executions_data = response.json()
+        executions = executions_data.get("value", [])
+
+        if not executions:
+            return JSONResponse(
+                {
+                    "configured": True,
+                    "executions": [],
+                    "message": "No job executions found. Check if the job has been triggered.",
+                }
+            )
+
+        recent_executions = []
+        for exec_item in sorted(
+            executions, key=lambda x: x.get("properties", {}).get("startTime", ""), reverse=True
+        )[:5]:
+            props = exec_item.get("properties", {})
+            recent_executions.append(
+                {
+                    "id": exec_item.get("id", ""),
+                    "status": props.get("status", "Unknown"),
+                    "startTime": props.get("startTime", ""),
+                    "endTime": props.get("endTime", ""),
+                    "detailedStatus": {
+                        "activeReplicaCount": props.get("detailedStatus", {}).get("activeReplicaCount"),
+                        "failedCount": props.get("detailedStatus", {}).get("failedCount"),
+                        "runningCount": props.get("detailedStatus", {}).get("runningCount"),
+                        "succeededCount": props.get("detailedStatus", {}).get("succeededCount"),
+                    },
+                }
+            )
+
+        return JSONResponse(
+            {
+                "configured": True,
+                "job_name": config.ingestion_job_name,
+                "recent_executions": recent_executions,
+                "note": "Check Azure Portal > Container Apps > Job > Execution History for detailed logs",
+            }
+        )
+    except Exception as exc:
+        logger.exception("Failed /api/ingestion-job/diagnostics request: %s", exc)
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
