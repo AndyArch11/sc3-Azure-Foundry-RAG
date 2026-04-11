@@ -3338,8 +3338,8 @@ def _trigger_ingestion_job() -> dict[str, Any]:
     return _trigger_ingestion_job_with_args(None)
 
 
-def _get_ingestion_job_container_image(token: str) -> str:
-    """Fetch the current container image from the job definition (required for args-override starts)."""
+def _get_ingestion_job_template_container(token: str) -> dict[str, Any]:
+    """Fetch the current job template container for safe args override starts."""
     get_url = (
         f"https://management.azure.com/subscriptions/{config.ingestion_job_subscription_id}"
         f"/resourceGroups/{config.ingestion_job_resource_group}"
@@ -3356,7 +3356,7 @@ def _get_ingestion_job_container_image(token: str) -> str:
     containers = resp.json().get("properties", {}).get("template", {}).get("containers", [])
     if not containers:
         raise RuntimeError("Ingestion job definition contains no containers.")
-    return containers[0]["image"]
+    return dict(containers[0])
 
 
 def _trigger_ingestion_job_with_args(args_override: list[str] | None) -> dict[str, Any]:
@@ -3375,14 +3375,11 @@ def _trigger_ingestion_job_with_args(args_override: list[str] | None) -> dict[st
     )
 
     if args_override:
-        image = _get_ingestion_job_container_image(token)
+        container = _get_ingestion_job_template_container(token)
+        container["args"] = args_override
         body: dict[str, Any] = {
             "containers": [
-                {
-                    "name": "ingestion-runner",
-                    "image": image,
-                    "args": args_override,
-                }
+                container
             ]
         }
     else:
