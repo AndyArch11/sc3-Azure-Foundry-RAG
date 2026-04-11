@@ -2421,6 +2421,61 @@ def _controls_search(
         else:
             items = []
 
+    if diversity_mode:
+        # Backfill candidates per framework so a single crowded top-k slice
+        # cannot hide relevant controls from other frameworks.
+        framework_backfill = (
+            "Essential Eight",
+            "ISM",
+            "AESCSF",
+            "NIST CSF",
+            "CIS Controls",
+            "PCI DSS",
+            "PSPF",
+        )
+        per_framework_k = max(2, min(5, retrieve_k))
+        seen_keys = {
+            (
+                str(item.get("requirement_id") or "").strip(),
+                str(item.get("framework") or "").strip(),
+                str(item.get("source_uri") or "").strip(),
+            )
+            for item in items
+        }
+
+        for framework_name in framework_backfill:
+            try:
+                framework_items = _fetch_controls(
+                    question,
+                    per_framework_k,
+                    use_semantic,
+                    framework_filter=framework_name,
+                )
+            except Exception:
+                if use_semantic:
+                    try:
+                        framework_items = _fetch_controls(
+                            question,
+                            per_framework_k,
+                            use_semantic=False,
+                            framework_filter=framework_name,
+                        )
+                    except Exception:
+                        framework_items = []
+                else:
+                    framework_items = []
+
+            for candidate in framework_items:
+                key = (
+                    str(candidate.get("requirement_id") or "").strip(),
+                    str(candidate.get("framework") or "").strip(),
+                    str(candidate.get("source_uri") or "").strip(),
+                )
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                items.append(candidate)
+
     ranked_items = _apply_framework_authority_preference(items, top_k=max(len(items), retrieve_k), question=question)
     if diversity_mode:
         items = _select_diverse_controls(ranked_items, top_k=retrieve_k)

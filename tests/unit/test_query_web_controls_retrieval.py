@@ -99,7 +99,7 @@ def test_controls_search_comparison_enables_diversity_and_expands_fetch_k() -> N
 
     assert len(controls) == 5
     assert timings["controls_diversity_mode_enabled"] == 1.0
-    assert fetch_mock.call_args.args[1] == 20
+    assert any(call.args[1] == 20 and call.kwargs.get("framework_filter") is None for call in fetch_mock.call_args_list)
 
 
 def test_controls_search_framework_override_disables_diversity() -> None:
@@ -122,6 +122,45 @@ def test_controls_search_framework_override_disables_diversity() -> None:
     assert len(controls) == 5
     assert timings["controls_diversity_mode_enabled"] == 0.0
     assert fetch_mock.call_args.args[1] == 5
+
+
+def test_controls_search_diversity_backfills_framework_candidates() -> None:
+    crowded_items = _controls_items_for_diversity()[:4]
+
+    def _fake_fetch(
+        search_text: str,
+        retrieve_k: int,
+        use_semantic: bool,
+        framework_filter: str | None = None,
+    ) -> list[dict[str, object]]:
+        if framework_filter == "AESCSF":
+            return [_controls_items_for_diversity()[4]]
+        if framework_filter == "Essential Eight":
+            return [_controls_items_for_diversity()[5]]
+        if framework_filter is None:
+            return crowded_items
+        return []
+
+    with patch.object(
+        app_module,
+        "_fetch_controls",
+        side_effect=_fake_fetch,
+    ), patch.object(
+        app_module,
+        "_apply_framework_authority_preference",
+        side_effect=lambda items, top_k, question: items,
+    ):
+        controls, timings = app_module._controls_search(
+            "Which framework requires an inventory?",
+            retrieve_k=5,
+            use_semantic=False,
+            framework_filter_override=None,
+        )
+
+    frameworks = {str(item.get("framework")) for item in controls}
+    assert timings["controls_diversity_mode_enabled"] == 1.0
+    assert "AESCSF" in frameworks
+    assert "Essential Eight" in frameworks
 
 
 def test_summarise_controls_distribution_includes_framework_and_family_counts() -> None:
