@@ -173,3 +173,93 @@ def test_run_reset_and_controls_and_main_dispatch(
     monkeypatch.setattr(runner, "parse_args", lambda: argparse.Namespace(mode="local"))
     monkeypatch.setattr(runner, "_run_local", lambda args: 7)
     assert runner.main() == 7
+
+
+def test_run_controls_downloads_staged_source_files(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class _Cfg:
+        @classmethod
+        def from_env(cls):
+            return type("C", (), {})()
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.ingestion.controls_index",
+        type(
+            "CI",
+            (),
+            {
+                "ControlsIndexConfig": _Cfg,
+                "ensure_controls_index": lambda config, credential: None,
+            },
+        ),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.ingestion.controls_runner",
+        type(
+            "CR",
+            (),
+            {
+                "_build_parser_registry": lambda: {
+                    "pci_dss": {
+                        "factory": lambda fetch_guidance: type(
+                            "P",
+                            (),
+                            {
+                                "parse": lambda self: [{"id": 1}],
+                                "to_jsonl": lambda self, recs: '{"id":1}\n',
+                            },
+                        )(),
+                    }
+                },
+                "_selected_frameworks": lambda framework, registry: ["pci_dss"],
+            },
+        ),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.ingestion.publish_controls",
+        type(
+            "PC",
+            (),
+            {
+                "upload_controls_records": lambda *args, **kwargs: {
+                    "records_failed": 0,
+                    "records_uploaded": 1,
+                }
+            },
+        ),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "azure.identity",
+        type("A", (), {"DefaultAzureCredential": lambda: object()}),
+    )
+
+    seen: dict[str, object] = {}
+
+    def _fake_download(framework: str, source_prefix: str, credential: object) -> list[str]:
+        seen["framework"] = framework
+        seen["source_prefix"] = source_prefix
+        seen["credential"] = credential
+        return ["PCI-DSS-v4_0_1.pdf"]
+
+    monkeypatch.setattr(runner, "_download_controls_source_files", _fake_download)
+
+    controls_args = argparse.Namespace(
+        controls_framework="pci_dss",
+        controls_source_prefix="corpus-a/source/pci_dss/batch-123",
+        replace_existing=False,
+        dry_run=False,
+        no_guidance=False,
+    )
+
+    assert runner._run_controls(controls_args) == 0
+    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+    assert seen["framework"] == "pci_dss"
+    assert seen["source_prefix"] == "corpus-a/source/pci_dss/batch-123"
+    assert payload["controls_source_prefix"] == "corpus-a/source/pci_dss/batch-123"
+    assert payload["source_files_downloaded"] == ["PCI-DSS-v4_0_1.pdf"]

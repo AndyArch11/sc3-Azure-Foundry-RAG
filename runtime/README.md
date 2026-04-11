@@ -712,6 +712,10 @@ The query web app also exposes Corpus A orchestration endpoints:
   - Triggers ingestion job executions for selected frameworks or all supported frameworks.
   - Skips already-ingested frameworks by default.
   - Supports `replace_existing`, `dry_run`, and `no_guidance` flags.
+- `POST /api/corpus-a/upload`
+  - Accepts multipart uploads for framework source documents that must exist locally before parsing.
+  - Currently supported frameworks: `cis_controls`, `pci_dss`.
+  - Stages the uploaded source files in blob storage, then optionally triggers the controls job with a staged source prefix.
 
 Request body example:
 
@@ -731,10 +735,18 @@ Trigger behaviour notes:
 - For each selected framework, query web starts one job execution.
 - If `replace_existing=false`, already-ingested frameworks are reported and skipped.
 
+Corpus A source upload notes:
+
+- `cis_controls` expects one `.xlsx` workbook and one `.pdf` guidance document.
+- `pci_dss` expects one `.pdf` source document.
+- Query web stages uploads under `corpus-a/source/<framework>/<upload-batch>/...`.
+- When `trigger_job=true`, query web starts the controls job with `--controls-source-prefix <blob-prefix>` so the ingestion runner can download the staged files into `runtime/samples/` before parsing.
+
 To support this from the ingestion container image, `ingestion.runner` now supports:
 
 - `--mode controls`
 - `--controls-framework all|aescsf|cis_controls|essential_eight|ism|nist_csf|pci_dss|pspf`
+- `--controls-source-prefix <blob-prefix>`
 - `--replace-existing`
 - `--dry-run`
 - `--no-guidance`

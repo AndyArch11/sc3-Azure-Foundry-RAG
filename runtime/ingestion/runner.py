@@ -3,14 +3,28 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
+
+from azure.core.credentials import TokenCredential
 
 from .chunking import chunk_documents
 from .extractors import discover_supported_files, extract_source_document
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
+
+
+_CONTROLS_SOURCE_TARGET_FILENAMES = {
+    "cis_controls": {
+        "CIS_Controls_Version_8.xlsx",
+        "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf",
+    },
+    "pci_dss": {
+        "PCI-DSS-v4_0_1.pdf",
+    },
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -107,7 +121,65 @@ modes:
         default=False,
         help="(controls mode) skip supplementary guidance fetch during parsing",
     )
+    parser.add_argument(
+        "--controls-source-prefix",
+        default=None,
+        help="(controls mode) blob prefix containing staged framework source documents to download into runtime/samples before parsing",
+    )
     return parser.parse_args()
+
+
+def _download_controls_source_files(
+    framework: str,
+    source_prefix: str,
+    credential: TokenCredential,
+) -> list[str]:
+    prefix = str(source_prefix or "").strip().strip("/")
+    if not prefix:
+        return []
+    if framework not in _CONTROLS_SOURCE_TARGET_FILENAMES:
+        raise RuntimeError(
+            "--controls-source-prefix is only supported for cis_controls and pci_dss."
+        )
+
+    storage_account_name = os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "").strip()
+    storage_container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "grounding-data").strip()
+    if not storage_account_name:
+        raise RuntimeError(
+            "AZURE_STORAGE_ACCOUNT_NAME is required when --controls-source-prefix is provided."
+        )
+
+    from azure.storage.blob import BlobServiceClient  # noqa: PLC0415
+
+    account_url = f"https://{storage_account_name}.blob.core.windows.net"
+    client = BlobServiceClient(account_url=account_url, credential=credential)
+    container = client.get_container_client(storage_container_name)
+
+    expected_filenames = set(_CONTROLS_SOURCE_TARGET_FILENAMES[framework])
+    samples_dir = Path(__file__).resolve().parents[1] / "samples"
+    samples_dir.mkdir(parents=True, exist_ok=True)
+
+    downloaded: list[str] = []
+    found_filenames: set[str] = set()
+    for blob in container.list_blobs(name_starts_with=f"{prefix}/"):
+        filename = Path(blob.name).name
+        if filename not in expected_filenames:
+            logger.warning("Ignoring unexpected controls source blob: %s", blob.name)
+            continue
+
+        data = container.download_blob(blob.name).readall()
+        (samples_dir / filename).write_bytes(data)
+        found_filenames.add(filename)
+        downloaded.append(filename)
+
+    missing = sorted(expected_filenames - found_filenames)
+    if missing:
+        raise RuntimeError(
+            "Missing staged controls source files for "
+            f"{framework}: {', '.join(missing)}."
+        )
+
+    return sorted(downloaded)
 
 
 def _run_local(args: argparse.Namespace) -> int:
@@ -310,6 +382,19 @@ def _run_controls(args: argparse.Namespace) -> int:
     credential = DefaultAzureCredential()
     ensure_controls_index(config, credential)
 
+    source_prefix = str(getattr(args, "controls_source_prefix", "") or "").strip()
+    downloaded_source_files: list[str] = []
+    if source_prefix:
+        try:
+            downloaded_source_files = _download_controls_source_files(
+                args.controls_framework,
+                source_prefix,
+                credential,
+            )
+        except Exception as exc:
+            print(f"Controls source staging error: {exc}", file=sys.stderr)
+            return 1
+
     registry = _build_parser_registry()
     selected = _selected_frameworks(args.controls_framework, registry)
 
@@ -344,6 +429,8 @@ def _run_controls(args: argparse.Namespace) -> int:
     payload = {
         "mode": "controls",
         "framework": args.controls_framework,
+        "controls_source_prefix": source_prefix or None,
+        "source_files_downloaded": downloaded_source_files,
         "replace_existing": bool(args.replace_existing),
         "dry_run": bool(args.dry_run),
         "results": summaries,

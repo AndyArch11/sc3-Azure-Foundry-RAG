@@ -221,19 +221,31 @@
 
       <div class="source" id="corpus-a-ops">
         <h3>Corpus A Operations</h3>
-        <p class="muted">Check ingestion status and trigger controls ingestion for selected frameworks.</p>
+        <p class="muted">Check ingestion status, trigger controls ingestion for selected frameworks, or upload CIS/PCI source documents for parsers that require local reference files.</p>
         <div class="ops-row">
           <label><input type="checkbox" id="ca-all" checked /> All frameworks</label>
           <label><input type="checkbox" class="ca-fw" value="essential_eight" checked /> Essential Eight</label>
           <label><input type="checkbox" class="ca-fw" value="aescsf" checked /> AESCSF</label>
           <label><input type="checkbox" class="ca-fw" value="ism" checked /> ISM</label>
+          <label><input type="checkbox" class="ca-fw" value="cis_controls" checked /> CIS Controls</label>
           <label><input type="checkbox" class="ca-fw" value="nist_csf" checked /> NIST CSF</label>
+          <label><input type="checkbox" class="ca-fw" value="pci_dss" checked /> PCI DSS</label>
+          <label><input type="checkbox" class="ca-fw" value="pspf" checked /> PSPF</label>
         </div>
         <div class="ops-grid">
           <label><input type="checkbox" id="ca-replace-existing" /> Replace existing</label>
           <label><input type="checkbox" id="ca-dry-run" /> Dry run</label>
           <label><input type="checkbox" id="ca-no-guidance" /> No guidance fetch</label>
           <label><input type="checkbox" id="ca-clear-dry-run" checked /> Clear dry run</label>
+        </div>
+        <div class="ops-row">
+          <select id="ca-upload-framework">
+            <option value="cis_controls" selected>CIS Controls source documents</option>
+            <option value="pci_dss">PCI DSS source document</option>
+          </select>
+          <input id="ca-upload-files" type="file" multiple accept=".pdf,.xlsx" />
+          <label><input type="checkbox" id="ca-upload-trigger-job" checked /> Trigger ingestion job</label>
+          <button type="button" class="btn-secondary" onclick="uploadCorpusAReferenceDocs()">Upload Corpus A Sources</button>
         </div>
         <div class="ops-row">
           <button type="button" class="btn-secondary" onclick="refreshCorpusAStatus()">Refresh Corpus A Status</button>
@@ -842,6 +854,34 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+    })
+      .then(r => r.json())
+      .then(data => _renderCorpusAStatus(data))
+      .catch(err => _renderCorpusAStatus({ error: String(err) }));
+  }
+
+  function uploadCorpusAReferenceDocs() {
+    const input = document.getElementById('ca-upload-files');
+    const framework = (document.getElementById('ca-upload-framework').value || '').trim();
+    if (!input.files || !input.files.length) {
+      _renderCorpusAStatus({ error: 'Select the required CIS or PCI source documents first.' });
+      return;
+    }
+
+    const fd = new FormData();
+    for (const file of input.files) {
+      fd.append('files', file);
+    }
+    fd.append('framework', framework);
+    fd.append('trigger_job', document.getElementById('ca-upload-trigger-job').checked ? 'true' : 'false');
+    fd.append('replace_existing', document.getElementById('ca-replace-existing').checked ? 'true' : 'false');
+    fd.append('dry_run', document.getElementById('ca-dry-run').checked ? 'true' : 'false');
+    fd.append('no_guidance', document.getElementById('ca-no-guidance').checked ? 'true' : 'false');
+    fd.append('auth_token', _currentAuthToken());
+
+    fetch('/api/corpus-a/upload', {
+      method: 'POST',
+      body: fd,
     })
       .then(r => r.json())
       .then(data => _renderCorpusAStatus(data))

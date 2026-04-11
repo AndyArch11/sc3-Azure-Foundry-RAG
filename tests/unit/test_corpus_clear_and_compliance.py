@@ -652,6 +652,80 @@ def test_corpus_a_list_with_framework_filter() -> None:
     assert call_kwargs["limit"] == 25
 
 
+def test_corpus_a_upload_stages_sources_and_triggers_controls_job() -> None:
+    client = _test_client()
+
+    with patch.object(app_module, "config", _open_auth_config()), patch.object(
+        app_module,
+        "_upload_corpus_a_reference_files",
+        return_value={
+            "framework": "cis_controls",
+            "framework_name": "CIS Controls",
+            "upload_batch_id": "batch-a-1",
+            "source_prefix": "corpus-a/source/cis_controls/batch-a-1",
+            "uploaded": [
+                {"target_filename": "CIS_Controls_Version_8.xlsx"},
+                {"target_filename": "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf"},
+            ],
+            "failed": [],
+        },
+    ), patch.object(
+        app_module,
+        "_trigger_ingestion_job_with_args",
+        return_value={"status_code": 200, "args_override": []},
+    ) as trigger_mock:
+        response = client.post(
+            "/api/corpus-a/upload",
+            data={
+                "framework": "cis_controls",
+                "trigger_job": "true",
+                "replace_existing": "true",
+                "dry_run": "true",
+                "no_guidance": "true",
+                "auth_token": "",
+            },
+            files=[
+                ("files", ("controls.xlsx", b"xlsx-bytes", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")),
+                ("files", ("controls.pdf", b"pdf-bytes", "application/pdf")),
+            ],
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["mode"] == "corpus-a-upload"
+    assert body["framework"] == "cis_controls"
+    assert body["uploaded_count"] == 2
+    assert body["triggered_job"] is True
+
+    args_override = trigger_mock.call_args.args[0]
+    assert "--controls-framework" in args_override
+    assert "cis_controls" in args_override
+    assert "--controls-source-prefix" in args_override
+    assert "corpus-a/source/cis_controls/batch-a-1" in args_override
+    assert "--replace-existing" in args_override
+    assert "--dry-run" in args_override
+    assert "--no-guidance" in args_override
+
+
+def test_corpus_a_upload_rejects_unsupported_framework() -> None:
+    client = _test_client()
+
+    with patch.object(app_module, "config", _open_auth_config()):
+        response = client.post(
+            "/api/corpus-a/upload",
+            data={
+                "framework": "nist_csf",
+                "trigger_job": "true",
+                "auth_token": "",
+            },
+            files=[("files", ("controls.pdf", b"pdf-bytes", "application/pdf"))],
+        )
+
+    body = response.json()
+    assert response.status_code == 400
+    assert "supports only cis_controls and pci_dss" in body["error"]
+
+
 def test_corpus_b_list_with_upload_batch_filter() -> None:
     client = _test_client()
 

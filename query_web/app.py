@@ -2127,6 +2127,16 @@ _CORPUS_A_FRAMEWORKS = {
     "pspf": "PSPF",
 }
 
+_CORPUS_A_REFERENCE_UPLOAD_TARGETS = {
+    "cis_controls": {
+        ".xlsx": "CIS_Controls_Version_8.xlsx",
+        ".pdf": "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf",
+    },
+    "pci_dss": {
+        ".pdf": "PCI-DSS-v4_0_1.pdf",
+    },
+}
+
 
 def _normalise_corpus_a_framework_key(raw: str) -> str | None:
     key = (raw or "").strip().lower()
@@ -2167,6 +2177,49 @@ def _selected_corpus_a_frameworks(frameworks: list[str] | None) -> list[str]:
             selected.append(key)
 
     return selected if selected else sorted(_CORPUS_A_FRAMEWORKS.keys())
+
+
+def _prepare_corpus_a_reference_uploads(
+    framework: str,
+    files: list[UploadFile],
+) -> tuple[str, list[tuple[UploadFile, str, str]]]:
+    key = _normalise_corpus_a_framework_key(framework)
+    if not key or key not in _CORPUS_A_REFERENCE_UPLOAD_TARGETS:
+        raise ValueError(
+            "Corpus A reference uploads are only supported for CIS Controls and PCI DSS."
+        )
+
+    target_map = _CORPUS_A_REFERENCE_UPLOAD_TARGETS[key]
+    selected_by_target: dict[str, tuple[UploadFile, str]] = {}
+
+    for file in files:
+        original_name = file.filename or "uploaded.bin"
+        ext = Path(original_name).suffix.lower()
+        target_name = target_map.get(ext)
+        if not target_name:
+            allowed = ", ".join(sorted(target_map.keys()))
+            raise ValueError(
+                f"Unsupported file '{original_name}' for {_CORPUS_A_FRAMEWORKS[key]}; "
+                f"expected file types: {allowed}."
+            )
+        if target_name in selected_by_target:
+            raise ValueError(
+                f"Received multiple files for {_CORPUS_A_FRAMEWORKS[key]} source type '{ext}'."
+            )
+        selected_by_target[target_name] = (file, original_name)
+
+    missing_targets = [name for name in target_map.values() if name not in selected_by_target]
+    if missing_targets:
+        raise ValueError(
+            "Missing required source files for "
+            f"{_CORPUS_A_FRAMEWORKS[key]}: {', '.join(missing_targets)}."
+        )
+
+    prepared = [
+        (upload_file, original_name, target_name)
+        for target_name, (upload_file, original_name) in selected_by_target.items()
+    ]
+    return key, prepared
 
 
 def _controls_framework_ingestion_status() -> dict[str, Any]:
@@ -3442,6 +3495,84 @@ def _upload_corpus_b_files(files: list[UploadFile], user_id: str) -> dict[str, A
     )
 
 
+def _upload_corpus_a_reference_files(
+    files: list[UploadFile],
+    user_id: str,
+    *,
+    framework: str,
+) -> dict[str, Any]:
+    if not _is_corpus_b_upload_enabled():
+        raise RuntimeError(
+            "Corpus upload is not configured. Set AZURE_STORAGE_ACCOUNT_NAME in query web configuration."
+        )
+
+    framework_key, prepared_uploads = _prepare_corpus_a_reference_uploads(framework, files)
+
+    account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
+    client = BlobServiceClient(account_url=account_url, credential=credential)
+    container = client.get_container_client(config.storage_container_name)
+
+    uploaded: list[dict[str, Any]] = []
+    failed: list[str] = []
+
+    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    upload_batch_id = str(uuid.uuid4())
+    source_prefix = f"corpus-a/source/{framework_key}/{upload_batch_id}"
+
+    for file, original_name, target_name in prepared_uploads:
+        try:
+            content = file.file.read()
+            if not content:
+                raise ValueError(f"{original_name} is empty")
+
+            blob_name = f"{source_prefix}/{target_name}"
+            metadata = {
+                "corpus": "a",
+                "framework": framework_key,
+                "upload_source": "query_web",
+                "uploaded_by": _sanitise_blob_name_component(user_id or "anonymous"),
+                "upload_batch": upload_batch_id,
+                "uploaded_at": ts,
+                "original_filename": _sanitise_blob_name_component(original_name),
+                "target_filename": target_name,
+            }
+            container.upload_blob(
+                name=blob_name,
+                data=content,
+                overwrite=True,
+                metadata=metadata,
+                content_settings=ContentSettings(
+                    content_type=file.content_type or "application/octet-stream"
+                ),
+            )
+            uploaded.append(
+                {
+                    "blob_name": blob_name,
+                    "size_bytes": len(content),
+                    "content_type": file.content_type or "application/octet-stream",
+                    "original_filename": original_name,
+                    "target_filename": target_name,
+                    "metadata": metadata,
+                }
+            )
+        except Exception as exc:
+            failed.append(f"{original_name}: {exc}")
+        finally:
+            try:
+                file.file.close()
+            except Exception:
+                pass
+
+    return {
+        "framework": framework_key,
+        "framework_name": _CORPUS_A_FRAMEWORKS[framework_key],
+        "upload_batch_id": upload_batch_id,
+        "source_prefix": source_prefix,
+        "uploaded": uploaded,
+        "failed": failed,
+    }
+
+
 @app.get("/health")
 def health() -> JSONResponse:
     return JSONResponse(
@@ -4187,6 +4318,93 @@ def clear_corpus_c(request: Request, payload: CorpusClearRequest) -> JSONRespons
         )
     except Exception as exc:
         logger.exception("Failed /api/corpus-c/clear request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+
+
+@app.post("/api/corpus-a/upload")
+async def upload_corpus_a_reference_documents(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    framework: str = Form(""),
+    trigger_job: bool = Form(True),
+    replace_existing: bool = Form(False),
+    dry_run: bool = Form(False),
+    no_guidance: bool = Form(False),
+    auth_token: str = Form(""),
+) -> JSONResponse:
+    if not _is_authorised_request(auth_token, request):
+        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+
+    if not files:
+        return JSONResponse({"error": "No files uploaded."}, status_code=400)
+
+    try:
+        framework_key = _normalise_corpus_a_framework_key(framework)
+        if not framework_key or framework_key not in _CORPUS_A_REFERENCE_UPLOAD_TARGETS:
+            return JSONResponse(
+                {
+                    "error": (
+                        "Corpus A source document upload supports only cis_controls and pci_dss."
+                    )
+                },
+                status_code=400,
+            )
+
+        user_id = _get_user_id(auth_token, str(uuid.uuid4()))
+        upload_result = _upload_corpus_a_reference_files(
+            files,
+            user_id=user_id,
+            framework=framework_key,
+        )
+
+        trigger_result: dict[str, Any] | None = None
+        if trigger_job and upload_result["uploaded"] and not upload_result["failed"]:
+            args_override = [
+                "--mode",
+                "controls",
+                "--controls-framework",
+                framework_key,
+                "--controls-source-prefix",
+                str(upload_result["source_prefix"]),
+            ]
+            if replace_existing:
+                args_override.append("--replace-existing")
+            if dry_run:
+                args_override.append("--dry-run")
+            if no_guidance:
+                args_override.append("--no-guidance")
+            trigger_result = _trigger_ingestion_job_with_args(args_override)
+
+        message = ""
+        if upload_result["failed"]:
+            message = "One or more Corpus A source files failed to upload; ingestion job not started."
+        elif not trigger_job:
+            message = "Corpus A source files staged successfully. Trigger the controls ingestion job separately if needed."
+
+        status_code = 200 if not upload_result["failed"] else 207
+        return JSONResponse(
+            {
+                "mode": "corpus-a-upload",
+                "framework": framework_key,
+                "framework_name": upload_result["framework_name"],
+                "storage_account_name": config.storage_account_name,
+                "storage_container_name": config.storage_container_name,
+                "uploaded_count": len(upload_result["uploaded"]),
+                "failed_count": len(upload_result["failed"]),
+                "upload": upload_result,
+                "triggered_job": bool(trigger_result),
+                "job": trigger_result,
+                "replace_existing": replace_existing,
+                "dry_run": dry_run,
+                "no_guidance": no_guidance,
+                "message": message,
+            },
+            status_code=status_code,
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception as exc:
+        logger.exception("Failed /api/corpus-a/upload request: %s", exc)
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
