@@ -613,6 +613,7 @@ class AzureComplianceReportRequest(BaseModel):
     resource_group: str
     resource_ids: list[str] = Field(default_factory=list)
     controls_framework: str = "NIST CSF"
+    controls_top_k: int = Field(default=4, ge=1, le=2000)
     assessment_strategy: Literal["single_pass", "per_control"] = "single_pass"
     validation_mode: Literal["hard", "soft"] = "hard"
     auth_token: str = ""
@@ -1466,6 +1467,9 @@ def _generate_azure_compliance_report_result(
     if framework is None:
         raise ValueError("controls_framework must be a supported framework value")
 
+    resolved_env = dict(os.environ)
+    resolved_env["CONTROLS_TOP_K"] = str(payload.controls_top_k)
+
     validation_error = ""
     report_structured: ComplianceReportStructured | None = None
     report_markdown = ""
@@ -1481,7 +1485,7 @@ def _generate_azure_compliance_report_result(
             resource_group=resource_group,
             resource_ids=resource_ids,
             controls_framework=framework,
-            env=os.environ,
+            env=resolved_env,
             credential=credential,
         )
         controls = list(grounding.corpus_a_results)
@@ -1511,7 +1515,7 @@ def _generate_azure_compliance_report_result(
             resource_group=resource_group,
             resource_ids=resource_ids,
             controls_framework=framework,
-            env=os.environ,
+            env=resolved_env,
             credential=credential,
         )
         if progress_cb:
@@ -1534,6 +1538,7 @@ def _generate_azure_compliance_report_result(
         "mode": "azure-compliance-report",
         "assessment_strategy": payload.assessment_strategy,
         "framework": framework,
+        "controls_top_k": payload.controls_top_k,
         "scope": {
             "subscription_id": subscription_id,
             "resource_group": resource_group,

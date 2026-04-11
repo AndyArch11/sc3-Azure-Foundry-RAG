@@ -143,6 +143,7 @@
     .ops-grid { display:grid; grid-template-columns: repeat(2, minmax(180px,1fr)); gap:8px; margin-top:8px; }
     .ops-row { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; }
     .ops-status { margin-top:10px; max-height:260px; overflow:auto; background:#f9fafb; border:1px solid var(--border); border-radius:8px; padding:8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.8rem; white-space:pre-wrap; }
+    .ops-status.markdown { white-space:normal; font-family: "Segoe UI", "Helvetica Neue", sans-serif; font-size:.92rem; }
   </style>
 </head>
 <body>
@@ -356,6 +357,10 @@
               <option value="PCI DSS">PCI DSS</option>
               <option value="PSPF">PSPF</option>
             </select>
+          </div>
+          <div class="field">
+            <label for="az-controls-top-k">Controls top-k</label>
+            <input id="az-controls-top-k" type="number" min="1" max="2000" value="4" />
           </div>
           <div class="field">
             <label for="az-validation-mode">Schema validation mode</label>
@@ -694,9 +699,11 @@
       _lastComplianceReport = payload;
     }
     if (payload && payload.report) {
-      target.textContent = payload.report;
+      target.classList.add('markdown');
+      target.innerHTML = '<div class="answer">' + mdRender(payload.report) + '</div>';
       return;
     }
+    target.classList.remove('markdown');
     target.textContent = JSON.stringify(payload, null, 2);
   }
 
@@ -706,9 +713,11 @@
       _lastAzureComplianceReport = payload;
     }
     if (payload && payload.report) {
-      target.textContent = payload.report;
+      target.classList.add('markdown');
+      target.innerHTML = '<div class="answer">' + mdRender(payload.report) + '</div>';
       return;
     }
+    target.classList.remove('markdown');
     target.textContent = JSON.stringify(payload, null, 2);
   }
 
@@ -1075,6 +1084,7 @@
       resource_group: resourceGroup,
       resource_ids: resourceIds,
       controls_framework: document.getElementById('az-controls-framework').value || 'NIST CSF',
+      controls_top_k: Number(document.getElementById('az-controls-top-k').value || 4),
       assessment_strategy: 'per_control',
       validation_mode: document.getElementById('az-validation-mode').value || 'hard',
       auth_token: _currentAuthToken(),
