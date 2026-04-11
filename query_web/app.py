@@ -3338,6 +3338,27 @@ def _trigger_ingestion_job() -> dict[str, Any]:
     return _trigger_ingestion_job_with_args(None)
 
 
+def _get_ingestion_job_container_image(token: str) -> str:
+    """Fetch the current container image from the job definition (required for args-override starts)."""
+    get_url = (
+        f"https://management.azure.com/subscriptions/{config.ingestion_job_subscription_id}"
+        f"/resourceGroups/{config.ingestion_job_resource_group}"
+        f"/providers/Microsoft.App/jobs/{config.ingestion_job_name}"
+        "?api-version=2024-03-01"
+    )
+    resp = requests.get(
+        get_url,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Failed to fetch ingestion job definition: {resp.status_code} {resp.text}")
+    containers = resp.json().get("properties", {}).get("template", {}).get("containers", [])
+    if not containers:
+        raise RuntimeError("Ingestion job definition contains no containers.")
+    return containers[0]["image"]
+
+
 def _trigger_ingestion_job_with_args(args_override: list[str] | None) -> dict[str, Any]:
     if not _is_ingestion_job_trigger_enabled():
         raise RuntimeError(
@@ -3352,24 +3373,28 @@ def _trigger_ingestion_job_with_args(args_override: list[str] | None) -> dict[st
         f"/providers/Microsoft.App/jobs/{config.ingestion_job_name}/start"
         "?api-version=2024-03-01"
     )
+
+    if args_override:
+        image = _get_ingestion_job_container_image(token)
+        body: dict[str, Any] = {
+            "containers": [
+                {
+                    "name": "ingestion-runner",
+                    "image": image,
+                    "args": args_override,
+                }
+            ]
+        }
+    else:
+        body = {}
+
     response = requests.post(
         url,
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         },
-        json=(
-            {}
-            if not args_override
-            else {
-                "containers": [
-                    {
-                        "name": "ingestion-runner",
-                        "args": args_override,
-                    }
-                ]
-            }
-        ),
+        json=body,
         timeout=30,
     )
     if response.status_code >= 400:
