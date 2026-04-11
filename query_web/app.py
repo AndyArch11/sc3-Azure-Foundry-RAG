@@ -2295,8 +2295,21 @@ def _apply_framework_authority_preference(
     top_k: int,
     question: str,
 ) -> list[dict[str, Any]]:
-    """Apply authority-preference ordering and trim to requested top-k."""
+    """Apply relevance-first ordering with authority preference as a tie-breaker."""
     preferred_framework = _preferred_framework_for_question(question)
+    focus_terms = _question_focus_terms(question)
+
+    def _concept_overlap(item: dict[str, Any]) -> int:
+        if not focus_terms:
+            return 0
+        haystack = " ".join(
+            [
+                str(item.get("requirement_text") or "").lower(),
+                str(item.get("control_family") or "").lower(),
+                str(item.get("guidance_text") or "").lower(),
+            ]
+        )
+        return sum(1 for term in focus_terms if term in haystack)
 
     def _preferred_rank(item: dict[str, Any]) -> int:
         if not preferred_framework:
@@ -2307,6 +2320,7 @@ def _apply_framework_authority_preference(
     ranked = sorted(
         items,
         key=lambda item: (
+            -_concept_overlap(item),
             _preferred_rank(item),
             _framework_authority_rank(str(item.get("framework") or "")),
             -float(item.get("score") or 0.0),
@@ -2468,6 +2482,75 @@ def _infer_framework_filter(question: str) -> str | None:
     return None
 
 
+_QUERY_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "any",
+    "are",
+    "as",
+    "at",
+    "be",
+    "between",
+    "by",
+    "can",
+    "does",
+    "for",
+    "framework",
+    "frameworks",
+    "from",
+    "have",
+    "has",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "require",
+    "required",
+    "requires",
+    "that",
+    "the",
+    "to",
+    "what",
+    "which",
+}
+
+_QUERY_FRAMEWORK_TOKENS = {
+    "nists",
+    "nist",
+    "csf",
+    "essential",
+    "eight",
+    "aescsf",
+    "ism",
+    "cis",
+    "controls",
+    "pci",
+    "dss",
+    "pspf",
+}
+
+_QUERY_SHORT_KEEP = {"mfa", "2fa", "iam", "sso"}
+
+
+def _question_focus_terms(question: str) -> list[str]:
+    tokens = re.findall(r"[a-z0-9][a-z0-9_-]{1,}", (question or "").lower())
+    focus_terms: list[str] = []
+    seen_terms: set[str] = set()
+    for token in tokens:
+        if token in _QUERY_STOPWORDS or token in _QUERY_FRAMEWORK_TOKENS:
+            continue
+        if len(token) < 3 and token not in _QUERY_SHORT_KEEP:
+            continue
+        if token in seen_terms:
+            continue
+        seen_terms.add(token)
+        focus_terms.append(token)
+    return focus_terms
+
+
 def _controls_query_variants(question: str) -> list[str]:
     text = (question or "").strip()
     if not text:
@@ -2475,68 +2558,7 @@ def _controls_query_variants(question: str) -> list[str]:
 
     variants = [text]
 
-    stopwords = {
-        "a",
-        "an",
-        "and",
-        "any",
-        "are",
-        "as",
-        "at",
-        "be",
-        "between",
-        "by",
-        "can",
-        "does",
-        "for",
-        "framework",
-        "frameworks",
-        "from",
-        "have",
-        "has",
-        "in",
-        "is",
-        "it",
-        "of",
-        "on",
-        "or",
-        "require",
-        "required",
-        "requires",
-        "that",
-        "the",
-        "to",
-        "what",
-        "which",
-    }
-    framework_tokens = {
-        "nists",
-        "nist",
-        "csf",
-        "essential",
-        "eight",
-        "aescsf",
-        "ism",
-        "cis",
-        "controls",
-        "pci",
-        "dss",
-        "pspf",
-    }
-    short_keep = {"mfa", "2fa", "iam", "sso"}
-
-    tokens = re.findall(r"[a-z0-9][a-z0-9_-]{1,}", text.lower())
-    focus_terms: list[str] = []
-    seen_terms: set[str] = set()
-    for token in tokens:
-        if token in stopwords or token in framework_tokens:
-            continue
-        if len(token) < 3 and token not in short_keep:
-            continue
-        if token in seen_terms:
-            continue
-        seen_terms.add(token)
-        focus_terms.append(token)
+    focus_terms = _question_focus_terms(text)
 
     if focus_terms:
         variants.append(" ".join(focus_terms))

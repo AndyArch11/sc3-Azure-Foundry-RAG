@@ -92,6 +92,13 @@ def test_clean_markdown_whitespace_trims_line_trailing_space() -> None:
     assert cleaned == "Line one\nLine two"
 
 
+def test_question_focus_terms_extracts_generic_keywords() -> None:
+    terms = app_module._question_focus_terms("Which frameworks require MFA for privileged access?")
+    assert "mfa" in terms
+    assert "privileged" in terms
+    assert "frameworks" not in terms
+
+
 def test_normalise_controls_comparison_mode_values() -> None:
     assert app_module._normalise_controls_comparison_mode(None) == "auto-detect"
     assert app_module._normalise_controls_comparison_mode("auto") == "auto-detect"
@@ -109,6 +116,34 @@ def test_select_diverse_controls_limits_single_framework_crowding() -> None:
     assert len(selected) == 5
     assert len(set(frameworks)) >= 2
     assert frameworks.count("NIST CSF") <= 3
+
+
+def test_apply_framework_authority_preference_prioritizes_concept_overlap() -> None:
+    items = [
+        {
+            "requirement_id": "E-1",
+            "framework": "Essential Eight",
+            "control_family": "User application hardening",
+            "requirement_text": "Disable legacy framework components.",
+            "guidance_text": "",
+            "score": 9.0,
+        },
+        {
+            "requirement_id": "N-1",
+            "framework": "NIST CSF",
+            "control_family": "Identity and access management",
+            "requirement_text": "MFA is required for privileged access.",
+            "guidance_text": "",
+            "score": 6.0,
+        },
+    ]
+
+    ranked = app_module._apply_framework_authority_preference(
+        items,
+        top_k=2,
+        question="Which frameworks require MFA?",
+    )
+    assert ranked[0]["requirement_id"] == "N-1"
 
 
 def test_controls_search_comparison_enables_diversity_and_expands_fetch_k() -> None:
