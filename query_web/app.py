@@ -2137,6 +2137,11 @@ _CORPUS_A_REFERENCE_UPLOAD_TARGETS = {
     },
 }
 
+_CORPUS_A_SOURCE_UPLOAD_REQUIRED_FRAMEWORKS = {
+    "cis_controls",
+    "pci_dss",
+}
+
 
 def _normalise_corpus_a_framework_key(raw: str) -> str | None:
     key = (raw or "").strip().lower()
@@ -4855,7 +4860,25 @@ def corpus_a_ingest(request: Request, payload: CorpusAIngestRequest) -> JSONResp
                     }
                 )
 
+        runnable_pending: list[str] = []
+        source_upload_required: list[str] = []
         for fw in pending:
+            if fw in _CORPUS_A_SOURCE_UPLOAD_REQUIRED_FRAMEWORKS:
+                source_upload_required.append(fw)
+                skipped.append(
+                    {
+                        "framework": fw,
+                        "reason": "source_upload_required",
+                        "message": (
+                            "This framework requires source documents to be staged via "
+                            "POST /api/corpus-a/upload before ingestion can run."
+                        ),
+                    }
+                )
+                continue
+            runnable_pending.append(fw)
+
+        for fw in runnable_pending:
             args_override = [
                 "--mode",
                 "controls",
@@ -4882,6 +4905,7 @@ def corpus_a_ingest(request: Request, payload: CorpusAIngestRequest) -> JSONResp
                 "mode": "corpus-a-ingest",
                 "selected_frameworks": selected,
                 "already_ingested_frameworks": already_ingested,
+                "source_upload_required_frameworks": source_upload_required,
                 "replace_existing": payload.replace_existing,
                 "dry_run": payload.dry_run,
                 "no_guidance": payload.no_guidance,

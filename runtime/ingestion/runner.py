@@ -400,8 +400,23 @@ def _run_controls(args: argparse.Namespace) -> int:
 
     summaries: list[dict] = []
     for framework in selected:
-        parser_instance = registry[framework]["factory"](fetch_guidance=(not args.no_guidance))
-        records = parser_instance.parse()
+        try:
+            parser_instance = registry[framework]["factory"](fetch_guidance=(not args.no_guidance))
+            records = parser_instance.parse()
+        except Exception as exc:
+            summaries.append(
+                {
+                    "framework": framework,
+                    "error": (
+                        f"Parser failed: {exc}. "
+                        "For cis_controls and pci_dss, upload source documents first via /api/corpus-a/upload."
+                    ),
+                    "records_indexed": 0,
+                    "records_failed": 1,
+                }
+            )
+            continue
+
         if not records:
             summaries.append(
                 {
@@ -417,14 +432,24 @@ def _run_controls(args: argparse.Namespace) -> int:
             if line.strip()
         ]
 
-        summary = upload_controls_records(
-            config,
-            credential,
-            records_payload,
-            replace_existing=args.replace_existing,
-            dry_run=args.dry_run,
-        )
-        summaries.append({"framework": framework, **summary})
+        try:
+            summary = upload_controls_records(
+                config,
+                credential,
+                records_payload,
+                replace_existing=args.replace_existing,
+                dry_run=args.dry_run,
+            )
+            summaries.append({"framework": framework, **summary})
+        except Exception as exc:
+            summaries.append(
+                {
+                    "framework": framework,
+                    "error": f"Index publish failed: {exc}",
+                    "records_indexed": 0,
+                    "records_failed": len(records_payload),
+                }
+            )
 
     payload = {
         "mode": "controls",
@@ -437,7 +462,9 @@ def _run_controls(args: argparse.Namespace) -> int:
     }
     print(json.dumps(payload, ensure_ascii=True))
 
-    if any(item.get("records_failed", 0) for item in summaries):
+    if any(item.get("records_failed", 0) for item in summaries) or any(
+        bool(item.get("error")) for item in summaries
+    ):
         return 1
     if any(item.get("error") for item in summaries):
         return 1

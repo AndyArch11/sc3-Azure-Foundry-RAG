@@ -263,3 +263,95 @@ def test_run_controls_downloads_staged_source_files(
     assert seen["source_prefix"] == "corpus-a/source/pci_dss/batch-123"
     assert payload["controls_source_prefix"] == "corpus-a/source/pci_dss/batch-123"
     assert payload["source_files_downloaded"] == ["PCI-DSS-v4_0_1.pdf"]
+
+
+def test_run_controls_continues_when_one_parser_fails(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class _Cfg:
+        @classmethod
+        def from_env(cls):
+            return type("C", (), {})()
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.ingestion.controls_index",
+        type(
+            "CI",
+            (),
+            {
+                "ControlsIndexConfig": _Cfg,
+                "ensure_controls_index": lambda config, credential: None,
+            },
+        ),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.ingestion.controls_runner",
+        type(
+            "CR",
+            (),
+            {
+                "_build_parser_registry": lambda: {
+                    "cis_controls": {
+                        "factory": lambda fetch_guidance: type(
+                            "BadP",
+                            (),
+                            {
+                                "parse": lambda self: (_ for _ in ()).throw(
+                                    RuntimeError("CIS workbook not found")
+                                ),
+                                "to_jsonl": lambda self, recs: "",
+                            },
+                        )(),
+                    },
+                    "nist_csf": {
+                        "factory": lambda fetch_guidance: type(
+                            "GoodP",
+                            (),
+                            {
+                                "parse": lambda self: [{"id": 1}],
+                                "to_jsonl": lambda self, recs: '{"id":1}\n',
+                            },
+                        )(),
+                    },
+                },
+                "_selected_frameworks": lambda framework, registry: ["cis_controls", "nist_csf"],
+            },
+        ),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.ingestion.publish_controls",
+        type(
+            "PC",
+            (),
+            {
+                "upload_controls_records": lambda *args, **kwargs: {
+                    "records_failed": 0,
+                    "records_uploaded": 1,
+                }
+            },
+        ),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "azure.identity",
+        type("A", (), {"DefaultAzureCredential": lambda: object()}),
+    )
+
+    controls_args = argparse.Namespace(
+        controls_framework="all",
+        controls_source_prefix="",
+        replace_existing=False,
+        dry_run=False,
+        no_guidance=False,
+    )
+
+    exit_code = runner._run_controls(controls_args)
+    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+    assert exit_code == 1
+    results = {item["framework"]: item for item in payload["results"]}
+    assert "Parser failed" in results["cis_controls"]["error"]
+    assert results["nist_csf"]["records_uploaded"] == 1

@@ -726,6 +726,50 @@ def test_corpus_a_upload_rejects_unsupported_framework() -> None:
     assert "supports only cis_controls and pci_dss" in body["error"]
 
 
+def test_corpus_a_ingest_skips_frameworks_requiring_source_upload() -> None:
+    client = _test_client()
+
+    with patch.object(app_module, "config", _open_auth_config()), patch.object(
+        app_module,
+        "_is_ingestion_job_trigger_enabled",
+        return_value=True,
+    ), patch.object(
+        app_module,
+        "_controls_framework_ingestion_status",
+        return_value={},
+    ), patch.object(
+        app_module,
+        "_trigger_ingestion_job_with_args",
+        return_value={"status_code": 200, "args_override": []},
+    ) as trigger_mock:
+        response = client.post(
+            "/api/corpus-a/ingest",
+            json={
+                "frameworks": ["cis_controls", "pci_dss", "nist_csf"],
+                "replace_existing": False,
+                "dry_run": False,
+                "no_guidance": False,
+                "auth_token": "",
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert set(body["source_upload_required_frameworks"]) == {"cis_controls", "pci_dss"}
+    assert [item["framework"] for item in body["triggered"]] == ["nist_csf"]
+
+    skipped_reasons = {
+        item["framework"]: item["reason"]
+        for item in body["skipped"]
+        if item.get("reason") == "source_upload_required"
+    }
+    assert skipped_reasons == {
+        "cis_controls": "source_upload_required",
+        "pci_dss": "source_upload_required",
+    }
+    trigger_mock.assert_called_once()
+
+
 def test_corpus_b_list_with_upload_batch_filter() -> None:
     client = _test_client()
 
