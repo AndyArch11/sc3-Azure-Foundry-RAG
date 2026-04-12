@@ -639,6 +639,10 @@ def test_corpus_b_ingest_triggers_job_when_reindex_on_dedupe_enabled() -> None:
         },
     ), patch.object(
         app_module,
+        "_reset_grounding_indexer_state",
+        return_value="grounding-index-indexer",
+    ), patch.object(
+        app_module,
         "_trigger_ingestion_job",
         return_value={"status_code": 202},
     ) as trigger_mock:
@@ -657,6 +661,7 @@ def test_corpus_b_ingest_triggers_job_when_reindex_on_dedupe_enabled() -> None:
     assert body["uploaded_count"] == 0
     assert body["triggered_job"] is True
     assert body["reindex_on_dedupe"] is True
+    assert body["indexer_reset"]["performed"] is True
     assert "re-index existing blobs" in body["message"].lower()
     trigger_mock.assert_called_once()
 
@@ -674,6 +679,10 @@ def test_corpus_c_ingest_triggers_job_when_reindex_on_dedupe_enabled() -> None:
             "skipped": ["duplicate.html: duplicate-normalised_text_sha256:def"],
             "failed": [],
         },
+    ), patch.object(
+        app_module,
+        "_reset_grounding_indexer_state",
+        return_value="grounding-index-indexer",
     ), patch.object(
         app_module,
         "_trigger_ingestion_job",
@@ -694,6 +703,7 @@ def test_corpus_c_ingest_triggers_job_when_reindex_on_dedupe_enabled() -> None:
     assert body["uploaded_count"] == 0
     assert body["triggered_job"] is True
     assert body["reindex_on_dedupe"] is True
+    assert body["indexer_reset"]["performed"] is True
     assert "re-index existing blobs" in body["message"].lower()
     trigger_mock.assert_called_once()
 
@@ -797,7 +807,79 @@ def test_corpus_a_upload_rejects_unsupported_framework() -> None:
 
     body = response.json()
     assert response.status_code == 400
-    assert "supports only cis_controls and pci_dss" in body["error"]
+    assert "supports cis_controls, pci_dss, or auto mode" in body["error"]
+
+
+def test_corpus_a_upload_auto_stages_multiple_frameworks_and_triggers_jobs() -> None:
+    client = _test_client()
+
+    def _fake_upload(files, user_id, *, framework):
+        if framework == "cis_controls":
+            return {
+                "framework": "cis_controls",
+                "framework_name": "CIS Controls",
+                "upload_batch_id": "batch-cis-1",
+                "source_prefix": "corpus-a/source/cis_controls/batch-cis-1",
+                "uploaded": [{"target_filename": "CIS_Controls_Version_8.xlsx"}],
+                "failed": [],
+            }
+        if framework == "pci_dss":
+            return {
+                "framework": "pci_dss",
+                "framework_name": "PCI DSS",
+                "upload_batch_id": "batch-pci-1",
+                "source_prefix": "corpus-a/source/pci_dss/batch-pci-1",
+                "uploaded": [{"target_filename": "PCI-DSS-v4_0_1.pdf"}],
+                "failed": [],
+            }
+        raise AssertionError("unexpected framework")
+
+    with patch.object(app_module, "config", _open_auth_config()), patch.object(
+        app_module,
+        "_upload_corpus_a_reference_files",
+        side_effect=_fake_upload,
+    ) as upload_mock, patch.object(
+        app_module,
+        "_trigger_ingestion_job_with_args",
+        return_value={"status_code": 200, "args_override": []},
+    ) as trigger_mock:
+        response = client.post(
+            "/api/corpus-a/upload",
+            data={
+                "framework": "auto",
+                "trigger_job": "true",
+                "auth_token": "",
+            },
+            files=[
+                (
+                    "files",
+                    (
+                        "CIS_Controls_Version_8.xlsx",
+                        b"xlsx-bytes",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    ),
+                ),
+                (
+                    "files",
+                    (
+                        "PCI-DSS-v4_0_1.pdf",
+                        b"pdf-bytes",
+                        "application/pdf",
+                    ),
+                ),
+            ],
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["mode"] == "corpus-a-upload"
+    assert body["framework"] == "auto"
+    assert body["uploaded_count"] == 2
+    assert body["triggered_job"] is True
+    assert len(body["uploads"]) == 2
+    assert len(body["jobs"]) == 2
+    assert upload_mock.call_count == 2
+    assert trigger_mock.call_count == 2
 
 
 def test_corpus_a_ingest_skips_frameworks_requiring_source_upload() -> None:

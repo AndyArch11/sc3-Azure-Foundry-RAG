@@ -657,6 +657,7 @@ Form fields:
 
 - `files`: one or more files to upload.
 - `trigger_job`: `true` or `false` (default `true`).
+- `reindex_on_dedupe`: `true` or `false` (default `false`).
 - `auth_token`: required when token auth is enabled.
 
 Uploaded files are stored under:
@@ -682,6 +683,9 @@ Corpus B duplicate policy:
 - Preferred dedupe key is normalised text hash for text-like uploads.
 - Fallback dedupe key is binary SHA-256 for non-text/binary uploads.
 - Uploads with an existing dedupe key are skipped before ingestion job trigger.
+- If all uploaded files are dedupe-skipped and the index needs rebuilding, set
+  `reindex_on_dedupe=true` with `trigger_job=true` to run ingestion from existing
+  blobs already in storage.
 
 Example (shared-token variant):
 
@@ -714,7 +718,7 @@ The query web app also exposes Corpus A orchestration endpoints:
   - Supports `replace_existing`, `dry_run`, and `no_guidance` flags.
 - `POST /api/corpus-a/upload`
   - Accepts multipart uploads for framework source documents that must exist locally before parsing.
-  - Currently supported frameworks: `cis_controls`, `pci_dss`.
+  - Supported framework values: `cis_controls`, `pci_dss`, `auto`.
   - Stages the uploaded source files in blob storage, then optionally triggers the controls job with a staged source prefix.
 
 Request body example:
@@ -739,6 +743,11 @@ Corpus A source upload notes:
 
 - `cis_controls` expects one `.xlsx` workbook and one `.pdf` guidance document.
 - `pci_dss` expects one `.pdf` source document.
+- `auto` can stage one or both frameworks in a single request.
+- In `auto` mode, file classification uses filename hints; canonical names are recommended:
+  - `CIS_Controls_Version_8.xlsx`
+  - `CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf`
+  - `PCI-DSS-v4_0_1.pdf`
 - Query web stages uploads under `corpus-a/source/<framework>/<upload-batch>/...`.
 - When `trigger_job=true`, query web starts the controls job with `--controls-source-prefix <blob-prefix>` so the ingestion runner can download the staged files into `runtime/samples/` before parsing.
 

@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 import requests  # type: ignore[import-untyped]
 from azure.identity import DefaultAzureCredential
 from azure.search.documents import SearchClient
+from azure.search.documents.indexes import SearchIndexerClient
 from azure.search.documents.models import VectorizedQuery
 from azure.storage.blob import BlobServiceClient, ContentSettings
 from fastapi import FastAPI, File, Form, Request, UploadFile
@@ -2227,6 +2228,69 @@ def _prepare_corpus_a_reference_uploads(
     return key, prepared
 
 
+def _classify_corpus_a_auto_uploads(files: list[UploadFile]) -> dict[str, list[UploadFile]]:
+    """Classify uploaded Corpus A source files into CIS/PCI framework buckets."""
+    grouped: dict[str, list[UploadFile]] = {
+        "cis_controls": [],
+        "pci_dss": [],
+    }
+    ambiguous_pdfs: list[UploadFile] = []
+
+    for file in files:
+        original_name = (file.filename or "uploaded.bin").strip()
+        lower_name = original_name.lower()
+        ext = Path(original_name).suffix.lower()
+
+        if ext == ".xlsx":
+            grouped["cis_controls"].append(file)
+            continue
+        if ext != ".pdf":
+            raise ValueError(
+                f"Unsupported file '{original_name}' for auto mode; expected .pdf or .xlsx."
+            )
+
+        if "pci" in lower_name and "dss" in lower_name:
+            grouped["pci_dss"].append(file)
+        elif "cis" in lower_name and "control" in lower_name:
+            grouped["cis_controls"].append(file)
+        else:
+            ambiguous_pdfs.append(file)
+
+    cis_has_xlsx = any(
+        Path((item.filename or "").strip()).suffix.lower() == ".xlsx"
+        for item in grouped["cis_controls"]
+    )
+    cis_pdf_count = sum(
+        1
+        for item in grouped["cis_controls"]
+        if Path((item.filename or "").strip()).suffix.lower() == ".pdf"
+    )
+    pci_pdf_count = sum(
+        1
+        for item in grouped["pci_dss"]
+        if Path((item.filename or "").strip()).suffix.lower() == ".pdf"
+    )
+
+    for file in ambiguous_pdfs:
+        if cis_has_xlsx and cis_pdf_count == 0:
+            grouped["cis_controls"].append(file)
+            cis_pdf_count += 1
+            continue
+        if pci_pdf_count == 0:
+            grouped["pci_dss"].append(file)
+            pci_pdf_count += 1
+            continue
+        raise ValueError(
+            "Could not auto-map one or more PDF files. "
+            "Choose a specific framework, or use canonical filenames for CIS/PCI sources."
+        )
+
+    selected = {framework: items for framework, items in grouped.items() if items}
+    if not selected:
+        raise ValueError("No supported Corpus A source files were provided.")
+    return selected
+
+
 def _controls_framework_ingestion_status() -> dict[str, Any]:
     status: dict[str, Any] = {}
 
@@ -3343,6 +3407,17 @@ def _trigger_ingestion_job() -> dict[str, Any]:
     return _trigger_ingestion_job_with_args(None)
 
 
+def _reset_grounding_indexer_state() -> str:
+    """Reset the grounding indexer high-watermark so unchanged blobs can be reprocessed."""
+    indexer_name = os.getenv("AZURE_SEARCH_INDEXER_NAME", f"{config.search_index_name}-indexer").strip()
+    if not indexer_name:
+        raise RuntimeError("AZURE_SEARCH_INDEXER_NAME is empty.")
+
+    client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
+    client.reset_indexer(indexer_name)
+    return indexer_name
+
+
 def _get_ingestion_job_template_container(token: str) -> dict[str, Any]:
     """Fetch the current job template container for safe args override starts."""
     get_url = (
@@ -4130,9 +4205,13 @@ async def upload_corpus_b_and_trigger(
     try:
         upload_result = _upload_corpus_b_files(files, user_id=user_id)
         trigger_result: dict[str, Any] | None = None
+        indexer_reset: dict[str, Any] | None = None
         should_trigger_for_reindex = (
             reindex_on_dedupe and not upload_result["uploaded"] and bool(upload_result["skipped"])
         )
+        if should_trigger_for_reindex:
+            reset_indexer_name = _reset_grounding_indexer_state()
+            indexer_reset = {"performed": True, "indexer_name": reset_indexer_name}
         if trigger_job and (upload_result["uploaded"] or should_trigger_for_reindex):
             trigger_result = _trigger_ingestion_job()
 
@@ -4165,6 +4244,7 @@ async def upload_corpus_b_and_trigger(
                 "triggered_job": bool(trigger_result),
                 "job": trigger_result,
                 "reindex_on_dedupe": reindex_on_dedupe,
+                "indexer_reset": indexer_reset,
                 "message": message,
             },
             status_code=status_code,
@@ -4198,9 +4278,13 @@ async def upload_corpus_c_and_trigger(
             corpus_role="assessed_artifact",
         )
         trigger_result: dict[str, Any] | None = None
+        indexer_reset: dict[str, Any] | None = None
         should_trigger_for_reindex = (
             reindex_on_dedupe and not upload_result["uploaded"] and bool(upload_result["skipped"])
         )
+        if should_trigger_for_reindex:
+            reset_indexer_name = _reset_grounding_indexer_state()
+            indexer_reset = {"performed": True, "indexer_name": reset_indexer_name}
         if trigger_job and (upload_result["uploaded"] or should_trigger_for_reindex):
             # The ingestion job template already defaults to --mode azure --skip-upload.
             # Starting with an args override can be rejected by ARM in some environments
@@ -4236,6 +4320,7 @@ async def upload_corpus_c_and_trigger(
                 "triggered_job": bool(trigger_result),
                 "job": trigger_result,
                 "reindex_on_dedupe": reindex_on_dedupe,
+                "indexer_reset": indexer_reset,
                 "message": message,
             },
             status_code=status_code,
@@ -4389,66 +4474,106 @@ async def upload_corpus_a_reference_documents(
 
     try:
         framework_key = _normalise_corpus_a_framework_key(framework)
-        if not framework_key or framework_key not in _CORPUS_A_REFERENCE_UPLOAD_TARGETS:
+        raw_framework = (framework or "").strip().lower()
+        auto_mode = raw_framework in {"", "auto", "both", "all"}
+        if (not auto_mode) and (
+            not framework_key or framework_key not in _CORPUS_A_REFERENCE_UPLOAD_TARGETS
+        ):
             return JSONResponse(
                 {
                     "error": (
-                        "Corpus A source document upload supports only cis_controls and pci_dss."
+                        "Corpus A source document upload supports cis_controls, pci_dss, or auto mode."
                     )
                 },
                 status_code=400,
             )
 
         user_id = _get_user_id(auth_token, str(uuid.uuid4()))
-        upload_result = _upload_corpus_a_reference_files(
-            files,
-            user_id=user_id,
-            framework=framework_key,
-        )
-
-        trigger_result: dict[str, Any] | None = None
-        if trigger_job and upload_result["uploaded"] and not upload_result["failed"]:
-            args_override = [
-                "--mode",
-                "controls",
-                "--controls-framework",
-                framework_key,
-                "--controls-source-prefix",
-                str(upload_result["source_prefix"]),
-            ]
-            if replace_existing:
-                args_override.append("--replace-existing")
-            if dry_run:
-                args_override.append("--dry-run")
-            if no_guidance:
-                args_override.append("--no-guidance")
-            trigger_result = _trigger_ingestion_job_with_args(args_override)
-
-        message = ""
-        if upload_result["failed"]:
-            message = "One or more Corpus A source files failed to upload; ingestion job not started."
-        elif not trigger_job:
-            message = "Corpus A source files staged successfully. Trigger the controls ingestion job separately if needed."
-        elif trigger_result:
-            message = (
-                f"Corpus A {upload_result['framework_name']} source files uploaded and ingestion job triggered. "
-                "Check job status with the 'Job Diagnostics' button, or check Azure Container Apps > Job > Execution History in Azure Portal. "
-                "Indexing typically completes within 1-2 minutes."
+        upload_results: list[dict[str, Any]] = []
+        if auto_mode:
+            classified = _classify_corpus_a_auto_uploads(files)
+            for key in sorted(classified.keys()):
+                upload_results.append(
+                    _upload_corpus_a_reference_files(
+                        classified[key],
+                        user_id=user_id,
+                        framework=key,
+                    )
+                )
+        else:
+            selected_framework_key = cast(str, framework_key)
+            upload_results.append(
+                _upload_corpus_a_reference_files(
+                    files,
+                    user_id=user_id,
+                    framework=selected_framework_key,
+                )
             )
 
-        status_code = 200 if not upload_result["failed"] else 207
+        triggered_jobs: list[dict[str, Any]] = []
+        if trigger_job:
+            for upload_result in upload_results:
+                if not upload_result["uploaded"] or upload_result["failed"]:
+                    continue
+                args_override = [
+                    "--mode",
+                    "controls",
+                    "--controls-framework",
+                    str(upload_result["framework"]),
+                    "--controls-source-prefix",
+                    str(upload_result["source_prefix"]),
+                ]
+                if replace_existing:
+                    args_override.append("--replace-existing")
+                if dry_run:
+                    args_override.append("--dry-run")
+                if no_guidance:
+                    args_override.append("--no-guidance")
+                trigger_result = _trigger_ingestion_job_with_args(args_override)
+                triggered_jobs.append(
+                    {
+                        "framework": upload_result["framework"],
+                        "job": trigger_result,
+                    }
+                )
+
+        total_uploaded = sum(len(item["uploaded"]) for item in upload_results)
+        total_failed = sum(len(item["failed"]) for item in upload_results)
+
+        message = ""
+        if total_failed:
+            message = "One or more Corpus A source files failed to upload; ingestion job was not started for failed framework uploads."
+        elif not trigger_job:
+            message = "Corpus A source files staged successfully. Trigger the controls ingestion job separately if needed."
+        elif triggered_jobs:
+            triggered_frameworks = ", ".join(job["framework"] for job in triggered_jobs)
+            message = (
+                f"Corpus A source files uploaded and ingestion job triggered for: {triggered_frameworks}. "
+                "Check job status with the 'Job Diagnostics' button, or Azure Container Apps > Job > Execution History."
+            )
+
+        status_code = 200 if total_failed == 0 else 207
+        primary = upload_results[0]
         return JSONResponse(
             {
                 "mode": "corpus-a-upload",
-                "framework": framework_key,
-                "framework_name": upload_result["framework_name"],
+                "framework": (
+                    "auto" if auto_mode and len(upload_results) > 1 else primary["framework"]
+                ),
+                "framework_name": (
+                    "Multiple"
+                    if auto_mode and len(upload_results) > 1
+                    else primary["framework_name"]
+                ),
                 "storage_account_name": config.storage_account_name,
                 "storage_container_name": config.storage_container_name,
-                "uploaded_count": len(upload_result["uploaded"]),
-                "failed_count": len(upload_result["failed"]),
-                "upload": upload_result,
-                "triggered_job": bool(trigger_result),
-                "job": trigger_result,
+                "uploaded_count": total_uploaded,
+                "failed_count": total_failed,
+                "upload": primary,
+                "uploads": upload_results,
+                "triggered_job": bool(triggered_jobs),
+                "job": triggered_jobs[0]["job"] if len(triggered_jobs) == 1 else None,
+                "jobs": triggered_jobs,
                 "replace_existing": replace_existing,
                 "dry_run": dry_run,
                 "no_guidance": no_guidance,
