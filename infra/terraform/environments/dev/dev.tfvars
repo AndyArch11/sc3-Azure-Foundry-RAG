@@ -19,7 +19,7 @@ enable_confluence_poller_app = true
 query_web_public_endpoint    = true                   # Set true for public query web ingress. Creation-level: switching later requires CAE replacement.
 ingestion_job_image_tag      = "202604121531-53b21be" # Immutable tag. Update when a new ingestion image is pushed.
 query_web_image_tag          = "202604121532-53b21be" # Immutable tag. Update when a new query-web image is pushed.
-confluence_poller_image_tag  = "202604122339-3ad676e" # Immutable tag. Update when a new confluence poller image is pushed.
+confluence_poller_image_tag  = "202604122351-2103d6b" # Immutable tag. Update when a new confluence poller image is pushed.
 search_index_name            = "grounding-index"
 controls_index_name          = "controls-index"
 # Optional overrides for globally-unique resource names (use when 409 name collisions occur).
