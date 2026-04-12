@@ -50,7 +50,7 @@ confluence_poll_space_keys         = []
 confluence_poll_interval_seconds   = 75
 confluence_poll_lease_ttl_seconds  = 300
 confluence_poll_max_event_attempts = 3
-confluence_poll_initial_lookback   = "PT1H"
+confluence_poll_initial_lookback   = "P2D"
 confluence_poll_dry_run            = false
 
 # Prompt injection validator settings.
