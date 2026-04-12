@@ -333,7 +333,14 @@ def _build_recent_mentions_query(
         occurred_at = str(mention.get("occurred_at") or "")
         if not occurred_at:
             continue
-        if _parse_iso(occurred_at) <= window_end:
+        try:
+            event_dt = _parse_iso(occurred_at)
+        except Exception:
+            # Keep the event rather than dropping it if Confluence returns
+            # a non-ISO timestamp shape.
+            bounded.append(mention)
+            continue
+        if event_dt <= window_end:
             bounded.append(mention)
     bounded.sort(key=_event_sort_key)
     return bounded

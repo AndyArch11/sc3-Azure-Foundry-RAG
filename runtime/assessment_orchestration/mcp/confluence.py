@@ -61,6 +61,28 @@ def _iso_to_cql_datetime(iso_str: str) -> str:
     return dt.strftime("%Y-%m-%d %H:%M")
 
 
+def _extract_mention_occurred_at(content: dict[str, Any], result: dict[str, Any]) -> str:
+    """Best-effort extraction of event time from Confluence CQL result shapes."""
+    version = content.get("version") or {}
+    history = content.get("history") or {}
+    last_updated = history.get("lastUpdated") or {}
+    result_last_modified = result.get("lastModified")
+
+    candidates: list[Any] = [
+        version.get("when"),
+        last_updated.get("when"),
+        content.get("createdDate"),
+        result.get("lastModifiedDate"),
+        result_last_modified.get("when") if isinstance(result_last_modified, dict) else None,
+        result_last_modified,
+    ]
+
+    for value in candidates:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
 def _iso_duration_to_since(duration: str) -> str:
     """Convert an ISO 8601 duration string (e.g. PT1H, PT24H, P1D) to an absolute ISO timestamp."""
     upper = duration.upper()
@@ -102,7 +124,7 @@ def _normalise_mention_result(result: dict[str, Any], *, site_base_url: str) -> 
     version = content.get("version") or {}
     mentioner_by = version.get("by") or {}
     mentioner_account_id = str(mentioner_by.get("accountId") or "")
-    occurred_at = str(version.get("when") or result.get("lastModified") or "")
+    occurred_at = _extract_mention_occurred_at(content, result)
     trigger_text = _strip_html(str(result.get("excerpt") or "")).strip()
     title = str(content.get("title") or "").strip()
 
