@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -r query_web-requirements.txt -r runtime-requirem
 COPY query_web/app.py ./app.py
 COPY query_web/prompt_injection_guard.py ./prompt_injection_guard.py
 COPY query_web/templates ./templates
+COPY query_web/static ./static
 COPY query_web/policies ./policies
 COPY runtime ./runtime
 

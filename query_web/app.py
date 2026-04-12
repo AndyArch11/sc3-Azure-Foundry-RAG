@@ -25,6 +25,7 @@ from azure.search.documents.models import VectorizedQuery
 from azure.storage.blob import BlobServiceClient, ContentSettings
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from prompt_injection_guard import (BLOCKED_PROMPT_INJECTION_MESSAGE,
                                     PROMPT_INJECTION_SYSTEM_PROMPT, VALIDATOR_SYSTEM_PROMPT,
@@ -545,6 +546,7 @@ def _clean_markdown_whitespace(text: str) -> str:
 
 app = FastAPI(title="RAG Query Console")
 templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 credential = DefaultAzureCredential()
 config = load_config()
 precedence_policy = _load_precedence_policy(
@@ -600,6 +602,7 @@ class CorpusAIngestRequest(BaseModel):
 class ComplianceReportRequest(BaseModel):
     question: str
     retrieve_k: int = Field(default=5, ge=1, le=20)
+    controls_top_k: int = Field(default=4, ge=1, le=2000)
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
     controls_framework: str | None = None
     controls_comparison_mode: str = "auto-detect"
@@ -616,6 +619,7 @@ class AzureComplianceReportRequest(BaseModel):
     resource_ids: list[str] = Field(default_factory=list)
     controls_framework: str = "NIST CSF"
     controls_top_k: int = Field(default=4, ge=1, le=2000)
+    temperature: float = Field(default=1.0, ge=0.0, le=1.0)
     assessment_strategy: Literal["single_pass", "per_control"] = "single_pass"
     validation_mode: Literal["hard", "soft"] = "hard"
     auth_token: str = ""
@@ -1270,7 +1274,7 @@ def _generate_compliance_report_result(
 
     controls, controls_timings = _controls_search(
         question,
-        retrieve_k=config.controls_top_k,
+        retrieve_k=payload.controls_top_k,
         use_semantic=config.controls_semantic_default,
         framework_filter_override=_normalise_framework_filter(payload.controls_framework),
         comparison_mode=_normalise_controls_comparison_mode(payload.controls_comparison_mode),
@@ -1506,7 +1510,7 @@ def _generate_azure_compliance_report_result(
             controls=controls,
             corpus_b_chunks=corpus_b_chunks,
             corpus_c_chunks=corpus_c_chunks,
-            temperature=float(os.environ.get("ASSESSMENT_TEMPERATURE") or "0.2"),
+            temperature=payload.temperature,
             progress_cb=progress_cb,
         )
     else:
@@ -1541,6 +1545,7 @@ def _generate_azure_compliance_report_result(
         "assessment_strategy": payload.assessment_strategy,
         "framework": framework,
         "controls_top_k": payload.controls_top_k,
+        "temperature": payload.temperature,
         "scope": {
             "subscription_id": subscription_id,
             "resource_group": resource_group,
