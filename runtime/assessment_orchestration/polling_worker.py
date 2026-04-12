@@ -61,6 +61,25 @@ def _parse_iso(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _initial_since_from_lookback(lookback: str) -> str:
+    """Convert ISO-like lookback (PT1H/PT30M/P1D) to an absolute since timestamp."""
+    upper = (lookback or "").strip().upper()
+    hours = minutes = days = 0
+    m = re.search(r"(\d+)H", upper)
+    if m:
+        hours = int(m.group(1))
+    m = re.search(r"(\d+)M(?!O)", upper)
+    if m:
+        minutes = int(m.group(1))
+    m = re.search(r"P(\d+)D", upper)
+    if m:
+        days = int(m.group(1))
+    delta = timedelta(hours=hours, minutes=minutes, days=days)
+    if not delta:
+        delta = timedelta(hours=1)
+    return _iso(_now_utc() - delta)
+
+
 def _event_sort_key(event: dict[str, Any]) -> tuple[str, str, str]:
     occurred_at = str(event.get("occurred_at") or "")
     title = str(event.get("title") or "")
@@ -498,7 +517,7 @@ def run_poll_cycle(
         state = state_store.load_state(config.source)
         now = _now_utc()
         window_end = now
-        since_iso = state.watermark or _iso(now - timedelta(hours=1))
+        since_iso = state.watermark or _initial_since_from_lookback(config.initial_lookback)
 
         mentions = _build_recent_mentions_query(
             server,
