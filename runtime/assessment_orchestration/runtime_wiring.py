@@ -113,6 +113,10 @@ def create_confluence_mcp_server_from_env(
     base_url = _required(values, "CONFLUENCE_BASE_URL")
     auth_mode = (values.get("CONFLUENCE_AUTH_MODE") or "basic").strip().lower()
     account_id = (values.get("CONFLUENCE_ACCOUNT_ID") or "").strip() or None
+    mention_aliases_raw = (values.get("CONFLUENCE_MENTION_ALIASES") or "").strip()
+    mention_aliases = tuple(
+        x.strip() for x in mention_aliases_raw.split(",") if x.strip()
+    ) if mention_aliases_raw else None
 
     if auth_mode == "basic":
         api_token = _required(values, "CONFLUENCE_API_TOKEN")
@@ -123,6 +127,7 @@ def create_confluence_mcp_server_from_env(
             api_token=api_token,
             auth_mode="basic",
             account_id=account_id,
+            mention_aliases=mention_aliases,
         )
 
     if auth_mode == "bearer":
@@ -134,6 +139,7 @@ def create_confluence_mcp_server_from_env(
             auth_mode="bearer",
             cloud_id=cloud_id,
             account_id=account_id,
+            mention_aliases=mention_aliases,
         )
 
     if auth_mode == "oauth":
@@ -161,6 +167,7 @@ def create_confluence_mcp_server_from_env(
             auth_mode="oauth",
             cloud_id=cloud_id,
             account_id=account_id,
+            mention_aliases=mention_aliases,
         )
 
     raise ValueError("CONFLUENCE_AUTH_MODE must be either 'basic', 'bearer', or 'oauth'")

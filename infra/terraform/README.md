@@ -6,6 +6,10 @@
 
 Environment-specific tfvars under `environments/<env>/` are the authoritative operational inputs for this repository. `terraform.tfvars.example` is a minimal seed template only and should not be treated as a full mirror of any active environment file.
 
+Optional ingestion enrichment input:
+
+- `ingestion_cognitive_services_api_key_vault_secret_id`: Key Vault secret ID containing an AI Services / Cognitive Services API key for billed Azure AI Search skillset enrichment. Leave unset to keep the ingestion job on the free skillset quota. When set, the value is exposed to the ingestion Container App Job as `COGNITIVE_SERVICES_API_KEY` through a Key Vault-backed secret reference.
+
 Apply order:
 
 1. `bootstrap`

@@ -537,8 +537,11 @@ class ConfluenceMCPServer:
         cloud_id: str | None = None,
         client: ConfluenceClient | None = None,
         account_id: str | None = None,
+        mention_aliases: tuple[str, ...] | None = None,
     ) -> None:
         self._account_id = account_id or ""
+        aliases = mention_aliases or ("@assessment-agent", "@compliance-agent")
+        self._mention_aliases = tuple(a.strip() for a in aliases if a.strip())
         if client is not None:
             self._client: ConfluenceClient | None = client
         elif auth_mode == "basic" and base_url and auth_email and api_token:
@@ -712,7 +715,11 @@ class ConfluenceMCPServer:
         if self._account_id:
             filters.append(f'mention = "{self._account_id}"')
         else:
-            filters.append('text ~ "@assessment-agent"')
+            alias_filters = [f'text ~ "{alias}"' for alias in self._mention_aliases]
+            if alias_filters:
+                filters.append("(" + " OR ".join(alias_filters) + ")")
+            else:
+                filters.append('text ~ "@assessment-agent"')
 
         if since_dt:
             filters.append(f'created >= "{_iso_to_cql_datetime(since_dt)}"')

@@ -387,9 +387,9 @@
       </div>
       {% endif %}
 
-      {% if answer and not session_id %}
-      <div class="source">
-        <h3>Answer</h3>
+      {% if answer %}
+      <div class="source" id="latest-answer-fallback">
+        <h3>{% if session_id %}Latest Answer{% else %}Answer{% endif %}</h3>
         <div class="answer" id="answer-md" data-raw="{{ answer | e }}"></div>
       </div>
       {% endif %}

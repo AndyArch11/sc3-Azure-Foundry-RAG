@@ -247,6 +247,7 @@ module "agent_hosting" {
   prompt_injection_validator_mode                   = var.prompt_injection_validator_mode
   guardrail_metrics_in_response                     = var.guardrail_metrics_in_response
   query_web_entra_client_secret_key_vault_secret_id = var.query_web_entra_client_secret_key_vault_secret_id
+  ingestion_cognitive_services_api_key_vault_secret_id = var.ingestion_cognitive_services_api_key_vault_secret_id
   ingestion_job_image_tag                           = var.ingestion_job_image_tag
   query_web_auth_token                              = var.query_web_auth_token
   query_web_required_group_object_id                = var.query_web_required_group_object_id
@@ -264,6 +265,7 @@ module "agent_hosting" {
   confluence_api_token                              = var.confluence_api_token
   confluence_cloud_id                               = var.confluence_cloud_id
   confluence_account_id                             = var.confluence_account_id
+  confluence_mention_aliases                        = var.confluence_mention_aliases
   confluence_poll_space_keys                        = var.confluence_poll_space_keys
   confluence_poll_interval_seconds                  = var.confluence_poll_interval_seconds
   confluence_poll_lease_ttl_seconds                 = var.confluence_poll_lease_ttl_seconds

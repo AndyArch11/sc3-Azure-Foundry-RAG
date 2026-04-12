@@ -76,8 +76,10 @@
   function renderThread(turns) {
     const wrapper = document.getElementById('conversation-wrapper');
     const thread = document.getElementById('conversation-thread');
+    const fallback = document.getElementById('latest-answer-fallback');
     if (!turns.length) { wrapper.style.display = 'none'; return; }
     wrapper.style.display = '';
+    if (fallback) fallback.style.display = 'none';
     thread.innerHTML = turns.map((t, i) =>
       `<div class="chat-turn">
         <div class="chat-bubble user"><div class="chat-meta">You</div>${escHtml(t.q)}</div>
@@ -168,6 +170,18 @@
     if (authField && authField.value) return authField.value;
     const session = loadSession();
     return (session && session.auth_token) ? session.auth_token : '';
+  }
+
+  function _extractExecutionName(payload) {
+    return (payload && payload.job && payload.job.execution_name) ||
+      (payload && payload.jobs && payload.jobs.length > 0 && payload.jobs[0].job && payload.jobs[0].job.execution_name) || null;
+  }
+
+  function _findExecution(diagData, executionName) {
+    if (!diagData || !diagData.recent_executions || !executionName) return null;
+    return diagData.recent_executions.find(
+      e => e.id && (e.id.endsWith('/' + executionName) || e.id === executionName)
+    ) || null;
   }
 
   function _selectedCorpusAFrameworks() {
@@ -540,47 +554,49 @@
         _renderCorpusBStatus(data);
         input.value = '';
         if (data && data.triggered_job && !data.error) {
-          _pollCorpusBIndexStatus(40, 0);
+          const executionName = _extractExecutionName(data);
+          const statusEl = document.getElementById('cb-status');
+          statusEl.textContent += '\n\n[Job triggered' + (executionName ? ' (' + executionName + ')' : '') + '. Polling this execution only...]';
+          _pollCorpusBIndexStatus(40, 0, executionName);
         }
       })
       .catch(err => _renderCorpusBStatus({ error: String(err) }));
   }
 
-  function _fetchIngestionLatestJob() {
-    const token = _currentAuthToken();
-    const params = new URLSearchParams();
-    if (token) params.set('auth_token', token);
-    const qs = params.toString();
-    return fetch('/api/ingestion-job/latest' + (qs ? ('?' + qs) : ''))
-      .then(r => r.json())
-      .catch(() => null);
-  }
-
-  function _pollCorpusBIndexStatus(maxPollIntervals, pollCount) {
+  function _pollCorpusListAndJobStatus(listEndpoint, statusElementId, batchFieldId, maxPollIntervals, pollCount, executionName) {
     if (pollCount >= maxPollIntervals) return;
     setTimeout(() => {
       const token = _currentAuthToken();
       const params = new URLSearchParams();
       if (token) params.set('auth_token', token);
       params.set('limit', '100');
+      const batchField = document.getElementById(batchFieldId);
+      const batch = batchField ? (batchField.value || '').trim() : '';
+      if (batch) params.set('upload_batch', batch);
       const qs = params.toString();
-      fetch('/api/corpus-b/list' + (qs ? ('?' + qs) : ''))
-        .then(r => r.json())
-        .then(data => {
-          _fetchIngestionLatestJob().then(jobData => {
-            const statusEl = document.getElementById('cb-status');
-            const indexed = data && data.returned_count ? data.returned_count : 0;
-            const latest = jobData && jobData.latest ? jobData.latest : null;
-            const jobLine = latest
-              ? `[Ingestion job: ${latest.name || 'unknown'} status=${latest.status || 'unknown'}]`
-              : '[Ingestion job: status unavailable]';
-            const pollMsg = `\n[Indexed count: ${indexed}; refreshed at ${new Date().toLocaleTimeString()}] ${jobLine}\n`;
-            statusEl.textContent = pollMsg + JSON.stringify(data, null, 2);
-            _pollCorpusBIndexStatus(maxPollIntervals, pollCount + 1);
-          });
+      const diagQs = token ? ('?auth_token=' + encodeURIComponent(token)) : '';
+      Promise.all([
+        fetch(listEndpoint + (qs ? ('?' + qs) : '')).then(r => r.json()),
+        fetch('/api/ingestion-job/diagnostics' + diagQs).then(r => r.json()),
+      ])
+        .then(([data, diagData]) => {
+          const statusEl = document.getElementById(statusElementId);
+          const total = data && typeof data.total_count === 'number' ? data.total_count : 'unknown';
+          const returned = data && typeof data.returned_count === 'number' ? data.returned_count : 'unknown';
+          const exec = _findExecution(diagData, executionName);
+          const execShortName = exec && exec.id ? exec.id.split('/').pop() : executionName;
+          const jobStatus = exec ? (exec.status || 'unknown') : 'pending lookup';
+          const pollMsg = `\n[Total count: ${total}; Returned: ${returned}; refreshed at ${new Date().toLocaleTimeString()}] [Ingestion job: ${execShortName || 'unknown'} status=${jobStatus}]\n`;
+          statusEl.textContent = pollMsg + JSON.stringify(data, null, 2);
+          if (exec && (exec.status === 'Succeeded' || exec.status === 'Failed')) return;
+          _pollCorpusListAndJobStatus(listEndpoint, statusElementId, batchFieldId, maxPollIntervals, pollCount + 1, executionName);
         })
-        .catch(() => _pollCorpusBIndexStatus(maxPollIntervals, pollCount + 1));
+        .catch(() => _pollCorpusListAndJobStatus(listEndpoint, statusElementId, batchFieldId, maxPollIntervals, pollCount + 1, executionName));
     }, 5000);
+  }
+
+  function _pollCorpusBIndexStatus(maxPollIntervals, pollCount, executionName) {
+    _pollCorpusListAndJobStatus('/api/corpus-b/list', 'cb-status', 'cr-b-upload-batch', maxPollIntervals, pollCount, executionName);
   }
 
   function uploadCorpusCIngest() {
@@ -607,37 +623,17 @@
         _renderCorpusCStatus(data);
         input.value = '';
         if (data && data.triggered_job && !data.error) {
-          _pollCorpusCIndexStatus(40, 0);
+          const executionName = _extractExecutionName(data);
+          const statusEl = document.getElementById('cc-status');
+          statusEl.textContent += '\n\n[Job triggered' + (executionName ? ' (' + executionName + ')' : '') + '. Polling this execution only...]';
+          _pollCorpusCIndexStatus(40, 0, executionName);
         }
       })
       .catch(err => _renderCorpusCStatus({ error: String(err) }));
   }
 
-  function _pollCorpusCIndexStatus(maxPollIntervals, pollCount) {
-    if (pollCount >= maxPollIntervals) return;
-    setTimeout(() => {
-      const token = _currentAuthToken();
-      const params = new URLSearchParams();
-      if (token) params.set('auth_token', token);
-      params.set('limit', '100');
-      const qs = params.toString();
-      fetch('/api/corpus-c/list' + (qs ? ('?' + qs) : ''))
-        .then(r => r.json())
-        .then(data => {
-          _fetchIngestionLatestJob().then(jobData => {
-            const statusEl = document.getElementById('cc-status');
-            const indexed = data && data.returned_count ? data.returned_count : 0;
-            const latest = jobData && jobData.latest ? jobData.latest : null;
-            const jobLine = latest
-              ? `[Ingestion job: ${latest.name || 'unknown'} status=${latest.status || 'unknown'}]`
-              : '[Ingestion job: status unavailable]';
-            const pollMsg = `\n[Indexed count: ${indexed}; refreshed at ${new Date().toLocaleTimeString()}] ${jobLine}\n`;
-            statusEl.textContent = pollMsg + JSON.stringify(data, null, 2);
-            _pollCorpusCIndexStatus(maxPollIntervals, pollCount + 1);
-          });
-        })
-        .catch(() => _pollCorpusCIndexStatus(maxPollIntervals, pollCount + 1));
-    }, 5000);
+  function _pollCorpusCIndexStatus(maxPollIntervals, pollCount, executionName) {
+    _pollCorpusListAndJobStatus('/api/corpus-c/list', 'cc-status', 'cr-upload-batch', maxPollIntervals, pollCount, executionName);
   }
 
   function clearCorpusC() {
@@ -857,8 +853,8 @@
     }
 
     // Append the server-rendered turn to local history.
-    // Also append when there is an error so the latest asked question is not lost.
-    if (sd.question && (sd.answer || sd.error)) {
+    // Always append when a question was submitted so the latest turn is never lost.
+    if (sd.question) {
       const renderedAnswer = (sd.answer && sd.answer.trim())
         ? sd.answer
         : ('Request failed: ' + (sd.error || 'No response returned.'));
@@ -870,6 +866,10 @@
     }
 
     renderThread(session.turns);
+    if (!session.turns.length) {
+      const fallback = document.getElementById('latest-answer-fallback');
+      if (fallback) fallback.style.display = '';
+    }
     refreshCorpusAStatus();
 
     const askForm = document.getElementById('ask-form');

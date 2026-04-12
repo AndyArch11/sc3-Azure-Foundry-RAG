@@ -330,6 +330,12 @@ variable "confluence_account_id" {
   default     = ""
 }
 
+variable "confluence_mention_aliases" {
+  type        = list(string)
+  description = "Fallback mention aliases used when confluence_account_id is unset."
+  default     = ["@assessment-agent", "@compliance-agent"]
+}
+
 variable "confluence_poll_space_keys" {
   type        = list(string)
   description = "Optional allowlist of Confluence space keys for polling scope."
@@ -460,6 +466,12 @@ variable "query_web_required_group_object_id" {
 variable "query_web_entra_client_secret_key_vault_secret_id" {
   type        = string
   description = "Key Vault secret ID containing the Entra app client secret used by Container App EasyAuth. Populated during jumpbox rollout."
+  default     = ""
+}
+
+variable "ingestion_cognitive_services_api_key_vault_secret_id" {
+  type        = string
+  description = "Optional Key Vault secret ID containing the Cognitive Services / AI Services API key used by the ingestion skillset for billed enrichment. Leave empty to stay on the free skillset quota."
   default     = ""
 }
 

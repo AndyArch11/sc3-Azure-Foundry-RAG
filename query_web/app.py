@@ -544,6 +544,18 @@ def _clean_markdown_whitespace(text: str) -> str:
     return normalised.strip()
 
 
+def _ensure_visible_answer(answer: str) -> str:
+    """Prevent silent blank answers from reaching the UI."""
+    if answer and answer.strip():
+        return answer.strip()
+    return (
+        "## Decision\n"
+        "No answer text was generated for this request, even though retrieval completed.\n\n"
+        "## Next Step\n"
+        "Review the retrieved controls and chunks shown below, then retry the question or narrow the scope."
+    )
+
+
 app = FastAPI(title="RAG Query Console")
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -3281,6 +3293,7 @@ def _run_rag(
             _chat_completion(messages, deployment=config.query_deployment, temperature=temperature)
         )
     )
+    answer = _ensure_visible_answer(answer)
     answer = _prepend_disclaimer(answer, controls_disclaimer)
     llm_reply_s = round(time.perf_counter() - t_llm, 3)
 
@@ -3314,6 +3327,7 @@ def _run_rag(
             messages, deployment=config.query_deployment, temperature=temperature
         )
         answer = _clean_markdown_whitespace(_unwrap_answer(answer))
+        answer = _ensure_visible_answer(answer)
         answer = _prepend_disclaimer(answer, controls_disclaimer)
         llm_retry_s = round(time.perf_counter() - t_retry, 3)
 
