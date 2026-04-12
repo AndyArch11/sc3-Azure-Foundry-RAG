@@ -134,9 +134,11 @@ def _normalise_mention_result(result: dict[str, Any], *, site_base_url: str) -> 
         canonical_url = ""
 
     # Some CQL responses omit ancestors for comments. Recover page/space from URL path.
-    if content_type == "comment" and canonical_url and (not page_id or not space_key):
+    if content_type == "comment" and canonical_url and (
+        (not page_id) or (page_id == content_id) or (not space_key)
+    ):
         parsed_page_id, parsed_space_key = _parse_confluence_url_path(urlparse(canonical_url).path)
-        if parsed_page_id and not page_id:
+        if parsed_page_id:
             page_id = parsed_page_id
         if parsed_space_key and not space_key:
             space_key = parsed_space_key

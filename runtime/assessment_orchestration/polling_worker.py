@@ -359,7 +359,9 @@ def _build_recent_mentions_query(
             # a non-ISO timestamp shape.
             bounded.append(mention)
             continue
-        if event_dt <= window_end:
+        # Allow small forward skew to avoid dropping events whose fallback
+        # timestamp is generated a moment after window_end is sampled.
+        if event_dt <= (window_end + timedelta(minutes=5)):
             bounded.append(mention)
     bounded.sort(key=_event_sort_key)
     return bounded
