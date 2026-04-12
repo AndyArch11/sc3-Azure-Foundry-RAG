@@ -405,27 +405,65 @@
         _renderCorpusAStatus(data);
         input.value = '';
         if (data && data.triggered_job && !data.error) {
-          _pollCorpusAIndexStatus(5, 0);
+          const executionName = (data.job && data.job.execution_name) ||
+            (data.jobs && data.jobs.length > 0 && data.jobs[0].job && data.jobs[0].job.execution_name) || null;
+          const statusEl = document.getElementById('ca-status');
+          statusEl.textContent += '\n\n[Job triggered' + (executionName ? ' (' + executionName + ')' : '') + '. Polling job status every 15s, up to 30 checks (~7.5 min)...]';
+          _pollCorpusAIndexStatus(30, 0, executionName);
         }
       })
       .catch(err => _renderCorpusAStatus({ error: String(err) }));
   }
 
-  function _pollCorpusAIndexStatus(maxPollIntervals, pollCount) {
-    if (pollCount >= maxPollIntervals) return;
+  function _pollCorpusAIndexStatus(maxPollIntervals, pollCount, executionName) {
+    if (pollCount >= maxPollIntervals) {
+      const statusEl = document.getElementById('ca-status');
+      statusEl.textContent += '\n\n[Polling stopped after ' + maxPollIntervals + ' checks. Use "Job Diagnostics" or check Azure Portal for final status.]';
+      return;
+    }
     setTimeout(() => {
       const token = _currentAuthToken();
       const qs = token ? ('?auth_token=' + encodeURIComponent(token)) : '';
-      fetch('/api/corpus-a/status' + qs)
+      fetch('/api/ingestion-job/diagnostics' + qs)
         .then(r => r.json())
-        .then(data => {
+        .then(diagData => {
           const statusEl = document.getElementById('ca-status');
-          const pollMsg = `\n[Status refreshed at ${new Date().toLocaleTimeString()}]\n`;
-          statusEl.textContent = pollMsg + JSON.stringify(data, null, 2);
-          _pollCorpusAIndexStatus(maxPollIntervals, pollCount + 1);
+          const now = new Date().toLocaleTimeString();
+          let exec = null;
+          if (executionName && diagData.recent_executions) {
+            exec = diagData.recent_executions.find(
+              e => e.id && (e.id.endsWith('/' + executionName) || e.id === executionName)
+            );
+          }
+          if (!exec && diagData.recent_executions && diagData.recent_executions.length > 0) {
+            exec = diagData.recent_executions[0];
+          }
+          if (exec) {
+            const st = exec.status || 'Unknown';
+            const execShortName = (exec.id || '').split('/').pop();
+            statusEl.textContent = (
+              `[Poll ${pollCount + 1}/${maxPollIntervals} at ${now}]\n` +
+              `Execution: ${execShortName}\n` +
+              `Status: ${st}\n` +
+              `Started: ${exec.startTime || 'unknown'}\n` +
+              (exec.endTime ? `Ended: ${exec.endTime}\n` : '') +
+              JSON.stringify(exec.detailedStatus || {}, null, 2)
+            );
+            if (st === 'Succeeded' || st === 'Failed') {
+              statusEl.textContent += '\n\n[Job finished. Fetching index status...]';
+              fetch('/api/corpus-a/status' + qs)
+                .then(r => r.json())
+                .then(idxData => { statusEl.textContent += '\n' + JSON.stringify(idxData, null, 2); })
+                .catch(() => {});
+              return;
+            }
+          } else {
+            statusEl.textContent = `[Poll ${pollCount + 1}/${maxPollIntervals} at ${now}] Waiting for execution to appear...\n${JSON.stringify(diagData, null, 2)}`;
+          }
+          _pollCorpusAIndexStatus(maxPollIntervals, pollCount + 1, executionName);
         })
-        .catch(() => _pollCorpusAIndexStatus(maxPollIntervals, pollCount + 1));
-    }, 3000);
+        .catch(() => _pollCorpusAIndexStatus(maxPollIntervals, pollCount + 1, executionName));
+    }, 15000);
   }
 
   function clearCorpusA() {

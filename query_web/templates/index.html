@@ -85,75 +85,93 @@
       <div class="source" id="corpus-a-ops">
         <h3>Corpus A Operations</h3>
         <p class="muted">Check ingestion status, trigger controls ingestion for selected frameworks, or upload CIS/PCI source documents for parsers that require local reference files.</p>
-        <div class="ops-row">
-          <label><input type="checkbox" id="ca-all" checked title="Select or clear all Corpus A frameworks." /> All frameworks</label>
-          <label><input type="checkbox" class="ca-fw" value="essential_eight" checked title="Include Essential Eight controls in Corpus A ingestion." /> Essential Eight</label>
-          <label><input type="checkbox" class="ca-fw" value="aescsf" checked title="Include AESCSF controls in Corpus A ingestion." /> AESCSF</label>
-          <label><input type="checkbox" class="ca-fw" value="ism" checked title="Include ISM controls in Corpus A ingestion." /> ISM</label>
-          <label><input type="checkbox" class="ca-fw" value="cis_controls" checked title="Include CIS Controls in Corpus A ingestion." /> CIS Controls</label>
-          <label><input type="checkbox" class="ca-fw" value="nist_csf" checked title="Include NIST CSF controls in Corpus A ingestion." /> NIST CSF</label>
-          <label><input type="checkbox" class="ca-fw" value="pci_dss" checked title="Include PCI DSS controls in Corpus A ingestion." /> PCI DSS</label>
-          <label><input type="checkbox" class="ca-fw" value="pspf" checked title="Include PSPF controls in Corpus A ingestion." /> PSPF</label>
-        </div>
-        <div class="ops-row">
-          <select id="ca-upload-framework" title="Choose how uploaded Corpus A source files are mapped to parser framework inputs.">
-            <option value="auto" selected>Auto-detect from filenames (CIS and/or PCI)</option>
-            <option value="cis_controls">CIS Controls source documents</option>
-            <option value="pci_dss">PCI DSS source document</option>
-          </select>
-          <input id="ca-upload-files" type="file" multiple accept=".pdf,.xlsx" title="Select Corpus A reference files to upload for parser-assisted frameworks." />
-          <label><input type="checkbox" id="ca-upload-trigger-job" checked title="Automatically start ingestion after Corpus A source upload completes." /> Trigger ingestion job</label>
-          <button type="button" class="btn-secondary" onclick="uploadCorpusAReferenceDocs()" title="Upload parser source files for Corpus A (for example CIS or PCI reference documents).">Upload Corpus A Sources</button>
-        </div>
-        <div class="ops-row">
-          <button type="button" class="btn-secondary" onclick="listCorpusAIndexed()" title="List currently indexed Corpus A control records.">View Corpus A Indexed</button>
-          <button type="button" onclick="triggerCorpusAIngest()" title="Run Corpus A ingestion for the selected frameworks and options.">Trigger Corpus A Ingestion</button>
-          <label><input type="checkbox" id="ca-replace-existing" title="Replace existing Corpus A records for selected frameworks during ingestion." /> Replace existing</label>
-          <label><input type="checkbox" id="ca-dry-run" title="Preview Corpus A ingestion changes without writing to storage or indexes." /> Dry run</label>
-          <label><input type="checkbox" id="ca-no-guidance" title="Skip external guidance fetch and ingest controls without supplemental guidance text." /> No guidance fetch</label>
-        </div>
-        <div class="ops-row">
-          <button type="button" class="btn-secondary" onclick="clearCorpusA()" title="Delete Corpus A records from the index; respects dry run option when enabled.">Clear Corpus A Index Data</button>
-          <label><input type="checkbox" id="ca-clear-dry-run" checked title="Preview Corpus A clear operation without deleting index data." /> Clear dry run</label>
-          <button type="button" class="btn-secondary" onclick="refreshCorpusAStatus()" title="Refresh the latest Corpus A ingestion status summary.">Refresh Corpus A Status</button>
-          <button type="button" class="btn-secondary" onclick="checkIngestionJobDiagnostics()" title="Fetch recent ingestion job diagnostics and runtime status details.">Job Diagnostics</button>
-        </div>
+        <details class="ops-expander">
+          <summary>File Operations</summary>
+          <div class="ops-row">
+            <select id="ca-upload-framework" title="Choose how uploaded Corpus A source files are mapped to parser framework inputs.">
+              <option value="auto" selected>Auto-detect from filenames (CIS and/or PCI)</option>
+              <option value="cis_controls">CIS Controls source documents</option>
+              <option value="pci_dss">PCI DSS source document</option>
+            </select>
+            <input id="ca-upload-files" type="file" multiple accept=".pdf,.xlsx" title="Select Corpus A reference files to upload for parser-assisted frameworks." />
+            <label><input type="checkbox" id="ca-upload-trigger-job" checked title="Automatically start ingestion after Corpus A source upload completes." /> Trigger ingestion job</label>
+            <button type="button" class="btn-secondary" onclick="uploadCorpusAReferenceDocs()" title="Upload parser source files for Corpus A (for example CIS or PCI reference documents).">Upload Corpus A Sources</button>
+          </div>
+        </details>
+        <fieldset class="ops-group">
+          <legend>Index Operations</legend>
+          <div class="ops-row">
+            <label><input type="checkbox" id="ca-all" checked title="Select or clear all Corpus A frameworks." /> All frameworks</label>
+            <label><input type="checkbox" class="ca-fw" value="essential_eight" checked title="Include Essential Eight controls in Corpus A ingestion." /> Essential Eight</label>
+            <label><input type="checkbox" class="ca-fw" value="aescsf" checked title="Include AESCSF controls in Corpus A ingestion." /> AESCSF</label>
+            <label><input type="checkbox" class="ca-fw" value="ism" checked title="Include ISM controls in Corpus A ingestion." /> ISM</label>
+            <label><input type="checkbox" class="ca-fw" value="cis_controls" checked title="Include CIS Controls in Corpus A ingestion." /> CIS Controls</label>
+            <label><input type="checkbox" class="ca-fw" value="nist_csf" checked title="Include NIST CSF controls in Corpus A ingestion." /> NIST CSF</label>
+            <label><input type="checkbox" class="ca-fw" value="pci_dss" checked title="Include PCI DSS controls in Corpus A ingestion." /> PCI DSS</label>
+            <label><input type="checkbox" class="ca-fw" value="pspf" checked title="Include PSPF controls in Corpus A ingestion." /> PSPF</label>
+          </div>
+          <div class="ops-row">
+            <button type="button" class="btn-secondary" onclick="listCorpusAIndexed()" title="List currently indexed Corpus A control records.">View Corpus A Indexed</button>
+            <button type="button" onclick="triggerCorpusAIngest()" title="Run Corpus A ingestion for the selected frameworks and options.">Trigger Corpus A Ingestion</button>
+            <label><input type="checkbox" id="ca-replace-existing" title="Replace existing Corpus A records for selected frameworks during ingestion." /> Replace existing</label>
+            <label><input type="checkbox" id="ca-dry-run" title="Preview Corpus A ingestion changes without writing to storage or indexes." /> Dry run</label>
+            <label><input type="checkbox" id="ca-no-guidance" title="Skip external guidance fetch and ingest controls without supplemental guidance text." /> No guidance fetch</label>
+          </div>
+          <div class="ops-row">
+            <button type="button" class="btn-secondary" onclick="clearCorpusA()" title="Delete Corpus A records from the index; respects dry run option when enabled.">Clear Corpus A Index Data</button>
+            <label><input type="checkbox" id="ca-clear-dry-run" checked title="Preview Corpus A clear operation without deleting index data." /> Clear dry run</label>
+            <button type="button" class="btn-secondary" onclick="refreshCorpusAStatus()" title="Refresh the latest Corpus A ingestion status summary.">Refresh Corpus A Status</button>
+            <button type="button" class="btn-secondary" onclick="checkIngestionJobDiagnostics()" title="Fetch recent ingestion job diagnostics and runtime status details.">Job Diagnostics</button>
+          </div>
+        </fieldset>
         <div id="ca-status" class="ops-status">Status not loaded yet.</div>
       </div>
 
       <div class="source" id="corpus-b-ops">
         <h3>Corpus B Operations</h3>
         <p class="muted">Upload guidance artifacts, optionally trigger indexing, or clear Corpus B vector/index data.</p>
-        <div class="ops-row">
-          <input id="cb-files" type="file" multiple title="Select one or more guidance documents to upload into Corpus B." />
-          <button type="button" onclick="uploadCorpusBIngest()" title="Upload Corpus B files and optionally trigger indexing for new content.">Upload Corpus B</button>
-          <label><input type="checkbox" id="cb-trigger-job" checked title="Automatically trigger ingestion after upload when new or touched files are present." /> Trigger ingestion job</label>
-          <label><input type="checkbox" id="cb-reindex-on-dedupe" title="If upload is duplicate-only, touch existing dedupe blobs to force reindex for Corpus B items." /> Reindex from existing blobs when duplicates only</label>
-        </div>
-        <div class="ops-row">
-          <button type="button" class="btn-secondary" onclick="listCorpusBIndexed()" title="List currently indexed Corpus B guidance chunks.">View Corpus B Indexed</button>
-          <button type="button" class="btn-secondary" onclick="clearCorpusB()" title="Clear Corpus B index entries; optionally remove source blobs if selected.">Clear Corpus B Data</button>
-          <label><input type="checkbox" id="cb-clear-dry-run" checked title="Preview Corpus B clear changes without deleting data." /> Dry run</label>
-          <label><input type="checkbox" id="cb-clear-blobs" title="Also delete backing Corpus B blobs from storage, not just index entries." /> Also delete Corpus B blobs</label>
-        </div>
+        <details class="ops-expander">
+          <summary>File Operations</summary>
+          <div class="ops-row">
+            <input id="cb-files" type="file" multiple title="Select one or more guidance documents to upload into Corpus B." />
+            <button type="button" onclick="uploadCorpusBIngest()" title="Upload Corpus B files and optionally trigger indexing for new content.">Upload Corpus B</button>
+            <label><input type="checkbox" id="cb-trigger-job" checked title="Automatically trigger ingestion after upload when new or touched files are present." /> Trigger ingestion job</label>
+            <label><input type="checkbox" id="cb-reindex-on-dedupe" title="If upload is duplicate-only, touch existing dedupe blobs to force reindex for Corpus B items." /> Reindex from existing blobs when duplicates only</label>
+          </div>
+        </details>
+        <fieldset class="ops-group">
+          <legend>Index Operations</legend>
+          <div class="ops-row">
+            <button type="button" class="btn-secondary" onclick="listCorpusBIndexed()" title="List currently indexed Corpus B guidance chunks.">View Corpus B Indexed</button>
+            <button type="button" class="btn-secondary" onclick="clearCorpusB()" title="Clear Corpus B index entries; optionally remove source blobs if selected.">Clear Corpus B Data</button>
+            <label><input type="checkbox" id="cb-clear-dry-run" checked title="Preview Corpus B clear changes without deleting data." /> Dry run</label>
+            <label><input type="checkbox" id="cb-clear-blobs" title="Also delete backing Corpus B blobs from storage, not just index entries." /> Also delete Corpus B blobs</label>
+          </div>
+        </fieldset>
         <div id="cb-status" class="ops-status">No Corpus B clear action yet.</div>
       </div>
 
       <div class="source" id="corpus-c-ops">
         <h3>Corpus C Operations</h3>
         <p class="muted">Upload assessed artifacts, trigger ingestion, then generate a compliance report using Corpus A and B grounding.</p>
-        <div class="ops-row">
-          <input id="cc-files" type="file" multiple title="Select one or more assessment artifact files to upload into Corpus C." />
-          <button type="button" onclick="uploadCorpusCIngest()" title="Upload Corpus C artifacts and optionally trigger indexing for assessment evidence.">Upload Corpus C</button>
-          <label><input type="checkbox" id="cc-trigger-job" checked title="Automatically trigger ingestion after upload when new or touched files are present." /> Trigger ingestion job</label>
-          <label><input type="checkbox" id="cc-reindex-on-dedupe" title="If upload is duplicate-only, touch existing dedupe blobs to force reindex for Corpus C items." /> Reindex from existing blobs when duplicates only</label>
-        </div>
-        <div class="ops-row">
-          <button type="button" class="btn-secondary" onclick="listCorpusCIndexed()" title="List currently indexed Corpus C artifact chunks.">View Corpus C Indexed</button>
-          <button type="button" class="btn-secondary" onclick="clearCorpusC()" title="Clear Corpus C index entries; optionally remove source blobs if selected.">Clear Corpus C Data</button>
-          <label><input type="checkbox" id="cc-clear-dry-run" checked title="Preview Corpus C clear changes without deleting data." /> Dry run</label>
-          <label><input type="checkbox" id="cc-clear-blobs" title="Also delete backing Corpus C blobs from storage, not just index entries." /> Also delete Corpus C blobs</label>
-        </div>
+        <details class="ops-expander">
+          <summary>File Operations</summary>
+          <div class="ops-row">
+            <input id="cc-files" type="file" multiple title="Select one or more assessment artifact files to upload into Corpus C." />
+            <button type="button" onclick="uploadCorpusCIngest()" title="Upload Corpus C artifacts and optionally trigger indexing for assessment evidence.">Upload Corpus C</button>
+            <label><input type="checkbox" id="cc-trigger-job" checked title="Automatically trigger ingestion after upload when new or touched files are present." /> Trigger ingestion job</label>
+            <label><input type="checkbox" id="cc-reindex-on-dedupe" title="If upload is duplicate-only, touch existing dedupe blobs to force reindex for Corpus C items." /> Reindex from existing blobs when duplicates only</label>
+          </div>
+        </details>
+        <fieldset class="ops-group">
+          <legend>Index Operations</legend>
+          <div class="ops-row">
+            <button type="button" class="btn-secondary" onclick="listCorpusCIndexed()" title="List currently indexed Corpus C artifact chunks.">View Corpus C Indexed</button>
+            <button type="button" class="btn-secondary" onclick="clearCorpusC()" title="Clear Corpus C index entries; optionally remove source blobs if selected.">Clear Corpus C Data</button>
+            <label><input type="checkbox" id="cc-clear-dry-run" checked title="Preview Corpus C clear changes without deleting data." /> Dry run</label>
+            <label><input type="checkbox" id="cc-clear-blobs" title="Also delete backing Corpus C blobs from storage, not just index entries." /> Also delete Corpus C blobs</label>
+          </div>
+        </fieldset>
         <div id="cc-status" class="ops-status">No Corpus C upload yet.</div>
       </div>
 

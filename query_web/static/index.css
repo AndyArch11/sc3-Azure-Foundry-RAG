@@ -135,5 +135,13 @@
     .rating-done { font-size:0.82rem; color:#16a34a; }
     .ops-grid { display:grid; grid-template-columns: repeat(2, minmax(180px,1fr)); gap:8px; margin-top:8px; }
     .ops-row { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; }
+    fieldset.ops-group { border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px 8px; margin-top: 10px; }
+    fieldset.ops-group > legend { font-size: .78rem; font-weight: 600; color: var(--muted); padding: 0 4px; text-transform: uppercase; letter-spacing: .04em; }
+    details.ops-expander { border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; margin-top: 10px; }
+    details.ops-expander > summary { cursor: pointer; font-size: .82rem; font-weight: 600; color: var(--muted); padding: 6px 0; user-select: none; list-style: none; display: flex; align-items: center; gap: 5px; }
+    details.ops-expander > summary::before { content: "▶"; font-size: .6rem; transition: transform .15s; }
+    details.ops-expander[open] > summary::before { transform: rotate(90deg); }
+    details.ops-expander[open] > summary { color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    details.ops-expander[open] { padding-bottom: 8px; }
     .ops-status { margin-top:10px; max-height:260px; overflow:auto; background:#f9fafb; border:1px solid var(--border); border-radius:8px; padding:8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.8rem; white-space:pre-wrap; }
     .ops-status.markdown { white-space:normal; font-family: "Segoe UI", "Helvetica Neue", sans-serif; font-size:.92rem; }

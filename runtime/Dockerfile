@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY ingestion/ ./ingestion/
 
 # Run as a non-root user.
-RUN useradd -m -u 1000 appuser
+RUN useradd -m -u 1000 appuser && mkdir -p /app/samples && chown appuser /app/samples
 USER appuser
 
 # ENTRYPOINT is the module; CMD provides default arguments that can be
