@@ -3409,20 +3409,18 @@ def _trigger_ingestion_job() -> dict[str, Any]:
 
 
 def _is_indexer_running(status: Any) -> bool:
-    """Best-effort detection for active indexer execution across SDK shapes."""
+    """Best-effort detection for active indexer execution across SDK shapes.
+
+    Top-level IndexerStatus.running means the indexer is healthy/operational, NOT that an
+    execution is in flight.  Only last_result.status == "inprogress" reliably signals an
+    active execution.
+    """
     try:
         last_result = getattr(status, "last_result", None)
         if last_result is not None:
             run_status = str(getattr(last_result, "status", "")).strip().lower()
             if run_status == "inprogress":
                 return True
-    except Exception:
-        pass
-
-    try:
-        top_status = str(getattr(status, "status", "")).strip().lower()
-        if top_status in {"running", "inprogress"}:
-            return True
     except Exception:
         pass
 

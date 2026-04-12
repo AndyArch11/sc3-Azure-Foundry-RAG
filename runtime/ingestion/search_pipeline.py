@@ -560,8 +560,10 @@ def _is_indexer_run_in_progress(status: Any) -> bool:
     """Best-effort check for active indexer execution across SDK status shapes.
 
     Notes:
-    - last_result.status is IndexerExecutionStatus (e.g. inProgress/reset/success).
-    - status.status is top-level IndexerStatus (e.g. running/error).
+    - last_result.status is IndexerExecutionStatus: inProgress | success | transientFailure | reset
+    - status.status is top-level IndexerStatus: running | error | unknown
+      TOP-LEVEL "running" means the indexer is healthy/operational, NOT that an execution
+      is in flight.  Only last_result.status == "inprogress" reliably signals active execution.
     """
     try:
         last_result = getattr(status, "last_result", None)
@@ -569,14 +571,6 @@ def _is_indexer_run_in_progress(status: Any) -> bool:
             last_status = str(getattr(last_result, "status", "")).strip().lower()
             if last_status == "inprogress":
                 return True
-    except Exception:
-        pass
-
-    try:
-        top_status = str(getattr(status, "status", "")).strip().lower()
-        # Top-level IndexerStatus uses "running" (not "inprogress").
-        if top_status == "running":
-            return True
     except Exception:
         pass
 
