@@ -263,6 +263,7 @@
         <div class="ops-row">
           <input id="cb-files" type="file" multiple />
           <label><input type="checkbox" id="cb-trigger-job" checked /> Trigger ingestion job</label>
+          <label><input type="checkbox" id="cb-reindex-on-dedupe" /> Reindex from existing blobs when duplicates only</label>
           <button type="button" onclick="uploadCorpusBIngest()">Upload Corpus B</button>
         </div>
         <div class="ops-row">
@@ -280,6 +281,7 @@
         <div class="ops-row">
           <input id="cc-files" type="file" multiple />
           <label><input type="checkbox" id="cc-trigger-job" checked /> Trigger ingestion job</label>
+          <label><input type="checkbox" id="cc-reindex-on-dedupe" /> Reindex from existing blobs when duplicates only</label>
           <button type="button" onclick="uploadCorpusCIngest()">Upload Corpus C</button>
           <button type="button" class="btn-secondary" onclick="listCorpusCIndexed()">View Corpus C Indexed</button>
           <button type="button" class="btn-secondary" onclick="clearCorpusC()">Clear Corpus C Data</button>
@@ -993,6 +995,7 @@
       fd.append('files', file);
     }
     fd.append('trigger_job', document.getElementById('cb-trigger-job').checked ? 'true' : 'false');
+    fd.append('reindex_on_dedupe', document.getElementById('cb-reindex-on-dedupe').checked ? 'true' : 'false');
     fd.append('auth_token', _currentAuthToken());
 
     fetch('/api/corpus-b/ingest', {
@@ -1042,6 +1045,7 @@
       fd.append('files', file);
     }
     fd.append('trigger_job', document.getElementById('cc-trigger-job').checked ? 'true' : 'false');
+    fd.append('reindex_on_dedupe', document.getElementById('cc-reindex-on-dedupe').checked ? 'true' : 'false');
     fd.append('auth_token', _currentAuthToken());
 
     fetch('/api/corpus-c/ingest', {

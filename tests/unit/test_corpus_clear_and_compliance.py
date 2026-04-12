@@ -624,6 +624,80 @@ def test_corpus_c_ingest_does_not_trigger_job_when_all_files_are_duplicates() ->
     trigger_mock.assert_not_called()
 
 
+def test_corpus_b_ingest_triggers_job_when_reindex_on_dedupe_enabled() -> None:
+    client = _test_client()
+
+    with patch.object(app_module, "config", _open_auth_config()), patch.object(
+        app_module,
+        "_upload_corpus_b_files",
+        return_value={
+            "upload_batch_id": None,
+            "prefix": "corpus-b/by-dedupe",
+            "uploaded": [],
+            "skipped": ["duplicate.html: duplicate-normalised_text_sha256:abc"],
+            "failed": [],
+        },
+    ), patch.object(
+        app_module,
+        "_trigger_ingestion_job",
+        return_value={"status_code": 202},
+    ) as trigger_mock:
+        response = client.post(
+            "/api/corpus-b/ingest",
+            data={
+                "trigger_job": "true",
+                "reindex_on_dedupe": "true",
+                "auth_token": "",
+            },
+            files={"files": ("duplicate.html", b"test content", "text/html")},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["uploaded_count"] == 0
+    assert body["triggered_job"] is True
+    assert body["reindex_on_dedupe"] is True
+    assert "re-index existing blobs" in body["message"].lower()
+    trigger_mock.assert_called_once()
+
+
+def test_corpus_c_ingest_triggers_job_when_reindex_on_dedupe_enabled() -> None:
+    client = _test_client()
+
+    with patch.object(app_module, "config", _open_auth_config()), patch.object(
+        app_module,
+        "_upload_corpus_files",
+        return_value={
+            "upload_batch_id": None,
+            "prefix": "corpus-c/by-dedupe",
+            "uploaded": [],
+            "skipped": ["duplicate.html: duplicate-normalised_text_sha256:def"],
+            "failed": [],
+        },
+    ), patch.object(
+        app_module,
+        "_trigger_ingestion_job",
+        return_value={"status_code": 202},
+    ) as trigger_mock:
+        response = client.post(
+            "/api/corpus-c/ingest",
+            data={
+                "trigger_job": "true",
+                "reindex_on_dedupe": "true",
+                "auth_token": "",
+            },
+            files={"files": ("duplicate.html", b"test content", "text/html")},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["uploaded_count"] == 0
+    assert body["triggered_job"] is True
+    assert body["reindex_on_dedupe"] is True
+    assert "re-index existing blobs" in body["message"].lower()
+    trigger_mock.assert_called_once()
+
+
 def test_corpus_a_list_with_framework_filter() -> None:
     client = _test_client()
 

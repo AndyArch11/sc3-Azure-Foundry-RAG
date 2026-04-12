@@ -4116,6 +4116,7 @@ async def upload_corpus_b_and_trigger(
     request: Request,
     files: list[UploadFile] = File(...),
     trigger_job: bool = Form(True),
+    reindex_on_dedupe: bool = Form(False),
     auth_token: str = Form(""),
 ) -> JSONResponse:
     if not _is_authorised_request(auth_token, request):
@@ -4129,15 +4130,24 @@ async def upload_corpus_b_and_trigger(
     try:
         upload_result = _upload_corpus_b_files(files, user_id=user_id)
         trigger_result: dict[str, Any] | None = None
-        if trigger_job and upload_result["uploaded"]:
+        should_trigger_for_reindex = (
+            reindex_on_dedupe and not upload_result["uploaded"] and bool(upload_result["skipped"])
+        )
+        if trigger_job and (upload_result["uploaded"] or should_trigger_for_reindex):
             trigger_result = _trigger_ingestion_job()
 
         message = ""
         if not upload_result["uploaded"]:
-            message = (
-                "No new Corpus B files were uploaded; all files were skipped or failed, "
-                "so no ingestion job was triggered and no new upload batch was created."
-            )
+            if should_trigger_for_reindex:
+                message = (
+                    "No new Corpus B files were uploaded, but ingestion job was triggered "
+                    "to re-index existing blobs from storage."
+                )
+            else:
+                message = (
+                    "No new Corpus B files were uploaded; all files were skipped or failed, "
+                    "so no ingestion job was triggered and no new upload batch was created."
+                )
 
         status_code = 200
         if upload_result["failed"]:
@@ -4154,6 +4164,7 @@ async def upload_corpus_b_and_trigger(
                 "upload": upload_result,
                 "triggered_job": bool(trigger_result),
                 "job": trigger_result,
+                "reindex_on_dedupe": reindex_on_dedupe,
                 "message": message,
             },
             status_code=status_code,
@@ -4168,6 +4179,7 @@ async def upload_corpus_c_and_trigger(
     request: Request,
     files: list[UploadFile] = File(...),
     trigger_job: bool = Form(True),
+    reindex_on_dedupe: bool = Form(False),
     auth_token: str = Form(""),
 ) -> JSONResponse:
     if not _is_authorised_request(auth_token, request):
@@ -4186,7 +4198,10 @@ async def upload_corpus_c_and_trigger(
             corpus_role="assessed_artifact",
         )
         trigger_result: dict[str, Any] | None = None
-        if trigger_job and upload_result["uploaded"]:
+        should_trigger_for_reindex = (
+            reindex_on_dedupe and not upload_result["uploaded"] and bool(upload_result["skipped"])
+        )
+        if trigger_job and (upload_result["uploaded"] or should_trigger_for_reindex):
             # The ingestion job template already defaults to --mode azure --skip-upload.
             # Starting with an args override can be rejected by ARM in some environments
             # unless a full container image spec is supplied in the override payload.
@@ -4194,10 +4209,16 @@ async def upload_corpus_c_and_trigger(
 
         message = ""
         if not upload_result["uploaded"]:
-            message = (
-                "No new Corpus C files were uploaded; all files were skipped or failed, "
-                "so no ingestion job was triggered and no new upload batch was created."
-            )
+            if should_trigger_for_reindex:
+                message = (
+                    "No new Corpus C files were uploaded, but ingestion job was triggered "
+                    "to re-index existing blobs from storage."
+                )
+            else:
+                message = (
+                    "No new Corpus C files were uploaded; all files were skipped or failed, "
+                    "so no ingestion job was triggered and no new upload batch was created."
+                )
 
         status_code = 200
         if upload_result["failed"]:
@@ -4214,6 +4235,7 @@ async def upload_corpus_c_and_trigger(
                 "upload": upload_result,
                 "triggered_job": bool(trigger_result),
                 "job": trigger_result,
+                "reindex_on_dedupe": reindex_on_dedupe,
                 "message": message,
             },
             status_code=status_code,
