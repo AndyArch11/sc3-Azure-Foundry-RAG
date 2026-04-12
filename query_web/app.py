@@ -3408,6 +3408,47 @@ def _trigger_ingestion_job() -> dict[str, Any]:
     return _trigger_ingestion_job_with_args(None)
 
 
+def _is_indexer_running(status: Any) -> bool:
+    """Best-effort detection for active indexer execution across SDK shapes."""
+    try:
+        last_result = getattr(status, "last_result", None)
+        if last_result is not None:
+            run_status = str(getattr(last_result, "status", "")).strip().lower()
+            if run_status == "inprogress":
+                return True
+    except Exception:
+        pass
+
+    try:
+        top_status = str(getattr(status, "status", "")).strip().lower()
+        if top_status in {"running", "inprogress"}:
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def _wait_for_indexer_idle(indexer_name: str, timeout_seconds: int = 900) -> bool:
+    """Wait until the target indexer is no longer actively running."""
+    client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
+    deadline = time.monotonic() + timeout_seconds
+
+    while time.monotonic() < deadline:
+        try:
+            status = client.get_indexer_status(indexer_name)
+        except Exception:
+            # If status cannot be resolved, keep retrying briefly.
+            time.sleep(5)
+            continue
+
+        if not _is_indexer_running(status):
+            return True
+        time.sleep(5)
+
+    return False
+
+
 def _reset_grounding_indexer_state() -> str:
     """Reset the grounding indexer high-watermark so unchanged blobs can be reprocessed."""
     indexer_name = os.getenv("AZURE_SEARCH_INDEXER_NAME", f"{config.search_index_name}-indexer").strip()
@@ -3418,15 +3459,23 @@ def _reset_grounding_indexer_state() -> str:
     try:
         client.reset_indexer(indexer_name)
     except HttpResponseError as exc:
-        # 409 ConflictingOperation: another replica is already resetting/running the indexer.
-        # Treat as idempotent success — the indexer is being reset by the other replica.
-        if exc.status_code == 409:
-            logger.warning(
-                "Indexer %s reset already in progress (409 ConflictingOperation); continuing",
-                indexer_name
-            )
-        else:
+        if exc.status_code != 409:
             raise
+
+        # 409 ConflictingOperation means an active run is holding the indexer.
+        # For dedupe reindexing we must perform a real reset, so wait for idle
+        # and retry once rather than silently treating this as success.
+        logger.warning(
+            "Indexer %s reset blocked by active run (409); waiting for idle before retry",
+            indexer_name,
+        )
+        if not _wait_for_indexer_idle(indexer_name):
+            raise RuntimeError(
+                f"Timed out waiting for indexer '{indexer_name}' to become idle for reset."
+            ) from exc
+
+        client.reset_indexer(indexer_name)
+        logger.info("Indexer %s reset succeeded after waiting for active run to finish", indexer_name)
     return indexer_name
 
 
