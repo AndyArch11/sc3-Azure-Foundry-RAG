@@ -3536,11 +3536,110 @@ def _trigger_ingestion_job_with_args(args_override: list[str] | None) -> dict[st
     if response.status_code >= 400:
         raise RuntimeError(f"Failed to start ingestion job: {response.status_code} {response.text}")
 
+    execution_name: str | None = None
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            execution_name = str(payload.get("name") or "").strip() or None
+    except Exception:
+        execution_name = None
+
+    location_header = str(response.headers.get("Location") or "").strip()
+    if not execution_name and "/executions/" in location_header:
+        execution_name = location_header.rsplit("/executions/", 1)[-1].split("?", 1)[0] or None
+
     return {
         "status_code": response.status_code,
         "resource_group": config.ingestion_job_resource_group,
         "job_name": config.ingestion_job_name,
+        "execution_name": execution_name,
         "args_override": args_override or [],
+    }
+
+
+def _extract_dedupe_hashes(skipped: list[str]) -> list[str]:
+    hashes: list[str] = []
+    pattern = re.compile(r"duplicate-[^:]+:([0-9a-f]{64})$", re.IGNORECASE)
+    for item in skipped:
+        match = pattern.search(str(item))
+        if match:
+            hashes.append(match.group(1).lower())
+    return list(dict.fromkeys(hashes))
+
+
+def _mark_dedupe_blobs_for_reindex(corpus: str, dedupe_hashes: list[str], *, user_id: str) -> dict[str, Any]:
+    if not dedupe_hashes:
+        return {"requested": 0, "touched": 0, "not_found": [], "failed": []}
+
+    account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
+    client = BlobServiceClient(account_url=account_url, credential=credential)
+    container = client.get_container_client(config.storage_container_name)
+
+    touched = 0
+    not_found: list[str] = []
+    failed: list[str] = []
+
+    for dedupe_hash in dedupe_hashes:
+        blob_name = f"corpus-{corpus}/by-dedupe/{dedupe_hash}"
+        blob = container.get_blob_client(blob_name)
+        try:
+            if not blob.exists():
+                not_found.append(blob_name)
+                continue
+
+            props = blob.get_blob_properties()
+            metadata = dict(props.metadata or {})
+            metadata["reindex_requested_at"] = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            metadata["reindex_requested_by"] = _sanitise_blob_name_component(user_id or "anonymous")
+            blob.set_blob_metadata(metadata=metadata)
+            touched += 1
+        except Exception as exc:
+            failed.append(f"{blob_name}: {exc}")
+
+    return {
+        "requested": len(dedupe_hashes),
+        "touched": touched,
+        "not_found": not_found,
+        "failed": failed,
+    }
+
+
+def _latest_ingestion_job_execution() -> dict[str, Any] | None:
+    if not _is_ingestion_job_trigger_enabled():
+        return None
+
+    token = credential.get_token("https://management.azure.com/.default").token
+    url = (
+        f"https://management.azure.com/subscriptions/{config.ingestion_job_subscription_id}"
+        f"/resourceGroups/{config.ingestion_job_resource_group}"
+        f"/providers/Microsoft.App/jobs/{config.ingestion_job_name}/executions"
+        "?api-version=2024-03-01"
+    )
+    response = requests.get(
+        url,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"Failed to list ingestion job executions: {response.status_code} {response.text}"
+        )
+
+    values = response.json().get("value", [])
+    if not values:
+        return None
+
+    def _sort_key(item: dict[str, Any]) -> str:
+        props = item.get("properties", {})
+        return str(props.get("startTime") or "")
+
+    latest = max(values, key=_sort_key)
+    props = latest.get("properties", {})
+    return {
+        "name": latest.get("name"),
+        "status": props.get("status"),
+        "start_time": props.get("startTime"),
+        "end_time": props.get("endTime"),
     }
 
 
@@ -4264,22 +4363,29 @@ async def upload_corpus_b_and_trigger(
     try:
         upload_result = _upload_corpus_b_files(files, user_id=user_id)
         trigger_result: dict[str, Any] | None = None
-        indexer_reset: dict[str, Any] | None = None
+        reindex_touch: dict[str, Any] | None = None
         should_trigger_for_reindex = (
             reindex_on_dedupe and not upload_result["uploaded"] and bool(upload_result["skipped"])
         )
         if should_trigger_for_reindex:
-            reset_indexer_name = _reset_grounding_indexer_state()
-            indexer_reset = {"performed": True, "indexer_name": reset_indexer_name}
+            dedupe_hashes = _extract_dedupe_hashes(upload_result["skipped"])
+            reindex_touch = _mark_dedupe_blobs_for_reindex("b", dedupe_hashes, user_id=user_id)
         if trigger_job and (upload_result["uploaded"] or should_trigger_for_reindex):
             trigger_result = _trigger_ingestion_job()
+
+        latest_job: dict[str, Any] | None = None
+        if trigger_result:
+            try:
+                latest_job = _latest_ingestion_job_execution()
+            except Exception as exc:
+                logger.warning("Failed to fetch latest ingestion job execution: %s", exc)
 
         message = ""
         if not upload_result["uploaded"]:
             if should_trigger_for_reindex:
                 message = (
-                    "No new Corpus B files were uploaded, but ingestion job was triggered "
-                    "to re-index existing blobs from storage."
+                    "No new Corpus B files were uploaded. Matching Corpus B blobs were marked "
+                    "for reindex and ingestion was triggered in the background."
                 )
             else:
                 message = (
@@ -4302,8 +4408,10 @@ async def upload_corpus_b_and_trigger(
                 "upload": upload_result,
                 "triggered_job": bool(trigger_result),
                 "job": trigger_result,
+                "job_latest": latest_job,
                 "reindex_on_dedupe": reindex_on_dedupe,
-                "indexer_reset": indexer_reset,
+                "reindex_touch": reindex_touch,
+                "indexing_notice": "Ingestion runs asynchronously. Indexed counts can remain unchanged until the job reaches Succeeded.",
                 "message": message,
             },
             status_code=status_code,
@@ -4337,25 +4445,32 @@ async def upload_corpus_c_and_trigger(
             corpus_role="assessed_artifact",
         )
         trigger_result: dict[str, Any] | None = None
-        indexer_reset: dict[str, Any] | None = None
+        reindex_touch: dict[str, Any] | None = None
         should_trigger_for_reindex = (
             reindex_on_dedupe and not upload_result["uploaded"] and bool(upload_result["skipped"])
         )
         if should_trigger_for_reindex:
-            reset_indexer_name = _reset_grounding_indexer_state()
-            indexer_reset = {"performed": True, "indexer_name": reset_indexer_name}
+            dedupe_hashes = _extract_dedupe_hashes(upload_result["skipped"])
+            reindex_touch = _mark_dedupe_blobs_for_reindex("c", dedupe_hashes, user_id=user_id)
         if trigger_job and (upload_result["uploaded"] or should_trigger_for_reindex):
             # The ingestion job template already defaults to --mode azure --skip-upload.
             # Starting with an args override can be rejected by ARM in some environments
             # unless a full container image spec is supplied in the override payload.
             trigger_result = _trigger_ingestion_job()
 
+        latest_job: dict[str, Any] | None = None
+        if trigger_result:
+            try:
+                latest_job = _latest_ingestion_job_execution()
+            except Exception as exc:
+                logger.warning("Failed to fetch latest ingestion job execution: %s", exc)
+
         message = ""
         if not upload_result["uploaded"]:
             if should_trigger_for_reindex:
                 message = (
-                    "No new Corpus C files were uploaded, but ingestion job was triggered "
-                    "to re-index existing blobs from storage."
+                    "No new Corpus C files were uploaded. Matching Corpus C blobs were marked "
+                    "for reindex and ingestion was triggered in the background."
                 )
             else:
                 message = (
@@ -4378,8 +4493,10 @@ async def upload_corpus_c_and_trigger(
                 "upload": upload_result,
                 "triggered_job": bool(trigger_result),
                 "job": trigger_result,
+                "job_latest": latest_job,
                 "reindex_on_dedupe": reindex_on_dedupe,
-                "indexer_reset": indexer_reset,
+                "reindex_touch": reindex_touch,
+                "indexing_notice": "Ingestion runs asynchronously. Indexed counts can remain unchanged until the job reaches Succeeded.",
                 "message": message,
             },
             status_code=status_code,
@@ -5023,6 +5140,26 @@ def corpus_c_list(
         )
     except Exception as exc:
         logger.exception("Failed /api/corpus-c/list request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+
+
+@app.get("/api/ingestion-job/latest")
+def get_latest_ingestion_job_status(request: Request, auth_token: str = "") -> JSONResponse:
+    if not _is_authorised_request(auth_token, request):
+        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+
+    try:
+        latest = _latest_ingestion_job_execution()
+        return JSONResponse(
+            {
+                "enabled": _is_ingestion_job_trigger_enabled(),
+                "resource_group": config.ingestion_job_resource_group,
+                "job_name": config.ingestion_job_name,
+                "latest": latest,
+            }
+        )
+    except Exception as exc:
+        logger.exception("Failed /api/ingestion-job/latest request: %s", exc)
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 

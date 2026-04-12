@@ -1014,10 +1014,20 @@
         _renderCorpusBStatus(data);
         input.value = '';
         if (data && data.triggered_job && !data.error) {
-          _pollCorpusBIndexStatus(5, 0);
+          _pollCorpusBIndexStatus(40, 0);
         }
       })
       .catch(err => _renderCorpusBStatus({ error: String(err) }));
+  }
+
+  function _fetchIngestionLatestJob() {
+    const token = _currentAuthToken();
+    const params = new URLSearchParams();
+    if (token) params.set('auth_token', token);
+    const qs = params.toString();
+    return fetch('/api/ingestion-job/latest' + (qs ? ('?' + qs) : ''))
+      .then(r => r.json())
+      .catch(() => null);
   }
 
   function _pollCorpusBIndexStatus(maxPollIntervals, pollCount) {
@@ -1031,13 +1041,20 @@
       fetch('/api/corpus-b/list' + (qs ? ('?' + qs) : ''))
         .then(r => r.json())
         .then(data => {
-          const statusEl = document.getElementById('cb-status');
-          const pollMsg = `\n[Indexed count: ${data && data.returned_count ? data.returned_count : 0}; refreshed at ${new Date().toLocaleTimeString()}]\n`;
-          statusEl.textContent = pollMsg + JSON.stringify(data, null, 2);
-          _pollCorpusBIndexStatus(maxPollIntervals, pollCount + 1);
+          _fetchIngestionLatestJob().then(jobData => {
+            const statusEl = document.getElementById('cb-status');
+            const indexed = data && data.returned_count ? data.returned_count : 0;
+            const latest = jobData && jobData.latest ? jobData.latest : null;
+            const jobLine = latest
+              ? `[Ingestion job: ${latest.name || 'unknown'} status=${latest.status || 'unknown'}]`
+              : '[Ingestion job: status unavailable]';
+            const pollMsg = `\n[Indexed count: ${indexed}; refreshed at ${new Date().toLocaleTimeString()}] ${jobLine}\n`;
+            statusEl.textContent = pollMsg + JSON.stringify(data, null, 2);
+            _pollCorpusBIndexStatus(maxPollIntervals, pollCount + 1);
+          });
         })
         .catch(() => _pollCorpusBIndexStatus(maxPollIntervals, pollCount + 1));
-    }, 3000);
+    }, 5000);
   }
 
   function uploadCorpusCIngest() {
@@ -1064,7 +1081,7 @@
         _renderCorpusCStatus(data);
         input.value = '';
         if (data && data.triggered_job && !data.error) {
-          _pollCorpusCIndexStatus(5, 0);
+          _pollCorpusCIndexStatus(40, 0);
         }
       })
       .catch(err => _renderCorpusCStatus({ error: String(err) }));
@@ -1081,13 +1098,20 @@
       fetch('/api/corpus-c/list' + (qs ? ('?' + qs) : ''))
         .then(r => r.json())
         .then(data => {
-          const statusEl = document.getElementById('cc-status');
-          const pollMsg = `\n[Indexed count: ${data && data.returned_count ? data.returned_count : 0}; refreshed at ${new Date().toLocaleTimeString()}]\n`;
-          statusEl.textContent = pollMsg + JSON.stringify(data, null, 2);
-          _pollCorpusCIndexStatus(maxPollIntervals, pollCount + 1);
+          _fetchIngestionLatestJob().then(jobData => {
+            const statusEl = document.getElementById('cc-status');
+            const indexed = data && data.returned_count ? data.returned_count : 0;
+            const latest = jobData && jobData.latest ? jobData.latest : null;
+            const jobLine = latest
+              ? `[Ingestion job: ${latest.name || 'unknown'} status=${latest.status || 'unknown'}]`
+              : '[Ingestion job: status unavailable]';
+            const pollMsg = `\n[Indexed count: ${indexed}; refreshed at ${new Date().toLocaleTimeString()}] ${jobLine}\n`;
+            statusEl.textContent = pollMsg + JSON.stringify(data, null, 2);
+            _pollCorpusCIndexStatus(maxPollIntervals, pollCount + 1);
+          });
         })
         .catch(() => _pollCorpusCIndexStatus(maxPollIntervals, pollCount + 1));
-    }, 3000);
+    }, 5000);
   }
 
   function clearCorpusC() {
