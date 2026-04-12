@@ -54,7 +54,7 @@ import time
 from typing import Any, Optional, cast
 
 from azure.core.credentials import TokenCredential
-from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
+from azure.core.exceptions import HttpResponseError, ResourceExistsError, ResourceNotFoundError
 from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
 from azure.search.documents.indexes.models import (AzureOpenAIEmbeddingSkill,
                                                    BlobIndexerImageAction,
@@ -556,11 +556,52 @@ def ensure_indexer(config: IngestionConfig, credential: TokenCredential) -> None
 # ---------------------------------------------------------------------------
 
 
+def _is_indexer_run_in_progress(status: Any) -> bool:
+    """Best-effort check for active indexer execution across SDK status shapes."""
+    try:
+        last_result = getattr(status, "last_result", None)
+        if last_result is not None:
+            last_status = str(getattr(last_result, "status", "")).strip().lower()
+            if last_status == "inprogress":
+                return True
+    except Exception:
+        pass
+
+    try:
+        top_status = str(getattr(status, "status", "")).strip().lower()
+        if top_status in {"running", "inprogress"}:
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
 def run_indexer(config: IngestionConfig, credential: TokenCredential) -> None:
-    """Trigger an indexer run."""
+    """Trigger an indexer run, or attach when another run is already active."""
     client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
-    client.run_indexer(config.indexer_name)
-    logger.info("Indexer run triggered: %s", config.indexer_name)
+
+    # If another worker already started the indexer, attach to that run.
+    try:
+        status = client.get_indexer_status(config.indexer_name)
+        if _is_indexer_run_in_progress(status):
+            logger.warning(
+                "Indexer %s is already running; attaching to active run",
+                config.indexer_name,
+            )
+            return
+    except ResourceNotFoundError:
+        pass
+
+    try:
+        client.run_indexer(config.indexer_name)
+        logger.info("Indexer run triggered: %s", config.indexer_name)
+    except ResourceExistsError:
+        # 409 from concurrent trigger race: treat as attached run, not failure.
+        logger.warning(
+            "Indexer %s invocation already in progress (409); attaching to active run",
+            config.indexer_name,
+        )
 
 
 def wait_for_indexer(

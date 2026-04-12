@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
 import requests  # type: ignore[import-untyped]
+from azure.core.exceptions import HttpResponseError
 from azure.identity import DefaultAzureCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexerClient
@@ -1643,7 +1644,7 @@ def _list_search_documents_by_filter(
 
 
 def _delete_blob_prefix(prefix: str) -> dict[str, int]:
-    if not _is_corpus_b_upload_enabled():
+    if not _is_corpus_upload_enabled():
         return {"deleted": 0}
 
     account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
@@ -1658,7 +1659,7 @@ def _delete_blob_prefix(prefix: str) -> dict[str, int]:
 
 
 def _count_blob_prefix(prefix: str) -> dict[str, int]:
-    if not _is_corpus_b_upload_enabled():
+    if not _is_corpus_upload_enabled():
         return {"would_delete": 0}
 
     account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
@@ -3391,7 +3392,7 @@ def _compute_normalised_text_hash(
     return hashlib.sha256(normalised.encode("utf-8")).hexdigest(), "normalised_text"
 
 
-def _is_corpus_b_upload_enabled() -> bool:
+def _is_corpus_upload_enabled() -> bool:
     return bool(config.storage_account_name)
 
 
@@ -3414,7 +3415,18 @@ def _reset_grounding_indexer_state() -> str:
         raise RuntimeError("AZURE_SEARCH_INDEXER_NAME is empty.")
 
     client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
-    client.reset_indexer(indexer_name)
+    try:
+        client.reset_indexer(indexer_name)
+    except HttpResponseError as exc:
+        # 409 ConflictingOperation: another replica is already resetting/running the indexer.
+        # Treat as idempotent success — the indexer is being reset by the other replica.
+        if exc.status_code == 409:
+            logger.warning(
+                "Indexer %s reset already in progress (409 ConflictingOperation); continuing",
+                indexer_name
+            )
+        else:
+            raise
     return indexer_name
 
 
@@ -3492,7 +3504,7 @@ def _upload_corpus_files(
     corpus: str,
     corpus_role: str,
 ) -> dict[str, Any]:
-    if not _is_corpus_b_upload_enabled():
+    if not _is_corpus_upload_enabled():
         raise RuntimeError(
             "Corpus upload is not configured. Set AZURE_STORAGE_ACCOUNT_NAME in query web configuration."
         )
@@ -3603,7 +3615,7 @@ def _upload_corpus_a_reference_files(
     *,
     framework: str,
 ) -> dict[str, Any]:
-    if not _is_corpus_b_upload_enabled():
+    if not _is_corpus_upload_enabled():
         raise RuntimeError(
             "Corpus upload is not configured. Set AZURE_STORAGE_ACCOUNT_NAME in query web configuration."
         )
@@ -3746,8 +3758,8 @@ def api_config() -> JSONResponse:
             "precedence_policy_version": precedence_policy.version,
             "precedence_policy_order": list(precedence_policy.default_framework_order),
             "precedence_policy_rules_count": len(precedence_policy.rules),
-            "corpus_b_upload_enabled": _is_corpus_b_upload_enabled(),
-            "corpus_c_upload_enabled": _is_corpus_b_upload_enabled(),
+            "corpus_b_upload_enabled": _is_corpus_upload_enabled(),
+            "corpus_c_upload_enabled": _is_corpus_upload_enabled(),
             "ingestion_job_trigger_enabled": _is_ingestion_job_trigger_enabled(),
             "ingestion_job_name": config.ingestion_job_name,
             "corpus_a_frameworks_supported": sorted(_CORPUS_A_FRAMEWORKS.keys()),

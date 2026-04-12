@@ -220,12 +220,12 @@ On the jumpbox:
   sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-query-web.sh
   sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-confluence-poller.sh
   ```
-  Update the corresponding `*_image_tag` values in `infra/terraform/environments/${TARGET_ENV}/${TARGET_ENV}.tfvars` with the immutable tags produced above.
-  - After creating a new container image, you may want to run the optional RBAC reconcilliation command: 
+  - Update the corresponding `*_image_tag` values in `infra/terraform/environments/${TARGET_ENV}/${TARGET_ENV}.tfvars` with the immutable tags produced above.
+  - After creating a new container image, you may want to run the optional RBAC reconcilliation command (requires elevated privileges): 
     - `./ops/scripts/reconcile-rbac-admin.sh ${TARGET_ENV} apply`
 9. Roll out the standard agent hosting resources from jumpbox (non-RBAC app resources only):
   - `sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply --ingestion-tag "<immutable-ingestion-tag>" --query-web-tag "<immutable-query-web-tag>" --confluence-poller-tag "<immutable-confluence-poller-tag>" --enable-confluence-poller --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
-10. After pushing a new query-web container, you may need to remap the web redirect url, with the command provided by the `rollout-agent-hosting.sh` if it is needed.
+10. After pushing a new query-web container, you may need to remap the web redirect url, with the command provided by the `rollout-agent-hosting.sh` if it is needed (requires elevated privileges).
   - `az ad app update --id <app id GUID> --web-redirect-uris https://<container_name>.<location>.azurecontainerapps.io/.auth/login/aad/callback`
 
 The standard private-network deployment path uses the Container App ingestion and query services. The `phase3b-agent-hosting.sh` script is only for the preview hosted-query-agent path and is not required for the normal runtime deployment.
@@ -289,7 +289,7 @@ After rollout, use the ingestion workflow described in [runtime/README.md](runti
 
 ### Load Control Data
 
-After the ingestion job has indexed evidence documents, load framework control requirements (for example Essential Eight, AESCSF, CIS Controls, ISM, NIST CSF, or PSPF) into the dedicated controls index.
+After the ingestion job has indexed evidence documents, load framework control requirements (for example Essential Eight, AESCSF, CIS Controls, ISM, NIST CSF, PCI DSS, or PSPF) into the dedicated controls index.
 
 Use the controls runner from inside the private network (jumpbox or CI runner) with the Search endpoint exported. The runner supports four modes:
 
@@ -302,9 +302,10 @@ Available framework parsers:
 
 - `essential_eight`: ASD Essential Eight Maturity Model
 - `aescsf`: Australian Energy Sector Cyber Security Framework (AESCSF v2 core workbook)
-- `cis_controls`: CIS Controls v8 (local XLSX and PDF sourced by the operator)
+- `cis_controls`: CIS Controls v8 (local XLSX and PDF sourced by the operator — see [runtime/README.md](runtime/README.md) for required filenames)
 - `ism`: ASD Information Security Manual (OSCAL catalog)
 - `nist_csf`: NIST Cybersecurity Framework 2.0
+- `pci_dss`: PCI DSS v4.0.1 (local PDF sourced by the operator — see [runtime/README.md](runtime/README.md) for required filename)
 - `pspf`: Australian Government Protective Security Policy Framework Release 2025 (public PSPF release PDF)
 
 Use `--framework all` to parse or parse-and-publish all frameworks in one run, or pass one framework name to selectively load only that control set.
@@ -316,6 +317,7 @@ Parser outputs are written to `./parsed-controls` with framework-specific filena
 - `cis_controls_v8.jsonl`
 - `ism_latest.jsonl`
 - `nist_csf_2-0.jsonl`
+- `pci_dss_v4_0_1.jsonl`
 - `pspf_release_2025.jsonl`
 
 ```bash
@@ -339,6 +341,7 @@ python3 -m ingestion.controls_runner \
   --framework all
 
 # Parse CIS Controls into ./parsed-controls only
+# Requires CIS documents staged in runtime/samples/ first
 python3 -m ingestion.controls_runner \
   --mode parse \
   --framework cis_controls
@@ -357,6 +360,12 @@ python3 -m ingestion.controls_runner \
 python3 -m ingestion.controls_runner \
   --mode parse \
   --framework pspf
+
+# Parse PCI DSS controls into ./parsed-controls only
+# Requires PCI-DSS-v4_0_1.pdf staged in runtime/samples/ first
+python3 -m ingestion.controls_runner \
+  --mode parse \
+  --framework pci_dss
 
 # Create or update the controls index only
 python3 -m ingestion.controls_runner \
@@ -381,6 +390,17 @@ python3 -m ingestion.controls_runner \
 python3 -m ingestion.controls_runner \
   --mode publish \
   --input-jsonl ../parsed-controls/cis_controls_v8.jsonl
+
+# Parse and publish PCI DSS in one step
+# Requires PCI-DSS-v4_0_1.pdf staged in runtime/samples/ first
+python3 -m ingestion.controls_runner \
+  --mode parse-and-publish \
+  --framework pci_dss
+
+# Publish PCI DSS JSONL directly
+python3 -m ingestion.controls_runner \
+  --mode publish \
+  --input-jsonl ../parsed-controls/pci_dss_v4_0_1.jsonl
 ```
 
 Add `--no-guidance` if you want parsers that support guidance-fetch skipping (for example Essential Eight and NIST CSF) to avoid supplementary guidance fetches while building JSONL output.
@@ -428,8 +448,9 @@ TARGET_ENV="<env>"
 ./ops/scripts/phase3c-app-secrets.sh "${TARGET_ENV}" apply
 
 # Build and push immutable images from a private-network-connected host
-ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-ingestion.sh
-ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-query-web.sh
+sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-ingestion.sh
+sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-query-web.sh
+sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-confluence-poller.sh
 
 # External/admin: create the Entra app registration used by query web EasyAuth
 # and grant the least-privilege permission bundle needed for jumpbox credential rotation
@@ -442,17 +463,30 @@ sudo ./ops/scripts/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" \
   --secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 
 # Roll out app image tags from jumpbox (non-RBAC resources)
+# Confluence args only required if not in env.tfvars file or set in environment variables
 sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --ingestion-tag "<immutable-ingestion-tag>" \
   --query-web-tag "<immutable-query-web-tag>" \
   --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" \
-  --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
+  --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}" \
+  --confluence-poller-tag "<immutable-confluence-poller-tag>" \
+  --confluence-base-url "https://<org>.atlassian.net" \
+  --confluence-auth-mode basic \
+  --confluence-auth-email "<service_account@emaildomain.com>" \
+  --confluence-cloud-id "<00000000-0000-0000-0000-000000000000>" \
+  --confluence-api-token "<base64token>"
 
 # Reconcile RBAC role assignments from admin context (local admin shell or CI)
 # Do not run from jumpbox UAMI context unless that identity can manage role assignments.
 ./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply
 
+# Register query-web app auth callback for RBAC group membership access
+# Needs to be run with external/admin privileges
+az ad app update --id <00000000-0000-0000-0000-000000000000> --web-redirect-uris https://<webapp>.australiaeast.azurecontainerapps.io/.auth/login/aad/callback
+
 # Parse and publish control data into the controls index (run from inside private network)
+# Supported frameworks: all, aescsf, cis_controls, essential_eight, ism, nist_csf, pci_dss, pspf
+# cis_controls and pci_dss require staging local reference files in runtime/samples/ first
 SEARCH_EP=$(terraform -chdir=infra/terraform output -raw search_endpoint)
 export AZURE_SEARCH_ENDPOINT="${SEARCH_EP}"
 cd runtime && source .venv/bin/activate
