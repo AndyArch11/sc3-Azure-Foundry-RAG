@@ -557,7 +557,12 @@ def ensure_indexer(config: IngestionConfig, credential: TokenCredential) -> None
 
 
 def _is_indexer_run_in_progress(status: Any) -> bool:
-    """Best-effort check for active indexer execution across SDK status shapes."""
+    """Best-effort check for active indexer execution across SDK status shapes.
+
+    Notes:
+    - last_result.status is IndexerExecutionStatus (e.g. inProgress/reset/success).
+    - status.status is top-level IndexerStatus (e.g. running/error).
+    """
     try:
         last_result = getattr(status, "last_result", None)
         if last_result is not None:
@@ -569,7 +574,8 @@ def _is_indexer_run_in_progress(status: Any) -> bool:
 
     try:
         top_status = str(getattr(status, "status", "")).strip().lower()
-        if top_status in {"running", "inprogress"}:
+        # Top-level IndexerStatus uses "running" (not "inprogress").
+        if top_status == "running":
             return True
     except Exception:
         pass
@@ -630,7 +636,10 @@ def wait_for_indexer(
             time.sleep(poll_interval_seconds)
             continue
 
-        if run.status in ("success", "transientFailure", "reset"):
+        status_text = str(run.status or "").strip()
+        status_lower = status_text.lower()
+
+        if status_lower in ("success", "transientfailure"):
             errors = [
                 {
                     "key": error.key,
@@ -659,7 +668,7 @@ def wait_for_indexer(
                 logger.warning("Indexer reported %d warning(s): %s", len(warnings), warnings)
 
             return {
-                "status": run.status,
+                "status": status_text,
                 "items_processed": run.item_count,
                 "items_failed": run.failed_item_count,
                 "error_message": run.error_message
@@ -668,13 +677,27 @@ def wait_for_indexer(
                 "warnings": warnings,
             }
 
-        logger.info(
-            "Indexer running… status=%s items=%s failed=%s",
-            run.status,
-            run.item_count,
-            run.failed_item_count,
+        if status_lower == "reset":
+            logger.info("Indexer state is reset; waiting for active run result…")
+            time.sleep(poll_interval_seconds)
+            continue
+
+        if status_lower == "inprogress":
+            logger.info(
+                "Indexer running… status=%s items=%s failed=%s",
+                run.status,
+                run.item_count,
+                run.failed_item_count,
+            )
+            time.sleep(poll_interval_seconds)
+            continue
+
+        logger.warning(
+            "Unexpected indexer execution status '%s'; waiting for terminal status",
+            status_text or "(empty)",
         )
         time.sleep(poll_interval_seconds)
+        continue
 
     return {
         "status": "timeout",
