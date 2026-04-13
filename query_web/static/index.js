@@ -1,3 +1,79 @@
+  const _TAB_KEY = 'rag_active_tab';
+
+  function switchTab(name) {
+    document.querySelectorAll('.top-tab').forEach(function (btn) {
+      var active = btn.id === ('tab-btn-' + name);
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    document.querySelectorAll('.tab-panel').forEach(function (panel) {
+      panel.classList.toggle('active', panel.id === ('tab-' + name));
+    });
+    try { localStorage.setItem(_TAB_KEY, name); } catch (_) {}
+  }
+
+  function refreshConfluencePollStatus() {
+    var token = _currentAuthToken();
+    var hours = Number(document.getElementById('cf-since-hours').value || 24);
+    var params = new URLSearchParams({ since_hours: String(hours) });
+    if (token) params.set('auth_token', token);
+    var target = document.getElementById('cf-status');
+    target.classList.remove('markdown');
+    target.textContent = 'Loading…';
+    fetch('/api/confluence/poll-status?' + params.toString())
+      .then(function (r) { return r.json(); })
+      .then(function (data) { _renderConfluencePollStatus(data); })
+      .catch(function (err) { target.textContent = 'Error: ' + String(err); });
+  }
+
+  function _renderConfluencePollStatus(data) {
+    var target = document.getElementById('cf-status');
+    if (!data || data.error) {
+      target.classList.remove('markdown');
+      target.textContent = JSON.stringify(data, null, 2);
+      return;
+    }
+    var RISK_CLASS = { Low: 'risk-low', Medium: 'risk-medium', High: 'risk-high', Critical: 'risk-critical' };
+    var html = '<div class="answer">';
+    var lp = data.last_poll;
+    if (lp) {
+      html += '<p><strong>Last poll:</strong> ' + escHtml(lp.polled_at || 'unknown') +
+        ' &nbsp;|&nbsp; <strong>Space:</strong> ' + escHtml(lp.space_key || '—') +
+        ' &nbsp;|&nbsp; <strong>Mentions found:</strong> ' + escHtml(String(lp.mentions_found !== undefined ? lp.mentions_found : '—')) +
+        ' &nbsp;|&nbsp; <strong>Jobs queued:</strong> ' + escHtml(String(lp.jobs_queued !== undefined ? lp.jobs_queued : '—')) + '</p>';
+      if (lp.error) {
+        html += '<p style="color:#b91c1c"><strong>Poll error:</strong> ' + escHtml(lp.error) + '</p>';
+      }
+    } else {
+      html += '<p class="muted">No poll status recorded yet.</p>';
+    }
+    if (!data.configured) {
+      html += '<p class="muted"><em>' + escHtml(data.message || 'Confluence poll status not yet connected to a data source.') + '</em></p>';
+    }
+    var pages = data.assessed_pages || [];
+    if (pages.length) {
+      html += '<p><strong>Assessed pages (' + pages.length + '):</strong></p>';
+      pages.forEach(function (page) {
+        var riskKey = page.overall_risk || 'Unknown';
+        var riskClass = RISK_CLASS[riskKey] || 'risk-unknown';
+        html += '<div class="poll-page-row">' +
+          '<div class="poll-page-title">' + escHtml(page.title || page.page_id || 'Untitled') +
+          ' <span class="risk-badge ' + riskClass + '">' + escHtml(riskKey) + '</span></div>' +
+          '<div class="poll-page-meta">' +
+          'ID: ' + escHtml(String(page.page_id || '—')) +
+          ' &nbsp;|&nbsp; Assessed: ' + escHtml(page.assessed_at || '—') +
+          (page.framework ? ' &nbsp;|&nbsp; Framework: ' + escHtml(page.framework) : '') +
+          (page.findings_count !== undefined ? ' &nbsp;|&nbsp; Findings: ' + page.findings_count : '') +
+          '</div></div>';
+      });
+    } else {
+      html += '<p class="muted">No pages assessed in the selected period.</p>';
+    }
+    html += '</div>';
+    target.classList.add('markdown');
+    target.innerHTML = html;
+  }
+
   const SESSION_KEY = 'rag_session';
   let _lastComplianceReport = null;
   let _lastAzureComplianceReport = null;
@@ -871,6 +947,15 @@
       if (fallback) fallback.style.display = '';
     }
     refreshCorpusAStatus();
+
+    // Restore last-used tab; keep Ask if server rendered a result this load
+    var savedTab = '';
+    try { savedTab = localStorage.getItem(_TAB_KEY) || ''; } catch (_) {}
+    if (sd.question || sd.answer || sd.error) {
+      switchTab('ask');
+    } else if (savedTab && document.getElementById('tab-' + savedTab)) {
+      switchTab(savedTab);
+    }
 
     const askForm = document.getElementById('ask-form');
     const askBtn = document.getElementById('ask-submit-btn');

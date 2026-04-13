@@ -47,6 +47,20 @@ class FakeAssessmentAgent:
             "citations": ["SEC-001"],
         }
 
+    def generate_per_control_assessment(
+        self,
+        artifact: AssessedArtifactPackage,
+        grounding: CorpusGroundingPackage,
+        *,
+        progress_cb=None,
+    ) -> dict:
+        return {
+            "schema_version": "v1.1",
+            "executive_summary": "Per-control assessment for " + artifact.title,
+            "findings": [{"finding_id": "F-1", "provider": "confluence"}],
+            "citations": ["SEC-001"],
+        }
+
 
 class FakeDeliveryPublisher:
     """Mock delivery publisher for orchestration tests."""

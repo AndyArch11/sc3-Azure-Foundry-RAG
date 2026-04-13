@@ -5208,6 +5208,46 @@ def get_latest_ingestion_job_status(request: Request, auth_token: str = "") -> J
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
+
+@app.get("/api/confluence/poll-status")
+def confluence_poll_status(
+    request: Request,
+    since_hours: int = 24,
+    auth_token: str = "",
+) -> JSONResponse:
+    """Return the last Confluence poll status and assessed pages for the look-back window.
+
+    The poller runtime writes its state via the assessment orchestration worker; this
+    endpoint surfaces that state.  When the runtime is not connected it returns
+    ``configured: false`` so the UI can display a helpful message instead of an error.
+    """
+    if not _is_authorised_request(auth_token, request):
+        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+
+    try:
+        since_hours = max(1, min(since_hours, 720))
+        # Attempt to surface poll state from the conversation store.  The assessment
+        # runtime does not currently write a discrete poll-status record into the
+        # query_web datastore, so we return a clearly-labelled stub.  A future
+        # iteration can replace this body with a real storage read.
+        return JSONResponse(
+            {
+                "configured": False,
+                "message": (
+                    "Confluence poll status requires the assessment runtime to publish "
+                    "poll records to a shared store accessible by this service.  "
+                    "Connect CONFLUENCE_POLL_STATUS_STORE or equivalent to enable live data."
+                ),
+                "since_hours": since_hours,
+                "last_poll": None,
+                "assessed_pages": [],
+            }
+        )
+    except Exception as exc:
+        logger.exception("Failed /api/confluence/poll-status request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+
+
 @app.post("/api/corpus-a/ingest")
 def corpus_a_ingest(request: Request, payload: CorpusAIngestRequest) -> JSONResponse:
     if not _is_authorised_request(payload.auth_token, request):

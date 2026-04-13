@@ -145,3 +145,20 @@
     details.ops-expander[open] { padding-bottom: 8px; }
     .ops-status { margin-top:10px; max-height:260px; overflow:auto; background:#f9fafb; border:1px solid var(--border); border-radius:8px; padding:8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.8rem; white-space:pre-wrap; }
     .ops-status.markdown { white-space:normal; font-family: "Segoe UI", "Helvetica Neue", sans-serif; font-size:.92rem; }
+  /* ── Top-level tabs ───────────────────────────────────────── */
+  .top-tabs { display:flex; gap:2px; border-bottom:2px solid var(--border); margin:10px 0 16px; }
+  .top-tab { background:none; border:none; border-bottom:3px solid transparent; border-radius:0; color:var(--muted); cursor:pointer; font-size:.97rem; font-weight:600; margin-bottom:-2px; padding:8px 20px 10px; transition:color .15s, border-color .15s; }
+  .top-tab:hover { color:var(--text); }
+  .top-tab.active, .top-tab[aria-selected="true"] { border-bottom-color:var(--accent); color:var(--accent); }
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; }
+  /* ── Risk badges (Confluence poll) ───────────────────────── */
+  .risk-badge { display:inline-block; border-radius:4px; font-size:.72rem; font-weight:700; letter-spacing:.03em; padding:1px 7px; text-transform:uppercase; vertical-align:middle; }
+  .risk-low      { background:#d1fae5; color:#065f46; }
+  .risk-medium   { background:#fef3c7; color:#92400e; }
+  .risk-high     { background:#fee2e2; color:#991b1b; }
+  .risk-critical { background:#7f1d1d; color:#fff; }
+  .risk-unknown  { background:#f3f4f6; color:#6b7280; }
+  .poll-page-row   { border:1px solid var(--border); border-radius:8px; margin-bottom:6px; padding:8px 12px; }
+  .poll-page-title { font-size:.9rem; font-weight:600; }
+  .poll-page-meta  { color:var(--muted); font-size:.78rem; margin-top:3px; }
