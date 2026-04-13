@@ -176,3 +176,77 @@ def test_clear_endpoint_allows_valid_group_header_in_dry_run_mode() -> None:
     assert body["index"]["would_delete"] == 5
     count_index.assert_called_once_with(app_module.search_client, filter_expr="corpus eq 'b'")
     delete_index.assert_not_called()
+
+
+def test_confluence_poll_status_returns_persisted_poll_data() -> None:
+    client = TestClient(app_module.app)
+    patched_config = replace(app_module.config, required_group_object_id="", auth_token="")
+
+    class _FakeStore:
+        def get_latest_poll_run_summary(self, source: str):
+            assert source == "confluence"
+
+            class _Summary:
+                polled_at = "2026-04-13T02:00:00+00:00"
+                space_keys = ("SEC", "GRC")
+                mentions_found = 3
+                jobs_queued = 2
+                terminal_failures = 1
+                error_message = ""
+                watermark = "2026-04-13T02:00:00+00:00"
+                since_iso = "2026-04-13T01:00:00+00:00"
+
+            return _Summary()
+
+        def list_recent_page_assessments(self, source: str, *, since_iso: str, limit: int = 100):
+            assert source == "confluence"
+            assert since_iso
+            assert limit == 200
+
+            class _Record:
+                target_id = "123"
+                title = "Confluence Page"
+                target_url = "https://example/wiki/pages/123"
+                space_key = "SEC"
+                overall_risk = "high"
+                assessed_at = "2026-04-13T02:01:00+00:00"
+                framework_scope = "NIST CSF"
+                findings_count = 4
+                status = "assessed"
+                page_version = "7"
+
+            return [_Record()]
+
+        def list_recent_failures(self, source: str, *, since_iso: str, limit: int = 50):
+            assert source == "confluence"
+            assert since_iso
+            assert limit == 50
+
+            class _Failure:
+                event_id = "evt-9"
+                status = "failed_terminal"
+                attempt_count = 3
+                last_error = "boom"
+                last_attempt_at = "2026-04-13T02:02:00+00:00"
+                run_id = "run-1"
+
+            return [_Failure()]
+
+    with (
+        patch.object(app_module, "config", patched_config),
+        patch.object(app_module, "confluence_poll_state_store", _FakeStore()),
+    ):
+        response = client.get("/api/confluence/poll-status?since_hours=12")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["configured"] is True
+    assert body["last_poll"]["mentions_found"] == 3
+    assert body["last_poll"]["space_key"] == "SEC, GRC"
+    assert body["summary"]["page_status_counts"]["assessed"] == 1
+    assert body["summary"]["failure_status_counts"]["failed_terminal"] == 1
+    assert len(body["assessed_pages"]) == 1
+    assert body["assessed_pages"][0]["overall_risk"] == "High"
+    assert body["assessed_pages"][0]["framework"] == "NIST CSF"
+    assert len(body["recent_failures"]) == 1
+    assert body["recent_failures"][0]["last_error"] == "boom"

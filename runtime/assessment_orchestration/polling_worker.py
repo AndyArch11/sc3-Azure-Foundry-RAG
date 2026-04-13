@@ -417,6 +417,9 @@ def _process_assessment_event(
     )
     current_page_version = str(artifact.metadata.get("version") or "")
     current_content_hash = _content_hash(artifact.content)
+    page_title = str(getattr(artifact, "title", "") or event.get("title") or target_id)
+    page_target_url = str(getattr(artifact, "canonical_url", "") or target_url)
+    page_space_key = str(artifact.metadata.get("space_key") or event.get("space_key") or "")
 
     for framework_scope in framework_scopes:
         framework_snapshot_scope = framework_scope or _DEFAULT_FRAMEWORK_SCOPE
@@ -433,6 +436,20 @@ def _process_assessment_event(
         ):
             if dry_run:
                 continue
+
+            state_store.upsert_page_assessment(
+                source,
+                target_id=target_id,
+                framework_scope=framework_snapshot_scope,
+                title=page_title,
+                target_url=page_target_url,
+                space_key=page_space_key,
+                status="no_change",
+                overall_risk="unknown",
+                findings_count=0,
+                assessed_at=_iso(_now_utc()),
+                page_version=current_page_version,
+            )
 
             event_key = str(event.get("event_id") or target_id)
             scope_key = re.sub(
@@ -500,6 +517,19 @@ def _process_assessment_event(
             page_version=current_page_version,
             content_hash=current_content_hash,
         )
+        state_store.upsert_page_assessment(
+            source,
+            target_id=target_id,
+            framework_scope=framework_snapshot_scope,
+            title=page_title,
+            target_url=page_target_url,
+            space_key=page_space_key,
+            status="assessed",
+            overall_risk=str(assessment.get("overall_risk_rating") or "unknown"),
+            findings_count=len(list(assessment.get("findings") or [])),
+            assessed_at=_iso(_now_utc()),
+            page_version=current_page_version,
+        )
 
         event_key = str(event.get("event_id") or job.correlation_id)
         scope_key = re.sub(r"[^a-zA-Z0-9_\-]", "", framework_scope.lower().replace(" ", "-"))
@@ -522,6 +552,8 @@ def run_poll_cycle(
     process_event: Callable[[dict[str, Any]], None] | None = None,
 ) -> PollCycleResult:
     run_id = str(uuid.uuid4())
+    cycle_started = _now_utc()
+    since_iso = ""
     if not state_store.try_acquire_lease(
         config.source,
         owner_run_id=run_id,
@@ -540,6 +572,7 @@ def run_poll_cycle(
     terminal_failures = 0
     fetched_events = 0
     watermark = ""
+    cycle_error = ""
     try:
         state = state_store.load_state(config.source)
         now = _now_utc()
@@ -632,7 +665,21 @@ def run_poll_cycle(
             terminal_failures=terminal_failures,
             watermark=watermark,
         )
+    except Exception as exc:
+        cycle_error = str(exc)
+        raise
     finally:
+        state_store.upsert_poll_run_summary(
+            config.source,
+            polled_at=_iso(cycle_started),
+            since_iso=since_iso,
+            watermark=watermark,
+            mentions_found=fetched_events,
+            jobs_queued=processed_count,
+            terminal_failures=terminal_failures,
+            error_message=cycle_error,
+            space_keys=config.space_keys,
+        )
         state_store.release_lease(config.source, owner_run_id=run_id)
 
 

@@ -36,7 +36,9 @@ class _FakeServer:
         class _Artifact:
             def __init__(self, content: str, version: int) -> None:
                 self.content = content
-                self.metadata = {"version": version}
+                self.title = "Test Page"
+                self.canonical_url = f"https://example/{target_id}"
+                self.metadata = {"version": version, "space_key": "SEC"}
 
         return _Artifact(content=self.page_content, version=self.page_version)
 
@@ -465,3 +467,48 @@ def test_process_assessment_event_skips_reassessment_when_page_unchanged() -> No
     assert "No changes were detected" in server.posts[1]["comment_body"]
     assert "<strong>Page version:</strong> 1" in server.posts[1]["comment_body"]
     assert server.posts[1]["idempotency_key"].endswith("essential-eight-nochange")
+
+    recent = state_store.list_recent_page_assessments(
+        "confluence",
+        since_iso="2000-01-01T00:00:00+00:00",
+        limit=10,
+    )
+    assert len(recent) == 1
+    assert recent[0].status == "no_change"
+    assert recent[0].title == "Test Page"
+
+
+def test_run_poll_cycle_persists_latest_poll_summary() -> None:
+    mentions = [
+        {
+            "event_id": "e-1",
+            "occurred_at": "2026-04-04T10:00:00+00:00",
+            "title": "a",
+            "target_id": "1",
+            "target_url": "https://x/1",
+        }
+    ]
+    server = _PostingServer(mentions)
+    state_store = InMemoryPollingStateStore()
+
+    result = run_poll_cycle(
+        config=PollerConfig(space_keys=("SEC",)),
+        state_store=state_store,
+        server=server,  # type: ignore[arg-type]
+        adapter=_FakeAdapter(),  # type: ignore[arg-type]
+    )
+
+    assert result.processed_events == 1
+    summary = state_store.get_latest_poll_run_summary("confluence")
+    assert summary is not None
+    assert summary.mentions_found == 1
+    assert summary.jobs_queued == 1
+    assert summary.space_keys == ("SEC",)
+    assessments = state_store.list_recent_page_assessments(
+        "confluence",
+        since_iso="2000-01-01T00:00:00+00:00",
+        limit=10,
+    )
+    assert len(assessments) == 1
+    assert assessments[0].status == "assessed"
+    assert assessments[0].overall_risk == "low"

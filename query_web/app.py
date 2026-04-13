@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
@@ -37,6 +37,7 @@ from prompt_injection_guard import (
     sanitise_untrusted_text,
 )
 from pydantic import BaseModel, Field
+from runtime.assessment_orchestration.state_store import CosmosPollingStateStore
 
 from runtime.assessment_orchestration.azure_assessment import (
     collect_azure_grounding,
@@ -56,6 +57,19 @@ CosmosResourceNotFoundError: type[Exception] = _CosmosResourceNotFoundError
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _risk_label(value: str) -> str:
+    normalised = str(value or "unknown").strip().replace("_", " ").lower()
+    if normalised == "low":
+        return "Low"
+    if normalised == "medium":
+        return "Medium"
+    if normalised == "high":
+        return "High"
+    if normalised == "critical":
+        return "Critical"
+    return "Unknown"
 
 
 @dataclass(frozen=True)
@@ -90,6 +104,7 @@ class QueryConfig:
     cosmos_endpoint: str
     cosmos_database_name: str
     cosmos_container_name: str
+    cosmos_orchestration_container_name: str
 
     prompt_injection_validator_enabled: bool
     prompt_injection_validator_deployment: str
@@ -294,6 +309,10 @@ def load_config() -> QueryConfig:
         cosmos_endpoint=_require_env("AZURE_COSMOS_ENDPOINT"),
         cosmos_database_name=_require_env("AZURE_COSMOS_DATABASE_NAME"),
         cosmos_container_name=_require_env("AZURE_COSMOS_CONTAINER_NAME"),
+        cosmos_orchestration_container_name=os.getenv(
+            "AZURE_COSMOS_ORCHESTRATION_CONTAINER_NAME",
+            os.getenv("AZURE_COSMOS_CONTAINER_NAME", "orchestration-state"),
+        ).strip(),
         prompt_injection_validator_enabled=_env_bool(
             "PROMPT_INJECTION_VALIDATOR_ENABLED", default=False
         ),
@@ -573,6 +592,13 @@ def _ensure_visible_answer(answer: str) -> str:
 
 app = FastAPI(title="RAG Query Console")
 _APP_DIR = Path(__file__).resolve().parent
+_STATIC_VERSION = str(
+    max(
+        int((_APP_DIR / "templates" / "index.html").stat().st_mtime),
+        int((_APP_DIR / "static" / "index.css").stat().st_mtime),
+        int((_APP_DIR / "static" / "index.js").stat().st_mtime),
+    )
+)
 templates = Jinja2Templates(directory=str(_APP_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(_APP_DIR / "static")), name="static")
 credential = DefaultAzureCredential()
@@ -594,6 +620,7 @@ controls_search_client = SearchClient(
 )
 
 # Initialise CosmosDB client
+cosmos_db = None
 try:
     from azure.cosmos import CosmosClient
 
@@ -607,6 +634,21 @@ except (ImportError, Exception) as exc:
     import logging
 
     logging.warning(f"CosmosDB unavailable: {exc}. Conversations will not be persisted.")
+
+orchestration_state_container = None
+confluence_poll_state_store = None
+if cosmos_client is not None and cosmos_db is not None:
+    try:
+        orchestration_state_container = cosmos_db.get_container_client(
+            config.cosmos_orchestration_container_name
+        )
+        confluence_poll_state_store = CosmosPollingStateStore(orchestration_state_container)
+    except Exception as exc:
+        logger.warning(
+            "Confluence orchestration state unavailable from Cosmos container %s: %s",
+            config.cosmos_orchestration_container_name,
+            exc,
+        )
 
 
 class AskRequest(BaseModel):
@@ -4155,6 +4197,7 @@ def home(request: Request) -> HTMLResponse:
         request,
         "index.html",
         {
+            "static_version": _STATIC_VERSION,
             "question": "",
             "answer": "",
             "results": [],
@@ -4203,6 +4246,7 @@ def ask(
             request,
             "index.html",
             {
+                "static_version": _STATIC_VERSION,
                 "question": question,
                 "answer": "",
                 "results": [],
@@ -4286,6 +4330,7 @@ def ask(
         request,
         "index.html",
         {
+            "static_version": _STATIC_VERSION,
             "question": question,
             "answer": result["answer"],
             "results": result["results"],
@@ -5226,21 +5271,98 @@ def confluence_poll_status(
 
     try:
         since_hours = max(1, min(since_hours, 720))
-        # Attempt to surface poll state from the conversation store.  The assessment
-        # runtime does not currently write a discrete poll-status record into the
-        # query_web datastore, so we return a clearly-labelled stub.  A future
-        # iteration can replace this body with a real storage read.
+        if confluence_poll_state_store is None:
+            return JSONResponse(
+                {
+                    "configured": False,
+                    "message": (
+                        "Confluence poll status store is unavailable because the orchestration "
+                        "Cosmos container is not configured for this query-web instance."
+                    ),
+                    "since_hours": since_hours,
+                    "last_poll": None,
+                    "assessed_pages": [],
+                }
+            )
+
+        since_iso = (datetime.now(UTC) - timedelta(hours=since_hours)).isoformat()
+        latest_poll = confluence_poll_state_store.get_latest_poll_run_summary("confluence")
+        assessed_pages = confluence_poll_state_store.list_recent_page_assessments(
+            "confluence",
+            since_iso=since_iso,
+            limit=200,
+        )
+        recent_failures = confluence_poll_state_store.list_recent_failures(
+            "confluence",
+            since_iso=since_iso,
+            limit=50,
+        )
+
+        page_status_counts: dict[str, int] = {}
+        risk_counts: dict[str, int] = {}
+        for item in assessed_pages:
+            page_status_counts[item.status] = page_status_counts.get(item.status, 0) + 1
+            risk_label = _risk_label(item.overall_risk)
+            risk_counts[risk_label] = risk_counts.get(risk_label, 0) + 1
+
+        failure_status_counts: dict[str, int] = {}
+        for item in recent_failures:
+            failure_status_counts[item.status] = failure_status_counts.get(item.status, 0) + 1
+
         return JSONResponse(
             {
-                "configured": False,
+                "configured": latest_poll is not None or bool(assessed_pages),
                 "message": (
-                    "Confluence poll status requires the assessment runtime to publish "
-                    "poll records to a shared store accessible by this service.  "
-                    "Connect CONFLUENCE_POLL_STATUS_STORE or equivalent to enable live data."
+                    "No Confluence poll cycle has written status yet."
+                    if latest_poll is None
+                    else ""
                 ),
                 "since_hours": since_hours,
-                "last_poll": None,
-                "assessed_pages": [],
+                "summary": {
+                    "page_status_counts": page_status_counts,
+                    "risk_counts": risk_counts,
+                    "failure_status_counts": failure_status_counts,
+                },
+                "last_poll": (
+                    None
+                    if latest_poll is None
+                    else {
+                        "polled_at": latest_poll.polled_at,
+                        "space_key": ", ".join(latest_poll.space_keys) if latest_poll.space_keys else "",
+                        "mentions_found": latest_poll.mentions_found,
+                        "jobs_queued": latest_poll.jobs_queued,
+                        "terminal_failures": latest_poll.terminal_failures,
+                        "error": latest_poll.error_message,
+                        "watermark": latest_poll.watermark,
+                        "since_iso": latest_poll.since_iso,
+                    }
+                ),
+                "assessed_pages": [
+                    {
+                        "page_id": item.target_id,
+                        "title": item.title,
+                        "target_url": item.target_url,
+                        "space_key": item.space_key,
+                        "overall_risk": _risk_label(item.overall_risk),
+                        "assessed_at": item.assessed_at,
+                        "framework": item.framework_scope,
+                        "findings_count": item.findings_count,
+                        "status": item.status,
+                        "page_version": item.page_version,
+                    }
+                    for item in assessed_pages
+                ],
+                "recent_failures": [
+                    {
+                        "event_id": item.event_id,
+                        "status": item.status,
+                        "attempt_count": item.attempt_count,
+                        "last_error": item.last_error,
+                        "last_attempt_at": item.last_attempt_at,
+                        "run_id": item.run_id,
+                    }
+                    for item in recent_failures
+                ],
             }
         )
     except Exception as exc:

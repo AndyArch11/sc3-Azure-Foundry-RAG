@@ -47,6 +47,45 @@ class AssessmentSnapshot:
     updated_at: str = ""
 
 
+@dataclass(frozen=True)
+class PollRunSummary:
+    source: str
+    polled_at: str
+    since_iso: str = ""
+    watermark: str = ""
+    mentions_found: int = 0
+    jobs_queued: int = 0
+    terminal_failures: int = 0
+    error_message: str = ""
+    space_keys: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PageAssessmentRecord:
+    source: str
+    target_id: str
+    framework_scope: str
+    title: str = ""
+    target_url: str = ""
+    space_key: str = ""
+    status: str = "assessed"
+    overall_risk: str = "unknown"
+    findings_count: int = 0
+    assessed_at: str = ""
+    page_version: str = ""
+
+
+@dataclass(frozen=True)
+class FailureRecord:
+    source: str
+    event_id: str
+    status: str
+    attempt_count: int = 0
+    last_error: str = ""
+    last_attempt_at: str = ""
+    run_id: str = ""
+
+
 class PollingStateStore(Protocol):
     def load_state(self, source: str) -> PollingState: ...
 
@@ -95,6 +134,46 @@ class PollingStateStore(Protocol):
         content_hash: str,
     ) -> AssessmentSnapshot: ...
 
+    def get_latest_poll_run_summary(self, source: str) -> PollRunSummary | None: ...
+
+    def upsert_poll_run_summary(
+        self,
+        source: str,
+        *,
+        polled_at: str,
+        since_iso: str,
+        watermark: str,
+        mentions_found: int,
+        jobs_queued: int,
+        terminal_failures: int,
+        error_message: str = "",
+        space_keys: tuple[str, ...] = (),
+    ) -> PollRunSummary: ...
+
+    def list_recent_page_assessments(
+        self, source: str, *, since_iso: str, limit: int = 100
+    ) -> list[PageAssessmentRecord]: ...
+
+    def upsert_page_assessment(
+        self,
+        source: str,
+        *,
+        target_id: str,
+        framework_scope: str,
+        title: str,
+        target_url: str,
+        space_key: str,
+        status: str,
+        overall_risk: str,
+        findings_count: int,
+        assessed_at: str,
+        page_version: str,
+    ) -> PageAssessmentRecord: ...
+
+    def list_recent_failures(
+        self, source: str, *, since_iso: str, limit: int = 50
+    ) -> list[FailureRecord]: ...
+
 
 class InMemoryPollingStateStore:
     def __init__(self) -> None:
@@ -103,6 +182,8 @@ class InMemoryPollingStateStore:
         self._processed: dict[tuple[str, str], dict[str, Any]] = {}
         self._failures: dict[tuple[str, str], dict[str, Any]] = {}
         self._assessment_snapshots: dict[tuple[str, str, str], dict[str, Any]] = {}
+        self._poll_runs: dict[str, dict[str, Any]] = {}
+        self._page_assessments: dict[tuple[str, str, str], dict[str, Any]] = {}
 
     def load_state(self, source: str) -> PollingState:
         payload = self._state.get(source) or {"source": source}
@@ -250,6 +331,144 @@ class InMemoryPollingStateStore:
         self._assessment_snapshots[(source, target_id, framework_scope)] = payload
         return AssessmentSnapshot(**payload)
 
+    def get_latest_poll_run_summary(self, source: str) -> PollRunSummary | None:
+        payload = self._poll_runs.get(source)
+        if payload is None:
+            return None
+        return PollRunSummary(
+            source=str(payload.get("source") or source),
+            polled_at=str(payload.get("polled_at") or ""),
+            since_iso=str(payload.get("since_iso") or ""),
+            watermark=str(payload.get("watermark") or ""),
+            mentions_found=int(payload.get("mentions_found") or 0),
+            jobs_queued=int(payload.get("jobs_queued") or 0),
+            terminal_failures=int(payload.get("terminal_failures") or 0),
+            error_message=str(payload.get("error_message") or ""),
+            space_keys=tuple(payload.get("space_keys") or ()),
+        )
+
+    def upsert_poll_run_summary(
+        self,
+        source: str,
+        *,
+        polled_at: str,
+        since_iso: str,
+        watermark: str,
+        mentions_found: int,
+        jobs_queued: int,
+        terminal_failures: int,
+        error_message: str = "",
+        space_keys: tuple[str, ...] = (),
+    ) -> PollRunSummary:
+        payload = {
+            "source": source,
+            "polled_at": polled_at,
+            "since_iso": since_iso,
+            "watermark": watermark,
+            "mentions_found": int(max(0, mentions_found)),
+            "jobs_queued": int(max(0, jobs_queued)),
+            "terminal_failures": int(max(0, terminal_failures)),
+            "error_message": error_message,
+            "space_keys": list(space_keys),
+        }
+        self._poll_runs[source] = payload
+        return self.get_latest_poll_run_summary(source) or PollRunSummary(source=source, polled_at=polled_at)
+
+    def list_recent_page_assessments(
+        self, source: str, *, since_iso: str, limit: int = 100
+    ) -> list[PageAssessmentRecord]:
+        since_dt = _parse_iso(since_iso)
+        records: list[PageAssessmentRecord] = []
+        for payload in self._page_assessments.values():
+            if str(payload.get("source") or "") != source:
+                continue
+            assessed_at = str(payload.get("assessed_at") or "")
+            if not assessed_at:
+                continue
+            try:
+                if _parse_iso(assessed_at) < since_dt:
+                    continue
+            except Exception:
+                continue
+            records.append(
+                PageAssessmentRecord(
+                    source=str(payload.get("source") or source),
+                    target_id=str(payload.get("target_id") or ""),
+                    framework_scope=str(payload.get("framework_scope") or ""),
+                    title=str(payload.get("title") or ""),
+                    target_url=str(payload.get("target_url") or ""),
+                    space_key=str(payload.get("space_key") or ""),
+                    status=str(payload.get("status") or "assessed"),
+                    overall_risk=str(payload.get("overall_risk") or "unknown"),
+                    findings_count=int(payload.get("findings_count") or 0),
+                    assessed_at=assessed_at,
+                    page_version=str(payload.get("page_version") or ""),
+                )
+            )
+        records.sort(key=lambda item: item.assessed_at, reverse=True)
+        return records[: max(1, limit)]
+
+    def upsert_page_assessment(
+        self,
+        source: str,
+        *,
+        target_id: str,
+        framework_scope: str,
+        title: str,
+        target_url: str,
+        space_key: str,
+        status: str,
+        overall_risk: str,
+        findings_count: int,
+        assessed_at: str,
+        page_version: str,
+    ) -> PageAssessmentRecord:
+        payload = {
+            "source": source,
+            "target_id": target_id,
+            "framework_scope": framework_scope,
+            "title": title,
+            "target_url": target_url,
+            "space_key": space_key,
+            "status": status,
+            "overall_risk": overall_risk,
+            "findings_count": int(max(0, findings_count)),
+            "assessed_at": assessed_at,
+            "page_version": page_version,
+        }
+        self._page_assessments[(source, target_id, framework_scope)] = payload
+        return PageAssessmentRecord(**payload)
+
+    def list_recent_failures(
+        self, source: str, *, since_iso: str, limit: int = 50
+    ) -> list[FailureRecord]:
+        since_dt = _parse_iso(since_iso)
+        records: list[FailureRecord] = []
+        for payload in self._failures.values():
+            if str(payload.get("source") or "") != source:
+                continue
+            last_attempt_at = str(payload.get("last_attempt_at") or "")
+            if not last_attempt_at:
+                continue
+            try:
+                if _parse_iso(last_attempt_at) < since_dt:
+                    continue
+            except Exception:
+                continue
+            records.append(
+                FailureRecord(
+                    source=str(payload.get("source") or source),
+                    event_id=str(payload.get("event_id") or ""),
+                    status=str(payload.get("status") or "pending"),
+                    attempt_count=int(payload.get("attempt_count") or 0),
+                    last_error=str(payload.get("last_error") or ""),
+                    last_attempt_at=last_attempt_at,
+                    run_id=str(payload.get("run_id") or ""),
+                )
+            )
+        records.sort(key=lambda item: item.last_attempt_at, reverse=True)
+        return records[: max(1, limit)]
+
 
 class CosmosPollingStateStore:
     """Cosmos-backed state store using one container keyed by /source.
@@ -278,6 +497,12 @@ class CosmosPollingStateStore:
 
     def _assessment_snapshot_id(self, source: str, target_id: str, framework_scope: str) -> str:
         return f"{source}:assessment:{target_id}:{framework_scope}"
+
+    def _poll_run_summary_id(self, source: str) -> str:
+        return f"{source}:poll_run_summary"
+
+    def _page_assessment_id(self, source: str, target_id: str, framework_scope: str) -> str:
+        return f"{source}:page_assessment:{target_id}:{framework_scope}"
 
     def _read(self, source: str, doc_id: str) -> dict[str, Any] | None:
         try:
@@ -458,3 +683,167 @@ class CosmosPollingStateStore:
             content_hash=str(saved.get("content_hash") or ""),
             updated_at=str(saved.get("updated_at") or ""),
         )
+
+    def get_latest_poll_run_summary(self, source: str) -> PollRunSummary | None:
+        payload = self._read(source, self._poll_run_summary_id(source))
+        if payload is None:
+            return None
+        return PollRunSummary(
+            source=str(payload.get("source") or source),
+            polled_at=str(payload.get("polled_at") or ""),
+            since_iso=str(payload.get("since_iso") or ""),
+            watermark=str(payload.get("watermark") or ""),
+            mentions_found=int(payload.get("mentions_found") or 0),
+            jobs_queued=int(payload.get("jobs_queued") or 0),
+            terminal_failures=int(payload.get("terminal_failures") or 0),
+            error_message=str(payload.get("error_message") or ""),
+            space_keys=tuple(payload.get("space_keys") or ()),
+        )
+
+    def upsert_poll_run_summary(
+        self,
+        source: str,
+        *,
+        polled_at: str,
+        since_iso: str,
+        watermark: str,
+        mentions_found: int,
+        jobs_queued: int,
+        terminal_failures: int,
+        error_message: str = "",
+        space_keys: tuple[str, ...] = (),
+    ) -> PollRunSummary:
+        payload = {
+            "id": self._poll_run_summary_id(source),
+            "doc_type": "poll_run_summary",
+            "source": source,
+            "polled_at": polled_at,
+            "since_iso": since_iso,
+            "watermark": watermark,
+            "mentions_found": int(max(0, mentions_found)),
+            "jobs_queued": int(max(0, jobs_queued)),
+            "terminal_failures": int(max(0, terminal_failures)),
+            "error_message": error_message,
+            "space_keys": list(space_keys),
+        }
+        saved = self._upsert(payload)
+        return PollRunSummary(
+            source=str(saved.get("source") or source),
+            polled_at=str(saved.get("polled_at") or ""),
+            since_iso=str(saved.get("since_iso") or ""),
+            watermark=str(saved.get("watermark") or ""),
+            mentions_found=int(saved.get("mentions_found") or 0),
+            jobs_queued=int(saved.get("jobs_queued") or 0),
+            terminal_failures=int(saved.get("terminal_failures") or 0),
+            error_message=str(saved.get("error_message") or ""),
+            space_keys=tuple(saved.get("space_keys") or ()),
+        )
+
+    def list_recent_page_assessments(
+        self, source: str, *, since_iso: str, limit: int = 100
+    ) -> list[PageAssessmentRecord]:
+        query = (
+            "SELECT * FROM c WHERE c.source = @source AND c.doc_type = 'page_assessment' "
+            "AND c.assessed_at >= @since_iso ORDER BY c.assessed_at DESC"
+        )
+        items = self._container.query_items(
+            query=query,
+            parameters=[
+                {"name": "@source", "value": source},
+                {"name": "@since_iso", "value": since_iso},
+            ],
+            max_item_count=max(1, limit),
+        )
+        records: list[PageAssessmentRecord] = []
+        for payload in items:
+            records.append(
+                PageAssessmentRecord(
+                    source=str(payload.get("source") or source),
+                    target_id=str(payload.get("target_id") or ""),
+                    framework_scope=str(payload.get("framework_scope") or ""),
+                    title=str(payload.get("title") or ""),
+                    target_url=str(payload.get("target_url") or ""),
+                    space_key=str(payload.get("space_key") or ""),
+                    status=str(payload.get("status") or "assessed"),
+                    overall_risk=str(payload.get("overall_risk") or "unknown"),
+                    findings_count=int(payload.get("findings_count") or 0),
+                    assessed_at=str(payload.get("assessed_at") or ""),
+                    page_version=str(payload.get("page_version") or ""),
+                )
+            )
+        return records
+
+    def upsert_page_assessment(
+        self,
+        source: str,
+        *,
+        target_id: str,
+        framework_scope: str,
+        title: str,
+        target_url: str,
+        space_key: str,
+        status: str,
+        overall_risk: str,
+        findings_count: int,
+        assessed_at: str,
+        page_version: str,
+    ) -> PageAssessmentRecord:
+        payload = {
+            "id": self._page_assessment_id(source, target_id, framework_scope),
+            "doc_type": "page_assessment",
+            "source": source,
+            "target_id": target_id,
+            "framework_scope": framework_scope,
+            "title": title,
+            "target_url": target_url,
+            "space_key": space_key,
+            "status": status,
+            "overall_risk": overall_risk,
+            "findings_count": int(max(0, findings_count)),
+            "assessed_at": assessed_at,
+            "page_version": page_version,
+        }
+        saved = self._upsert(payload)
+        return PageAssessmentRecord(
+            source=str(saved.get("source") or source),
+            target_id=str(saved.get("target_id") or target_id),
+            framework_scope=str(saved.get("framework_scope") or framework_scope),
+            title=str(saved.get("title") or ""),
+            target_url=str(saved.get("target_url") or ""),
+            space_key=str(saved.get("space_key") or ""),
+            status=str(saved.get("status") or "assessed"),
+            overall_risk=str(saved.get("overall_risk") or "unknown"),
+            findings_count=int(saved.get("findings_count") or 0),
+            assessed_at=str(saved.get("assessed_at") or ""),
+            page_version=str(saved.get("page_version") or ""),
+        )
+
+    def list_recent_failures(
+        self, source: str, *, since_iso: str, limit: int = 50
+    ) -> list[FailureRecord]:
+        query = (
+            "SELECT * FROM c WHERE c.source = @source AND c.doc_type = 'failure' "
+            "AND c.last_attempt_at >= @since_iso ORDER BY c.last_attempt_at DESC"
+        )
+        items = self._container.query_items(
+            query=query,
+            parameters=[
+                {"name": "@source", "value": source},
+                {"name": "@since_iso", "value": since_iso},
+            ],
+            max_item_count=max(1, limit),
+        )
+        records: list[FailureRecord] = []
+        for payload in items:
+            records.append(
+                FailureRecord(
+                    source=str(payload.get("source") or source),
+                    event_id=str(payload.get("event_id") or ""),
+                    status=str(payload.get("status") or "pending"),
+                    attempt_count=int(payload.get("attempt_count") or 0),
+                    last_error=str(payload.get("last_error") or ""),
+                    last_attempt_at=str(payload.get("last_attempt_at") or ""),
+                    run_id=str(payload.get("run_id") or ""),
+                )
+            )
+        return records

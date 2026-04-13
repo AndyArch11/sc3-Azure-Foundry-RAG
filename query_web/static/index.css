@@ -159,6 +159,20 @@
   .risk-high     { background:#fee2e2; color:#991b1b; }
   .risk-critical { background:#7f1d1d; color:#fff; }
   .risk-unknown  { background:#f3f4f6; color:#6b7280; }
+  .status-badge { display:inline-block; border-radius:999px; font-size:.69rem; font-weight:700; letter-spacing:.03em; margin-left:6px; padding:2px 8px; text-transform:uppercase; vertical-align:middle; }
+  .status-assessed { background:#dbeafe; color:#1d4ed8; }
+  .status-no-change { background:#ecfccb; color:#3f6212; }
+  .status-failed-terminal { background:#fee2e2; color:#991b1b; }
+  .status-failed-retryable { background:#fef3c7; color:#92400e; }
+  .poll-summary-grid { display:grid; gap:8px; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); margin-bottom:10px; }
+  .poll-summary-card { background:#f9fafb; border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+  .poll-summary-card strong { display:block; font-size:.75rem; color:var(--muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:.04em; }
+  .poll-summary-card span { font-size:1rem; font-weight:700; }
   .poll-page-row   { border:1px solid var(--border); border-radius:8px; margin-bottom:6px; padding:8px 12px; }
   .poll-page-title { font-size:.9rem; font-weight:600; }
   .poll-page-meta  { color:var(--muted); font-size:.78rem; margin-top:3px; }
+  .poll-failures { margin-top:12px; }
+  .poll-failure-row { border-left:3px solid #dc2626; background:#fff7f7; margin-bottom:8px; padding:8px 10px; }
+  .poll-failure-title { font-size:.84rem; font-weight:600; }
+  .poll-failure-meta { color:var(--muted); font-size:.76rem; margin-top:2px; }
+  .poll-failure-error { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.78rem; margin-top:6px; white-space:pre-wrap; }

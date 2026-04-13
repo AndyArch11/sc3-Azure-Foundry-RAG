@@ -7,7 +7,9 @@
       btn.setAttribute('aria-selected', active ? 'true' : 'false');
     });
     document.querySelectorAll('.tab-panel').forEach(function (panel) {
-      panel.classList.toggle('active', panel.id === ('tab-' + name));
+      var active = panel.id === ('tab-' + name);
+      panel.classList.toggle('active', active);
+      panel.hidden = !active;
     });
     try { localStorage.setItem(_TAB_KEY, name); } catch (_) {}
   }
@@ -34,19 +36,37 @@
       return;
     }
     var RISK_CLASS = { Low: 'risk-low', Medium: 'risk-medium', High: 'risk-high', Critical: 'risk-critical' };
+    var STATUS_CLASS = {
+      assessed: 'status-assessed',
+      no_change: 'status-no-change',
+      failed_terminal: 'status-failed-terminal',
+      failed_retryable: 'status-failed-retryable'
+    };
     var html = '<div class="answer">';
     var lp = data.last_poll;
+    var summary = data.summary || {};
+    var statusCounts = summary.page_status_counts || {};
+    var riskCounts = summary.risk_counts || {};
+    var failureCounts = summary.failure_status_counts || {};
     if (lp) {
       html += '<p><strong>Last poll:</strong> ' + escHtml(lp.polled_at || 'unknown') +
         ' &nbsp;|&nbsp; <strong>Space:</strong> ' + escHtml(lp.space_key || '—') +
         ' &nbsp;|&nbsp; <strong>Mentions found:</strong> ' + escHtml(String(lp.mentions_found !== undefined ? lp.mentions_found : '—')) +
-        ' &nbsp;|&nbsp; <strong>Jobs queued:</strong> ' + escHtml(String(lp.jobs_queued !== undefined ? lp.jobs_queued : '—')) + '</p>';
+        ' &nbsp;|&nbsp; <strong>Jobs queued:</strong> ' + escHtml(String(lp.jobs_queued !== undefined ? lp.jobs_queued : '—')) +
+        ' &nbsp;|&nbsp; <strong>Watermark:</strong> ' + escHtml(lp.watermark || '—') + '</p>';
       if (lp.error) {
         html += '<p style="color:#b91c1c"><strong>Poll error:</strong> ' + escHtml(lp.error) + '</p>';
       }
     } else {
       html += '<p class="muted">No poll status recorded yet.</p>';
     }
+    html += '<div class="poll-summary-grid">' +
+      '<div class="poll-summary-card"><strong>Pages</strong><span>' + escHtml(String((data.assessed_pages || []).length)) + '</span></div>' +
+      '<div class="poll-summary-card"><strong>Assessed</strong><span>' + escHtml(String(statusCounts.assessed || 0)) + '</span></div>' +
+      '<div class="poll-summary-card"><strong>No change</strong><span>' + escHtml(String(statusCounts.no_change || 0)) + '</span></div>' +
+      '<div class="poll-summary-card"><strong>High/Critical</strong><span>' + escHtml(String((riskCounts.High || 0) + (riskCounts.Critical || 0))) + '</span></div>' +
+      '<div class="poll-summary-card"><strong>Failures</strong><span>' + escHtml(String((failureCounts.failed_retryable || 0) + (failureCounts.failed_terminal || 0))) + '</span></div>' +
+      '</div>';
     if (!data.configured) {
       html += '<p class="muted"><em>' + escHtml(data.message || 'Confluence poll status not yet connected to a data source.') + '</em></p>';
     }
@@ -56,18 +76,46 @@
       pages.forEach(function (page) {
         var riskKey = page.overall_risk || 'Unknown';
         var riskClass = RISK_CLASS[riskKey] || 'risk-unknown';
+        var statusKey = String(page.status || 'assessed');
+        var statusLabel = statusKey.replace(/_/g, ' ');
+        var statusClass = STATUS_CLASS[statusKey] || 'status-assessed';
+        var pageTitle = escHtml(page.title || page.page_id || 'Untitled');
+        if (page.target_url) {
+          pageTitle = '<a href="' + escAttr(page.target_url) + '" target="_blank" rel="noopener noreferrer">' + pageTitle + '</a>';
+        }
         html += '<div class="poll-page-row">' +
-          '<div class="poll-page-title">' + escHtml(page.title || page.page_id || 'Untitled') +
-          ' <span class="risk-badge ' + riskClass + '">' + escHtml(riskKey) + '</span></div>' +
+          '<div class="poll-page-title">' + pageTitle +
+          ' <span class="risk-badge ' + riskClass + '">' + escHtml(riskKey) + '</span>' +
+          ' <span class="status-badge ' + statusClass + '">' + escHtml(statusLabel) + '</span></div>' +
           '<div class="poll-page-meta">' +
           'ID: ' + escHtml(String(page.page_id || '—')) +
           ' &nbsp;|&nbsp; Assessed: ' + escHtml(page.assessed_at || '—') +
+          (page.space_key ? ' &nbsp;|&nbsp; Space: ' + escHtml(page.space_key) : '') +
           (page.framework ? ' &nbsp;|&nbsp; Framework: ' + escHtml(page.framework) : '') +
+          (page.page_version ? ' &nbsp;|&nbsp; Version: ' + escHtml(String(page.page_version)) : '') +
           (page.findings_count !== undefined ? ' &nbsp;|&nbsp; Findings: ' + page.findings_count : '') +
           '</div></div>';
       });
     } else {
       html += '<p class="muted">No pages assessed in the selected period.</p>';
+    }
+    var failures = data.recent_failures || [];
+    if (failures.length) {
+      html += '<div class="poll-failures"><p><strong>Recent failures (' + failures.length + '):</strong></p>';
+      failures.forEach(function (failure) {
+        var failureStatus = String(failure.status || 'pending').replace(/_/g, ' ');
+        var failureClass = STATUS_CLASS[failure.status] || 'status-failed-retryable';
+        html += '<div class="poll-failure-row">' +
+          '<div class="poll-failure-title">Event ' + escHtml(failure.event_id || 'unknown') +
+          ' <span class="status-badge ' + failureClass + '">' + escHtml(failureStatus) + '</span></div>' +
+          '<div class="poll-failure-meta">Attempts: ' + escHtml(String(failure.attempt_count || 0)) +
+          ' &nbsp;|&nbsp; Last attempt: ' + escHtml(failure.last_attempt_at || '—') +
+          (failure.run_id ? ' &nbsp;|&nbsp; Run: ' + escHtml(failure.run_id) : '') +
+          '</div>' +
+          (failure.last_error ? '<div class="poll-failure-error">' + escHtml(failure.last_error) + '</div>' : '') +
+          '</div>';
+      });
+      html += '</div>';
     }
     html += '</div>';
     target.classList.add('markdown');

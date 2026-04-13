@@ -32,6 +32,38 @@ class _FakeContainer:
             raise RuntimeError("delete failed")
         self._items.pop((partition_key, item), None)
 
+    def query_items(self, *, query: str, parameters: list[dict], max_item_count: int | None = None):
+        source = next((item["value"] for item in parameters if item["name"] == "@source"), "")
+        since_iso = next((item["value"] for item in parameters if item["name"] == "@since_iso"), "")
+        want_page_assessments = "doc_type = 'page_assessment'" in query
+        want_failures = "doc_type = 'failure'" in query
+        rows = [
+            dict(payload)
+            for (partition_key, _), payload in self._items.items()
+            if partition_key == source
+            and (
+                (
+                    want_page_assessments
+                    and payload.get("doc_type") == "page_assessment"
+                    and str(payload.get("assessed_at") or "") >= str(since_iso)
+                )
+                or (
+                    want_failures
+                    and payload.get("doc_type") == "failure"
+                    and str(payload.get("last_attempt_at") or "") >= str(since_iso)
+                )
+            )
+        ]
+        rows.sort(
+            key=lambda payload: str(
+                payload.get("assessed_at") or payload.get("last_attempt_at") or ""
+            ),
+            reverse=True,
+        )
+        if max_item_count is not None:
+            return rows[:max_item_count]
+        return rows
+
 
 def test_inmemory_store_core_flows() -> None:
     store = InMemoryPollingStateStore()
@@ -97,6 +129,49 @@ def test_inmemory_store_core_flows() -> None:
     assert loaded is not None
     assert loaded.page_version == "v1"
 
+    poll_summary = store.upsert_poll_run_summary(
+        "confluence",
+        polled_at="2026-04-13T00:00:00+00:00",
+        since_iso="2026-04-12T23:00:00+00:00",
+        watermark="2026-04-13T00:00:00+00:00",
+        mentions_found=4,
+        jobs_queued=2,
+        terminal_failures=1,
+        error_message="",
+        space_keys=("SEC", "GRC"),
+    )
+    assert poll_summary.mentions_found == 4
+    assert store.get_latest_poll_run_summary("confluence") is not None
+
+    record = store.upsert_page_assessment(
+        "confluence",
+        target_id="t1",
+        framework_scope="NIST CSF",
+        title="Security Review",
+        target_url="https://example/wiki/pages/1",
+        space_key="SEC",
+        status="assessed",
+        overall_risk="high",
+        findings_count=3,
+        assessed_at="2026-04-13T00:10:00+00:00",
+        page_version="v1",
+    )
+    assert record.findings_count == 3
+    recent = store.list_recent_page_assessments(
+        "confluence",
+        since_iso="2026-04-12T23:30:00+00:00",
+        limit=10,
+    )
+    assert len(recent) == 1
+    assert recent[0].title == "Security Review"
+    failures = store.list_recent_failures(
+        "confluence",
+        since_iso="2026-04-12T23:30:00+00:00",
+        limit=10,
+    )
+    assert len(failures) == 1
+    assert failures[0].status == "failed_terminal"
+
 
 def test_cosmos_store_core_flows_and_delete_failure() -> None:
     container = _FakeContainer()
@@ -150,3 +225,45 @@ def test_cosmos_store_core_flows_and_delete_failure() -> None:
     loaded = store.get_assessment_snapshot("confluence", target_id="t1", framework_scope="NIST CSF")
     assert loaded is not None
     assert loaded.content_hash == "xyz"
+
+    poll_summary = store.upsert_poll_run_summary(
+        "confluence",
+        polled_at="2026-04-13T01:00:00+00:00",
+        since_iso="2026-04-13T00:00:00+00:00",
+        watermark="2026-04-13T01:00:00+00:00",
+        mentions_found=5,
+        jobs_queued=2,
+        terminal_failures=0,
+        space_keys=("SEC",),
+    )
+    assert poll_summary.jobs_queued == 2
+    assert store.get_latest_poll_run_summary("confluence") is not None
+
+    record = store.upsert_page_assessment(
+        "confluence",
+        target_id="t1",
+        framework_scope="NIST CSF",
+        title="Page 1",
+        target_url="https://example/wiki/pages/1",
+        space_key="SEC",
+        status="assessed",
+        overall_risk="medium",
+        findings_count=2,
+        assessed_at="2026-04-13T01:02:00+00:00",
+        page_version="v2",
+    )
+    assert record.overall_risk == "medium"
+    recent = store.list_recent_page_assessments(
+        "confluence",
+        since_iso="2026-04-13T01:00:30+00:00",
+        limit=5,
+    )
+    assert len(recent) == 1
+    assert recent[0].space_key == "SEC"
+    failures = store.list_recent_failures(
+        "confluence",
+        since_iso="2026-04-13T00:59:00+00:00",
+        limit=5,
+    )
+    assert len(failures) == 1
+    assert failures[0].last_error == "fatal"

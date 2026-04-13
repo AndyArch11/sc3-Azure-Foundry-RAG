@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RAG Query Console</title>
-  <link rel="stylesheet" href="/static/index.css" />
+  <link rel="stylesheet" href="/static/index.css?v={{ static_version }}" />
 </head>
 <body>
   <div class="wrap">
@@ -18,9 +18,9 @@
 
       <!-- Top-level tab navigation -->
       <div class="top-tabs" role="tablist">
-        <button class="top-tab active" id="tab-btn-ask" role="tab" aria-controls="tab-ask" aria-selected="true" onclick="switchTab('ask')">Ask</button>
-        <button class="top-tab" id="tab-btn-assess" role="tab" aria-controls="tab-assess" aria-selected="false" onclick="switchTab('assess')">Assess</button>
-        <button class="top-tab" id="tab-btn-reference" role="tab" aria-controls="tab-reference" aria-selected="false" onclick="switchTab('reference')">Reference</button>
+        <button type="button" class="top-tab active" id="tab-btn-ask" role="tab" aria-controls="tab-ask" aria-selected="true" onclick="switchTab('ask')">Ask</button>
+        <button type="button" class="top-tab" id="tab-btn-assess" role="tab" aria-controls="tab-assess" aria-selected="false" onclick="switchTab('assess')">Assess</button>
+        <button type="button" class="top-tab" id="tab-btn-reference" role="tab" aria-controls="tab-reference" aria-selected="false" onclick="switchTab('reference')">Reference</button>
       </div>
 
       <!-- ── Ask tab ──────────────────────────────────────────────────────── -->
@@ -198,7 +198,7 @@
       <!-- /Ask tab -->
 
       <!-- ── Assess tab ───────────────────────────────────────────────────── -->
-      <div id="tab-assess" class="tab-panel" role="tabpanel">
+      <div id="tab-assess" class="tab-panel" role="tabpanel" hidden>
 
         <div class="source" id="compliance-report-ops">
           <h3>Compliance Report</h3>
@@ -335,7 +335,7 @@
       <!-- /Assess tab -->
 
       <!-- ── Reference tab ───────────────────────────────────────────────── -->
-      <div id="tab-reference" class="tab-panel" role="tabpanel">
+      <div id="tab-reference" class="tab-panel" role="tabpanel" hidden>
 
         <div class="source" id="corpus-a-ops">
           <h3>Corpus A Operations</h3>
@@ -436,6 +436,6 @@
     </div>
   </div>
 <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js" crossorigin="anonymous"></script>
-<script src="/static/index.js"></script>
+<script src="/static/index.js?v={{ static_version }}"></script>
 </body>
 </html>

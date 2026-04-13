@@ -238,6 +238,10 @@ resource "azurerm_container_app" "query_web" {
         value = var.cosmos_container_name
       }
       env {
+        name  = "AZURE_COSMOS_ORCHESTRATION_CONTAINER_NAME"
+        value = var.cosmos_orchestration_container_name
+      }
+      env {
         name  = "AZURE_STORAGE_ACCOUNT_NAME"
         value = var.storage_account_name
       }
