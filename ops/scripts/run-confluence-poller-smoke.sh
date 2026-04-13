@@ -128,3 +128,71 @@ cd "${RUNTIME_DIR}"
 export PYTHONPATH="${RUNTIME_DIR}:${PYTHONPATH:-}"
 
 "${PYTHON_CMD[@]}" -m assessment_orchestration.polling_worker_main --once "${EXTRA_ARGS[@]}"
+
+echo
+echo "Cosmos readback (confluence source):"
+"${PYTHON_CMD[@]}" - <<'PY'
+import json
+import os
+from datetime import UTC, datetime, timedelta
+
+from assessment_orchestration.polling_worker import create_cosmos_state_store_from_env
+
+store = create_cosmos_state_store_from_env(dict(os.environ))
+source = "confluence"
+since_iso = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
+
+state = store.load_state(source)
+summary = store.get_latest_poll_run_summary(source)
+pages = store.list_recent_page_assessments(source, since_iso=since_iso, limit=5)
+failures = store.list_recent_failures(source, since_iso=since_iso, limit=5)
+
+payload = {
+  "state": {
+    "watermark": state.watermark,
+    "last_success_at": state.last_success_at,
+    "last_processed_event_id": state.last_processed_event_id,
+    "poll_count": state.poll_count,
+    "last_error": state.last_error or {},
+  },
+  "summary": (
+    {
+      "polled_at": summary.polled_at,
+      "since_iso": summary.since_iso,
+      "watermark": summary.watermark,
+      "mentions_found": summary.mentions_found,
+      "jobs_queued": summary.jobs_queued,
+      "terminal_failures": summary.terminal_failures,
+      "error_message": summary.error_message,
+      "space_keys": list(summary.space_keys),
+    }
+    if summary
+    else None
+  ),
+  "recent_page_assessment_count_24h": len(pages),
+  "recent_failure_count_24h": len(failures),
+  "recent_page_assessments": [
+    {
+      "target_id": p.target_id,
+      "title": p.title,
+      "framework_scope": p.framework_scope,
+      "status": p.status,
+      "assessed_at": p.assessed_at,
+      "findings_count": p.findings_count,
+    }
+    for p in pages
+  ],
+  "recent_failures": [
+    {
+      "event_id": f.event_id,
+      "status": f.status,
+      "attempt_count": f.attempt_count,
+      "last_attempt_at": f.last_attempt_at,
+      "last_error": f.last_error,
+    }
+    for f in failures
+  ],
+}
+
+print(json.dumps(payload, ensure_ascii=True, default=str))
+PY
