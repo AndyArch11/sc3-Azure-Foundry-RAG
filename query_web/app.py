@@ -38,6 +38,9 @@ from prompt_injection_guard import (
 )
 from pydantic import BaseModel, Field
 from runtime.assessment_orchestration.state_store import CosmosPollingStateStore
+from runtime.assessment_orchestration._framework_patterns import (
+    infer_single_framework as _infer_framework_filter,
+)
 
 from runtime.assessment_orchestration.azure_assessment import (
     collect_azure_grounding,
@@ -2773,23 +2776,6 @@ def _summarise_controls_distribution(
             ),
         },
     }
-
-
-def _infer_framework_filter(question: str) -> str | None:
-    text = question.strip().lower()
-    if not text:
-        return None
-
-    if re.search(r"\bnist\b|\bnist\s*csf\b|\bcsf\s*2(\.0)?\b", text):
-        return "NIST CSF"
-    if re.search(r"\bessential\s*eight\b|\be8\b", text):
-        return "Essential Eight"
-    if re.search(r"\baescsf\b|\baemo\b", text):
-        return "AESCSF"
-    if re.search(r"\bism\b|\binformation\s+security\s+manual\b", text):
-        return "ISM"
-
-    return None
 
 
 _QUERY_STOPWORDS = {

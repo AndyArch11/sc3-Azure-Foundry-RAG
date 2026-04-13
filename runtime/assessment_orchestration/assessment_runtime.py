@@ -14,6 +14,7 @@ from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
 
 from .models import AssessedArtifactPackage, CorpusGroundingPackage
+from ._framework_patterns import infer_single_framework as _infer_framework_filter
 
 COMPLIANCE_REPORT_SCHEMA_VERSION = "v1.1"
 COMPLIANCE_REPORT_PROMPT = (
@@ -368,31 +369,6 @@ def _framework_authority_rank(item: dict[str, Any], order: tuple[str, ...]) -> i
         if framework == configured.strip().lower():
             return idx
     return len(order)
-
-
-def _infer_framework_filter(text: str) -> str | None:
-    value = text.lower()
-    if re.search(r"\bpspf\b|\bprotective\s+security\s+policy\s+framework\b", value):
-        return "PSPF"
-    if re.search(r"\bpci\s*dss\b|\bpci[-_\s]?dss\s*v?4(\.0(\.1)?)?\b", value):
-        return "PCI DSS"
-    if re.search(
-        r"\bcis\s*controls?\b|\bcis_controls\b|\bcritical\s+security\s+controls?\b", value
-    ):
-        return "CIS Controls"
-    if re.search(
-        r"\baescsf\b|\baustralian\s+energy\s+sector\s+cyber\s+security\s+framework\b", value
-    ):
-        return "AESCSF"
-    if re.search(r"\bnist\b|\bnist\s*csf\b|\bcsf\s*2(\.0)?\b", value):
-        return "NIST CSF"
-    if re.search(r"\bcyber\s+security\s+framework\b", value):
-        return "NIST CSF"
-    if re.search(r"\bessential\s*eight\b|\bessential\s*8\b|\be8\b", value):
-        return "Essential Eight"
-    if re.search(r"\bism\b|\binformation\s+security\s+manual\b", value):
-        return "ISM"
-    return None
 
 
 def _fetch_controls(

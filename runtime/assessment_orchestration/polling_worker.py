@@ -20,58 +20,13 @@ from .runtime_wiring import (
     create_orchestrator_adapter_from_env,
 )
 from .state_store import CosmosPollingStateStore, PollingStateStore
+from ._framework_patterns import (
+    ALL_FRAMEWORK_ORDER as _ALL_FRAMEWORK_ORDER,
+    is_explicit_all_framework_request as _is_explicit_all_framework_request,
+    requested_frameworks_from_text as _requested_frameworks_from_text,
+)
 
-_FRAMEWORK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    (
-        "Essential Eight",
-        re.compile(r"\b(essential\s*eight|essential_eight|essential\s*8|\be8\b)\b", re.IGNORECASE),
-    ),
-    (
-        "AESCSF",
-        re.compile(
-            r"\b(aescsf|australian\s+energy\s+sector\s+cyber\s+security\s+framework)\b",
-            re.IGNORECASE,
-        ),
-    ),
-    ("ISM", re.compile(r"\b(ism|information\s+security\s+manual)\b", re.IGNORECASE)),
-    ("NIST CSF", re.compile(r"\b(nist\s*csf|\bnist\b|\bcsf\s*2(\.0)?\b)\b", re.IGNORECASE)),
-    (
-        "PSPF",
-        re.compile(r"\b(pspf|protective\s+security\s+policy\s+framework)\b", re.IGNORECASE),
-    ),
-    (
-        "PCI DSS",
-        re.compile(r"\b(pci\s*dss|pci[-_\s]?dss\s*v?4(\.0(\.1)?)?)\b", re.IGNORECASE),
-    ),
-    (
-        "CIS Controls",
-        re.compile(
-            r"\b(cis\s*controls?|cis_controls|critical\s+security\s+controls?)\b", re.IGNORECASE
-        ),
-    ),
-)
-_ALL_FRAMEWORK_ORDER: tuple[str, ...] = (
-    "Essential Eight",
-    "ISM",
-    "AESCSF",
-    "NIST CSF",
-    "PSPF",
-    "PCI DSS",
-    "CIS Controls",
-)
 _DEFAULT_FRAMEWORK_SCOPE = "Essential Eight"
-_ALL_FRAMEWORK_INTENT_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b(all\s+frameworks)\b", re.IGNORECASE),
-    re.compile(
-        r"\b(review|assess|evaluate)\s+.*\b(all\s+(controls\s+)?frameworks)\b", re.IGNORECASE
-    ),
-    re.compile(r"\b(full|complete)\s+(framework\s+)?review\b", re.IGNORECASE),
-)
-_GENERIC_CSF_PHRASE_RE = re.compile(r"\bcyber\s+security\s+framework\b", re.IGNORECASE)
-_FULL_AES_PHRASE_RE = re.compile(
-    r"\baustralian\s+energy\s+sector\s+cyber\s+security\s+framework\b",
-    re.IGNORECASE,
-)
 
 
 def _now_utc() -> datetime:
@@ -305,48 +260,23 @@ def _render_framework_clarification_comment() -> str:
         "<p>Your request did not clearly specify a supported framework, so an assessment was not run.</p>"
         "<p><strong>Use one of these comment formats:</strong></p>"
         "<ul>"
-        "<li>@compliance-agent Review against NIST CSF</li>"
-        "<li>@compliance-agent Review against Essential Eight</li>"
-        "<li>@compliance-agent Review against ISM and PSPF</li>"
-        "<li>@compliance-agent Assess this page against all frameworks</li>"
+        "<li>@compliance-agent Essential Eight</li>"
+        "<li>@compliance-agent NIST CSF</li>"
+        "<li>@compliance-agent ISM</li>"
+        "<li>@compliance-agent PSPF</li>"
+        "<li>@compliance-agent PCI DSS</li>"
+        "<li>@compliance-agent CIS Controls</li>"
+        "<li>@compliance-agent AESCSF</li>"
+        "<li>@compliance-agent all frameworks</li>"
         "</ul>"
-        "<p><strong>Supported frameworks:</strong> Essential Eight, ISM, AESCSF, NIST CSF, PSPF, PCI DSS, CIS Controls.</p>"
+        "<p>Any comment that includes a supported framework name will be recognised. "
+        "Supported frameworks: Essential Eight, ISM, AESCSF, NIST CSF, PSPF, PCI DSS, CIS Controls.</p>"
     )
 
 
 def _content_hash(value: str) -> str:
     normalised = value.strip().encode("utf-8")
     return hashlib.sha256(normalised).hexdigest()
-
-
-def _is_explicit_all_framework_request(text: str) -> bool:
-    value = text.strip()
-    if not value:
-        return False
-    for pattern in _ALL_FRAMEWORK_INTENT_PATTERNS:
-        if pattern.search(value):
-            return True
-    return False
-
-
-def _requested_frameworks_from_text(text: str) -> tuple[str, ...]:
-    value = text.strip()
-    if not value:
-        return ()
-    if _is_explicit_all_framework_request(value):
-        return _ALL_FRAMEWORK_ORDER
-
-    found: list[str] = []
-    for framework, pattern in _FRAMEWORK_PATTERNS:
-        if pattern.search(value) and framework not in found:
-            found.append(framework)
-
-    # Treat the generic "cyber security framework" phrase as NIST CSF intent,
-    # unless the full AESCSF phrase was used explicitly.
-    if _GENERIC_CSF_PHRASE_RE.search(value) and not _FULL_AES_PHRASE_RE.search(value):
-        if "NIST CSF" not in found:
-            found.append("NIST CSF")
-    return tuple(found)
 
 
 def _requested_frameworks_for_event(event: dict[str, Any]) -> tuple[str, ...]:
@@ -370,14 +300,22 @@ def _requested_frameworks_from_discussion_context(
     triggering_id = triggering_comment_id.strip()
 
     if triggering_id:
+        found_triggering_comment = False
         for item in discussion_context:
             comment_id = str(item.get("comment_id") or "").strip()
             if comment_id != triggering_id:
                 continue
+            found_triggering_comment = True
             text = str(item.get("text") or "").strip()
             if not text:
                 return ()
             return _requested_frameworks_from_text(text)
+
+        # Fail closed when a triggering comment id is present but cannot be
+        # resolved from discussion context. Broad author-history fallback can
+        # accidentally rehydrate stale intents like "all frameworks".
+        if not found_triggering_comment:
+            return ()
 
     candidate_texts: list[str] = []
     for item in discussion_context:

@@ -451,7 +451,7 @@ def test_process_assessment_event_posts_clarification_when_framework_is_unspecif
     assert len(server.posts) == 1
     assert server.posts[0]["idempotency_key"].endswith("clarify-framework")
     assert "did not clearly specify a supported framework" in server.posts[0]["comment_body"]
-    assert "Review against NIST CSF" in server.posts[0]["comment_body"]
+    assert "@compliance-agent NIST CSF" in server.posts[0]["comment_body"]
     recent = state_store.list_recent_page_assessments(
         "confluence",
         since_iso="2000-01-01T00:00:00+00:00",
@@ -537,6 +537,41 @@ def test_process_assessment_event_prefers_triggering_comment_over_other_history(
     assert adapter.jobs[0].metadata.get("requested_framework") == "CIS Controls"
     assert len(server.posts) == 1
     assert server.posts[0]["idempotency_key"].endswith("cis-controls")
+
+
+def test_process_assessment_event_does_not_fallback_to_history_when_trigger_comment_missing() -> None:
+    server = _PostingServer([])
+    server.discussion_entries = [
+        {
+            "comment_id": "older-comment",
+            "text": "@compliance-agent Assess this page against all frameworks",
+            "author_id": "acct-1",
+        }
+    ]
+    adapter = _FakeAdapter()
+    event = {
+        "event_id": "e-trigger-comment-missing",
+        "content_id": "missing-comment-id",
+        "target_id": "402",
+        "target_url": "https://example/402",
+        "trigger_type": "mention",
+        "mentioner_account_id": "acct-1",
+        "trigger_text": "@compliance-agent",
+        "title": "Review",
+    }
+
+    _process_assessment_event(
+        adapter=adapter,  # type: ignore[arg-type]
+        server=server,  # type: ignore[arg-type]
+        state_store=InMemoryPollingStateStore(),
+        source="confluence",
+        event=event,
+        dry_run=False,
+    )
+
+    assert len(adapter.jobs) == 0
+    assert len(server.posts) == 1
+    assert server.posts[0]["idempotency_key"].endswith("clarify-framework")
 
 
 def test_process_assessment_event_discussion_fallback_ignores_other_authors() -> None:
