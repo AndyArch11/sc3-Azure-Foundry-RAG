@@ -742,20 +742,32 @@ class CosmosPollingStateStore:
     def list_recent_page_assessments(
         self, source: str, *, since_iso: str, limit: int = 100
     ) -> list[PageAssessmentRecord]:
-        query = (
-            "SELECT * FROM c WHERE c.source = @source AND c.doc_type = 'page_assessment' "
-            "AND c.assessed_at >= @since_iso ORDER BY c.assessed_at DESC"
-        )
-        items = self._container.query_items(
-            query=query,
-            parameters=[
-                {"name": "@source", "value": source},
-                {"name": "@since_iso", "value": since_iso},
-            ],
-            max_item_count=max(1, limit),
-        )
+        try:
+            query = (
+                "SELECT * FROM c WHERE c.source = @source AND c.doc_type = 'page_assessment' "
+                "AND c.assessed_at >= @since_iso ORDER BY c.assessed_at DESC"
+            )
+            items = self._container.query_items(
+                query=query,
+                parameters=[
+                    {"name": "@source", "value": source},
+                    {"name": "@since_iso", "value": since_iso},
+                ],
+                max_item_count=max(1, limit),
+            )
+        except Exception:
+            # Fallback for environments lacking suitable indexes/composite-indexes for ORDER BY.
+            query = "SELECT * FROM c WHERE c.source = @source AND c.doc_type = 'page_assessment'"
+            items = self._container.query_items(
+                query=query,
+                parameters=[{"name": "@source", "value": source}],
+                max_item_count=max(500, limit),
+            )
         records: list[PageAssessmentRecord] = []
         for payload in items:
+            assessed_at = str(payload.get("assessed_at") or "")
+            if assessed_at and assessed_at < since_iso:
+                continue
             records.append(
                 PageAssessmentRecord(
                     source=str(payload.get("source") or source),
@@ -767,11 +779,12 @@ class CosmosPollingStateStore:
                     status=str(payload.get("status") or "assessed"),
                     overall_risk=str(payload.get("overall_risk") or "unknown"),
                     findings_count=int(payload.get("findings_count") or 0),
-                    assessed_at=str(payload.get("assessed_at") or ""),
+                    assessed_at=assessed_at,
                     page_version=str(payload.get("page_version") or ""),
                 )
             )
-        return records
+        records.sort(key=lambda item: item.assessed_at, reverse=True)
+        return records[: max(1, limit)]
 
     def upsert_page_assessment(
         self,
@@ -821,20 +834,31 @@ class CosmosPollingStateStore:
     def list_recent_failures(
         self, source: str, *, since_iso: str, limit: int = 50
     ) -> list[FailureRecord]:
-        query = (
-            "SELECT * FROM c WHERE c.source = @source AND c.doc_type = 'failure' "
-            "AND c.last_attempt_at >= @since_iso ORDER BY c.last_attempt_at DESC"
-        )
-        items = self._container.query_items(
-            query=query,
-            parameters=[
-                {"name": "@source", "value": source},
-                {"name": "@since_iso", "value": since_iso},
-            ],
-            max_item_count=max(1, limit),
-        )
+        try:
+            query = (
+                "SELECT * FROM c WHERE c.source = @source AND c.doc_type = 'failure' "
+                "AND c.last_attempt_at >= @since_iso ORDER BY c.last_attempt_at DESC"
+            )
+            items = self._container.query_items(
+                query=query,
+                parameters=[
+                    {"name": "@source", "value": source},
+                    {"name": "@since_iso", "value": since_iso},
+                ],
+                max_item_count=max(1, limit),
+            )
+        except Exception:
+            query = "SELECT * FROM c WHERE c.source = @source AND c.doc_type = 'failure'"
+            items = self._container.query_items(
+                query=query,
+                parameters=[{"name": "@source", "value": source}],
+                max_item_count=max(500, limit),
+            )
         records: list[FailureRecord] = []
         for payload in items:
+            last_attempt_at = str(payload.get("last_attempt_at") or "")
+            if last_attempt_at and last_attempt_at < since_iso:
+                continue
             records.append(
                 FailureRecord(
                     source=str(payload.get("source") or source),
@@ -842,8 +866,9 @@ class CosmosPollingStateStore:
                     status=str(payload.get("status") or "pending"),
                     attempt_count=int(payload.get("attempt_count") or 0),
                     last_error=str(payload.get("last_error") or ""),
-                    last_attempt_at=str(payload.get("last_attempt_at") or ""),
+                    last_attempt_at=last_attempt_at,
                     run_id=str(payload.get("run_id") or ""),
                 )
             )
-        return records
+        records.sort(key=lambda item: item.last_attempt_at, reverse=True)
+        return records[: max(1, limit)]

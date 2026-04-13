@@ -341,6 +341,17 @@ def _requested_frameworks_for_event(event: dict[str, Any]) -> tuple[str, ...]:
     return _requested_frameworks_from_text(combined)
 
 
+def _requested_frameworks_from_discussion_context(
+    discussion_context: list[dict[str, Any]],
+) -> tuple[str, ...]:
+    combined = "\n".join(
+        str(item.get("text") or "").strip() for item in discussion_context if str(item.get("text") or "").strip()
+    )
+    if not combined:
+        return ()
+    return _requested_frameworks_from_text(combined)
+
+
 @dataclass(frozen=True)
 class PollerConfig:
     source: str = "confluence"
@@ -408,13 +419,19 @@ def _process_assessment_event(
         raise ValueError(f"Event missing target reference fields: {event}")
 
     requested_frameworks = _requested_frameworks_for_event(event)
-    framework_scopes = requested_frameworks or (_DEFAULT_FRAMEWORK_SCOPE,)
+    include_discussion_context = not requested_frameworks
 
     artifact = server.get_content_by_id(
         target_id,
         identity_mode="app_only",
-        include_discussion_context=False,
+        include_discussion_context=include_discussion_context,
     )
+    if not requested_frameworks:
+        requested_frameworks = _requested_frameworks_from_discussion_context(
+            list(getattr(artifact, "discussion_context", []) or [])
+        )
+    framework_scopes = requested_frameworks or (_DEFAULT_FRAMEWORK_SCOPE,)
+
     current_page_version = str(artifact.metadata.get("version") or "")
     current_content_hash = _content_hash(artifact.content)
     page_title = str(getattr(artifact, "title", "") or event.get("title") or target_id)

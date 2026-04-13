@@ -12,6 +12,7 @@ class _FakeContainer:
     def __init__(self) -> None:
         self._items: dict[tuple[str, str], dict] = {}
         self.fail_delete = False
+        self.fail_order_by_query = False
 
     def read_item(self, *, item: str, partition_key: str):
         key = (partition_key, item)
@@ -33,6 +34,8 @@ class _FakeContainer:
         self._items.pop((partition_key, item), None)
 
     def query_items(self, *, query: str, parameters: list[dict], max_item_count: int | None = None):
+        if self.fail_order_by_query and "ORDER BY" in query:
+            raise RuntimeError("missing composite index")
         source = next((item["value"] for item in parameters if item["name"] == "@source"), "")
         since_iso = next((item["value"] for item in parameters if item["name"] == "@since_iso"), "")
         want_page_assessments = "doc_type = 'page_assessment'" in query
@@ -267,3 +270,45 @@ def test_cosmos_store_core_flows_and_delete_failure() -> None:
     )
     assert len(failures) == 1
     assert failures[0].last_error == "fatal"
+
+
+def test_cosmos_store_recent_queries_fallback_without_order_by_index() -> None:
+    container = _FakeContainer()
+    store = CosmosPollingStateStore(container)
+
+    store.upsert_page_assessment(
+        "confluence",
+        target_id="page-a",
+        framework_scope="NIST CSF",
+        title="Page A",
+        target_url="https://example/wiki/pages/a",
+        space_key="SEC",
+        status="assessed",
+        overall_risk="medium",
+        findings_count=2,
+        assessed_at="2026-04-13T01:00:00+00:00",
+        page_version="1",
+    )
+    store.increment_failure_count(
+        "confluence",
+        event_id="evt-a",
+        error_message="oops",
+        run_id="run-1",
+    )
+
+    container.fail_order_by_query = True
+    pages = store.list_recent_page_assessments(
+        "confluence",
+        since_iso="2026-04-13T00:30:00+00:00",
+        limit=10,
+    )
+    failures = store.list_recent_failures(
+        "confluence",
+        since_iso="2026-04-13T00:30:00+00:00",
+        limit=10,
+    )
+
+    assert len(pages) == 1
+    assert pages[0].target_id == "page-a"
+    assert len(failures) == 1
+    assert failures[0].event_id == "evt-a"

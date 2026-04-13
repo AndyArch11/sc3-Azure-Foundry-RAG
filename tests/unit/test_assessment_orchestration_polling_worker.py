@@ -20,6 +20,7 @@ class _FakeServer:
         self.last_scope_filter: dict | None = None
         self.page_version = 1
         self.page_content = "test content"
+        self.discussion_comments: list[str] = []
 
     def get_recent_mentions(self, *, since: str = "", scope_filter: dict | None = None) -> dict:
         self.last_since = since
@@ -34,13 +35,17 @@ class _FakeServer:
         include_discussion_context: bool = False,
     ):
         class _Artifact:
-            def __init__(self, content: str, version: int) -> None:
+            def __init__(self, content: str, version: int, discussion: list[dict]) -> None:
                 self.content = content
                 self.title = "Test Page"
                 self.canonical_url = f"https://example/{target_id}"
                 self.metadata = {"version": version, "space_key": "SEC"}
+                self.discussion_context = discussion
 
-        return _Artifact(content=self.page_content, version=self.page_version)
+        discussion = []
+        if include_discussion_context:
+            discussion = [{"text": text} for text in self.discussion_comments]
+        return _Artifact(content=self.page_content, version=self.page_version, discussion=discussion)
 
 
 class _FakeAdapter:
@@ -427,6 +432,35 @@ def test_process_assessment_event_defaults_to_essential_eight_when_unspecified()
     assert adapter.jobs[0].metadata.get("requested_framework") == "Essential Eight"
     assert len(server.posts) == 1
     assert server.posts[0]["idempotency_key"].endswith("essential-eight")
+
+
+def test_process_assessment_event_uses_discussion_context_when_trigger_excerpt_is_ambiguous() -> None:
+    server = _PostingServer([])
+    server.discussion_comments = ["@compliance-agent Review against NIST framework"]
+    adapter = _FakeAdapter()
+    event = {
+        "event_id": "e-discussion",
+        "target_id": "321",
+        "target_url": "https://example/321",
+        "trigger_type": "mention",
+        "mentioner_account_id": "acct-1",
+        "trigger_text": "@compliance-agent",
+        "title": "General review",
+    }
+
+    _process_assessment_event(
+        adapter=adapter,  # type: ignore[arg-type]
+        server=server,  # type: ignore[arg-type]
+        state_store=InMemoryPollingStateStore(),
+        source="confluence",
+        event=event,
+        dry_run=False,
+    )
+
+    assert len(adapter.jobs) == 1
+    assert adapter.jobs[0].metadata.get("requested_framework") == "NIST CSF"
+    assert len(server.posts) == 1
+    assert server.posts[0]["idempotency_key"].endswith("nist-csf")
 
 
 def test_process_assessment_event_skips_reassessment_when_page_unchanged() -> None:
