@@ -21,6 +21,7 @@ class _FakeServer:
         self.page_version = 1
         self.page_content = "test content"
         self.discussion_comments: list[str] = []
+        self.discussion_author_id = "acct-1"
 
     def get_recent_mentions(self, *, since: str = "", scope_filter: dict | None = None) -> dict:
         self.last_since = since
@@ -44,7 +45,10 @@ class _FakeServer:
 
         discussion = []
         if include_discussion_context:
-            discussion = [{"text": text} for text in self.discussion_comments]
+            discussion = [
+                {"text": text, "author_id": self.discussion_author_id}
+                for text in self.discussion_comments
+            ]
         return _Artifact(content=self.page_content, version=self.page_version, discussion=discussion)
 
 
@@ -230,6 +234,8 @@ def test_run_poll_cycle_returns_early_when_lease_not_acquired() -> None:
             "title": "a",
             "target_id": "1",
             "target_url": "https://x/1",
+            "trigger_text": "@compliance-agent Review against NIST CSF",
+            "mentioner_account_id": "acct-1",
         }
     ]
     server = _FakeServer(mentions)
@@ -407,7 +413,7 @@ def test_process_assessment_event_posts_one_comment_per_requested_framework() ->
     assert "<strong>Page version:</strong> 1" in server.posts[1]["comment_body"]
 
 
-def test_process_assessment_event_defaults_to_essential_eight_when_unspecified() -> None:
+def test_process_assessment_event_posts_clarification_when_framework_is_unspecified() -> None:
     server = _PostingServer([])
     adapter = _FakeAdapter()
     event = {
@@ -428,10 +434,11 @@ def test_process_assessment_event_defaults_to_essential_eight_when_unspecified()
         dry_run=False,
     )
 
-    assert len(adapter.jobs) == 1
-    assert adapter.jobs[0].metadata.get("requested_framework") == "Essential Eight"
+    assert len(adapter.jobs) == 0
     assert len(server.posts) == 1
-    assert server.posts[0]["idempotency_key"].endswith("essential-eight")
+    assert server.posts[0]["idempotency_key"].endswith("clarify-framework")
+    assert "did not clearly specify a supported framework" in server.posts[0]["comment_body"]
+    assert "Review against NIST CSF" in server.posts[0]["comment_body"]
 
 
 def test_process_assessment_event_uses_discussion_context_when_trigger_excerpt_is_ambiguous() -> None:
@@ -461,6 +468,35 @@ def test_process_assessment_event_uses_discussion_context_when_trigger_excerpt_i
     assert adapter.jobs[0].metadata.get("requested_framework") == "NIST CSF"
     assert len(server.posts) == 1
     assert server.posts[0]["idempotency_key"].endswith("nist-csf")
+
+
+def test_process_assessment_event_discussion_fallback_ignores_other_authors() -> None:
+    server = _PostingServer([])
+    server.discussion_comments = ["Review against Essential Eight and AESCSF"]
+    server.discussion_author_id = "acct-other"
+    adapter = _FakeAdapter()
+    event = {
+        "event_id": "e-discussion-author-filter",
+        "target_id": "322",
+        "target_url": "https://example/322",
+        "trigger_type": "mention",
+        "mentioner_account_id": "acct-1",
+        "trigger_text": "@compliance-agent",
+        "title": "General review",
+    }
+
+    _process_assessment_event(
+        adapter=adapter,  # type: ignore[arg-type]
+        server=server,  # type: ignore[arg-type]
+        state_store=InMemoryPollingStateStore(),
+        source="confluence",
+        event=event,
+        dry_run=False,
+    )
+
+    assert len(adapter.jobs) == 0
+    assert len(server.posts) == 1
+    assert server.posts[0]["idempotency_key"].endswith("clarify-framework")
 
 
 def test_process_assessment_event_skips_reassessment_when_page_unchanged() -> None:
@@ -520,6 +556,8 @@ def test_run_poll_cycle_persists_latest_poll_summary() -> None:
             "title": "a",
             "target_id": "1",
             "target_url": "https://x/1",
+            "trigger_text": "@compliance-agent Review against NIST CSF",
+            "mentioner_account_id": "acct-1",
         }
     ]
     server = _PostingServer(mentions)

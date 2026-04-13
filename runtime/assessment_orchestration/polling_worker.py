@@ -299,6 +299,21 @@ def _render_no_change_comment(*, framework_scope: str, page_version: str) -> str
     )
 
 
+def _render_framework_clarification_comment() -> str:
+    return (
+        "<p><strong>Automated compliance review</strong></p>"
+        "<p>Your request did not clearly specify a supported framework, so an assessment was not run.</p>"
+        "<p><strong>Use one of these comment formats:</strong></p>"
+        "<ul>"
+        "<li>@compliance-agent Review against NIST CSF</li>"
+        "<li>@compliance-agent Review against Essential Eight</li>"
+        "<li>@compliance-agent Review against ISM and PSPF</li>"
+        "<li>@compliance-agent Assess this page against all frameworks</li>"
+        "</ul>"
+        "<p><strong>Supported frameworks:</strong> Essential Eight, ISM, AESCSF, NIST CSF, PSPF, PCI DSS, CIS Controls.</p>"
+    )
+
+
 def _content_hash(value: str) -> str:
     normalised = value.strip().encode("utf-8")
     return hashlib.sha256(normalised).hexdigest()
@@ -343,10 +358,24 @@ def _requested_frameworks_for_event(event: dict[str, Any]) -> tuple[str, ...]:
 
 def _requested_frameworks_from_discussion_context(
     discussion_context: list[dict[str, Any]],
+    *,
+    mentioner_account_id: str = "",
 ) -> tuple[str, ...]:
-    combined = "\n".join(
-        str(item.get("text") or "").strip() for item in discussion_context if str(item.get("text") or "").strip()
-    )
+    mentioner = mentioner_account_id.strip()
+    mention_markers = ("@compliance-agent", "@assessment-agent")
+    candidate_texts: list[str] = []
+    for item in discussion_context:
+        text = str(item.get("text") or "").strip()
+        if not text:
+            continue
+        author_id = str(item.get("author_id") or "").strip()
+        if mentioner and author_id and author_id != mentioner:
+            continue
+        if not mentioner and not any(marker in text.lower() for marker in mention_markers):
+            continue
+        candidate_texts.append(text)
+
+    combined = "\n".join(candidate_texts)
     if not combined:
         return ()
     return _requested_frameworks_from_text(combined)
@@ -428,9 +457,27 @@ def _process_assessment_event(
     )
     if not requested_frameworks:
         requested_frameworks = _requested_frameworks_from_discussion_context(
-            list(getattr(artifact, "discussion_context", []) or [])
+            list(getattr(artifact, "discussion_context", []) or []),
+            mentioner_account_id=str(event.get("mentioner_account_id") or ""),
         )
-    framework_scopes = requested_frameworks or (_DEFAULT_FRAMEWORK_SCOPE,)
+
+    if not requested_frameworks:
+        if dry_run:
+            return
+        event_key = str(event.get("event_id") or target_id)
+        delivery = server.post_comment(
+            target_id,
+            comment_body=_render_framework_clarification_comment(),
+            identity_mode="app_only",
+            idempotency_key=f"{event_key}-clarify-framework",
+        )
+        if not delivery.success:
+            raise RuntimeError(
+                f"Failed posting Confluence clarification comment for event {event_key}: {delivery.failures}"
+            )
+        return
+
+    framework_scopes = requested_frameworks
 
     current_page_version = str(artifact.metadata.get("version") or "")
     current_content_hash = _content_hash(artifact.content)

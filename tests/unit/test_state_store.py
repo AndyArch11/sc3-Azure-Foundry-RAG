@@ -33,7 +33,19 @@ class _FakeContainer:
             raise RuntimeError("delete failed")
         self._items.pop((partition_key, item), None)
 
-    def query_items(self, *, query: str, parameters: list[dict], max_item_count: int | None = None):
+    def query_items(
+        self,
+        *,
+        query: str,
+        parameters: list[dict],
+        partition_key: str | None = None,
+        max_item_count: int | None = None,
+    ):
+        if partition_key is not None and partition_key != next(
+            (item["value"] for item in parameters if item["name"] == "@source"),
+            partition_key,
+        ):
+            return []
         if self.fail_order_by_query and "ORDER BY" in query:
             raise RuntimeError("missing composite index")
         source = next((item["value"] for item in parameters if item["name"] == "@source"), "")

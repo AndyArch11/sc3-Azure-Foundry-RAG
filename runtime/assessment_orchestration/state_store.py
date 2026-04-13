@@ -753,16 +753,21 @@ class CosmosPollingStateStore:
                     {"name": "@source", "value": source},
                     {"name": "@since_iso", "value": since_iso},
                 ],
+                partition_key=source,
                 max_item_count=max(1, limit),
             )
         except Exception:
             # Fallback for environments lacking suitable indexes/composite-indexes for ORDER BY.
-            query = "SELECT * FROM c WHERE c.source = @source AND c.doc_type = 'page_assessment'"
-            items = self._container.query_items(
-                query=query,
-                parameters=[{"name": "@source", "value": source}],
-                max_item_count=max(500, limit),
-            )
+            try:
+                query = "SELECT * FROM c WHERE c.source = @source AND c.doc_type = 'page_assessment'"
+                items = self._container.query_items(
+                    query=query,
+                    parameters=[{"name": "@source", "value": source}],
+                    partition_key=source,
+                    max_item_count=max(500, limit),
+                )
+            except Exception:
+                return []
         records: list[PageAssessmentRecord] = []
         for payload in items:
             assessed_at = str(payload.get("assessed_at") or "")
@@ -845,15 +850,20 @@ class CosmosPollingStateStore:
                     {"name": "@source", "value": source},
                     {"name": "@since_iso", "value": since_iso},
                 ],
+                partition_key=source,
                 max_item_count=max(1, limit),
             )
         except Exception:
-            query = "SELECT * FROM c WHERE c.source = @source AND c.doc_type = 'failure'"
-            items = self._container.query_items(
-                query=query,
-                parameters=[{"name": "@source", "value": source}],
-                max_item_count=max(500, limit),
-            )
+            try:
+                query = "SELECT * FROM c WHERE c.source = @source AND c.doc_type = 'failure'"
+                items = self._container.query_items(
+                    query=query,
+                    parameters=[{"name": "@source", "value": source}],
+                    partition_key=source,
+                    max_item_count=max(500, limit),
+                )
+            except Exception:
+                return []
         records: list[FailureRecord] = []
         for payload in items:
             last_attempt_at = str(payload.get("last_attempt_at") or "")
