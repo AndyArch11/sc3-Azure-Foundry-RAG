@@ -444,6 +444,9 @@ See [runtime/README.md](runtime/README.md) for ingestion execution details and q
 # Select environment
 TARGET_ENV="<env>"
 
+#Azure auth
+az login --identity
+
 # Bootstrap and core infra
 ./ops/scripts/phase1-bootstrap.sh "${TARGET_ENV}"
 ./ops/scripts/phase2-network-dns.sh "${TARGET_ENV}" apply
