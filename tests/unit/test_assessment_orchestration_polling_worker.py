@@ -22,6 +22,7 @@ class _FakeServer:
         self.page_content = "test content"
         self.discussion_comments: list[str] = []
         self.discussion_author_id = "acct-1"
+        self.discussion_entries: list[dict] = []
 
     def get_recent_mentions(self, *, since: str = "", scope_filter: dict | None = None) -> dict:
         self.last_since = since
@@ -45,10 +46,13 @@ class _FakeServer:
 
         discussion = []
         if include_discussion_context:
-            discussion = [
-                {"text": text, "author_id": self.discussion_author_id}
-                for text in self.discussion_comments
-            ]
+            if self.discussion_entries:
+                discussion = [dict(item) for item in self.discussion_entries]
+            else:
+                discussion = [
+                    {"comment_id": f"comment-{idx + 1}", "text": text, "author_id": self.discussion_author_id}
+                    for idx, text in enumerate(self.discussion_comments)
+                ]
         return _Artifact(content=self.page_content, version=self.page_version, discussion=discussion)
 
 
@@ -416,6 +420,7 @@ def test_process_assessment_event_posts_one_comment_per_requested_framework() ->
 def test_process_assessment_event_posts_clarification_when_framework_is_unspecified() -> None:
     server = _PostingServer([])
     adapter = _FakeAdapter()
+    state_store = InMemoryPollingStateStore()
     event = {
         "event_id": "e-default",
         "target_id": "987",
@@ -428,7 +433,7 @@ def test_process_assessment_event_posts_clarification_when_framework_is_unspecif
     _process_assessment_event(
         adapter=adapter,  # type: ignore[arg-type]
         server=server,  # type: ignore[arg-type]
-        state_store=InMemoryPollingStateStore(),
+        state_store=state_store,
         source="confluence",
         event=event,
         dry_run=False,
@@ -439,14 +444,29 @@ def test_process_assessment_event_posts_clarification_when_framework_is_unspecif
     assert server.posts[0]["idempotency_key"].endswith("clarify-framework")
     assert "did not clearly specify a supported framework" in server.posts[0]["comment_body"]
     assert "Review against NIST CSF" in server.posts[0]["comment_body"]
+    recent = state_store.list_recent_page_assessments(
+        "confluence",
+        since_iso="2000-01-01T00:00:00+00:00",
+        limit=10,
+    )
+    assert len(recent) == 1
+    assert recent[0].status == "clarification_required"
+    assert recent[0].framework_scope == "Clarification Required"
 
 
 def test_process_assessment_event_uses_discussion_context_when_trigger_excerpt_is_ambiguous() -> None:
     server = _PostingServer([])
-    server.discussion_comments = ["@compliance-agent Review against NIST framework"]
+    server.discussion_entries = [
+        {
+            "comment_id": "comment-123",
+            "text": "@compliance-agent Review against NIST framework",
+            "author_id": "acct-1",
+        }
+    ]
     adapter = _FakeAdapter()
     event = {
         "event_id": "e-discussion",
+        "content_id": "comment-123",
         "target_id": "321",
         "target_url": "https://example/321",
         "trigger_type": "mention",
@@ -468,6 +488,47 @@ def test_process_assessment_event_uses_discussion_context_when_trigger_excerpt_i
     assert adapter.jobs[0].metadata.get("requested_framework") == "NIST CSF"
     assert len(server.posts) == 1
     assert server.posts[0]["idempotency_key"].endswith("nist-csf")
+
+
+def test_process_assessment_event_prefers_triggering_comment_over_other_history() -> None:
+    server = _PostingServer([])
+    server.discussion_entries = [
+        {
+            "comment_id": "older-comment",
+            "text": "@compliance-agent Assess this page against all frameworks",
+            "author_id": "acct-1",
+        },
+        {
+            "comment_id": "trigger-comment",
+            "text": "@compliance-agent Review against CIS Controls",
+            "author_id": "acct-1",
+        },
+    ]
+    adapter = _FakeAdapter()
+    event = {
+        "event_id": "e-triggering-comment-precedence",
+        "content_id": "trigger-comment",
+        "target_id": "401",
+        "target_url": "https://example/401",
+        "trigger_type": "mention",
+        "mentioner_account_id": "acct-1",
+        "trigger_text": "@compliance-agent",
+        "title": "Review",
+    }
+
+    _process_assessment_event(
+        adapter=adapter,  # type: ignore[arg-type]
+        server=server,  # type: ignore[arg-type]
+        state_store=InMemoryPollingStateStore(),
+        source="confluence",
+        event=event,
+        dry_run=False,
+    )
+
+    assert len(adapter.jobs) == 1
+    assert adapter.jobs[0].metadata.get("requested_framework") == "CIS Controls"
+    assert len(server.posts) == 1
+    assert server.posts[0]["idempotency_key"].endswith("cis-controls")
 
 
 def test_process_assessment_event_discussion_fallback_ignores_other_authors() -> None:

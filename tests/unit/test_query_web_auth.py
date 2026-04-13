@@ -277,3 +277,41 @@ def test_confluence_poll_status_degrades_gracefully_when_store_reads_fail() -> N
     assert body["configured"] is False
     assert "unavailable" in body["message"]
     assert body["assessed_pages"] == []
+
+
+def test_confluence_poll_status_falls_back_to_poll_state_when_summary_missing() -> None:
+    client = TestClient(app_module.app)
+    patched_config = replace(app_module.config, required_group_object_id="", auth_token="")
+
+    class _StateOnlyStore:
+        def get_latest_poll_run_summary(self, source: str):
+            return None
+
+        def load_state(self, source: str):
+            class _State:
+                watermark = "2026-04-13T03:00:00+00:00"
+                last_success_at = "2026-04-13T03:00:00+00:00"
+                last_processed_event_id = "evt-123"
+                poll_count = 5
+                last_error = {}
+
+            return _State()
+
+        def list_recent_page_assessments(self, source: str, *, since_iso: str, limit: int = 100):
+            return []
+
+        def list_recent_failures(self, source: str, *, since_iso: str, limit: int = 50):
+            return []
+
+    with (
+        patch.object(app_module, "config", patched_config),
+        patch.object(app_module, "confluence_poll_state_store", _StateOnlyStore()),
+    ):
+        response = client.get("/api/confluence/poll-status?since_hours=12")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["configured"] is True
+    assert body["last_poll"]["polled_at"] == "2026-04-13T03:00:00+00:00"
+    assert body["last_poll"]["last_processed_event_id"] == "evt-123"
+    assert body["last_poll"]["poll_count"] == 5

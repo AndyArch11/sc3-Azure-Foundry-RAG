@@ -5295,6 +5295,15 @@ def confluence_poll_status(
             logger.exception("Failed reading latest Confluence poll summary: %s", exc)
             store_errors.append("latest poll summary unavailable")
 
+        poll_state = None
+        if latest_poll is None:
+            try:
+                load_state = getattr(confluence_poll_state_store, "load_state", None)
+                if callable(load_state):
+                    poll_state = load_state("confluence")
+            except Exception as exc:
+                logger.exception("Failed reading Confluence poll state fallback: %s", exc)
+
         assessed_pages: list[Any] = []
         try:
             assessed_pages = confluence_poll_state_store.list_recent_page_assessments(
@@ -5335,10 +5344,10 @@ def confluence_poll_status(
 
         return JSONResponse(
             {
-                "configured": latest_poll is not None or bool(assessed_pages),
+                "configured": latest_poll is not None or poll_state is not None or bool(assessed_pages),
                 "message": (
                     "No Confluence poll cycle has written status yet."
-                    if latest_poll is None and not store_errors
+                    if latest_poll is None and poll_state is None and not store_errors
                     else "; ".join(store_errors)
                     if store_errors
                     else ""
@@ -5351,7 +5360,7 @@ def confluence_poll_status(
                 },
                 "last_poll": (
                     None
-                    if latest_poll is None
+                    if latest_poll is None and poll_state is None
                     else {
                         "polled_at": latest_poll.polled_at,
                         "space_key": ", ".join(latest_poll.space_keys) if latest_poll.space_keys else "",
@@ -5361,6 +5370,19 @@ def confluence_poll_status(
                         "error": latest_poll.error_message,
                         "watermark": latest_poll.watermark,
                         "since_iso": latest_poll.since_iso,
+                    }
+                    if latest_poll is not None
+                    else {
+                        "polled_at": getattr(poll_state, "last_success_at", ""),
+                        "space_key": "",
+                        "mentions_found": None,
+                        "jobs_queued": None,
+                        "terminal_failures": None,
+                        "error": (getattr(poll_state, "last_error", {}) or {}).get("error", ""),
+                        "watermark": getattr(poll_state, "watermark", ""),
+                        "since_iso": "",
+                        "last_processed_event_id": getattr(poll_state, "last_processed_event_id", ""),
+                        "poll_count": getattr(poll_state, "poll_count", 0),
                     }
                 ),
                 "assessed_pages": [

@@ -7,6 +7,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${ROOT_DIR}"
+RUNTIME_DIR="${ROOT_DIR}/runtime"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
@@ -122,5 +123,8 @@ echo "  dry_run=${CONFLUENCE_POLL_DRY_RUN:-false}"
 echo "  auth_mode=${CONFLUENCE_AUTH_MODE}"
 echo "  cosmos_db=${AZURE_COSMOS_DATABASE_NAME}"
 echo "  cosmos_container=${AZURE_COSMOS_ORCHESTRATION_CONTAINER_NAME}"
+
+cd "${RUNTIME_DIR}"
+export PYTHONPATH="${RUNTIME_DIR}:${PYTHONPATH:-}"
 
 "${PYTHON_CMD[@]}" -m assessment_orchestration.polling_worker_main --once "${EXTRA_ARGS[@]}"

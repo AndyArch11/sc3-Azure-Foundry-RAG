@@ -127,6 +127,26 @@ Effective Confluence Cloud API scopes:
 - `read:confluence-user`
 - `read:confluence-space.summary`
 
+### Current Commenting Behaviour And Scope
+
+Current implementation expectations for the Confluence poller are intentionally narrow:
+
+- Trigger detection is page-oriented. When a mention is detected on Confluence content, the worker resolves the assessment target to the page.
+- Response write-back is page-level via Confluence footer comments.
+- The poller is not designed to preserve or reply into a specific comment thread.
+- Inline comments inside page body content are not a supported response target.
+- Replies to comments and deeper nested comment threads are not treated as a distinct delivery channel.
+
+Operationally, that means the service may detect a mention associated with comment content, but the resulting assessment or clarification is posted back as a page footer comment rather than as a threaded reply.
+
+This is deliberate for the current release to avoid thread-race edge cases such as deleted comments, concurrent human replies, or mutated thread context between polling and publication.
+
+Framework selection expectations are also explicit:
+
+- If the triggering request clearly names one or more supported frameworks, only those frameworks are assessed.
+- If the request explicitly asks for all frameworks, all supported frameworks are assessed.
+- If the request is ambiguous, the worker posts a clarification comment and does not run an assessment.
+
 Do not grant site-admin, space-admin, or global write rights. Restrict permissions to the explicitly approved space list only.
 
 ### Watermark Management

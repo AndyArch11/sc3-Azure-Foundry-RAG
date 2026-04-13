@@ -446,6 +446,13 @@ Expected outcome:
 - When dry-run is disabled, the poller retrieves Corpus A and Corpus B grounding from Search, generates a structured compliance report via Azure OpenAI, and posts a formatted Confluence footer comment.
 - Cosmos orchestration state is readable/writable with the runtime identity.
 
+Current behavior notes:
+
+- Responses are posted as page footer comments.
+- The poller does not currently reply into a specific comment thread.
+- Inline comments and nested comment replies are not supported as distinct response targets.
+- If a mention request is ambiguous and does not clearly name a supported framework, the poller posts a clarification comment instead of running an assessment.
+
 ### Confluence Poller Health And Logs
 
 After deploying the poller Container App, check status and recent logs:

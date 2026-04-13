@@ -360,9 +360,22 @@ def _requested_frameworks_from_discussion_context(
     discussion_context: list[dict[str, Any]],
     *,
     mentioner_account_id: str = "",
+    triggering_comment_id: str = "",
 ) -> tuple[str, ...]:
     mentioner = mentioner_account_id.strip()
     mention_markers = ("@compliance-agent", "@assessment-agent")
+    triggering_id = triggering_comment_id.strip()
+
+    if triggering_id:
+        for item in discussion_context:
+            comment_id = str(item.get("comment_id") or "").strip()
+            if comment_id != triggering_id:
+                continue
+            text = str(item.get("text") or "").strip()
+            if not text:
+                return ()
+            return _requested_frameworks_from_text(text)
+
     candidate_texts: list[str] = []
     for item in discussion_context:
         text = str(item.get("text") or "").strip()
@@ -459,11 +472,31 @@ def _process_assessment_event(
         requested_frameworks = _requested_frameworks_from_discussion_context(
             list(getattr(artifact, "discussion_context", []) or []),
             mentioner_account_id=str(event.get("mentioner_account_id") or ""),
+            triggering_comment_id=str(event.get("content_id") or ""),
         )
+
+    current_page_version = str(artifact.metadata.get("version") or "")
+    current_content_hash = _content_hash(artifact.content)
+    page_title = str(getattr(artifact, "title", "") or event.get("title") or target_id)
+    page_target_url = str(getattr(artifact, "canonical_url", "") or target_url)
+    page_space_key = str(artifact.metadata.get("space_key") or event.get("space_key") or "")
 
     if not requested_frameworks:
         if dry_run:
             return
+        state_store.upsert_page_assessment(
+            source,
+            target_id=target_id,
+            framework_scope="Clarification Required",
+            title=page_title,
+            target_url=page_target_url,
+            space_key=page_space_key,
+            status="clarification_required",
+            overall_risk="unknown",
+            findings_count=0,
+            assessed_at=_iso(_now_utc()),
+            page_version=current_page_version,
+        )
         event_key = str(event.get("event_id") or target_id)
         delivery = server.post_comment(
             target_id,
@@ -478,12 +511,6 @@ def _process_assessment_event(
         return
 
     framework_scopes = requested_frameworks
-
-    current_page_version = str(artifact.metadata.get("version") or "")
-    current_content_hash = _content_hash(artifact.content)
-    page_title = str(getattr(artifact, "title", "") or event.get("title") or target_id)
-    page_target_url = str(getattr(artifact, "canonical_url", "") or target_url)
-    page_space_key = str(artifact.metadata.get("space_key") or event.get("space_key") or "")
 
     for framework_scope in framework_scopes:
         framework_snapshot_scope = framework_scope or _DEFAULT_FRAMEWORK_SCOPE
