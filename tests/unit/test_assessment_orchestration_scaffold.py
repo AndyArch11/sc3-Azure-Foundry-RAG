@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from runtime.assessment_orchestration.interfaces import OrchestratorAdapter
-from runtime.assessment_orchestration.models import (AccessDecision, AssessedArtifactPackage,
-                                                     AssessmentJob, CorpusGroundingPackage,
-                                                     DeliveryOutcome, PersonReference,
-                                                     ResolvedTarget)
+from runtime.assessment_orchestration.models import (
+    AccessDecision,
+    AssessedArtifactPackage,
+    AssessmentJob,
+    CorpusGroundingPackage,
+    DeliveryOutcome,
+    PersonReference,
+    ResolvedTarget,
+)
 
 
 class FakeContentClient:

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from runtime.assessment_orchestration.state_store import (CosmosPollingStateStore,
-                                                          InMemoryPollingStateStore)
+from runtime.assessment_orchestration.state_store import (
+    CosmosPollingStateStore,
+    InMemoryPollingStateStore,
+)
 
 
 class _FakeContainer:

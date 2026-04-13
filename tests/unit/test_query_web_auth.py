@@ -18,8 +18,11 @@ os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 from starlette.requests import Request
 
 from query_web import app as app_module
-from query_web.app import (_group_auth_failure_message, _groups_from_client_principal_header,
-                           _is_authorised_request)
+from query_web.app import (
+    _group_auth_failure_message,
+    _groups_from_client_principal_header,
+    _is_authorised_request,
+)
 
 
 def _encode_principal(claims: list[dict[str, str]]) -> str:
@@ -123,15 +126,13 @@ def test_clear_endpoints_require_entra_headers_when_group_auth_enabled(
         auth_token="",
     )
 
-    with patch.object(app_module, "config", patched_config), patch.object(
-        app_module, "_delete_search_documents_by_filter"
-    ) as delete_index, patch.object(
-        app_module, "_delete_blob_prefix"
-    ) as delete_blobs, patch.object(
-        app_module, "_count_search_documents_by_filter"
-    ) as count_index, patch.object(
-        app_module, "_count_blob_prefix"
-    ) as count_blobs:
+    with (
+        patch.object(app_module, "config", patched_config),
+        patch.object(app_module, "_delete_search_documents_by_filter") as delete_index,
+        patch.object(app_module, "_delete_blob_prefix") as delete_blobs,
+        patch.object(app_module, "_count_search_documents_by_filter") as count_index,
+        patch.object(app_module, "_count_blob_prefix") as count_blobs,
+    ):
         response = client.post(path, json=payload)
 
     body = response.json()
@@ -154,13 +155,15 @@ def test_clear_endpoint_allows_valid_group_header_in_dry_run_mode() -> None:
     )
     principal_header = _encode_principal([{"typ": "groups", "val": required_group.upper()}])
 
-    with patch.object(app_module, "config", patched_config), patch.object(
-        app_module,
-        "_count_search_documents_by_filter",
-        return_value={"would_delete": 5},
-    ) as count_index, patch.object(
-        app_module, "_delete_search_documents_by_filter"
-    ) as delete_index:
+    with (
+        patch.object(app_module, "config", patched_config),
+        patch.object(
+            app_module,
+            "_count_search_documents_by_filter",
+            return_value={"would_delete": 5},
+        ) as count_index,
+        patch.object(app_module, "_delete_search_documents_by_filter") as delete_index,
+    ):
         response = client.post(
             "/api/corpus-b/clear",
             json={"dry_run": True, "clear_blobs": False, "auth_token": ""},

@@ -2,17 +2,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from runtime.assessment_orchestration.schema_validation import (assert_named_schema,
-                                                                assert_schema_value,
-                                                                load_yaml_contract, to_plain_data)
-from runtime.assessment_orchestration.validators import (validate_access_decision,
-                                                         validate_assessed_artifact_package,
-                                                         validate_assessment_job,
-                                                         validate_corpus_grounding_package,
-                                                         validate_delivery_outcome,
-                                                         validate_delivery_plan,
-                                                         validate_person_reference,
-                                                         validate_resolved_target)
+from runtime.assessment_orchestration.schema_validation import (
+    assert_named_schema,
+    assert_schema_value,
+    load_yaml_contract,
+    to_plain_data,
+)
+from runtime.assessment_orchestration.validators import (
+    validate_access_decision,
+    validate_assessed_artifact_package,
+    validate_assessment_job,
+    validate_corpus_grounding_package,
+    validate_delivery_outcome,
+    validate_delivery_plan,
+    validate_person_reference,
+    validate_resolved_target,
+)
 
 
 def _load_shared_schemas() -> dict[str, Any]:

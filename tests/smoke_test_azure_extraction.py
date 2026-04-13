@@ -24,8 +24,10 @@ from pathlib import Path
 # Add workspace root to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from runtime.assessment_orchestration.mcp.azure_resource import (AzureMCPServer,
-                                                                 build_azure_target_reference)
+from runtime.assessment_orchestration.mcp.azure_resource import (
+    AzureMCPServer,
+    build_azure_target_reference,
+)
 
 
 def validate_azure_extraction(

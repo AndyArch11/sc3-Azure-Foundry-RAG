@@ -175,8 +175,7 @@ def _download_controls_source_files(
     missing = sorted(expected_filenames - found_filenames)
     if missing:
         raise RuntimeError(
-            "Missing staged controls source files for "
-            f"{framework}: {', '.join(missing)}."
+            "Missing staged controls source files for " f"{framework}: {', '.join(missing)}."
         )
 
     return sorted(downloaded)
@@ -259,8 +258,14 @@ def _run_azure(args: argparse.Namespace) -> int:
 
     from .blob_uploader import upload_source_files
     from .config import IngestionConfig
-    from .search_pipeline import (ensure_data_source, ensure_indexer, ensure_search_index,
-                                  ensure_skillset, run_indexer, wait_for_indexer)
+    from .search_pipeline import (
+        ensure_data_source,
+        ensure_indexer,
+        ensure_search_index,
+        ensure_skillset,
+        run_indexer,
+        wait_for_indexer,
+    )
 
     try:
         config = IngestionConfig.from_env()

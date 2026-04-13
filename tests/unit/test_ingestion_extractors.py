@@ -12,8 +12,11 @@ from unittest.mock import patch
 
 import pytest
 
-from runtime.ingestion.extractors import (_extract_pdf_text, discover_supported_files,
-                                          extract_source_document)
+from runtime.ingestion.extractors import (
+    _extract_pdf_text,
+    discover_supported_files,
+    extract_source_document,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers

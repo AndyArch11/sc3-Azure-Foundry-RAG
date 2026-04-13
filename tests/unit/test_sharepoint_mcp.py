@@ -7,10 +7,14 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 
-from runtime.assessment_orchestration.mcp.sharepoint import (SharePointClient, SharePointMCPServer,
-                                                             _normalise_comments,
-                                                             _parse_sharepoint_url, _strip_html,
-                                                             _url_fallback_id)
+from runtime.assessment_orchestration.mcp.sharepoint import (
+    SharePointClient,
+    SharePointMCPServer,
+    _normalise_comments,
+    _parse_sharepoint_url,
+    _strip_html,
+    _url_fallback_id,
+)
 
 # --------------------------------------------------------------------------- #
 # Unit helpers                                                                 #

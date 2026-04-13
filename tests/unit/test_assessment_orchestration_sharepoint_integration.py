@@ -4,12 +4,17 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from runtime.assessment_orchestration.intake import (build_assessment_job_from_provider_event,
-                                                     build_queue_message)
+from runtime.assessment_orchestration.intake import (
+    build_assessment_job_from_provider_event,
+    build_queue_message,
+)
 from runtime.assessment_orchestration.interfaces import OrchestratorAdapter
 from runtime.assessment_orchestration.mcp.sharepoint import SharePointMCPServer
-from runtime.assessment_orchestration.models import (AssessedArtifactPackage,
-                                                     CorpusGroundingPackage, DeliveryOutcome)
+from runtime.assessment_orchestration.models import (
+    AssessedArtifactPackage,
+    CorpusGroundingPackage,
+    DeliveryOutcome,
+)
 from runtime.assessment_orchestration.queue import serialise_queue_message
 from runtime.assessment_orchestration.worker import process_queue_message_json
 

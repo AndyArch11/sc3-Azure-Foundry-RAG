@@ -17,9 +17,15 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 import pytest
 from azure.cosmos.exceptions import CosmosResourceNotFoundError
 
-from query_web.app import (ConversationMessage, ConversationSession, ResponseRating,
-                           _build_feedback_context, _get_user_id, _load_conversation,
-                           _save_conversation)
+from query_web.app import (
+    ConversationMessage,
+    ConversationSession,
+    ResponseRating,
+    _build_feedback_context,
+    _get_user_id,
+    _load_conversation,
+    _save_conversation,
+)
 
 
 class TestConversationMessage:

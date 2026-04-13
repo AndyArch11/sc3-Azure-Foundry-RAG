@@ -4,8 +4,10 @@ from typing import Any
 
 import pytest
 
-from runtime.assessment_orchestration.mcp.azure_resource import (AzureMCPServer,
-                                                                 build_azure_target_reference)
+from runtime.assessment_orchestration.mcp.azure_resource import (
+    AzureMCPServer,
+    build_azure_target_reference,
+)
 
 
 class _FakeCredential:

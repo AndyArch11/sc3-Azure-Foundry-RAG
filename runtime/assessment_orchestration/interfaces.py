@@ -2,8 +2,15 @@ from __future__ import annotations
 
 from typing import Any, Callable, Protocol
 
-from .models import (AccessDecision, AssessedArtifactPackage, AssessmentJob, CorpusGroundingPackage,
-                     DeliveryOutcome, DeliveryPlan, ResolvedTarget)
+from .models import (
+    AccessDecision,
+    AssessedArtifactPackage,
+    AssessmentJob,
+    CorpusGroundingPackage,
+    DeliveryOutcome,
+    DeliveryPlan,
+    ResolvedTarget,
+)
 from .queue import QueueMessage
 from .skill_catalog import SkillCatalog
 

@@ -8,8 +8,13 @@ from urllib.parse import parse_qs, urlparse
 import requests  # type: ignore[import-untyped]
 from requests.auth import AuthBase  # type: ignore[import-untyped]
 
-from ..models import (AccessDecision, AssessedArtifactPackage, DeliveryOutcome, PersonReference,
-                      ResolvedTarget)
+from ..models import (
+    AccessDecision,
+    AssessedArtifactPackage,
+    DeliveryOutcome,
+    PersonReference,
+    ResolvedTarget,
+)
 
 # --------------------------------------------------------------------------- #
 # Custom bearer token auth                                                     #

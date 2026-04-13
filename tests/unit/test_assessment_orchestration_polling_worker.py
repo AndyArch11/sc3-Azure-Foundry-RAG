@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from runtime.assessment_orchestration.polling_worker import (PollerConfig,
-                                                             _build_recent_mentions_query,
-                                                             _process_assessment_event,
-                                                             _requested_frameworks_for_event,
-                                                             _requested_frameworks_from_text,
-                                                             run_poll_cycle)
+from runtime.assessment_orchestration.polling_worker import (
+    PollerConfig,
+    _build_recent_mentions_query,
+    _process_assessment_event,
+    _requested_frameworks_for_event,
+    _requested_frameworks_from_text,
+    run_poll_cycle,
+)
 from runtime.assessment_orchestration.state_store import InMemoryPollingStateStore
 
 

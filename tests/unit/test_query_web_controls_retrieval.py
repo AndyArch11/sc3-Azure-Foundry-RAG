@@ -149,14 +149,17 @@ def test_apply_framework_authority_preference_prioritizes_concept_overlap() -> N
 
 
 def test_controls_search_comparison_enables_diversity_and_expands_fetch_k() -> None:
-    with patch.object(
-        app_module,
-        "_fetch_controls",
-        return_value=_controls_items_for_diversity(),
-    ) as fetch_mock, patch.object(
-        app_module,
-        "_apply_framework_authority_preference",
-        side_effect=lambda items, top_k, question: items,
+    with (
+        patch.object(
+            app_module,
+            "_fetch_controls",
+            return_value=_controls_items_for_diversity(),
+        ) as fetch_mock,
+        patch.object(
+            app_module,
+            "_apply_framework_authority_preference",
+            side_effect=lambda items, top_k, question: items,
+        ),
     ):
         controls, timings = app_module._controls_search(
             "Which framework has stronger inventory requirements?",
@@ -174,14 +177,17 @@ def test_controls_search_comparison_enables_diversity_and_expands_fetch_k() -> N
 
 
 def test_controls_search_framework_override_disables_diversity() -> None:
-    with patch.object(
-        app_module,
-        "_fetch_controls",
-        return_value=_controls_items_for_diversity(),
-    ) as fetch_mock, patch.object(
-        app_module,
-        "_apply_framework_authority_preference",
-        side_effect=lambda items, top_k, question: items,
+    with (
+        patch.object(
+            app_module,
+            "_fetch_controls",
+            return_value=_controls_items_for_diversity(),
+        ) as fetch_mock,
+        patch.object(
+            app_module,
+            "_apply_framework_authority_preference",
+            side_effect=lambda items, top_k, question: items,
+        ),
     ):
         controls, timings = app_module._controls_search(
             "Which framework has stronger inventory requirements?",
@@ -196,14 +202,17 @@ def test_controls_search_framework_override_disables_diversity() -> None:
 
 
 def test_controls_search_force_mode_enables_diversity_for_non_plural_question() -> None:
-    with patch.object(
-        app_module,
-        "_fetch_controls",
-        return_value=_controls_items_for_diversity(),
-    ), patch.object(
-        app_module,
-        "_apply_framework_authority_preference",
-        side_effect=lambda items, top_k, question: items,
+    with (
+        patch.object(
+            app_module,
+            "_fetch_controls",
+            return_value=_controls_items_for_diversity(),
+        ),
+        patch.object(
+            app_module,
+            "_apply_framework_authority_preference",
+            side_effect=lambda items, top_k, question: items,
+        ),
     ):
         controls, timings = app_module._controls_search(
             "What does NIST CSF require for inventory?",
@@ -236,14 +245,17 @@ def test_controls_search_diversity_backfills_framework_candidates() -> None:
             return crowded_items
         return []
 
-    with patch.object(
-        app_module,
-        "_fetch_controls",
-        side_effect=_fake_fetch,
-    ), patch.object(
-        app_module,
-        "_apply_framework_authority_preference",
-        side_effect=lambda items, top_k, question: items,
+    with (
+        patch.object(
+            app_module,
+            "_fetch_controls",
+            side_effect=_fake_fetch,
+        ),
+        patch.object(
+            app_module,
+            "_apply_framework_authority_preference",
+            side_effect=lambda items, top_k, question: items,
+        ),
     ):
         controls, timings = app_module._controls_search(
             "Which framework requires an inventory?",
@@ -275,14 +287,17 @@ def test_controls_search_plural_framework_query_enables_diversity() -> None:
             return crowded_items
         return []
 
-    with patch.object(
-        app_module,
-        "_fetch_controls",
-        side_effect=_fake_fetch,
-    ), patch.object(
-        app_module,
-        "_apply_framework_authority_preference",
-        side_effect=lambda items, top_k, question: items,
+    with (
+        patch.object(
+            app_module,
+            "_fetch_controls",
+            side_effect=_fake_fetch,
+        ),
+        patch.object(
+            app_module,
+            "_apply_framework_authority_preference",
+            side_effect=lambda items, top_k, question: items,
+        ),
     ):
         controls, timings = app_module._controls_search(
             "Which frameworks requires an inventory?",
@@ -312,9 +327,13 @@ def test_embed_query_retries_on_429_then_succeeds() -> None:
     second_http.raise_for_status.return_value = None
     second_http.json.return_value = {"data": [{"embedding": [0.1, 0.2, 0.3]}]}
 
-    with patch.object(app_module, "_cognitive_token", return_value="test-token"), patch.object(
-        app_module.requests, "post", side_effect=[first_http, second_http]
-    ) as post_mock, patch.object(app_module.time, "sleep") as sleep_mock:
+    with (
+        patch.object(app_module, "_cognitive_token", return_value="test-token"),
+        patch.object(
+            app_module.requests, "post", side_effect=[first_http, second_http]
+        ) as post_mock,
+        patch.object(app_module.time, "sleep") as sleep_mock,
+    ):
         vector = app_module._embed_query("Which frameworks require MFA?")
 
     assert vector == [0.1, 0.2, 0.3]
@@ -372,10 +391,13 @@ def test_controls_search_keyword_query_variants_recover_missed_matches() -> None
             return irrelevant
         return []
 
-    with patch.object(app_module, "_fetch_controls", side_effect=_fake_fetch), patch.object(
-        app_module,
-        "_apply_framework_authority_preference",
-        side_effect=lambda items, top_k, question: items,
+    with (
+        patch.object(app_module, "_fetch_controls", side_effect=_fake_fetch),
+        patch.object(
+            app_module,
+            "_apply_framework_authority_preference",
+            side_effect=lambda items, top_k, question: items,
+        ),
     ):
         controls, timings = app_module._controls_search(
             "Which frameworks require MFA?",
@@ -466,10 +488,13 @@ def test_controls_search_semantic_unavailable_falls_back_to_keyword() -> None:
             raise Exception("SemanticQueriesNotAvailable")
         return _controls_items_for_diversity()
 
-    with patch.object(app_module, "_fetch_controls", side_effect=_fake_fetch), patch.object(
-        app_module,
-        "_apply_framework_authority_preference",
-        side_effect=lambda items, top_k, question: items,
+    with (
+        patch.object(app_module, "_fetch_controls", side_effect=_fake_fetch),
+        patch.object(
+            app_module,
+            "_apply_framework_authority_preference",
+            side_effect=lambda items, top_k, question: items,
+        ),
     ):
         controls, timings = app_module._controls_search(
             "What does NIST CSF require for inventory?",
@@ -502,10 +527,13 @@ def test_controls_search_diversity_backfill_semantic_error_falls_back_to_keyword
             return [aes_item]
         return []
 
-    with patch.object(app_module, "_fetch_controls", side_effect=_fake_fetch), patch.object(
-        app_module,
-        "_apply_framework_authority_preference",
-        side_effect=lambda items, top_k, question: items,
+    with (
+        patch.object(app_module, "_fetch_controls", side_effect=_fake_fetch),
+        patch.object(
+            app_module,
+            "_apply_framework_authority_preference",
+            side_effect=lambda items, top_k, question: items,
+        ),
     ):
         controls, timings = app_module._controls_search(
             "Which framework requires an inventory?",

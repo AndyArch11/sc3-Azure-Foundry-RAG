@@ -27,14 +27,21 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from prompt_injection_guard import (BLOCKED_PROMPT_INJECTION_MESSAGE,
-                                    PROMPT_INJECTION_SYSTEM_PROMPT, VALIDATOR_SYSTEM_PROMPT,
-                                    assess_prompt_injection, evaluate_prompt_risk,
-                                    sanitise_conversation_turn, sanitise_untrusted_text)
+from prompt_injection_guard import (
+    BLOCKED_PROMPT_INJECTION_MESSAGE,
+    PROMPT_INJECTION_SYSTEM_PROMPT,
+    VALIDATOR_SYSTEM_PROMPT,
+    assess_prompt_injection,
+    evaluate_prompt_risk,
+    sanitise_conversation_turn,
+    sanitise_untrusted_text,
+)
 from pydantic import BaseModel, Field
 
-from runtime.assessment_orchestration.azure_assessment import (collect_azure_grounding,
-                                                               run_azure_assessment)
+from runtime.assessment_orchestration.azure_assessment import (
+    collect_azure_grounding,
+    run_azure_assessment,
+)
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionMessageParam
@@ -1195,9 +1202,7 @@ def _assess_control_finding_with_llm(
         fallback.get("evidence_sources")
     ) or ["No evidence sources retrieved"]
     fallback["gaps"] = _clean_non_empty_string_list(fallback.get("gaps"))
-    fallback["recommendations"] = _clean_non_empty_string_list(
-        fallback.get("recommendations")
-    )
+    fallback["recommendations"] = _clean_non_empty_string_list(fallback.get("recommendations"))
     return fallback
 
 
@@ -2026,9 +2031,7 @@ def _embed_query(question: str) -> list[float]:
             if attempt >= max_attempts - 1 or not retryable:
                 raise
 
-            retry_after = getattr(getattr(exc, "response", None), "headers", {}).get(
-                "Retry-After"
-            )
+            retry_after = getattr(getattr(exc, "response", None), "headers", {}).get("Retry-After")
             try:
                 delay_s = max(float(retry_after), 0.0) if retry_after else 0.0
             except (TypeError, ValueError):
@@ -3477,7 +3480,9 @@ def _wait_for_indexer_idle(indexer_name: str, timeout_seconds: int = 900) -> boo
 
 def _reset_grounding_indexer_state() -> str:
     """Reset the grounding indexer high-watermark so unchanged blobs can be reprocessed."""
-    indexer_name = os.getenv("AZURE_SEARCH_INDEXER_NAME", f"{config.search_index_name}-indexer").strip()
+    indexer_name = os.getenv(
+        "AZURE_SEARCH_INDEXER_NAME", f"{config.search_index_name}-indexer"
+    ).strip()
     if not indexer_name:
         raise RuntimeError("AZURE_SEARCH_INDEXER_NAME is empty.")
 
@@ -3501,7 +3506,9 @@ def _reset_grounding_indexer_state() -> str:
             ) from exc
 
         client.reset_indexer(indexer_name)
-        logger.info("Indexer %s reset succeeded after waiting for active run to finish", indexer_name)
+        logger.info(
+            "Indexer %s reset succeeded after waiting for active run to finish", indexer_name
+        )
     return indexer_name
 
 
@@ -3519,7 +3526,9 @@ def _get_ingestion_job_template_container(token: str) -> dict[str, Any]:
         timeout=30,
     )
     if resp.status_code >= 400:
-        raise RuntimeError(f"Failed to fetch ingestion job definition: {resp.status_code} {resp.text}")
+        raise RuntimeError(
+            f"Failed to fetch ingestion job definition: {resp.status_code} {resp.text}"
+        )
     containers = resp.json().get("properties", {}).get("template", {}).get("containers", [])
     if not containers:
         raise RuntimeError("Ingestion job definition contains no containers.")
@@ -3544,11 +3553,7 @@ def _trigger_ingestion_job_with_args(args_override: list[str] | None) -> dict[st
     if args_override:
         container = _get_ingestion_job_template_container(token)
         container["args"] = args_override
-        body: dict[str, Any] = {
-            "containers": [
-                container
-            ]
-        }
+        body: dict[str, Any] = {"containers": [container]}
     else:
         body = {}
 
@@ -3595,7 +3600,9 @@ def _extract_dedupe_hashes(skipped: list[str]) -> list[str]:
     return list(dict.fromkeys(hashes))
 
 
-def _mark_dedupe_blobs_for_reindex(corpus: str, dedupe_hashes: list[str], *, user_id: str) -> dict[str, Any]:
+def _mark_dedupe_blobs_for_reindex(
+    corpus: str, dedupe_hashes: list[str], *, user_id: str
+) -> dict[str, Any]:
     if not dedupe_hashes:
         return {"requested": 0, "touched": 0, "not_found": [], "failed": []}
 
@@ -5074,7 +5081,9 @@ def ingestion_job_diagnostics(request: Request, auth_token: str = "") -> JSONRes
                     "startTime": props.get("startTime", ""),
                     "endTime": props.get("endTime", ""),
                     "detailedStatus": {
-                        "activeReplicaCount": props.get("detailedStatus", {}).get("activeReplicaCount"),
+                        "activeReplicaCount": props.get("detailedStatus", {}).get(
+                            "activeReplicaCount"
+                        ),
                         "failedCount": props.get("detailedStatus", {}).get("failedCount"),
                         "runningCount": props.get("detailedStatus", {}).get("runningCount"),
                         "succeededCount": props.get("detailedStatus", {}).get("succeededCount"),

@@ -24,14 +24,21 @@ from bs4 import BeautifulSoup
 
 from runtime.ingestion.parsers.base import BaseParser, RequirementRecord, filter_keywords
 from runtime.ingestion.parsers.cis_controls import CisControlsParser, _build_control_guidance_map
-from runtime.ingestion.parsers.essential_eight import (CONTROL_FAMILIES, EssentialEightParser,
-                                                       _extract_cell_requirements,
-                                                       _extract_introduction,
-                                                       _normalise_family_name,
-                                                       _parse_maturity_model_page,
-                                                       _parse_requirement_table, _slugify)
-from runtime.ingestion.parsers.pci_dss import (PciDssParser, _build_requirement_and_guidance_maps,
-                                               _extract_full_text)
+from runtime.ingestion.parsers.essential_eight import (
+    CONTROL_FAMILIES,
+    EssentialEightParser,
+    _extract_cell_requirements,
+    _extract_introduction,
+    _normalise_family_name,
+    _parse_maturity_model_page,
+    _parse_requirement_table,
+    _slugify,
+)
+from runtime.ingestion.parsers.pci_dss import (
+    PciDssParser,
+    _build_requirement_and_guidance_maps,
+    _extract_full_text,
+)
 from runtime.ingestion.parsers.pspf import PspfParser, _parse_pspf_release_text, _pspf_keywords
 from runtime.ingestion.publish_controls import _batched, load_controls_jsonl
 

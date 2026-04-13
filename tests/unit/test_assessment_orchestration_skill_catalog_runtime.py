@@ -3,9 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from runtime.assessment_orchestration.interfaces import OrchestratorAdapter
-from runtime.assessment_orchestration.models import (AccessDecision, AssessedArtifactPackage,
-                                                     AssessmentJob, CorpusGroundingPackage,
-                                                     DeliveryOutcome, ResolvedTarget)
+from runtime.assessment_orchestration.models import (
+    AccessDecision,
+    AssessedArtifactPackage,
+    AssessmentJob,
+    CorpusGroundingPackage,
+    DeliveryOutcome,
+    ResolvedTarget,
+)
 from runtime.assessment_orchestration.runtime_wiring import create_orchestrator_adapter_from_env
 from runtime.assessment_orchestration.skill_catalog import load_skill_catalog
 

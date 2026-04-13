@@ -4,10 +4,15 @@ import json
 
 from azure.core.exceptions import ResourceNotFoundError
 
-from runtime.assessment_orchestration.assessment_runtime import (AssessmentRuntimeConfig,
-                                                                 SearchBackedAssessmentAgent)
-from runtime.assessment_orchestration.models import (AssessedArtifactPackage,
-                                                     CorpusGroundingPackage, PersonReference)
+from runtime.assessment_orchestration.assessment_runtime import (
+    AssessmentRuntimeConfig,
+    SearchBackedAssessmentAgent,
+)
+from runtime.assessment_orchestration.models import (
+    AssessedArtifactPackage,
+    CorpusGroundingPackage,
+    PersonReference,
+)
 from runtime.assessment_orchestration.polling_worker import _render_assessment_comment
 
 

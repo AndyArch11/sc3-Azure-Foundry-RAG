@@ -2,8 +2,16 @@ from __future__ import annotations
 
 from typing import Any, Mapping, cast
 
-from .models import (AccessDecision, AssessedArtifactPackage, AssessmentJob, CorpusGroundingPackage,
-                     DeliveryOutcome, DeliveryPlan, PersonReference, ResolvedTarget)
+from .models import (
+    AccessDecision,
+    AssessedArtifactPackage,
+    AssessmentJob,
+    CorpusGroundingPackage,
+    DeliveryOutcome,
+    DeliveryPlan,
+    PersonReference,
+    ResolvedTarget,
+)
 
 _ALLOWED_IDENTITY_MODES = {"app_only", "delegated"}
 

@@ -5,13 +5,17 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 
-from runtime.assessment_orchestration.mcp.confluence import (ConfluenceClient, ConfluenceMCPServer,
-                                                             MentionPoller, _iso_duration_to_since,
-                                                             _iso_to_cql_datetime,
-                                                             _normalise_comments,
-                                                             _normalise_mention_result,
-                                                             _parse_confluence_url_path,
-                                                             _strip_html)
+from runtime.assessment_orchestration.mcp.confluence import (
+    ConfluenceClient,
+    ConfluenceMCPServer,
+    MentionPoller,
+    _iso_duration_to_since,
+    _iso_to_cql_datetime,
+    _normalise_comments,
+    _normalise_mention_result,
+    _parse_confluence_url_path,
+    _strip_html,
+)
 
 # --------------------------------------------------------------------------- #
 # Unit helpers                                                                 #

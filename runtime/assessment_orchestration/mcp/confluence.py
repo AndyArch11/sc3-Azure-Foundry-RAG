@@ -10,8 +10,13 @@ from urllib.parse import urlparse
 import requests  # type: ignore[import-untyped]
 from requests.auth import AuthBase, HTTPBasicAuth  # type: ignore[import-untyped]
 
-from ..models import (AccessDecision, AssessedArtifactPackage, DeliveryOutcome, PersonReference,
-                      ResolvedTarget)
+from ..models import (
+    AccessDecision,
+    AssessedArtifactPackage,
+    DeliveryOutcome,
+    PersonReference,
+    ResolvedTarget,
+)
 
 # --------------------------------------------------------------------------- #
 # HTML stripping                                                               #
@@ -134,8 +139,10 @@ def _normalise_mention_result(result: dict[str, Any], *, site_base_url: str) -> 
         canonical_url = ""
 
     # Some CQL responses omit ancestors for comments. Recover page/space from URL path.
-    if content_type == "comment" and canonical_url and (
-        (not page_id) or (page_id == content_id) or (not space_key)
+    if (
+        content_type == "comment"
+        and canonical_url
+        and ((not page_id) or (page_id == content_id) or (not space_key))
     ):
         parsed_page_id, parsed_space_key = _parse_confluence_url_path(urlparse(canonical_url).path)
         if parsed_page_id:

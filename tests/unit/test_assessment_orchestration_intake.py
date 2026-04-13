@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from runtime.assessment_orchestration.intake import (build_assessment_job_from_email_notification,
-                                                     build_assessment_job_from_provider_event,
-                                                     build_queue_message)
+from runtime.assessment_orchestration.intake import (
+    build_assessment_job_from_email_notification,
+    build_assessment_job_from_provider_event,
+    build_queue_message,
+)
 from runtime.assessment_orchestration.mcp.email import EmailMCPServer
 
 

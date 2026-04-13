@@ -114,9 +114,11 @@ def create_confluence_mcp_server_from_env(
     auth_mode = (values.get("CONFLUENCE_AUTH_MODE") or "basic").strip().lower()
     account_id = (values.get("CONFLUENCE_ACCOUNT_ID") or "").strip() or None
     mention_aliases_raw = (values.get("CONFLUENCE_MENTION_ALIASES") or "").strip()
-    mention_aliases = tuple(
-        x.strip() for x in mention_aliases_raw.split(",") if x.strip()
-    ) if mention_aliases_raw else None
+    mention_aliases = (
+        tuple(x.strip() for x in mention_aliases_raw.split(",") if x.strip())
+        if mention_aliases_raw
+        else None
+    )
 
     if auth_mode == "basic":
         api_token = _required(values, "CONFLUENCE_API_TOKEN")

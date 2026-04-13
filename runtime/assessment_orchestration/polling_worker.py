@@ -15,8 +15,10 @@ from azure.identity import DefaultAzureCredential
 from .intake import build_assessment_job_from_provider_event
 from .interfaces import OrchestratorAdapter
 from .mcp.confluence import ConfluenceMCPServer
-from .runtime_wiring import (create_confluence_mcp_server_from_env,
-                             create_orchestrator_adapter_from_env)
+from .runtime_wiring import (
+    create_confluence_mcp_server_from_env,
+    create_orchestrator_adapter_from_env,
+)
 from .state_store import CosmosPollingStateStore, PollingStateStore
 
 _FRAMEWORK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -43,7 +45,9 @@ _FRAMEWORK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     (
         "CIS Controls",
-        re.compile(r"\b(cis\s*controls?|cis_controls|critical\s+security\s+controls?)\b", re.IGNORECASE),
+        re.compile(
+            r"\b(cis\s*controls?|cis_controls|critical\s+security\s+controls?)\b", re.IGNORECASE
+        ),
     ),
 )
 _ALL_FRAMEWORK_ORDER: tuple[str, ...] = (

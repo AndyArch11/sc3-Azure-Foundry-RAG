@@ -3,10 +3,16 @@ from __future__ import annotations
 import pytest
 
 from runtime.assessment_orchestration.models import AssessmentJob
-from runtime.assessment_orchestration.queue import (QueueMessage, deserialise_queue_message,
-                                                    serialise_queue_message, validate_queue_message)
-from runtime.assessment_orchestration.validators import (validate_assessment_job,
-                                                         validate_identity_mode)
+from runtime.assessment_orchestration.queue import (
+    QueueMessage,
+    deserialise_queue_message,
+    serialise_queue_message,
+    validate_queue_message,
+)
+from runtime.assessment_orchestration.validators import (
+    validate_assessment_job,
+    validate_identity_mode,
+)
 
 
 def test_validate_identity_mode_rejects_unknown_value() -> None:

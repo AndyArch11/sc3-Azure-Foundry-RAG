@@ -510,11 +510,11 @@ QUERY_WEB_REQUIRE_CONVERSATIONS=true \
 # Quality tools
 
 # Format
-python3 -m black query_web runtime/assessment_orchestration runtime/ingestion tests --line-length 100
-python3 -m isort query_web runtime/assessment_orchestration runtime/ingestion tests --line-length 100
+python3 -m isort query_web runtime/assessment_orchestration runtime/ingestion tests
+python3 -m black query_web runtime/assessment_orchestration runtime/ingestion tests
 
-python3 -m black --check query_web runtime/assessment_orchestration runtime/ingestion tests --line-length 100
-python3 -m isort --check query_web runtime/assessment_orchestration runtime/ingestion tests --line-length 100
+python3 -m isort --check query_web runtime/assessment_orchestration runtime/ingestion tests
+python3 -m black --check query_web runtime/assessment_orchestration runtime/ingestion tests
 
 # Lint
 python3 -m pylint query_web --disable=C0114,C0103,R0913,R0914,C0301,C0303 --max-line-length=100 --fail-under=8

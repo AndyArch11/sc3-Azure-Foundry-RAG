@@ -27,11 +27,15 @@ def _open_auth_config():
 def test_corpus_a_clear_dry_run_returns_would_delete_counts() -> None:
     client = _test_client()
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_count_search_documents_by_filter",
-        side_effect=[{"would_delete": 2}, {"would_delete": 3}],
-    ) as count_mock, patch.object(app_module, "_delete_search_documents_by_filter") as delete_mock:
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_count_search_documents_by_filter",
+            side_effect=[{"would_delete": 2}, {"would_delete": 3}],
+        ) as count_mock,
+        patch.object(app_module, "_delete_search_documents_by_filter") as delete_mock,
+    ):
         response = client.post(
             "/api/corpus-a/clear",
             json={
@@ -53,19 +57,21 @@ def test_corpus_a_clear_dry_run_returns_would_delete_counts() -> None:
 def test_corpus_b_clear_dry_run_uses_count_paths() -> None:
     client = _test_client()
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_count_search_documents_by_filter",
-        return_value={"would_delete": 7},
-    ) as count_index, patch.object(
-        app_module,
-        "_count_blob_prefix",
-        return_value={"would_delete": 4},
-    ) as count_blobs, patch.object(
-        app_module, "_delete_search_documents_by_filter"
-    ) as delete_index, patch.object(
-        app_module, "_delete_blob_prefix"
-    ) as delete_blobs:
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_count_search_documents_by_filter",
+            return_value={"would_delete": 7},
+        ) as count_index,
+        patch.object(
+            app_module,
+            "_count_blob_prefix",
+            return_value={"would_delete": 4},
+        ) as count_blobs,
+        patch.object(app_module, "_delete_search_documents_by_filter") as delete_index,
+        patch.object(app_module, "_delete_blob_prefix") as delete_blobs,
+    ):
         response = client.post(
             "/api/corpus-b/clear",
             json={"dry_run": True, "clear_blobs": True, "auth_token": ""},
@@ -85,18 +91,23 @@ def test_corpus_b_clear_dry_run_uses_count_paths() -> None:
 def test_compliance_report_soft_mode_normalises_incomplete_payload() -> None:
     client = _test_client()
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_controls_search",
-        return_value=([], {"controls_search_s": 0.01}),
-    ), patch.object(
-        app_module,
-        "_hybrid_search",
-        side_effect=[([], {"search_s": 0.01}), ([], {"search_s": 0.02})],
-    ), patch.object(
-        app_module,
-        "_chat_completion",
-        return_value='{"schema_version":"v1.1"}',
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_controls_search",
+            return_value=([], {"controls_search_s": 0.01}),
+        ),
+        patch.object(
+            app_module,
+            "_hybrid_search",
+            side_effect=[([], {"search_s": 0.01}), ([], {"search_s": 0.02})],
+        ),
+        patch.object(
+            app_module,
+            "_chat_completion",
+            return_value='{"schema_version":"v1.1"}',
+        ),
     ):
         response = client.post(
             "/api/compliance/report",
@@ -118,18 +129,23 @@ def test_compliance_report_soft_mode_normalises_incomplete_payload() -> None:
 def test_compliance_report_hard_mode_normalises_incomplete_payload() -> None:
     client = _test_client()
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_controls_search",
-        return_value=([], {"controls_search_s": 0.01}),
-    ), patch.object(
-        app_module,
-        "_hybrid_search",
-        side_effect=[([], {"search_s": 0.01}), ([], {"search_s": 0.02})],
-    ), patch.object(
-        app_module,
-        "_chat_completion",
-        return_value='{"schema_version":"v1.1"}',
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_controls_search",
+            return_value=([], {"controls_search_s": 0.01}),
+        ),
+        patch.object(
+            app_module,
+            "_hybrid_search",
+            side_effect=[([], {"search_s": 0.01}), ([], {"search_s": 0.02})],
+        ),
+        patch.object(
+            app_module,
+            "_chat_completion",
+            return_value='{"schema_version":"v1.1"}',
+        ),
     ):
         response = client.post(
             "/api/compliance/report",
@@ -174,18 +190,23 @@ def test_compliance_report_valid_schema_returns_csv() -> None:
         "}"
     )
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_controls_search",
-        return_value=([], {"controls_search_s": 0.01}),
-    ), patch.object(
-        app_module,
-        "_hybrid_search",
-        side_effect=[([], {"search_s": 0.01}), ([], {"search_s": 0.02})],
-    ), patch.object(
-        app_module,
-        "_chat_completion",
-        return_value=valid_report_json,
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_controls_search",
+            return_value=([], {"controls_search_s": 0.01}),
+        ),
+        patch.object(
+            app_module,
+            "_hybrid_search",
+            side_effect=[([], {"search_s": 0.01}), ([], {"search_s": 0.02})],
+        ),
+        patch.object(
+            app_module,
+            "_chat_completion",
+            return_value=valid_report_json,
+        ),
     ):
         response = client.post(
             "/api/compliance/report",
@@ -231,19 +252,24 @@ def test_compliance_report_retries_after_empty_model_response() -> None:
         "}"
     )
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_controls_search",
-        return_value=([], {"controls_search_s": 0.01}),
-    ), patch.object(
-        app_module,
-        "_hybrid_search",
-        side_effect=[([], {"search_s": 0.01}), ([], {"search_s": 0.02})],
-    ), patch.object(
-        app_module,
-        "_chat_completion",
-        side_effect=["", valid_report_json],
-    ) as completion_mock:
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_controls_search",
+            return_value=([], {"controls_search_s": 0.01}),
+        ),
+        patch.object(
+            app_module,
+            "_hybrid_search",
+            side_effect=[([], {"search_s": 0.01}), ([], {"search_s": 0.02})],
+        ),
+        patch.object(
+            app_module,
+            "_chat_completion",
+            side_effect=["", valid_report_json],
+        ) as completion_mock,
+    ):
         response = client.post(
             "/api/compliance/report",
             json={
@@ -287,34 +313,39 @@ def test_compliance_report_normalises_incomplete_model_json() -> None:
         "}"
     )
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_controls_search",
-        return_value=(
-            [
-                {
-                    "requirement_id": "REQ-1",
-                    "framework": "NIST CSF",
-                    "framework_version": "2.0",
-                    "control_family": "Access Control",
-                    "requirement_text": "Use MFA",
-                    "guidance_text": "Apply MFA broadly",
-                    "source_uri": "controls://req-1",
-                }
-            ],
-            {"controls_search_s": 0.01},
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_controls_search",
+            return_value=(
+                [
+                    {
+                        "requirement_id": "REQ-1",
+                        "framework": "NIST CSF",
+                        "framework_version": "2.0",
+                        "control_family": "Access Control",
+                        "requirement_text": "Use MFA",
+                        "guidance_text": "Apply MFA broadly",
+                        "source_uri": "controls://req-1",
+                    }
+                ],
+                {"controls_search_s": 0.01},
+            ),
         ),
-    ), patch.object(
-        app_module,
-        "_hybrid_search",
-        side_effect=[
-            ([{"source_name": "Guide-A", "content": "guidance"}], {"search_s": 0.01}),
-            ([{"source_name": "Artifact-1", "content": "artifact"}], {"search_s": 0.02}),
-        ],
-    ), patch.object(
-        app_module,
-        "_chat_completion",
-        return_value=incomplete_report_json,
+        patch.object(
+            app_module,
+            "_hybrid_search",
+            side_effect=[
+                ([{"source_name": "Guide-A", "content": "guidance"}], {"search_s": 0.01}),
+                ([{"source_name": "Artifact-1", "content": "artifact"}], {"search_s": 0.02}),
+            ],
+        ),
+        patch.object(
+            app_module,
+            "_chat_completion",
+            return_value=incomplete_report_json,
+        ),
     ):
         response = client.post(
             "/api/compliance/report",
@@ -362,34 +393,39 @@ def test_compliance_report_corrects_model_claims_when_grounding_exists() -> None
         "}"
     )
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_controls_search",
-        return_value=(
-            [
-                {
-                    "requirement_id": "REQ-99",
-                    "framework": "NIST CSF",
-                    "framework_version": "2.0",
-                    "control_family": "Protect",
-                    "requirement_text": "Control text",
-                    "guidance_text": "Guidance text",
-                    "source_uri": "controls://req-99",
-                }
-            ],
-            {"controls_search_s": 0.01},
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_controls_search",
+            return_value=(
+                [
+                    {
+                        "requirement_id": "REQ-99",
+                        "framework": "NIST CSF",
+                        "framework_version": "2.0",
+                        "control_family": "Protect",
+                        "requirement_text": "Control text",
+                        "guidance_text": "Guidance text",
+                        "source_uri": "controls://req-99",
+                    }
+                ],
+                {"controls_search_s": 0.01},
+            ),
         ),
-    ), patch.object(
-        app_module,
-        "_hybrid_search",
-        side_effect=[
-            ([{"source_name": "Guide-X", "content": "guidance"}], {"search_s": 0.01}),
-            ([{"source_name": "Artifact-X", "content": "artifact"}], {"search_s": 0.02}),
-        ],
-    ), patch.object(
-        app_module,
-        "_chat_completion",
-        return_value=contradictory_report_json,
+        patch.object(
+            app_module,
+            "_hybrid_search",
+            side_effect=[
+                ([{"source_name": "Guide-X", "content": "guidance"}], {"search_s": 0.01}),
+                ([{"source_name": "Artifact-X", "content": "artifact"}], {"search_s": 0.02}),
+            ],
+        ),
+        patch.object(
+            app_module,
+            "_chat_completion",
+            return_value=contradictory_report_json,
+        ),
     ):
         response = client.post(
             "/api/compliance/report",
@@ -414,34 +450,39 @@ def test_compliance_report_corrects_model_claims_when_grounding_exists() -> None
 def test_compliance_report_soft_mode_returns_fallback_report_on_empty_model_output() -> None:
     client = _test_client()
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_controls_search",
-        return_value=(
-            [
-                {
-                    "requirement_id": "REQ-7",
-                    "framework": "NIST CSF",
-                    "framework_version": "2.0",
-                    "control_family": "Identify",
-                    "requirement_text": "Inventory assets",
-                    "guidance_text": "Maintain inventory",
-                    "source_uri": "controls://req-7",
-                }
-            ],
-            {"controls_search_s": 0.01},
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_controls_search",
+            return_value=(
+                [
+                    {
+                        "requirement_id": "REQ-7",
+                        "framework": "NIST CSF",
+                        "framework_version": "2.0",
+                        "control_family": "Identify",
+                        "requirement_text": "Inventory assets",
+                        "guidance_text": "Maintain inventory",
+                        "source_uri": "controls://req-7",
+                    }
+                ],
+                {"controls_search_s": 0.01},
+            ),
         ),
-    ), patch.object(
-        app_module,
-        "_hybrid_search",
-        side_effect=[
-            ([], {"search_s": 0.01}),
-            ([{"source_name": "Artifact-Z", "content": "artifact"}], {"search_s": 0.02}),
-        ],
-    ), patch.object(
-        app_module,
-        "_chat_completion",
-        side_effect=["", ""],
+        patch.object(
+            app_module,
+            "_hybrid_search",
+            side_effect=[
+                ([], {"search_s": 0.01}),
+                ([{"source_name": "Artifact-Z", "content": "artifact"}], {"search_s": 0.02}),
+            ],
+        ),
+        patch.object(
+            app_module,
+            "_chat_completion",
+            side_effect=["", ""],
+        ),
     ):
         response = client.post(
             "/api/compliance/report",
@@ -488,18 +529,23 @@ def test_compliance_report_uses_corpus_b_upload_batch_filter() -> None:
         "}"
     )
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_controls_search",
-        return_value=([], {"controls_search_s": 0.01}),
-    ), patch.object(
-        app_module,
-        "_hybrid_search",
-        side_effect=[([], {"search_s": 0.01}), ([], {"search_s": 0.02})],
-    ) as hybrid_mock, patch.object(
-        app_module,
-        "_chat_completion",
-        return_value=valid_report_json,
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_controls_search",
+            return_value=([], {"controls_search_s": 0.01}),
+        ),
+        patch.object(
+            app_module,
+            "_hybrid_search",
+            side_effect=[([], {"search_s": 0.01}), ([], {"search_s": 0.02})],
+        ) as hybrid_mock,
+        patch.object(
+            app_module,
+            "_chat_completion",
+            return_value=valid_report_json,
+        ),
     ):
         response = client.post(
             "/api/compliance/report",
@@ -567,17 +613,21 @@ def test_hybrid_search_returns_empty_results_when_embedding_is_rate_limited() ->
 def test_corpus_b_ingest_does_not_trigger_job_when_all_files_are_duplicates() -> None:
     client = _test_client()
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_upload_corpus_b_files",
-        return_value={
-            "upload_batch_id": None,
-            "prefix": "corpus-b/by-dedupe",
-            "uploaded": [],
-            "skipped": ["duplicate.html: duplicate-normalised_text_sha256:abc"],
-            "failed": [],
-        },
-    ), patch.object(app_module, "_trigger_ingestion_job") as trigger_mock:
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_upload_corpus_b_files",
+            return_value={
+                "upload_batch_id": None,
+                "prefix": "corpus-b/by-dedupe",
+                "uploaded": [],
+                "skipped": ["duplicate.html: duplicate-normalised_text_sha256:abc"],
+                "failed": [],
+            },
+        ),
+        patch.object(app_module, "_trigger_ingestion_job") as trigger_mock,
+    ):
         response = client.post(
             "/api/corpus-b/ingest",
             data={"trigger_job": "true", "auth_token": ""},
@@ -597,17 +647,21 @@ def test_corpus_b_ingest_does_not_trigger_job_when_all_files_are_duplicates() ->
 def test_corpus_c_ingest_does_not_trigger_job_when_all_files_are_duplicates() -> None:
     client = _test_client()
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_upload_corpus_files",
-        return_value={
-            "upload_batch_id": None,
-            "prefix": "corpus-c/by-dedupe",
-            "uploaded": [],
-            "skipped": ["duplicate.html: duplicate-normalised_text_sha256:def"],
-            "failed": [],
-        },
-    ), patch.object(app_module, "_trigger_ingestion_job") as trigger_mock:
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_upload_corpus_files",
+            return_value={
+                "upload_batch_id": None,
+                "prefix": "corpus-c/by-dedupe",
+                "uploaded": [],
+                "skipped": ["duplicate.html: duplicate-normalised_text_sha256:def"],
+                "failed": [],
+            },
+        ),
+        patch.object(app_module, "_trigger_ingestion_job") as trigger_mock,
+    ):
         response = client.post(
             "/api/corpus-c/ingest",
             data={"trigger_job": "true", "auth_token": ""},
@@ -627,25 +681,30 @@ def test_corpus_c_ingest_does_not_trigger_job_when_all_files_are_duplicates() ->
 def test_corpus_b_ingest_triggers_job_when_reindex_on_dedupe_enabled() -> None:
     client = _test_client()
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_upload_corpus_b_files",
-        return_value={
-            "upload_batch_id": None,
-            "prefix": "corpus-b/by-dedupe",
-            "uploaded": [],
-            "skipped": ["duplicate.html: duplicate-normalised_text_sha256:abc"],
-            "failed": [],
-        },
-    ), patch.object(
-        app_module,
-        "_reset_grounding_indexer_state",
-        return_value="grounding-index-indexer",
-    ), patch.object(
-        app_module,
-        "_trigger_ingestion_job",
-        return_value={"status_code": 202},
-    ) as trigger_mock:
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_upload_corpus_b_files",
+            return_value={
+                "upload_batch_id": None,
+                "prefix": "corpus-b/by-dedupe",
+                "uploaded": [],
+                "skipped": ["duplicate.html: duplicate-normalised_text_sha256:abc"],
+                "failed": [],
+            },
+        ),
+        patch.object(
+            app_module,
+            "_reset_grounding_indexer_state",
+            return_value="grounding-index-indexer",
+        ),
+        patch.object(
+            app_module,
+            "_trigger_ingestion_job",
+            return_value={"status_code": 202},
+        ) as trigger_mock,
+    ):
         response = client.post(
             "/api/corpus-b/ingest",
             data={
@@ -669,25 +728,30 @@ def test_corpus_b_ingest_triggers_job_when_reindex_on_dedupe_enabled() -> None:
 def test_corpus_c_ingest_triggers_job_when_reindex_on_dedupe_enabled() -> None:
     client = _test_client()
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_upload_corpus_files",
-        return_value={
-            "upload_batch_id": None,
-            "prefix": "corpus-c/by-dedupe",
-            "uploaded": [],
-            "skipped": ["duplicate.html: duplicate-normalised_text_sha256:def"],
-            "failed": [],
-        },
-    ), patch.object(
-        app_module,
-        "_reset_grounding_indexer_state",
-        return_value="grounding-index-indexer",
-    ), patch.object(
-        app_module,
-        "_trigger_ingestion_job",
-        return_value={"status_code": 202},
-    ) as trigger_mock:
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_upload_corpus_files",
+            return_value={
+                "upload_batch_id": None,
+                "prefix": "corpus-c/by-dedupe",
+                "uploaded": [],
+                "skipped": ["duplicate.html: duplicate-normalised_text_sha256:def"],
+                "failed": [],
+            },
+        ),
+        patch.object(
+            app_module,
+            "_reset_grounding_indexer_state",
+            return_value="grounding-index-indexer",
+        ),
+        patch.object(
+            app_module,
+            "_trigger_ingestion_job",
+            return_value={"status_code": 202},
+        ) as trigger_mock,
+    ):
         response = client.post(
             "/api/corpus-c/ingest",
             data={
@@ -711,15 +775,18 @@ def test_corpus_c_ingest_triggers_job_when_reindex_on_dedupe_enabled() -> None:
 def test_corpus_a_list_with_framework_filter() -> None:
     client = _test_client()
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_list_search_documents_by_filter",
-        return_value={
-            "total_count": 2,
-            "returned_count": 2,
-            "items": [{"requirement_id": "REQ-1"}],
-        },
-    ) as list_mock:
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_list_search_documents_by_filter",
+            return_value={
+                "total_count": 2,
+                "returned_count": 2,
+                "items": [{"requirement_id": "REQ-1"}],
+            },
+        ) as list_mock,
+    ):
         response = client.get(
             "/api/corpus-a/list",
             params={"framework": "nist_csf", "limit": 25, "auth_token": ""},
@@ -739,25 +806,31 @@ def test_corpus_a_list_with_framework_filter() -> None:
 def test_corpus_a_upload_stages_sources_and_triggers_controls_job() -> None:
     client = _test_client()
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_upload_corpus_a_reference_files",
-        return_value={
-            "framework": "cis_controls",
-            "framework_name": "CIS Controls",
-            "upload_batch_id": "batch-a-1",
-            "source_prefix": "corpus-a/source/cis_controls/batch-a-1",
-            "uploaded": [
-                {"target_filename": "CIS_Controls_Version_8.xlsx"},
-                {"target_filename": "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf"},
-            ],
-            "failed": [],
-        },
-    ), patch.object(
-        app_module,
-        "_trigger_ingestion_job_with_args",
-        return_value={"status_code": 200, "args_override": []},
-    ) as trigger_mock:
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_upload_corpus_a_reference_files",
+            return_value={
+                "framework": "cis_controls",
+                "framework_name": "CIS Controls",
+                "upload_batch_id": "batch-a-1",
+                "source_prefix": "corpus-a/source/cis_controls/batch-a-1",
+                "uploaded": [
+                    {"target_filename": "CIS_Controls_Version_8.xlsx"},
+                    {
+                        "target_filename": "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf"
+                    },
+                ],
+                "failed": [],
+            },
+        ),
+        patch.object(
+            app_module,
+            "_trigger_ingestion_job_with_args",
+            return_value={"status_code": 200, "args_override": []},
+        ) as trigger_mock,
+    ):
         response = client.post(
             "/api/corpus-a/upload",
             data={
@@ -769,7 +842,14 @@ def test_corpus_a_upload_stages_sources_and_triggers_controls_job() -> None:
                 "auth_token": "",
             },
             files=[
-                ("files", ("controls.xlsx", b"xlsx-bytes", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")),
+                (
+                    "files",
+                    (
+                        "controls.xlsx",
+                        b"xlsx-bytes",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    ),
+                ),
                 ("files", ("controls.pdf", b"pdf-bytes", "application/pdf")),
             ],
         )
@@ -834,15 +914,19 @@ def test_corpus_a_upload_auto_stages_multiple_frameworks_and_triggers_jobs() -> 
             }
         raise AssertionError("unexpected framework")
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_upload_corpus_a_reference_files",
-        side_effect=_fake_upload,
-    ) as upload_mock, patch.object(
-        app_module,
-        "_trigger_ingestion_job_with_args",
-        return_value={"status_code": 200, "args_override": []},
-    ) as trigger_mock:
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_upload_corpus_a_reference_files",
+            side_effect=_fake_upload,
+        ) as upload_mock,
+        patch.object(
+            app_module,
+            "_trigger_ingestion_job_with_args",
+            return_value={"status_code": 200, "args_override": []},
+        ) as trigger_mock,
+    ):
         response = client.post(
             "/api/corpus-a/upload",
             data={
@@ -885,19 +969,24 @@ def test_corpus_a_upload_auto_stages_multiple_frameworks_and_triggers_jobs() -> 
 def test_corpus_a_ingest_skips_frameworks_requiring_source_upload() -> None:
     client = _test_client()
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_is_ingestion_job_trigger_enabled",
-        return_value=True,
-    ), patch.object(
-        app_module,
-        "_controls_framework_ingestion_status",
-        return_value={},
-    ), patch.object(
-        app_module,
-        "_trigger_ingestion_job_with_args",
-        return_value={"status_code": 200, "args_override": []},
-    ) as trigger_mock:
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_is_ingestion_job_trigger_enabled",
+            return_value=True,
+        ),
+        patch.object(
+            app_module,
+            "_controls_framework_ingestion_status",
+            return_value={},
+        ),
+        patch.object(
+            app_module,
+            "_trigger_ingestion_job_with_args",
+            return_value={"status_code": 200, "args_override": []},
+        ) as trigger_mock,
+    ):
         response = client.post(
             "/api/corpus-a/ingest",
             json={
@@ -929,11 +1018,14 @@ def test_corpus_a_ingest_skips_frameworks_requiring_source_upload() -> None:
 def test_corpus_b_list_with_upload_batch_filter() -> None:
     client = _test_client()
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_list_search_documents_by_filter",
-        return_value={"total_count": 1, "returned_count": 1, "items": [{"id": "doc-1"}]},
-    ) as list_mock:
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_list_search_documents_by_filter",
+            return_value={"total_count": 1, "returned_count": 1, "items": [{"id": "doc-1"}]},
+        ) as list_mock,
+    ):
         response = client.get(
             "/api/corpus-b/list",
             params={"upload_batch": "batch-b-1", "limit": 10, "auth_token": ""},
@@ -953,11 +1045,14 @@ def test_corpus_b_list_with_upload_batch_filter() -> None:
 def test_corpus_c_list_without_upload_batch_filter() -> None:
     client = _test_client()
 
-    with patch.object(app_module, "config", _open_auth_config()), patch.object(
-        app_module,
-        "_list_search_documents_by_filter",
-        return_value={"total_count": 3, "returned_count": 3, "items": [{"id": "doc-3"}]},
-    ) as list_mock:
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_list_search_documents_by_filter",
+            return_value={"total_count": 3, "returned_count": 3, "items": [{"id": "doc-3"}]},
+        ) as list_mock,
+    ):
         response = client.get(
             "/api/corpus-c/list",
             params={"limit": 50, "auth_token": ""},

@@ -6,12 +6,15 @@ import pytest
 
 from runtime.assessment_orchestration.interfaces import OrchestratorAdapter
 from runtime.assessment_orchestration.mcp.confluence import ConfluenceMCPServer
-from runtime.assessment_orchestration.runtime_wiring import (DefaultAssessmentAgent,
-                                                             DefaultDeliveryPublisher,
-                                                             StdoutAuditSink, _required,
-                                                             _resolve_cloud_id,
-                                                             create_confluence_mcp_server_from_env,
-                                                             create_orchestrator_adapter_from_env)
+from runtime.assessment_orchestration.runtime_wiring import (
+    DefaultAssessmentAgent,
+    DefaultDeliveryPublisher,
+    StdoutAuditSink,
+    _required,
+    _resolve_cloud_id,
+    create_confluence_mcp_server_from_env,
+    create_orchestrator_adapter_from_env,
+)
 
 
 def test_create_confluence_mcp_server_from_env_basic_mode() -> None:

@@ -4,10 +4,16 @@ import argparse
 import json
 import sys
 
-from .polling_worker import (create_cosmos_state_store_from_env, load_poller_config_from_env,
-                             run_forever, run_poll_cycle)
-from .runtime_wiring import (create_confluence_mcp_server_from_env,
-                             create_orchestrator_adapter_from_env)
+from .polling_worker import (
+    create_cosmos_state_store_from_env,
+    load_poller_config_from_env,
+    run_forever,
+    run_poll_cycle,
+)
+from .runtime_wiring import (
+    create_confluence_mcp_server_from_env,
+    create_orchestrator_adapter_from_env,
+)
 
 
 def main() -> int:
