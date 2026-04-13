@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from azure.core.credentials import AccessToken
 
 from runtime.ingestion import search_pipeline
@@ -135,3 +137,195 @@ def test_run_indexer_and_ensure_indexer(monkeypatch) -> None:
 
     assert "run:grounding-index-indexer" in events
     assert "ensure:grounding-index-indexer" in events
+
+
+def test_ensure_search_index_recreates_on_schema_conflict(monkeypatch) -> None:
+    events: list[str] = []
+
+    class _Client:
+        def __init__(self, endpoint: str, credential) -> None:
+            pass
+
+        def create_or_update_index(self, index):
+            events.append(f"create:{index.name}")
+            if len(events) == 1:
+                raise search_pipeline.HttpResponseError(
+                    message="CannotChangeExistingField: Existing field 'id' cannot be changed"
+                )
+
+        def delete_index(self, name: str):
+            events.append(f"delete_index:{name}")
+
+    class _IndexerClient:
+        def __init__(self, endpoint: str, credential) -> None:
+            pass
+
+        def delete_indexer(self, name: str):
+            events.append(f"delete_indexer:{name}")
+
+        def delete_skillset(self, name: str):
+            events.append(f"delete_skillset:{name}")
+
+    monkeypatch.setattr(search_pipeline, "SearchIndexClient", _Client)
+    monkeypatch.setattr(search_pipeline, "SearchIndexerClient", _IndexerClient)
+
+    search_pipeline.ensure_search_index(_cfg(), credential=_FakeCredential())
+
+    assert events.count("create:grounding-index") == 2
+    assert "delete_indexer:grounding-index-indexer" in events
+    assert "delete_skillset:grounding-index-skillset" in events
+    assert "delete_index:grounding-index" in events
+
+
+def test_ensure_data_source_uses_storage_resource_id(monkeypatch) -> None:
+    captured = {}
+
+    class _Client:
+        def __init__(self, endpoint: str, credential) -> None:
+            pass
+
+        def create_or_update_data_source_connection(self, ds):
+            captured["name"] = ds.name
+            captured["connection_string"] = ds.connection_string
+
+    monkeypatch.setattr(search_pipeline, "SearchIndexerClient", _Client)
+
+    search_pipeline.ensure_data_source(_cfg(), credential=_FakeCredential())
+
+    assert captured["name"] == "grounding-index-datasource"
+    assert captured["connection_string"].startswith("ResourceId=")
+
+
+def test_ensure_skillset_sets_cognitive_account_when_key_present(monkeypatch) -> None:
+    captured = {}
+
+    class _Client:
+        def __init__(self, endpoint: str, credential) -> None:
+            pass
+
+        def create_or_update_skillset(self, skillset):
+            captured["name"] = skillset.name
+            captured["skills_len"] = len(skillset.skills or [])
+            captured["has_cognitive_account"] = skillset.cognitive_services_account is not None
+
+    monkeypatch.setattr(search_pipeline, "SearchIndexerClient", _Client)
+
+    search_pipeline.ensure_skillset(_cfg_with_cognitive_key(), credential=_FakeCredential())
+
+    assert captured["name"] == "grounding-index-skillset"
+    assert captured["skills_len"] == 5
+    assert captured["has_cognitive_account"] is True
+
+
+def test_run_indexer_attaches_when_already_in_progress(monkeypatch) -> None:
+    called = {"run": 0}
+
+    class _Client:
+        def __init__(self, endpoint: str, credential) -> None:
+            pass
+
+        def get_indexer_status(self, name: str):
+            return SimpleNamespace(last_result=SimpleNamespace(status="inProgress"))
+
+        def run_indexer(self, name: str):
+            called["run"] += 1
+
+    monkeypatch.setattr(search_pipeline, "SearchIndexerClient", _Client)
+
+    search_pipeline.run_indexer(_cfg(), credential=_FakeCredential())
+
+    assert called["run"] == 0
+
+
+def test_run_indexer_handles_concurrent_resource_exists(monkeypatch) -> None:
+    class _Client:
+        def __init__(self, endpoint: str, credential) -> None:
+            pass
+
+        def get_indexer_status(self, name: str):
+            return SimpleNamespace(last_result=SimpleNamespace(status="success"))
+
+        def run_indexer(self, name: str):
+            raise search_pipeline.ResourceExistsError(message="already running")
+
+    monkeypatch.setattr(search_pipeline, "SearchIndexerClient", _Client)
+
+    # Should not raise when a concurrent invocation already started the run.
+    search_pipeline.run_indexer(_cfg(), credential=_FakeCredential())
+
+
+def test_wait_for_indexer_transient_failure_includes_errors_and_warnings(monkeypatch) -> None:
+    class _Err:
+        key = "doc1"
+        name = "EnrichmentError"
+        status_code = 500
+        error_message = "skill failed"
+        details = "details"
+        documentation_link = "https://example/error"
+
+    class _Warn:
+        key = "doc2"
+        name = "Warning"
+        message = "minor issue"
+        details = "warn-details"
+        documentation_link = "https://example/warn"
+
+    run = SimpleNamespace(
+        status="transientFailure",
+        item_count=10,
+        failed_item_count=2,
+        error_message=None,
+        errors=[_Err()],
+        warnings=[_Warn()],
+    )
+
+    class _Client:
+        def __init__(self, endpoint: str, credential) -> None:
+            pass
+
+        def get_indexer_status(self, indexer_name: str):
+            return SimpleNamespace(last_result=run)
+
+    monkeypatch.setattr(search_pipeline, "SearchIndexerClient", _Client)
+
+    result = search_pipeline.wait_for_indexer(
+        _cfg(), credential=_FakeCredential(), poll_interval_seconds=0, timeout_seconds=1
+    )
+
+    assert result["status"] == "transientFailure"
+    assert result["items_failed"] == 2
+    assert result["error_message"] == "skill failed"
+    assert len(result["errors"]) == 1
+    assert len(result["warnings"]) == 1
+
+
+def test_wait_for_indexer_handles_reset_then_success(monkeypatch) -> None:
+    calls = {"n": 0}
+
+    class _Client:
+        def __init__(self, endpoint: str, credential) -> None:
+            pass
+
+        def get_indexer_status(self, indexer_name: str):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return SimpleNamespace(last_result=SimpleNamespace(status="reset"))
+            return SimpleNamespace(
+                last_result=SimpleNamespace(
+                    status="success",
+                    item_count=1,
+                    failed_item_count=0,
+                    error_message=None,
+                    errors=[],
+                    warnings=[],
+                )
+            )
+
+    monkeypatch.setattr(search_pipeline, "SearchIndexerClient", _Client)
+
+    result = search_pipeline.wait_for_indexer(
+        _cfg(), credential=_FakeCredential(), poll_interval_seconds=0, timeout_seconds=1
+    )
+
+    assert result["status"] == "success"
+    assert calls["n"] >= 2

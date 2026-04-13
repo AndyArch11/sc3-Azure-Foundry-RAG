@@ -45,7 +45,7 @@ class _FakeAdapter:
 
     def run_assessment(self, job):
         self.jobs.append(job)
-        scope = str(job.metadata.get("requested_framework") or "default_auto")
+        scope = str(job.metadata.get("requested_framework") or "Essential Eight")
         return {
             "executive_summary": f"Assessment for {scope}",
             "findings": [],
@@ -286,7 +286,7 @@ def test_run_poll_cycle_retryable_failure_stops_cycle_without_advancing_watermar
 def test_build_recent_mentions_query_applies_space_scope_and_window_bound() -> None:
     now = datetime.now(UTC)
     in_window = (now - timedelta(minutes=1)).isoformat()
-    out_of_window = (now + timedelta(minutes=1)).isoformat()
+    out_of_window = (now + timedelta(minutes=6)).isoformat()
     server = _FakeServer(
         [
             {
@@ -330,9 +330,12 @@ def test_requested_frameworks_from_text_requires_explicit_all_intent() -> None:
     assert _requested_frameworks_from_text(generic) == ()
     assert _requested_frameworks_from_text(explicit) == (
         "Essential Eight",
-        "AESCSF",
         "ISM",
+        "AESCSF",
         "NIST CSF",
+        "PSPF",
+        "PCI DSS",
+        "CIS Controls",
     )
 
 
@@ -356,6 +359,11 @@ def test_requested_frameworks_from_text_maps_full_australian_energy_sector_phras
 def test_requested_frameworks_from_text_supports_essential_8_variant() -> None:
     text = "Please perform an Essential 8 review."
     assert _requested_frameworks_from_text(text) == ("Essential Eight",)
+
+
+def test_requested_frameworks_from_text_detects_pspf_pci_and_cis() -> None:
+    text = "Please assess against PSPF, PCI DSS and CIS Controls."
+    assert _requested_frameworks_from_text(text) == ("PSPF", "PCI DSS", "CIS Controls")
 
 
 def test_process_assessment_event_posts_one_comment_per_requested_framework() -> None:
@@ -388,6 +396,33 @@ def test_process_assessment_event_posts_one_comment_per_requested_framework() ->
     assert server.posts[1]["idempotency_key"].endswith("aescsf")
     assert "<strong>Page version:</strong> 1" in server.posts[0]["comment_body"]
     assert "<strong>Page version:</strong> 1" in server.posts[1]["comment_body"]
+
+
+def test_process_assessment_event_defaults_to_essential_eight_when_unspecified() -> None:
+    server = _PostingServer([])
+    adapter = _FakeAdapter()
+    event = {
+        "event_id": "e-default",
+        "target_id": "987",
+        "target_url": "https://example/987",
+        "trigger_type": "mention",
+        "mentioner_account_id": "acct-1",
+        "trigger_text": "Please review this page.",
+    }
+
+    _process_assessment_event(
+        adapter=adapter,  # type: ignore[arg-type]
+        server=server,  # type: ignore[arg-type]
+        state_store=InMemoryPollingStateStore(),
+        source="confluence",
+        event=event,
+        dry_run=False,
+    )
+
+    assert len(adapter.jobs) == 1
+    assert adapter.jobs[0].metadata.get("requested_framework") == "Essential Eight"
+    assert len(server.posts) == 1
+    assert server.posts[0]["idempotency_key"].endswith("essential-eight")
 
 
 def test_process_assessment_event_skips_reassessment_when_page_unchanged() -> None:

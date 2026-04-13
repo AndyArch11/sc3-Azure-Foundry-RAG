@@ -33,8 +33,29 @@ _FRAMEWORK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     ("ISM", re.compile(r"\b(ism|information\s+security\s+manual)\b", re.IGNORECASE)),
     ("NIST CSF", re.compile(r"\b(nist\s*csf|\bnist\b|\bcsf\s*2(\.0)?\b)\b", re.IGNORECASE)),
+    (
+        "PSPF",
+        re.compile(r"\b(pspf|protective\s+security\s+policy\s+framework)\b", re.IGNORECASE),
+    ),
+    (
+        "PCI DSS",
+        re.compile(r"\b(pci\s*dss|pci[-_\s]?dss\s*v?4(\.0(\.1)?)?)\b", re.IGNORECASE),
+    ),
+    (
+        "CIS Controls",
+        re.compile(r"\b(cis\s*controls?|cis_controls|critical\s+security\s+controls?)\b", re.IGNORECASE),
+    ),
 )
-_ALL_FRAMEWORK_ORDER: tuple[str, ...] = ("Essential Eight", "AESCSF", "ISM", "NIST CSF")
+_ALL_FRAMEWORK_ORDER: tuple[str, ...] = (
+    "Essential Eight",
+    "ISM",
+    "AESCSF",
+    "NIST CSF",
+    "PSPF",
+    "PCI DSS",
+    "CIS Controls",
+)
+_DEFAULT_FRAMEWORK_SCOPE = "Essential Eight"
 _ALL_FRAMEWORK_INTENT_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b(all\s+frameworks)\b", re.IGNORECASE),
     re.compile(
@@ -262,7 +283,7 @@ def _post_assessment_comments(
 
 
 def _render_no_change_comment(*, framework_scope: str, page_version: str) -> str:
-    label = framework_scope or "default framework selection"
+    label = framework_scope or _DEFAULT_FRAMEWORK_SCOPE
     safe_label = escape(label)
     safe_version = escape(page_version)
     return (
@@ -383,7 +404,7 @@ def _process_assessment_event(
         raise ValueError(f"Event missing target reference fields: {event}")
 
     requested_frameworks = _requested_frameworks_for_event(event)
-    framework_scopes = requested_frameworks or ("",)
+    framework_scopes = requested_frameworks or (_DEFAULT_FRAMEWORK_SCOPE,)
 
     artifact = server.get_content_by_id(
         target_id,
@@ -394,7 +415,7 @@ def _process_assessment_event(
     current_content_hash = _content_hash(artifact.content)
 
     for framework_scope in framework_scopes:
-        framework_snapshot_scope = framework_scope or "default_auto"
+        framework_snapshot_scope = framework_scope or _DEFAULT_FRAMEWORK_SCOPE
         last_snapshot = state_store.get_assessment_snapshot(
             source,
             target_id=target_id,

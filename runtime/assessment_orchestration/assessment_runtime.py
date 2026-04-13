@@ -98,7 +98,15 @@ class AssessmentRuntimeConfig:
     temperature: float = 0.2
     controls_semantic_default: bool = False
     controls_semantic_configuration_name: str = "controls-semantic"
-    framework_authority_order: tuple[str, ...] = ("Essential Eight", "ISM", "AESCSF", "NIST CSF")
+    framework_authority_order: tuple[str, ...] = (
+        "Essential Eight",
+        "ISM",
+        "AESCSF",
+        "NIST CSF",
+        "PSPF",
+        "PCI DSS",
+        "CIS Controls",
+    )
     validation_mode: str = "hard"
     artifact_content_chars: int = 6000
     discussion_comment_limit: int = 8
@@ -122,7 +130,15 @@ def _env_bool(env: Mapping[str, str], key: str, default: bool = False) -> bool:
 
 
 def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
-    default_order = ("Essential Eight", "ISM", "AESCSF", "NIST CSF")
+    default_order = (
+        "Essential Eight",
+        "ISM",
+        "AESCSF",
+        "NIST CSF",
+        "PSPF",
+        "PCI DSS",
+        "CIS Controls",
+    )
     if raw_value is None or not raw_value.strip():
         return default_order
 
@@ -138,6 +154,16 @@ def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
         "aescsf": "AESCSF",
         "australian energy sector cyber security framework": "AESCSF",
         "ism": "ISM",
+        "pspf": "PSPF",
+        "protective security policy framework": "PSPF",
+        "pci": "PCI DSS",
+        "pci dss": "PCI DSS",
+        "pci-dss": "PCI DSS",
+        "pci_dss": "PCI DSS",
+        "pci dss v4": "PCI DSS",
+        "cis": "CIS Controls",
+        "cis controls": "CIS Controls",
+        "cis_controls": "CIS Controls",
     }
     ordered: list[str] = []
     for part in raw_value.split(","):
@@ -346,6 +372,14 @@ def _framework_authority_rank(item: dict[str, Any], order: tuple[str, ...]) -> i
 
 def _infer_framework_filter(text: str) -> str | None:
     value = text.lower()
+    if re.search(r"\bpspf\b|\bprotective\s+security\s+policy\s+framework\b", value):
+        return "PSPF"
+    if re.search(r"\bpci\s*dss\b|\bpci[-_\s]?dss\s*v?4(\.0(\.1)?)?\b", value):
+        return "PCI DSS"
+    if re.search(
+        r"\bcis\s*controls?\b|\bcis_controls\b|\bcritical\s+security\s+controls?\b", value
+    ):
+        return "CIS Controls"
     if re.search(
         r"\baescsf\b|\baustralian\s+energy\s+sector\s+cyber\s+security\s+framework\b", value
     ):

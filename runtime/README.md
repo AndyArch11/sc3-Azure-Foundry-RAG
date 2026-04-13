@@ -204,7 +204,7 @@ Controls index environment variables:
 | `CHUNK_OVERLAP` | `200` | Overlap between adjacent chunks |
 | `QUERY_WEB_REQUIRED_GROUP_OBJECT_ID` | _(unset)_ | Optional Entra security group object ID required by query web app |
 | `PRECEDENCE_POLICY_PATH` | `/app/policies/precedence_policy.json` | Query web precedence policy file path inside container |
-| `CONTROLS_FRAMEWORK_AUTHORITY_ORDER` | `Essential Eight,ISM,AESCSF,NIST CSF` | Fallback framework precedence when policy file is missing/invalid |
+| `CONTROLS_FRAMEWORK_AUTHORITY_ORDER` | `Essential Eight,ISM,AESCSF,NIST CSF,PSPF,PCI DSS,CIS Controls` | Fallback framework precedence when policy file is missing/invalid |
 | `INGESTION_JOB_SUBSCRIPTION_ID` | _(unset)_ | Required to trigger ingestion Container App Job from query web API |
 | `INGESTION_JOB_RESOURCE_GROUP` | _(unset)_ | Required to trigger ingestion Container App Job from query web API |
 | `INGESTION_JOB_NAME` | _(unset)_ | Required to trigger ingestion Container App Job from query web API |

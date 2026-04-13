@@ -590,7 +590,7 @@ def run_indexer(config: IngestionConfig, credential: TokenCredential) -> None:
                 config.indexer_name,
             )
             return
-    except ResourceNotFoundError:
+    except (ResourceNotFoundError, AttributeError):
         pass
 
     try:

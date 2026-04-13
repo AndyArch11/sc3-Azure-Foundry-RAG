@@ -15,6 +15,12 @@ event_types:
       source_type: provider_event
       provider: confluence
       trigger_type: mention
+    optional_normalised_fields:
+      - mentioner_account_id
+      - title
+      - trigger_text
+      - content_type
+      - content_id
     example_event:
       event_id: conf-evt-1
       occurred_at: "2026-04-02T00:00:00Z"

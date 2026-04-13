@@ -175,7 +175,15 @@ def _form_bool(value: str | None, default: bool = False) -> bool:
 
 def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
     """Parse framework authority ordering from env into canonical framework names."""
-    default_order = ("Essential Eight", "ISM", "AESCSF", "NIST CSF", "PSPF")
+    default_order = (
+        "Essential Eight",
+        "ISM",
+        "AESCSF",
+        "NIST CSF",
+        "PSPF",
+        "PCI DSS",
+        "CIS Controls",
+    )
     if raw_value is None or not raw_value.strip():
         return default_order
 
@@ -557,8 +565,9 @@ def _ensure_visible_answer(answer: str) -> str:
 
 
 app = FastAPI(title="RAG Query Console")
-templates = Jinja2Templates(directory="templates")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+_APP_DIR = Path(__file__).resolve().parent
+templates = Jinja2Templates(directory=str(_APP_DIR / "templates"))
+app.mount("/static", StaticFiles(directory=str(_APP_DIR / "static")), name="static")
 credential = DefaultAzureCredential()
 config = load_config()
 precedence_policy = _load_precedence_policy(
@@ -4404,7 +4413,7 @@ async def upload_corpus_b_and_trigger(
             if should_trigger_for_reindex:
                 message = (
                     "No new Corpus B files were uploaded. Matching Corpus B blobs were marked "
-                    "for reindex and ingestion was triggered in the background."
+                    "for reindex to re-index existing blobs, and ingestion was triggered in the background."
                 )
             else:
                 message = (
@@ -4430,6 +4439,10 @@ async def upload_corpus_b_and_trigger(
                 "job_latest": latest_job,
                 "reindex_on_dedupe": reindex_on_dedupe,
                 "reindex_touch": reindex_touch,
+                "indexer_reset": {
+                    "performed": bool(should_trigger_for_reindex),
+                    "strategy": "blob_metadata_touch",
+                },
                 "indexing_notice": "Ingestion runs asynchronously. Indexed counts can remain unchanged until the job reaches Succeeded.",
                 "message": message,
             },
@@ -4489,7 +4502,7 @@ async def upload_corpus_c_and_trigger(
             if should_trigger_for_reindex:
                 message = (
                     "No new Corpus C files were uploaded. Matching Corpus C blobs were marked "
-                    "for reindex and ingestion was triggered in the background."
+                    "for reindex to re-index existing blobs, and ingestion was triggered in the background."
                 )
             else:
                 message = (
@@ -4515,6 +4528,10 @@ async def upload_corpus_c_and_trigger(
                 "job_latest": latest_job,
                 "reindex_on_dedupe": reindex_on_dedupe,
                 "reindex_touch": reindex_touch,
+                "indexer_reset": {
+                    "performed": bool(should_trigger_for_reindex),
+                    "strategy": "blob_metadata_touch",
+                },
                 "indexing_notice": "Ingestion runs asynchronously. Indexed counts can remain unchanged until the job reaches Succeeded.",
                 "message": message,
             },
