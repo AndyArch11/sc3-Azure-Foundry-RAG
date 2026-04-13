@@ -6,7 +6,29 @@ so that keyword changes, new aliases, and priority decisions are made once.
 """
 from __future__ import annotations
 
+
 import re
+import json
+import os
+
+# Load precedence policy from JSON
+_POLICY_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "query_web", "policies", "precedence_policy.json")
+with open(_POLICY_PATH, "r", encoding="utf-8") as f:
+    _POLICY = json.load(f)
+
+# Canonical multi-framework output order (used when "all frameworks" is requested).
+ALL_FRAMEWORK_ORDER: tuple[str, ...] = tuple(_POLICY["default_framework_order"]) if "default_framework_order" in _POLICY else (
+    "Essential Eight",
+    "ISM",
+    "AESCSF",
+    "NIST CSF",
+    "PSPF",
+    "PCI DSS",
+    "CIS Controls",
+)
+
+# Default framework for scope/clarification
+DEFAULT_FRAMEWORK: str = _POLICY.get("default_framework", "Essential Eight")
 
 # ---------------------------------------------------------------------------
 # Pattern table — ordered by canonical display / output preference.
@@ -52,16 +74,7 @@ FRAMEWORK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
 )
 
-# Canonical multi-framework output order (used when "all frameworks" is requested).
-ALL_FRAMEWORK_ORDER: tuple[str, ...] = (
-    "Essential Eight",
-    "ISM",
-    "AESCSF",
-    "NIST CSF",
-    "PSPF",
-    "PCI DSS",
-    "CIS Controls",
-)
+
 
 # Phrases that unambiguously request all frameworks at once.
 ALL_FRAMEWORK_INTENT_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -158,6 +171,4 @@ def infer_single_framework(text: str) -> str | None:
     for framework, pattern in _INFER_PRIORITY:
         if pattern.search(value):
             return framework
-    if _GENERIC_CSF_PHRASE_RE.search(value) and not _FULL_AES_PHRASE_RE.search(value):
-        return "NIST CSF"
     return None

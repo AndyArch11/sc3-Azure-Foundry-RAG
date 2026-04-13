@@ -5,8 +5,12 @@
     "Essential Eight",
     "ISM",
     "AESCSF",
-    "NIST CSF"
+    "NIST CSF",
+    "PSPF",
+    "PCI DSS",
+    "CIS Controls"
   ],
+  "default_framework": "Essential Eight",
   "rules": [
     {
       "rule_id": "identity-access-au-priority",

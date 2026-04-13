@@ -20,13 +20,13 @@ from .runtime_wiring import (
     create_orchestrator_adapter_from_env,
 )
 from .state_store import CosmosPollingStateStore, PollingStateStore
+
 from ._framework_patterns import (
     ALL_FRAMEWORK_ORDER as _ALL_FRAMEWORK_ORDER,
     is_explicit_all_framework_request as _is_explicit_all_framework_request,
     requested_frameworks_from_text as _requested_frameworks_from_text,
+    DEFAULT_FRAMEWORK as _DEFAULT_FRAMEWORK_SCOPE,
 )
-
-_DEFAULT_FRAMEWORK_SCOPE = "Essential Eight"
 
 
 def _now_utc() -> datetime:
