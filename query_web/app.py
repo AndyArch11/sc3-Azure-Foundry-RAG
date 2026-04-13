@@ -5286,17 +5286,41 @@ def confluence_poll_status(
             )
 
         since_iso = (datetime.now(UTC) - timedelta(hours=since_hours)).isoformat()
-        latest_poll = confluence_poll_state_store.get_latest_poll_run_summary("confluence")
-        assessed_pages = confluence_poll_state_store.list_recent_page_assessments(
-            "confluence",
-            since_iso=since_iso,
-            limit=200,
-        )
-        recent_failures = confluence_poll_state_store.list_recent_failures(
-            "confluence",
-            since_iso=since_iso,
-            limit=50,
-        )
+        store_errors: list[str] = []
+
+        latest_poll = None
+        try:
+            latest_poll = confluence_poll_state_store.get_latest_poll_run_summary("confluence")
+        except Exception as exc:
+            logger.exception("Failed reading latest Confluence poll summary: %s", exc)
+            store_errors.append("latest poll summary unavailable")
+
+        assessed_pages: list[Any] = []
+        try:
+            assessed_pages = confluence_poll_state_store.list_recent_page_assessments(
+                "confluence",
+                since_iso=since_iso,
+                limit=200,
+            )
+        except Exception as exc:
+            logger.exception("Failed reading recent Confluence page assessments: %s", exc)
+            store_errors.append("recent page assessments unavailable")
+
+        recent_failures: list[Any] = []
+        try:
+            list_recent_failures = getattr(confluence_poll_state_store, "list_recent_failures", None)
+            if callable(list_recent_failures):
+                recent_failures = cast(
+                    list[Any],
+                    list_recent_failures(
+                        "confluence",
+                        since_iso=since_iso,
+                        limit=50,
+                    ),
+                )
+        except Exception as exc:
+            logger.exception("Failed reading recent Confluence poll failures: %s", exc)
+            store_errors.append("recent poll failures unavailable")
 
         page_status_counts: dict[str, int] = {}
         risk_counts: dict[str, int] = {}
@@ -5314,7 +5338,9 @@ def confluence_poll_status(
                 "configured": latest_poll is not None or bool(assessed_pages),
                 "message": (
                     "No Confluence poll cycle has written status yet."
-                    if latest_poll is None
+                    if latest_poll is None and not store_errors
+                    else "; ".join(store_errors)
+                    if store_errors
                     else ""
                 ),
                 "since_hours": since_hours,

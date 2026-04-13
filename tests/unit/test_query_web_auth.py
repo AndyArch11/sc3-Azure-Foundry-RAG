@@ -250,3 +250,30 @@ def test_confluence_poll_status_returns_persisted_poll_data() -> None:
     assert body["assessed_pages"][0]["framework"] == "NIST CSF"
     assert len(body["recent_failures"]) == 1
     assert body["recent_failures"][0]["last_error"] == "boom"
+
+
+def test_confluence_poll_status_degrades_gracefully_when_store_reads_fail() -> None:
+    client = TestClient(app_module.app)
+    patched_config = replace(app_module.config, required_group_object_id="", auth_token="")
+
+    class _FailingStore:
+        def get_latest_poll_run_summary(self, source: str):
+            raise RuntimeError("summary query failed")
+
+        def list_recent_page_assessments(self, source: str, *, since_iso: str, limit: int = 100):
+            raise RuntimeError("assessment query failed")
+
+        def list_recent_failures(self, source: str, *, since_iso: str, limit: int = 50):
+            raise RuntimeError("failure query failed")
+
+    with (
+        patch.object(app_module, "config", patched_config),
+        patch.object(app_module, "confluence_poll_state_store", _FailingStore()),
+    ):
+        response = client.get("/api/confluence/poll-status?since_hours=12")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["configured"] is False
+    assert "unavailable" in body["message"]
+    assert body["assessed_pages"] == []
