@@ -176,6 +176,41 @@ def test_controls_search_comparison_enables_diversity_and_expands_fetch_k() -> N
     )
 
 
+def test_controls_search_cross_framework_question_ignores_inferred_single_framework_filter() -> None:
+    calls: list[tuple[str, int, bool, str | None]] = []
+
+    def _fake_fetch(
+        search_text: str,
+        retrieve_k: int,
+        use_semantic: bool,
+        framework_filter: str | None = None,
+    ) -> list[dict[str, object]]:
+        calls.append((search_text, retrieve_k, use_semantic, framework_filter))
+        return _controls_items_for_diversity()
+
+    with (
+        patch.object(app_module, "_fetch_controls", side_effect=_fake_fetch),
+        patch.object(
+            app_module,
+            "_apply_framework_authority_preference",
+            side_effect=lambda items, top_k, question: items,
+        ),
+    ):
+        controls, timings = app_module._controls_search(
+            "How does NIST differ from Essential Eight?",
+            retrieve_k=5,
+            use_semantic=False,
+            framework_filter_override=None,
+            comparison_mode="auto-detect",
+        )
+
+    assert len(controls) == 5
+    assert timings["controls_comparison_detected"] == 1.0
+    assert timings["controls_framework_filter_enabled"] == 0.0
+    assert timings["controls_diversity_mode_enabled"] == 1.0
+    assert any(call[3] is None for call in calls)
+
+
 def test_controls_search_framework_override_disables_diversity() -> None:
     with (
         patch.object(
@@ -464,6 +499,28 @@ def test_controls_coverage_disclaimer_not_added_for_multi_framework() -> None:
         comparison_mode="auto-detect",
     )
     assert note is None
+
+
+def test_retrieval_based_fallback_answer_flags_cross_framework_gap() -> None:
+    controls = [
+        {
+            "requirement_id": "N-1",
+            "framework": "NIST CSF",
+            "source_uri": "controls://n-1",
+        }
+    ]
+    chunks = [{"source_name": "cis-evidence.md", "source_uri": "blob://cis-evidence.md"}]
+
+    answer = app_module._build_retrieval_based_fallback_answer(
+        question="How does NIST differ from Essential Eight?",
+        controls=controls,
+        chunks=chunks,
+    )
+
+    assert "retrieval-grounded summary" in answer
+    assert "cross-framework comparison" in answer
+    assert "only one framework (NIST CSF)" in answer
+    assert "## Corpus A Basis (Normative Requirements)" in answer
 
 
 def test_infer_framework_filter_aliases_and_unknown() -> None:

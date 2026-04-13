@@ -590,6 +590,66 @@ def _ensure_visible_answer(answer: str) -> str:
     )
 
 
+def _build_retrieval_based_fallback_answer(
+    *,
+    question: str,
+    controls: list[dict[str, Any]],
+    chunks: list[dict[str, Any]],
+) -> str:
+    frameworks = sorted({str(c.get("framework") or "").strip() for c in controls if c.get("framework")})
+    framework_text = ", ".join(frameworks) if frameworks else "none"
+
+    control_examples = [
+        f"- {str(c.get('requirement_id') or '(no id)')}: {str(c.get('framework') or '(unknown framework)')}"
+        for c in controls[:5]
+    ]
+    if not control_examples:
+        control_examples = ["- No Corpus A controls were retrieved."]
+
+    source_examples = [
+        f"- {str(c.get('source_name') or c.get('source_uri') or '(unknown source)')}"
+        for c in chunks[:5]
+    ]
+    if not source_examples:
+        source_examples = ["- No Corpus C chunks were retrieved."]
+
+    comparison_intent = _is_cross_framework_comparison_intent(question)
+    comparison_note = ""
+    if comparison_intent and len(frameworks) <= 1:
+        comparison_note = (
+            "The question appears to request cross-framework comparison, but retrieval returned "
+            f"controls from only one framework ({framework_text}).\n"
+        )
+
+    return _clean_markdown_whitespace(
+        "\n".join(
+            [
+                "## Decision",
+                "A full model narrative could not be generated for this request; returning a retrieval-grounded summary instead.",
+                comparison_note,
+                "## Corpus A Basis (Normative Requirements)",
+                f"Retrieved frameworks: {framework_text}.",
+                *control_examples,
+                "",
+                "## Corpus B Basis (Narrative Guidance)",
+                "Use retrieved Corpus B guidance (if any) as interpretive support only; no additional model interpretation is provided in this fallback.",
+                "",
+                "## Corpus C Basis (Assessed Artifacts/Evidence)",
+                *source_examples,
+                "",
+                "## Discrepancies and Precedence Resolution",
+                "Potential contradictions cannot be fully resolved in this fallback mode; apply configured framework precedence to conflicting controls.",
+                "",
+                "## Gaps and Recommended Actions",
+                "Retrieve additional controls across the target frameworks and retry the question for a complete comparative answer.",
+                "",
+                "## Confidence and Citations",
+                "Confidence: Low (fallback response generated from retrieval metadata due empty model output).",
+            ]
+        )
+    )
+
+
 app = FastAPI(title="RAG Query Console")
 _APP_DIR = Path(__file__).resolve().parent
 _STATIC_VERSION = str(
@@ -2931,6 +2991,8 @@ def _controls_search(
     explicit_framework_filter = framework_filter_override
     inferred_framework_filter = _infer_framework_filter(question)
     framework_filter = explicit_framework_filter or inferred_framework_filter
+    if detected_comparison and explicit_framework_filter is None:
+        framework_filter = None
     if forced_comparison and explicit_framework_filter is None:
         framework_filter = None
 
@@ -3343,11 +3405,19 @@ def _run_rag(
 
     t_llm = time.perf_counter()
     answer = _clean_markdown_whitespace(
-        _unwrap_answer(
-            _chat_completion(messages, deployment=config.query_deployment, temperature=temperature)
+        _chat_completion_with_empty_retry(
+            messages,
+            deployment=config.query_deployment,
+            temperature=temperature,
         )
     )
     answer = _ensure_visible_answer(answer)
+    if "No answer text was generated for this request" in answer:
+        answer = _build_retrieval_based_fallback_answer(
+            question=question,
+            controls=controls,
+            chunks=chunks,
+        )
     answer = _prepend_disclaimer(answer, controls_disclaimer)
     llm_reply_s = round(time.perf_counter() - t_llm, 3)
 
@@ -3377,11 +3447,20 @@ def _run_rag(
         )
 
         t_retry = time.perf_counter()
-        answer = _chat_completion(
-            messages, deployment=config.query_deployment, temperature=temperature
+        answer = _clean_markdown_whitespace(
+            _chat_completion_with_empty_retry(
+                messages,
+                deployment=config.query_deployment,
+                temperature=temperature,
+            )
         )
-        answer = _clean_markdown_whitespace(_unwrap_answer(answer))
         answer = _ensure_visible_answer(answer)
+        if "No answer text was generated for this request" in answer:
+            answer = _build_retrieval_based_fallback_answer(
+                question=question,
+                controls=controls,
+                chunks=chunks,
+            )
         answer = _prepend_disclaimer(answer, controls_disclaimer)
         llm_retry_s = round(time.perf_counter() - t_retry, 3)
 

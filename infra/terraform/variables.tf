@@ -199,7 +199,7 @@ variable "ingestion_job_image_tag" {
 
 variable "query_web_image_tag" {
   type        = string
-  description = "Image tag for rag-query-web in ACR."
+  description = "Image tag for query-web in ACR."
   default     = "latest"
 }
 

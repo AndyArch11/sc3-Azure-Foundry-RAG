@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build and push the rag-query-web image to the environment's ACR.
+# Build and push the query-web image to the environment's ACR.
 #
 # Usage:
 #   ENV=<env> IMAGE_TAG=<immutable-tag> ./ops/scripts/build-push-query-web.sh
@@ -10,7 +10,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 Usage:
   ENV=<env> IMAGE_TAG=<immutable-tag> ./ops/scripts/build-push-query-web.sh
 
-Builds and pushes the rag-query-web image to the target environment ACR.
+Builds and pushes the query-web image to the target environment ACR.
 
 Recommended follow-up rollout:
   sudo ./ops/scripts/rollout-agent-hosting.sh <env> apply \
@@ -145,7 +145,7 @@ LOCATION_SHORT="${LOCATION_SHORT:-aue}"
 INSTANCE="${INSTANCE:-001}"
 DEFAULT_TAG="$(date +%Y%m%d%H%M)-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo local)"
 IMAGE_TAG="${IMAGE_TAG:-${DEFAULT_TAG}}"
-IMAGE_REPOSITORY="rag-query-web"
+IMAGE_REPOSITORY="query-web"
 ACR_LOGIN_SERVER="${ACR_LOGIN_SERVER:-}"
 
 if [[ -z "${ACR_LOGIN_SERVER}" ]] && command -v terraform &>/dev/null; then

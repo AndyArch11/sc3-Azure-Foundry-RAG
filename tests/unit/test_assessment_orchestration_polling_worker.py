@@ -363,6 +363,14 @@ def test_requested_frameworks_for_event_uses_trigger_text() -> None:
     assert _requested_frameworks_for_event(event) == ("ISM", "NIST CSF")
 
 
+def test_requested_frameworks_for_event_trigger_text_takes_precedence_over_title() -> None:
+    event = {
+        "trigger_text": "@compliance-agent Review against CIS controls",
+        "title": "Assess this page against all frameworks",
+    }
+    assert _requested_frameworks_for_event(event) == ("CIS Controls",)
+
+
 def test_requested_frameworks_from_text_maps_generic_cyber_security_framework_to_nist() -> None:
     text = "Please review this page against the cyber security framework."
     assert _requested_frameworks_from_text(text) == ("NIST CSF",)

@@ -351,9 +351,12 @@ def _requested_frameworks_from_text(text: str) -> tuple[str, ...]:
 
 def _requested_frameworks_for_event(event: dict[str, Any]) -> tuple[str, ...]:
     trigger_text = str(event.get("trigger_text") or "")
+    requested_from_trigger = _requested_frameworks_from_text(trigger_text)
+    if requested_from_trigger:
+        return requested_from_trigger
+
     title = str(event.get("title") or "")
-    combined = "\n".join(part for part in (trigger_text, title) if part.strip())
-    return _requested_frameworks_from_text(combined)
+    return _requested_frameworks_from_text(title)
 
 
 def _requested_frameworks_from_discussion_context(
