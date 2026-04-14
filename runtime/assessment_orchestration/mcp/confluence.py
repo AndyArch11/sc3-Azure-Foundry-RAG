@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import re
@@ -388,12 +387,12 @@ class ConfluenceClient:
             return result  # type: ignore[return-value]
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else 0
-            if status not in (401, 403, 404):
-                raise
-            # Fallback to v1
-            result = self._get(f"/wiki/rest/api/content/{comment_id}", expand="body.storage,version")
-            return result  # type: ignore[return-value]    
-    
+            # Fallback to v1 for any 4xx error (not just 401/403/404)
+            if 400 <= status < 500:
+                result = self._get(f"/wiki/rest/api/content/{comment_id}", expand="body.storage,version")
+                return result  # type: ignore[return-value]
+            raise
+
     def post_footer_comment(self, page_id: str, *, body_html: str) -> dict[str, Any]:
         if self._auth_mode in {"bearer", "oauth"}:
             result = self._post(
@@ -428,7 +427,7 @@ class ConfluenceClient:
                 },
             )
             return result  # type: ignore[return-value]        
-    
+
     def list_spaces(self, *, limit: int = 25) -> list[dict[str, Any]]:
         if self._auth_mode in {"bearer", "oauth"}:
             result = self._get("/wiki/rest/api/space", limit=limit)
