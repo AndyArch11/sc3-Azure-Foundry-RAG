@@ -142,10 +142,14 @@ def requested_frameworks_from_text(text: str) -> tuple[str, ...]:
     Returns :data:`ALL_FRAMEWORK_ORDER` when an all-frameworks intent phrase
     is detected.  Returns ``()`` when no framework can be resolved.
     """
+    import logging
     value = text.strip()
+    logging.info(f"[framework_patterns] Matching frameworks in text: {repr(value)}")
     if not value:
+        logging.info("[framework_patterns] No text provided for framework detection.")
         return ()
     if is_explicit_all_framework_request(value):
+        logging.info("[framework_patterns] Detected all-frameworks intent.")
         return ALL_FRAMEWORK_ORDER
 
     found: list[str] = []
@@ -159,6 +163,7 @@ def requested_frameworks_from_text(text: str) -> tuple[str, ...]:
         if "NIST CSF" not in found:
             found.append("NIST CSF")
 
+    logging.info(f"[framework_patterns] Frameworks detected: {found}")
     return tuple(found)
 
 
