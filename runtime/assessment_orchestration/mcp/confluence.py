@@ -635,6 +635,11 @@ class ConfluenceMCPServer:
         else:
             self._client = None
 
+    @property
+    def client(self) -> ConfluenceClient | None:
+        """Expose the underlying ConfluenceClient for direct API access."""
+        return self._client
+
     # ------------------------------------------------------------------ #
     # Public interface                                                     #
     # ------------------------------------------------------------------ #

@@ -298,6 +298,7 @@ def _requested_frameworks_from_discussion_context(
     *,
     mentioner_account_id: str = "",
     triggering_comment_id: str = "",
+    server: ConfluenceMCPServer | None = None,
 ) -> tuple[str, ...]:
     mentioner = mentioner_account_id.strip()
     mention_markers = ("@compliance-agent", "@assessment-agent")
@@ -316,15 +317,9 @@ def _requested_frameworks_from_discussion_context(
                 return _requested_frameworks_from_text(text)
             # If text is missing, try to fetch it from Confluence API
             try:
-                from .mcp.confluence import ConfluenceMCPServer
                 import logging
-                # Find the server instance in the context (hack: global or singleton)
-                # This assumes a singleton or global server instance is available as 'server'
-                # If not, this should be refactored to pass the server/client explicitly
-                server = globals().get("_confluence_mcp_server")
-                if server is not None and hasattr(server, "client"):
+                if server is not None and hasattr(server, "client") and server.client is not None:
                     comment = server.client.get_comment(triggering_id)
-                    # Try v2 and v1 body fields
                     body = comment.get("body") or {}
                     storage = body.get("storage") or {}
                     comment_text = storage.get("value") or comment.get("bodyText") or ""
@@ -335,7 +330,7 @@ def _requested_frameworks_from_discussion_context(
                     else:
                         logging.warning(f"[polling_worker] Could not extract text from fetched comment for id {triggering_id}")
                 else:
-                    logging.warning("[polling_worker] No ConfluenceMCPServer instance available to fetch comment text.")
+                    logging.warning("[polling_worker] No ConfluenceMCPServer instance or client available to fetch comment text.")
             except Exception as e:
                 import logging
                 logging.warning(f"[polling_worker] Exception fetching comment text for id {triggering_id}: {e}")
@@ -443,6 +438,7 @@ def _process_assessment_event(
             list(getattr(artifact, "discussion_context", []) or []),
             mentioner_account_id=str(event.get("mentioner_account_id") or ""),
             triggering_comment_id=str(event.get("content_id") or ""),
+            server=server,
         )
 
     current_page_version = str(artifact.metadata.get("version") or "")
