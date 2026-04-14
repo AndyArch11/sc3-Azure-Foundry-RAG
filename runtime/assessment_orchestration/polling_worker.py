@@ -306,18 +306,21 @@ def _requested_frameworks_from_discussion_context(
 
 
     if triggering_id:
+        import logging
+        logging.info(f"[polling_worker] Entering framework extraction for triggering_id={triggering_id}")
+        logging.info(f"[polling_worker] discussion_context: {repr(discussion_context)}")
         found_triggering_comment = False
         for item in discussion_context:
-            import logging
             comment_id = str(item.get("comment_id") or "").strip()
             if comment_id != triggering_id:
                 continue
             found_triggering_comment = True
-            text = str(item.get("text") or "").strip()            
-            logging.info(f"[polling_worker] Raw item text for id {triggering_id} with comment_id {comment_id}: {repr(text)}")
+            text = str(item.get("text") or "").strip()
             if text:
+                logging.info(f"[polling_worker] Found text in discussion_context for id {triggering_id}: {repr(text)}")
                 return _requested_frameworks_from_text(text)
             # If text is missing, try to fetch it from Confluence API
+            logging.info(f"[polling_worker] No text in discussion_context for id {triggering_id}, attempting API fetch...")
             try:
                 if server is not None and hasattr(server, "client") and server.client is not None:
                     comment = server.client.get_comment(triggering_id)
@@ -335,13 +338,12 @@ def _requested_frameworks_from_discussion_context(
                 else:
                     logging.warning("[polling_worker] No ConfluenceMCPServer instance or client available to fetch comment text.")
             except Exception as e:
-                import logging
                 logging.warning(f"[polling_worker] Exception fetching comment text for id {triggering_id}: {e}")
             return ()
-
         # Fail closed when a triggering comment id is present but cannot be
         # resolved from discussion context or API.
         if not found_triggering_comment:
+            logging.info(f"[polling_worker] Triggering comment id {triggering_id} not found in discussion_context.")
             return ()
 
     candidate_texts: list[str] = []
@@ -808,3 +810,11 @@ def run_forever_from_env(env: dict[str, str] | None = None) -> None:
     server = create_confluence_mcp_server_from_env(values)
     adapter = create_orchestrator_adapter_from_env(values)
     run_forever(config, state_store=state_store, server=server, adapter=adapter)
+
+
+__all__ = [
+    "create_cosmos_state_store_from_env",
+    "load_poller_config_from_env",
+    "run_forever",
+    "run_poll_cycle",
+]
