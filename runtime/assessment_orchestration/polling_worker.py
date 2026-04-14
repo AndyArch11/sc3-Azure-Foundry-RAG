@@ -308,21 +308,24 @@ def _requested_frameworks_from_discussion_context(
     if triggering_id:
         found_triggering_comment = False
         for item in discussion_context:
+            import logging
             comment_id = str(item.get("comment_id") or "").strip()
             if comment_id != triggering_id:
                 continue
             found_triggering_comment = True
-            text = str(item.get("text") or "").strip()
+            text = str(item.get("text") or "").strip()            
+            logging.info(f"[polling_worker] Raw item text for id {triggering_id} with comment_id {comment_id}: {repr(text)}")
             if text:
                 return _requested_frameworks_from_text(text)
             # If text is missing, try to fetch it from Confluence API
             try:
-                import logging
                 if server is not None and hasattr(server, "client") and server.client is not None:
                     comment = server.client.get_comment(triggering_id)
+                    logging.info(f"[polling_worker] Raw comment API response for id {triggering_id}: {repr(comment)}")
                     body = comment.get("body") or {}
                     storage = body.get("storage") or {}
                     comment_text = storage.get("value") or comment.get("bodyText") or ""
+                    logging.info(f"[polling_worker] Extracted comment_text for id {triggering_id}: {repr(comment_text)}")
                     comment_text = comment_text.strip()
                     if comment_text:
                         logging.info(f"[polling_worker] Fetched comment text from API for id {triggering_id}: {repr(comment_text)}")
