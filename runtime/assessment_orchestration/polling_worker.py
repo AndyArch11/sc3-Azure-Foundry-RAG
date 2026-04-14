@@ -21,6 +21,10 @@ from .runtime_wiring import (
 )
 from .state_store import CosmosPollingStateStore, PollingStateStore
 
+
+import logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
 from ._framework_patterns import (
     ALL_FRAMEWORK_ORDER as _ALL_FRAMEWORK_ORDER,
     is_explicit_all_framework_request as _is_explicit_all_framework_request,
