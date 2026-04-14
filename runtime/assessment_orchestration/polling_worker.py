@@ -318,7 +318,9 @@ def _requested_frameworks_from_discussion_context(
             text = str(item.get("text") or "").strip()
             if text:
                 logging.info(f"[polling_worker] Found text in discussion_context for id {triggering_id}: {repr(text)}")
-                return _requested_frameworks_from_text(text)
+                frameworks = _requested_frameworks_from_text(text)
+                if frameworks:
+                    return frameworks
             # If text is missing, try to fetch it from Confluence API
             logging.info(f"[polling_worker] No text in discussion_context for id {triggering_id}, attempting API fetch...")
             try:
@@ -332,14 +334,17 @@ def _requested_frameworks_from_discussion_context(
                     comment_text = comment_text.strip()
                     if comment_text:
                         logging.info(f"[polling_worker] Fetched comment text from API for id {triggering_id}: {repr(comment_text)}")
-                        return _requested_frameworks_from_text(comment_text)
+                        frameworks = _requested_frameworks_from_text(comment_text)
+                        if frameworks:
+                            return frameworks
+                        # else fall through to aggregate candidate_texts
                     else:
                         logging.warning(f"[polling_worker] Could not extract text from fetched comment for id {triggering_id}")
                 else:
                     logging.warning("[polling_worker] No ConfluenceMCPServer instance or client available to fetch comment text.")
             except Exception as e:
                 logging.warning(f"[polling_worker] Exception fetching comment text for id {triggering_id}: {e}")
-            return ()
+            # Do not return here; fall through to aggregate candidate_texts
         # If not found in discussion_context, attempt API fetch as fallback
         if not found_triggering_comment:
             logging.info(f"[polling_worker] Triggering comment id {triggering_id} not found in discussion_context. Attempting API fetch...")
@@ -354,15 +359,17 @@ def _requested_frameworks_from_discussion_context(
                     comment_text = comment_text.strip()
                     if comment_text:
                         logging.info(f"[polling_worker] Fetched comment text from API for id {triggering_id}: {repr(comment_text)}")
-                        return _requested_frameworks_from_text(comment_text)
+                        frameworks = _requested_frameworks_from_text(comment_text)
+                        if frameworks:
+                            return frameworks
+                        # else fall through to aggregate candidate_texts
                     else:
                         logging.warning(f"[polling_worker] Could not extract text from fetched comment for id {triggering_id}")
                 else:
                     logging.warning("[polling_worker] No ConfluenceMCPServer instance or client available to fetch comment text.")
             except Exception as e:
                 logging.warning(f"[polling_worker] Exception fetching comment text for id {triggering_id}: {e}")
-            return ()
-
+            # Do not return here; fall through to aggregate candidate_texts
     candidate_texts: list[str] = []
     for item in discussion_context:
         text = str(item.get("text") or "").strip()
