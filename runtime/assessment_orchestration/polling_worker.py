@@ -303,6 +303,7 @@ def _requested_frameworks_from_discussion_context(
     mention_markers = ("@compliance-agent", "@assessment-agent")
     triggering_id = triggering_comment_id.strip()
 
+
     if triggering_id:
         found_triggering_comment = False
         for item in discussion_context:
@@ -311,13 +312,37 @@ def _requested_frameworks_from_discussion_context(
                 continue
             found_triggering_comment = True
             text = str(item.get("text") or "").strip()
-            if not text:
-                return ()
-            return _requested_frameworks_from_text(text)
+            if text:
+                return _requested_frameworks_from_text(text)
+            # If text is missing, try to fetch it from Confluence API
+            try:
+                from .mcp.confluence import ConfluenceMCPServer
+                import logging
+                # Find the server instance in the context (hack: global or singleton)
+                # This assumes a singleton or global server instance is available as 'server'
+                # If not, this should be refactored to pass the server/client explicitly
+                server = globals().get("_confluence_mcp_server")
+                if server is not None and hasattr(server, "client"):
+                    comment = server.client.get_comment(triggering_id)
+                    # Try v2 and v1 body fields
+                    body = comment.get("body") or {}
+                    storage = body.get("storage") or {}
+                    comment_text = storage.get("value") or comment.get("bodyText") or ""
+                    comment_text = comment_text.strip()
+                    if comment_text:
+                        logging.info(f"[polling_worker] Fetched comment text from API for id {triggering_id}: {repr(comment_text)}")
+                        return _requested_frameworks_from_text(comment_text)
+                    else:
+                        logging.warning(f"[polling_worker] Could not extract text from fetched comment for id {triggering_id}")
+                else:
+                    logging.warning("[polling_worker] No ConfluenceMCPServer instance available to fetch comment text.")
+            except Exception as e:
+                import logging
+                logging.warning(f"[polling_worker] Exception fetching comment text for id {triggering_id}: {e}")
+            return ()
 
         # Fail closed when a triggering comment id is present but cannot be
-        # resolved from discussion context. Broad author-history fallback can
-        # accidentally rehydrate stale intents like "all frameworks".
+        # resolved from discussion context or API.
         if not found_triggering_comment:
             return ()
 

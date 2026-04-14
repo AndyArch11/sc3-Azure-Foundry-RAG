@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import re
@@ -174,7 +175,6 @@ def _normalise_mention_result(result: dict[str, Any], *, site_base_url: str) -> 
 # --------------------------------------------------------------------------- #
 # URL helpers                                                                  #
 # --------------------------------------------------------------------------- #
-
 
 def _parse_confluence_url_path(path: str) -> tuple[str | None, str | None]:
     """Return (page_id, space_key) from a Confluence Cloud URL path.
@@ -380,6 +380,20 @@ class ConfluenceClient:
             )
             return self._normalise_v1_comments(result.get("results", []))
 
+    def get_comment(self, comment_id: str) -> dict[str, Any]:
+        """Fetch a single comment by its ID."""
+        # Try v2 first, then v1 for compatibility
+        try:
+            result = self._get(f"/wiki/api/v2/comments/{comment_id}")
+            return result  # type: ignore[return-value]
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else 0
+            if status not in (401, 403, 404):
+                raise
+            # Fallback to v1
+            result = self._get(f"/wiki/rest/api/content/{comment_id}", expand="body.storage,version")
+            return result  # type: ignore[return-value]    
+    
     def post_footer_comment(self, page_id: str, *, body_html: str) -> dict[str, Any]:
         if self._auth_mode in {"bearer", "oauth"}:
             result = self._post(
@@ -413,8 +427,8 @@ class ConfluenceClient:
                     "body": {"storage": {"representation": "storage", "value": body_html}},
                 },
             )
-            return result  # type: ignore[return-value]
-
+            return result  # type: ignore[return-value]        
+    
     def list_spaces(self, *, limit: int = 25) -> list[dict[str, Any]]:
         if self._auth_mode in {"bearer", "oauth"}:
             result = self._get("/wiki/rest/api/space", limit=limit)
