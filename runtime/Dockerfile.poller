@@ -8,9 +8,9 @@ COPY runtime/requirements.txt ./runtime-requirements.txt
 RUN pip install --no-cache-dir -r runtime-requirements.txt
 
 COPY runtime ./runtime
+COPY query_web/policies/precedence_policy.json /app/query_web/policies/precedence_policy.json
 
 RUN useradd -m -u 1000 appuser
-COPY query_web/policies/precedence_policy.json /app/query_web/policies/precedence_policy.json
 USER appuser
 
 ENTRYPOINT ["python", "-m", "runtime.assessment_orchestration.polling_worker_main"]

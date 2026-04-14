@@ -12,9 +12,16 @@ import json
 import os
 
 # Load precedence policy from JSON
+
+import logging
+
 _POLICY_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "query_web", "policies", "precedence_policy.json")
-with open(_POLICY_PATH, "r", encoding="utf-8") as f:
-    _POLICY = json.load(f)
+try:
+    with open(_POLICY_PATH, "r", encoding="utf-8") as f:
+        _POLICY = json.load(f)
+except Exception as e:
+    logging.warning(f"Could not load precedence policy file at {_POLICY_PATH}: {e}")
+    _POLICY = {}
 
 # Canonical multi-framework output order (used when "all frameworks" is requested).
 ALL_FRAMEWORK_ORDER: tuple[str, ...] = tuple(_POLICY["default_framework_order"]) if "default_framework_order" in _POLICY else (
