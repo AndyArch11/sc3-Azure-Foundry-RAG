@@ -1010,6 +1010,13 @@ def _normalise_compliance_report_payload(
     controls: list[dict[str, Any]],
     corpus_b_chunks: list[dict[str, Any]],
     corpus_c_chunks: list[dict[str, Any]],
+    corpus_b_indexed_total: int = 0,
+    corpus_c_indexed_total: int = 0,
+    corpus_b_upload_batch: str | None = None,
+    corpus_c_upload_batch: str | None = None,
+    corpus_b_filtered_total: int | None = None,
+    corpus_c_filtered_total: int | None = None,
+    assessment_strategy: str | None = None,
 ) -> dict[str, Any]:
     report = dict(payload or {})
 
@@ -1057,11 +1064,18 @@ def _normalise_compliance_report_payload(
     report["executive_summary"] = executive_summary
 
     # Keep scope summary aligned with actual retrieval to avoid contradictory model prose.
-    scope_and_inputs = [
-        f"Corpus A controls retrieved: {controls_count}",
-        f"Corpus B guidance retrieved: {corpus_b_count}",
-        f"Corpus C artifacts retrieved: {corpus_c_count}",
-    ]
+    scope_and_inputs = _build_compliance_scope_inputs(
+        controls_count=controls_count,
+        corpus_b_chunk_count=corpus_b_count,
+        corpus_c_chunk_count=corpus_c_count,
+        corpus_b_indexed_total=corpus_b_indexed_total,
+        corpus_c_indexed_total=corpus_c_indexed_total,
+        corpus_b_upload_batch=corpus_b_upload_batch,
+        corpus_c_upload_batch=corpus_c_upload_batch,
+        corpus_b_filtered_total=corpus_b_filtered_total,
+        corpus_c_filtered_total=corpus_c_filtered_total,
+        assessment_strategy=assessment_strategy,
+    )
     report["scope_and_inputs"] = scope_and_inputs
 
     controls_assessed = _clean_non_empty_string_list(report.get("controls_assessed"))
@@ -1206,6 +1220,13 @@ def _build_fallback_compliance_report_payload(
     corpus_b_chunks: list[dict[str, Any]],
     corpus_c_chunks: list[dict[str, Any]],
     validation_error: str,
+    corpus_b_indexed_total: int = 0,
+    corpus_c_indexed_total: int = 0,
+    corpus_b_upload_batch: str | None = None,
+    corpus_c_upload_batch: str | None = None,
+    corpus_b_filtered_total: int | None = None,
+    corpus_c_filtered_total: int | None = None,
+    assessment_strategy: str | None = None,
 ) -> dict[str, Any]:
     control_ids = [
         str(item.get("requirement_id") or "").strip()
@@ -1229,12 +1250,19 @@ def _build_fallback_compliance_report_payload(
             "Fallback compliance report generated because the model returned an unusable or invalid response. "
             "Retrieved evidence counts are preserved below."
         ),
-        "scope_and_inputs": [
-            f"Assessment question: {question[:200]}",
-            f"Corpus A controls retrieved: {len(controls)}",
-            f"Corpus B guidance retrieved: {len(corpus_b_chunks)}",
-            f"Corpus C artifacts retrieved: {len(corpus_c_chunks)}",
-        ],
+        "scope_and_inputs": _build_compliance_scope_inputs(
+            question=question,
+            controls_count=len(controls),
+            corpus_b_chunk_count=len(corpus_b_chunks),
+            corpus_c_chunk_count=len(corpus_c_chunks),
+            corpus_b_indexed_total=corpus_b_indexed_total,
+            corpus_c_indexed_total=corpus_c_indexed_total,
+            corpus_b_upload_batch=corpus_b_upload_batch,
+            corpus_c_upload_batch=corpus_c_upload_batch,
+            corpus_b_filtered_total=corpus_b_filtered_total,
+            corpus_c_filtered_total=corpus_c_filtered_total,
+            assessment_strategy=assessment_strategy,
+        ),
         "controls_assessed": control_ids or ["UNMAPPED"],
         "guidance_applied": evidence_sources[:10],
         "findings": [
@@ -1391,6 +1419,12 @@ def _build_per_control_report_payload(
     corpus_c_chunks: list[dict[str, Any]],
     temperature: float,
     progress_cb: Callable[[int, int, str, str], None] | None = None,
+    corpus_b_indexed_total: int = 0,
+    corpus_c_indexed_total: int = 0,
+    corpus_b_upload_batch: str | None = None,
+    corpus_c_upload_batch: str | None = None,
+    corpus_b_filtered_total: int | None = None,
+    corpus_c_filtered_total: int | None = None,
 ) -> dict[str, Any]:
     findings: list[dict[str, Any]] = []
     total = len(controls)
@@ -1413,13 +1447,19 @@ def _build_per_control_report_payload(
         if progress_cb:
             progress_cb(index, total, requirement_id, f"Completed control {index}/{total}")
 
-    scope_inputs = [
-        f"Assessment question: {question[:200]}",
-        f"Corpus A controls retrieved: {len(controls)}",
-        f"Corpus B guidance retrieved: {len(corpus_b_chunks)}",
-        f"Corpus C artifacts retrieved: {len(corpus_c_chunks)}",
-        "Assessment strategy: per_control",
-    ]
+    scope_inputs = _build_compliance_scope_inputs(
+        question=question,
+        controls_count=len(controls),
+        corpus_b_chunk_count=len(corpus_b_chunks),
+        corpus_c_chunk_count=len(corpus_c_chunks),
+        corpus_b_indexed_total=corpus_b_indexed_total,
+        corpus_c_indexed_total=corpus_c_indexed_total,
+        corpus_b_upload_batch=corpus_b_upload_batch,
+        corpus_c_upload_batch=corpus_c_upload_batch,
+        corpus_b_filtered_total=corpus_b_filtered_total,
+        corpus_c_filtered_total=corpus_c_filtered_total,
+        assessment_strategy="per_control",
+    )
     control_ids = [
         str(c.get("requirement_id") or "").strip()
         for c in controls
@@ -1484,9 +1524,16 @@ def _generate_compliance_report_result(
     )
 
     corpus_b_filter = "corpus eq 'b'"
+    corpus_b_indexed_total = _count_search_documents_total_by_filter(
+        search_client, filter_expr=corpus_b_filter
+    )
+    corpus_b_filtered_total: int | None = None
     if payload.corpus_b_upload_batch:
         escaped_batch = payload.corpus_b_upload_batch.replace("'", "''")
         corpus_b_filter = f"{corpus_b_filter} and upload_batch eq '{escaped_batch}'"
+        corpus_b_filtered_total = _count_search_documents_total_by_filter(
+            search_client, filter_expr=corpus_b_filter
+        )
     corpus_b_chunks, b_timings = _hybrid_search(
         question,
         retrieve_k=payload.retrieve_k,
@@ -1494,9 +1541,16 @@ def _generate_compliance_report_result(
     )
 
     corpus_c_filter = "corpus eq 'c'"
+    corpus_c_indexed_total = _count_search_documents_total_by_filter(
+        search_client, filter_expr=corpus_c_filter
+    )
+    corpus_c_filtered_total: int | None = None
     if payload.corpus_c_upload_batch:
         escaped_batch = payload.corpus_c_upload_batch.replace("'", "''")
         corpus_c_filter = f"{corpus_c_filter} and upload_batch eq '{escaped_batch}'"
+        corpus_c_filtered_total = _count_search_documents_total_by_filter(
+            search_client, filter_expr=corpus_c_filter
+        )
     corpus_c_chunks, c_timings = _hybrid_search(
         question,
         retrieve_k=payload.retrieve_k,
@@ -1513,6 +1567,12 @@ def _generate_compliance_report_result(
             corpus_c_chunks=corpus_c_chunks,
             temperature=payload.temperature,
             progress_cb=progress_cb,
+            corpus_b_indexed_total=corpus_b_indexed_total,
+            corpus_c_indexed_total=corpus_c_indexed_total,
+            corpus_b_upload_batch=payload.corpus_b_upload_batch,
+            corpus_c_upload_batch=payload.corpus_c_upload_batch,
+            corpus_b_filtered_total=corpus_b_filtered_total,
+            corpus_c_filtered_total=corpus_c_filtered_total,
         )
     else:
         controls_context = "\n\n".join(
@@ -1579,6 +1639,13 @@ def _generate_compliance_report_result(
                 controls=controls,
                 corpus_b_chunks=corpus_b_chunks,
                 corpus_c_chunks=corpus_c_chunks,
+                corpus_b_indexed_total=corpus_b_indexed_total,
+                corpus_c_indexed_total=corpus_c_indexed_total,
+                corpus_b_upload_batch=payload.corpus_b_upload_batch,
+                corpus_c_upload_batch=payload.corpus_c_upload_batch,
+                corpus_b_filtered_total=corpus_b_filtered_total,
+                corpus_c_filtered_total=corpus_c_filtered_total,
+                assessment_strategy=strategy,
             )
         except Exception as exc:
             if payload.validation_mode == "hard":
@@ -1590,6 +1657,13 @@ def _generate_compliance_report_result(
                 corpus_b_chunks=corpus_b_chunks,
                 corpus_c_chunks=corpus_c_chunks,
                 validation_error=str(exc),
+                corpus_b_indexed_total=corpus_b_indexed_total,
+                corpus_c_indexed_total=corpus_c_indexed_total,
+                corpus_b_upload_batch=payload.corpus_b_upload_batch,
+                corpus_c_upload_batch=payload.corpus_c_upload_batch,
+                corpus_b_filtered_total=corpus_b_filtered_total,
+                corpus_c_filtered_total=corpus_c_filtered_total,
+                assessment_strategy=strategy,
             )
 
     validation_error = ""
@@ -1616,6 +1690,13 @@ def _generate_compliance_report_result(
             corpus_b_chunks=corpus_b_chunks,
             corpus_c_chunks=corpus_c_chunks,
             validation_error=str(exc),
+            corpus_b_indexed_total=corpus_b_indexed_total,
+            corpus_c_indexed_total=corpus_c_indexed_total,
+            corpus_b_upload_batch=payload.corpus_b_upload_batch,
+            corpus_c_upload_batch=payload.corpus_c_upload_batch,
+            corpus_b_filtered_total=corpus_b_filtered_total,
+            corpus_c_filtered_total=corpus_c_filtered_total,
+            assessment_strategy=strategy,
         )
         report_structured = _validate_compliance_report_payload(fallback_payload)
         report_markdown = _report_to_markdown(report_structured)
@@ -1637,6 +1718,12 @@ def _generate_compliance_report_result(
         "controls_count": len(controls),
         "corpus_b_count": len(corpus_b_chunks),
         "corpus_c_count": len(corpus_c_chunks),
+        "corpus_b_indexed_total": corpus_b_indexed_total,
+        "corpus_c_indexed_total": corpus_c_indexed_total,
+        "corpus_b_upload_batch_filter": payload.corpus_b_upload_batch,
+        "corpus_c_upload_batch_filter": payload.corpus_c_upload_batch,
+        "corpus_b_filtered_total": corpus_b_filtered_total,
+        "corpus_c_filtered_total": corpus_c_filtered_total,
         "timings": {
             **controls_timings,
             "corpus_b_search_s": b_timings.get("search_s", 0.0),
@@ -1849,6 +1936,60 @@ def _list_search_documents_by_filter(
         "returned_count": len(items),
         "items": items,
     }
+
+
+def _count_search_documents_total_by_filter(client: SearchClient, *, filter_expr: str) -> int:
+    pager = client.search(
+        search_text="*",
+        filter=filter_expr,
+        top=1,
+        include_total_count=True,
+        select=["id"],
+    )
+    for _ in pager:
+        break
+    return int(pager.get_count() or 0)
+
+
+def _build_compliance_scope_inputs(
+    *,
+    question: str | None = None,
+    controls_count: int,
+    corpus_b_chunk_count: int,
+    corpus_c_chunk_count: int,
+    corpus_b_indexed_total: int,
+    corpus_c_indexed_total: int,
+    corpus_b_upload_batch: str | None = None,
+    corpus_c_upload_batch: str | None = None,
+    corpus_b_filtered_total: int | None = None,
+    corpus_c_filtered_total: int | None = None,
+    assessment_strategy: str | None = None,
+) -> list[str]:
+    items: list[str] = []
+    if question is not None:
+        items.append(f"Assessment question: {question[:200]}")
+    items.extend(
+        [
+            f"Corpus A controls retrieved: {controls_count}",
+            f"Corpus B chunks retrieved for query: {corpus_b_chunk_count}",
+            f"Corpus B indexed documents available: {corpus_b_indexed_total}",
+            f"Corpus C chunks retrieved for query: {corpus_c_chunk_count}",
+            f"Corpus C indexed documents available: {corpus_c_indexed_total}",
+        ]
+    )
+    if corpus_b_upload_batch:
+        matched = corpus_b_filtered_total if corpus_b_filtered_total is not None else "unknown"
+        items.append(
+            f"Corpus B upload batch filter active: {corpus_b_upload_batch} (indexed matches: {matched})"
+        )
+    if corpus_c_upload_batch:
+        matched = corpus_c_filtered_total if corpus_c_filtered_total is not None else "unknown"
+        items.append(
+            f"Corpus C upload batch filter active: {corpus_c_upload_batch} (indexed matches: {matched})"
+        )
+    if assessment_strategy:
+        items.append(f"Assessment strategy: {assessment_strategy}")
+    return items
 
 
 
@@ -5315,7 +5456,8 @@ def corpus_b_list(
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
     try:
-        filter_expr = "corpus eq 'b'"
+        base_filter_expr = "corpus eq 'b'"
+        filter_expr = base_filter_expr
         batch = upload_batch.strip()
         if batch:
             escaped = batch.replace("'", "''")
@@ -5337,10 +5479,21 @@ def corpus_b_list(
             limit=limit,
         )
 
+        overall_total_count: int | None = None
+        if batch:
+            overall_listing = _list_search_documents_by_filter(
+                search_client,
+                filter_expr=base_filter_expr,
+                select_fields=["id"],
+                limit=1,
+            )
+            overall_total_count = int(overall_listing.get("total_count") or 0)
+
         return JSONResponse(
             {
                 "mode": "corpus-b-list",
                 "upload_batch_filter": batch or None,
+                "overall_total_count": overall_total_count,
                 **listing,
             }
         )

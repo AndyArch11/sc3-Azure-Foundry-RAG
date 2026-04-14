@@ -342,7 +342,13 @@
         batchField.value = '';
       }
     }
-    target.textContent = JSON.stringify(payload, null, 2);
+    let prefix = '';
+    if (payload && payload.mode === 'corpus-b-list' && payload.upload_batch_filter) {
+      const overall = typeof payload.overall_total_count === 'number' ? payload.overall_total_count : 'unknown';
+      const filtered = typeof payload.total_count === 'number' ? payload.total_count : 'unknown';
+      prefix = `[Corpus B filter active: upload_batch=${payload.upload_batch_filter}; matched=${filtered}; overall=${overall}]\n`;
+    }
+    target.textContent = prefix + JSON.stringify(payload, null, 2);
   }
 
   function _renderComplianceReport(payload) {
@@ -706,11 +712,15 @@
         .then(([data, diagData]) => {
           const statusEl = document.getElementById(statusElementId);
           const total = data && typeof data.total_count === 'number' ? data.total_count : 'unknown';
+          const overall = data && typeof data.overall_total_count === 'number' ? data.overall_total_count : null;
           const returned = data && typeof data.returned_count === 'number' ? data.returned_count : 'unknown';
           const exec = _findExecution(diagData, executionName);
           const execShortName = exec && exec.id ? exec.id.split('/').pop() : executionName;
           const jobStatus = exec ? (exec.status || 'unknown') : 'pending lookup';
-          const pollMsg = `\n[Total count: ${total}; Returned: ${returned}; refreshed at ${new Date().toLocaleTimeString()}] [Ingestion job: ${execShortName || 'unknown'} status=${jobStatus}]\n`;
+          const countLabel = overall === null
+            ? `Total count: ${total}; Returned: ${returned}`
+            : `Filtered count: ${total}; Overall count: ${overall}; Returned: ${returned}`;
+          const pollMsg = `\n[${countLabel}; refreshed at ${new Date().toLocaleTimeString()}] [Ingestion job: ${execShortName || 'unknown'} status=${jobStatus}]\n`;
           statusEl.textContent = pollMsg + JSON.stringify(data, null, 2);
           if (exec && (exec.status === 'Succeeded' || exec.status === 'Failed')) return;
           _pollCorpusListAndJobStatus(listEndpoint, statusElementId, batchFieldId, maxPollIntervals, pollCount + 1, executionName);

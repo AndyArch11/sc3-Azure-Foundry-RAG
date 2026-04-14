@@ -12,7 +12,7 @@ from azure.core.credentials import TokenCredential
 from .chunking import chunk_documents
 from .extractors import discover_supported_files, extract_source_document
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
 
 
