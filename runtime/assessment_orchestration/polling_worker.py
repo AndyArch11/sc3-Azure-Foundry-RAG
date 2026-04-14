@@ -340,10 +340,27 @@ def _requested_frameworks_from_discussion_context(
             except Exception as e:
                 logging.warning(f"[polling_worker] Exception fetching comment text for id {triggering_id}: {e}")
             return ()
-        # Fail closed when a triggering comment id is present but cannot be
-        # resolved from discussion context or API.
+        # If not found in discussion_context, attempt API fetch as fallback
         if not found_triggering_comment:
-            logging.info(f"[polling_worker] Triggering comment id {triggering_id} not found in discussion_context.")
+            logging.info(f"[polling_worker] Triggering comment id {triggering_id} not found in discussion_context. Attempting API fetch...")
+            try:
+                if server is not None and hasattr(server, "client") and server.client is not None:
+                    comment = server.client.get_comment(triggering_id)
+                    logging.info(f"[polling_worker] Raw comment API response for id {triggering_id}: {repr(comment)}")
+                    body = comment.get("body") or {}
+                    storage = body.get("storage") or {}
+                    comment_text = storage.get("value") or comment.get("bodyText") or ""
+                    logging.info(f"[polling_worker] Extracted comment_text for id {triggering_id}: {repr(comment_text)}")
+                    comment_text = comment_text.strip()
+                    if comment_text:
+                        logging.info(f"[polling_worker] Fetched comment text from API for id {triggering_id}: {repr(comment_text)}")
+                        return _requested_frameworks_from_text(comment_text)
+                    else:
+                        logging.warning(f"[polling_worker] Could not extract text from fetched comment for id {triggering_id}")
+                else:
+                    logging.warning("[polling_worker] No ConfluenceMCPServer instance or client available to fetch comment text.")
+            except Exception as e:
+                logging.warning(f"[polling_worker] Exception fetching comment text for id {triggering_id}: {e}")
             return ()
 
     candidate_texts: list[str] = []
