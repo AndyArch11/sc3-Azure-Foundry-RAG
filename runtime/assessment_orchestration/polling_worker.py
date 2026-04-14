@@ -23,7 +23,7 @@ from .state_store import CosmosPollingStateStore, PollingStateStore
 
 
 import logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(level=logging.WARN, format="%(asctime)s %(levelname)s %(message)s")
 
 from ._framework_patterns import (
     ALL_FRAMEWORK_ORDER as _ALL_FRAMEWORK_ORDER,
@@ -344,7 +344,9 @@ def _requested_frameworks_from_discussion_context(
                     logging.warning("[polling_worker] No ConfluenceMCPServer instance or client available to fetch comment text.")
             except Exception as e:
                 logging.warning(f"[polling_worker] Exception fetching comment text for id {triggering_id}: {e}")
-            # Do not return here; fall through to aggregate candidate_texts
+            # If the triggering comment cannot be resolved, fall through to the
+            # rest of the discussion context. This preserves the existing
+            # mention-driven behavior for Confluence events that omit comment text.
         # If not found in discussion_context, attempt API fetch as fallback
         if not found_triggering_comment:
             logging.info(f"[polling_worker] Triggering comment id {triggering_id} not found in discussion_context. Attempting API fetch...")
@@ -369,7 +371,9 @@ def _requested_frameworks_from_discussion_context(
                     logging.warning("[polling_worker] No ConfluenceMCPServer instance or client available to fetch comment text.")
             except Exception as e:
                 logging.warning(f"[polling_worker] Exception fetching comment text for id {triggering_id}: {e}")
-            # Do not return here; fall through to aggregate candidate_texts
+            # If the triggering comment cannot be resolved, fall through to the
+            # rest of the discussion context. This preserves the existing
+            # mention-driven behavior for Confluence events that omit comment text.
     candidate_texts: list[str] = []
     for item in discussion_context:
         text = str(item.get("text") or "").strip()

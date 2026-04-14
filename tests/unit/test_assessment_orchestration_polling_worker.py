@@ -539,7 +539,7 @@ def test_process_assessment_event_prefers_triggering_comment_over_other_history(
     assert server.posts[0]["idempotency_key"].endswith("cis-controls")
 
 
-def test_process_assessment_event_does_not_fallback_to_history_when_trigger_comment_missing() -> None:
+def test_process_assessment_event_falls_back_to_history_when_trigger_comment_missing() -> None:
     server = _PostingServer([])
     server.discussion_entries = [
         {
@@ -569,9 +569,18 @@ def test_process_assessment_event_does_not_fallback_to_history_when_trigger_comm
         dry_run=False,
     )
 
-    assert len(adapter.jobs) == 0
-    assert len(server.posts) == 1
-    assert server.posts[0]["idempotency_key"].endswith("clarify-framework")
+    assert [job.metadata.get("requested_framework") for job in adapter.jobs] == [
+        "Essential Eight",
+        "ISM",
+        "AESCSF",
+        "NIST CSF",
+        "PSPF",
+        "PCI DSS",
+        "CIS Controls",
+    ]
+    assert len(server.posts) == 7
+    assert server.posts[0]["idempotency_key"].endswith("essential-eight")
+    assert server.posts[-1]["idempotency_key"].endswith("cis-controls")
 
 
 def test_process_assessment_event_discussion_fallback_ignores_other_authors() -> None:

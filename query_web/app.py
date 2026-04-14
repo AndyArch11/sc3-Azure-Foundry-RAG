@@ -1939,16 +1939,20 @@ def _list_search_documents_by_filter(
 
 
 def _count_search_documents_total_by_filter(client: SearchClient, *, filter_expr: str) -> int:
-    pager = client.search(
-        search_text="*",
-        filter=filter_expr,
-        top=1,
-        include_total_count=True,
-        select=["id"],
-    )
-    for _ in pager:
-        break
-    return int(pager.get_count() or 0)
+    try:
+        pager = client.search(
+            search_text="*",
+            filter=filter_expr,
+            top=1,
+            include_total_count=True,
+            select=["id"],
+        )
+        for _ in pager:
+            break
+        return int(pager.get_count() or 0)
+    except Exception as exc:
+        logger.warning("Failed to count search documents for filter %s: %s", filter_expr, exc)
+        return 0
 
 
 def _build_compliance_scope_inputs(
@@ -1971,12 +1975,14 @@ def _build_compliance_scope_inputs(
     items.extend(
         [
             f"Corpus A controls retrieved: {controls_count}",
-            f"Corpus B chunks retrieved for query: {corpus_b_chunk_count}",
-            f"Corpus B indexed documents available: {corpus_b_indexed_total}",
-            f"Corpus C chunks retrieved for query: {corpus_c_chunk_count}",
-            f"Corpus C indexed documents available: {corpus_c_indexed_total}",
+            f"Corpus B guidance retrieved: {corpus_b_chunk_count}",
+            f"Corpus C artifacts retrieved: {corpus_c_chunk_count}",
         ]
     )
+    if corpus_b_indexed_total > 0:
+        items.append(f"Corpus B indexed documents available: {corpus_b_indexed_total}")
+    if corpus_c_indexed_total > 0:
+        items.append(f"Corpus C indexed documents available: {corpus_c_indexed_total}")
     if corpus_b_upload_batch:
         matched = corpus_b_filtered_total if corpus_b_filtered_total is not None else "unknown"
         items.append(
@@ -1987,7 +1993,7 @@ def _build_compliance_scope_inputs(
         items.append(
             f"Corpus C upload batch filter active: {corpus_c_upload_batch} (indexed matches: {matched})"
         )
-    if assessment_strategy:
+    if assessment_strategy and assessment_strategy != "single_pass":
         items.append(f"Assessment strategy: {assessment_strategy}")
     return items
 
@@ -5481,13 +5487,10 @@ def corpus_b_list(
 
         overall_total_count: int | None = None
         if batch:
-            overall_listing = _list_search_documents_by_filter(
+            overall_total_count = _count_search_documents_total_by_filter(
                 search_client,
                 filter_expr=base_filter_expr,
-                select_fields=["id"],
-                limit=1,
             )
-            overall_total_count = int(overall_listing.get("total_count") or 0)
 
         return JSONResponse(
             {
