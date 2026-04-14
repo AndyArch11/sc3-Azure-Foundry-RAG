@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import base64
@@ -15,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, cast
+
 
 import requests  # type: ignore[import-untyped]
 from azure.core.exceptions import HttpResponseError
@@ -57,6 +59,76 @@ except Exception:
 
 CosmosResourceNotFoundError: type[Exception] = _CosmosResourceNotFoundError
 
+ALLOWED_EXTENSIONS = {
+    ".pdf",
+    ".xlsx",
+    ".xlsm",
+    ".xltx",
+    ".xltm",
+    ".docx",
+    ".doc",
+    ".pptx",
+    ".ppt",
+    ".html",
+}
+
+MIME_TYPE_BY_EXTENSION = {
+    ".pdf": "application/pdf",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
+    ".xltx": "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
+    ".xltm": "application/vnd.ms-excel.template.macroEnabled.12",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".doc": "application/msword",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".html": "text/html",
+}
+
+
+MIME_TYPE_BY_EXTENSION = {
+    ".pdf": "application/pdf",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
+    ".xltx": "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
+    ".xltm": "application/vnd.ms-excel.template.macroEnabled.12",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".doc": "application/msword",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".html": "text/html",
+}
+
+# Helper to count blobs with a given prefix (for dry_run in clear endpoints)
+def _count_blob_prefix(prefix: str) -> dict[str, int]:
+    if not _is_corpus_upload_enabled():
+        return {"would_delete": 0}
+
+    account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
+    client = BlobServiceClient(account_url=account_url, credential=credential)
+    container = client.get_container_client(config.storage_container_name)
+    count = 0
+    try:
+        blobs = container.list_blobs(name_starts_with=prefix)
+        for blob in blobs:
+            ext = Path(blob.name).suffix.lower()
+            if ext in ALLOWED_EXTENSIONS:
+                count += 1
+    except Exception as exc:
+        logger.warning(f"Failed to count blobs with prefix {prefix}: {exc}")
+    return {"would_delete": count}
+
+def _is_allowed_filetype(filename: str) -> bool:
+    ext = Path(filename).suffix.lower()
+    return ext in ALLOWED_EXTENSIONS
+
+def _extension_matches_mime(filename: str, mime_type: str) -> bool:
+    ext = Path(filename).suffix.lower()
+    expected_mime = MIME_TYPE_BY_EXTENSION.get(ext)
+    if not expected_mime:
+        return False
+    # Some browsers may send additional parameters (e.g., charset) in content_type
+    return mime_type.split(";")[0].strip() == expected_mime
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -1779,6 +1851,12 @@ def _list_search_documents_by_filter(
     }
 
 
+
+# Move all helper function definitions above their first use
+# (The actual function code is already present above, so we just remove this broken stub)
+
+# Fix: The correct _delete_blob_prefix implementation should be placed above its first use, and the unclosed parenthesis removed.
+
 def _delete_blob_prefix(prefix: str) -> dict[str, int]:
     if not _is_corpus_upload_enabled():
         return {"deleted": 0}
@@ -1786,26 +1864,17 @@ def _delete_blob_prefix(prefix: str) -> dict[str, int]:
     account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
     client = BlobServiceClient(account_url=account_url, credential=credential)
     container = client.get_container_client(config.storage_container_name)
-
     deleted = 0
-    for blob in container.list_blobs(name_starts_with=prefix):
-        container.delete_blob(blob.name)
-        deleted += 1
+    try:
+        blobs = container.list_blobs(name_starts_with=prefix)
+        for blob in blobs:
+            ext = Path(blob.name).suffix.lower()
+            if ext in ALLOWED_EXTENSIONS:
+                container.delete_blob(blob.name)
+                deleted += 1
+    except Exception as exc:
+        logger.warning(f"Failed to delete blobs with prefix {prefix}: {exc}")
     return {"deleted": deleted}
-
-
-def _count_blob_prefix(prefix: str) -> dict[str, int]:
-    if not _is_corpus_upload_enabled():
-        return {"would_delete": 0}
-
-    account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
-    client = BlobServiceClient(account_url=account_url, credential=credential)
-    container = client.get_container_client(config.storage_container_name)
-
-    count = 0
-    for _ in container.list_blobs(name_starts_with=prefix):
-        count += 1
-    return {"would_delete": count}
 
 
 def _report_to_markdown(report: ComplianceReportStructured) -> str:
@@ -3810,6 +3879,14 @@ def _upload_corpus_files(
 
     for file in files:
         original_name = file.filename or "uploaded.bin"
+        ext = Path(original_name).suffix.lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            skipped.append(f"{original_name}: disallowed filetype {ext}")
+            try:
+                file.file.close()
+            except Exception:
+                pass
+            continue
 
         try:
             content = file.file.read()
@@ -4500,8 +4577,14 @@ async def upload_corpus_b_and_trigger(
     if not _is_authorised_request(auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
+
     if not files:
         return JSONResponse({"error": "No files uploaded."}, status_code=400)
+    for file in files:
+        if not _is_allowed_filetype(file.filename or ""):
+            return JSONResponse({"error": f"File type not allowed: {file.filename}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"}, status_code=400)
+        if not _extension_matches_mime(file.filename or "", file.content_type or ""):
+            return JSONResponse({"error": f"File type/content mismatch: {file.filename} (content_type: {file.content_type})"}, status_code=400)
 
     user_id = _get_user_id(auth_token, str(uuid.uuid4()))
 
@@ -4583,6 +4666,11 @@ async def upload_corpus_c_and_trigger(
 
     if not files:
         return JSONResponse({"error": "No files uploaded."}, status_code=400)
+    for file in files:
+        if not _is_allowed_filetype(file.filename or ""):
+            return JSONResponse({"error": f"File type not allowed: {file.filename}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"}, status_code=400)
+        if not _extension_matches_mime(file.filename or "", file.content_type or ""):
+            return JSONResponse({"error": f"File type/content mismatch: {file.filename} (content_type: {file.content_type})"}, status_code=400)
 
     user_id = _get_user_id(auth_token, str(uuid.uuid4()))
 
@@ -4800,6 +4888,11 @@ async def upload_corpus_a_reference_documents(
 
     if not files:
         return JSONResponse({"error": "No files uploaded."}, status_code=400)
+    for file in files:
+        if not _is_allowed_filetype(file.filename or ""):
+            return JSONResponse({"error": f"File type not allowed: {file.filename}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"}, status_code=400)
+        if not _extension_matches_mime(file.filename or "", file.content_type or ""):
+            return JSONResponse({"error": f"File type/content mismatch: {file.filename} (content_type: {file.content_type})"}, status_code=400)
 
     try:
         framework_key = _normalise_corpus_a_framework_key(framework)
