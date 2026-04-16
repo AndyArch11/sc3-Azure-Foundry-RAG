@@ -111,6 +111,14 @@ module "foundry" {
   tags                          = local.tags
 }
 
+resource "azurerm_search_shared_private_link_service" "search_to_foundry_account" {
+  name               = "probe-foundry"
+  search_service_id  = module.data_services.search_service_id
+  target_resource_id = module.foundry.foundry_account_id
+  subresource_name   = "foundry_account"
+  request_message    = "probe"
+}
+
 module "private_endpoints" {
   source                     = "./modules/private_endpoints"
   resource_group_name        = module.foundation.resource_group_name

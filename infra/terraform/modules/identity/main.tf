@@ -68,6 +68,12 @@ resource "azurerm_role_assignment" "search_mi_openai_user" {
   principal_id         = var.search_service_principal_id
 }
 
+resource "azurerm_role_assignment" "search_mi_cognitive_services_user" {
+  scope                = var.scope_ids.foundry
+  role_definition_name = "Cognitive Services User"
+  principal_id         = var.search_service_principal_id
+}
+
 # Allow jumpbox diagnostics queries (private endpoints, DNS zones, etc.)
 resource "azurerm_role_assignment" "agent_runtime_network_reader" {
   scope                = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${var.resource_group_name}"
