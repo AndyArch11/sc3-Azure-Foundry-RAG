@@ -116,10 +116,6 @@ resource "azurerm_container_app_job" "ingestion" {
         value = var.agent_runtime_client_id
       }
       env {
-        name  = "AZURE_ENRICHMENT_MI_RESOURCE_ID"
-        value = var.agent_runtime_identity_id
-      }
-      env {
         name  = "AZURE_SEARCH_ENDPOINT"
         value = var.azure_search_endpoint
       }

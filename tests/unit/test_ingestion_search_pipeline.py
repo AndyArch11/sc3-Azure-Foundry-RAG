@@ -22,7 +22,7 @@ def _cfg() -> IngestionConfig:
         storage_account_name="storacct",
         storage_container_name="grounding-data",
         storage_resource_id="/subscriptions/x/resourceGroups/y/providers/Microsoft.Storage/storageAccounts/storacct",
-        enrichment_mi_resource_id="/subscriptions/x/resourceGroups/y/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-agent-runtime",
+
         chunk_size=1000,
         chunk_overlap=100,
     )

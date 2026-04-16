@@ -35,10 +35,6 @@ class IngestionConfig:
     # Obtain with: az storage account show -g <rg> -n <name> --query id -o tsv
     storage_resource_id: str
 
-    # Resource ID for MI-based skillset enrichment (AIServices API kind)
-    enrichment_mi_resource_id: str
-
-
     # Chunking
     chunk_size: int
     chunk_overlap: int
@@ -63,7 +59,6 @@ class IngestionConfig:
             storage_account_name=_require("AZURE_STORAGE_ACCOUNT_NAME"),
             storage_container_name=os.environ.get("AZURE_STORAGE_CONTAINER_NAME", "grounding-data"),
             storage_resource_id=_require("AZURE_STORAGE_RESOURCE_ID"),
-            enrichment_mi_resource_id=_require("AZURE_ENRICHMENT_MI_RESOURCE_ID"),
             chunk_size=int(os.environ.get("CHUNK_SIZE", "1200")),
             chunk_overlap=int(os.environ.get("CHUNK_OVERLAP", "200")),
         )

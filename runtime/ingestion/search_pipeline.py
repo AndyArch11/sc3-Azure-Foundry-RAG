@@ -59,7 +59,7 @@ from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClien
 from azure.search.documents.indexes.models import (
     AzureOpenAIEmbeddingSkill,
     BlobIndexerImageAction,
-    CognitiveServicesAccountKey,
+    DefaultCognitiveServicesAccount,
     DocumentExtractionSkill,
     HnswAlgorithmConfiguration,
     IndexingParameters,
@@ -508,16 +508,13 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
     )
 
 
-    # MI-based enrichment: use AIServices API kind with resourceId
+    # Use the search service's system-assigned managed identity to bill enrichment
+    # against the attached AI Services account via RBAC (no key required).
     skillset = SearchIndexerSkillset(
         name=config.skillset_name,
         description="PDF and Excel enrichment: extract → OCR → merge → split → embed",
         skills=[document_extraction, ocr, merge, split, embedding],
-        cognitive_services_account=cast(Any, {
-            "resourceId": config.enrichment_mi_resource_id,
-            "apiVersion": "2023-01-01-preview",
-            "kind": "AIServices"
-        }),
+        cognitive_services_account=DefaultCognitiveServicesAccount(),
         index_projection=index_projections,
     )
 
