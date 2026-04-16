@@ -133,7 +133,10 @@ def _create_or_update_skillset_via_preview_rest(
         prefer="return=representation",
         skillset=json.dumps(payload).encode("utf-8"),
     )
-    result_skills = [s.get("name") for s in getattr(result, "skills", []) or []] if hasattr(result, "skills") else []
+    result_skills = [
+        s.get("name") if isinstance(s, dict) else getattr(s, "name", None)
+        for s in (getattr(result, "skills", []) or [])
+    ]
     logger.info("Skillset PUT response — skills: %s", result_skills)
 
 
