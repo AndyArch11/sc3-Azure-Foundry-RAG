@@ -116,13 +116,25 @@ def _create_or_update_skillset_via_preview_rest(
         "identity": None,
     }
 
+    logger.debug(
+        "Skillset payload projection sources: %s",
+        {
+            m["name"]: m["source"]
+            for m in payload.get("indexProjections", {})
+            .get("selectors", [{}])[0]
+            .get("mappings", [])
+            if m.get("name") in ("uploaded_by", "uploaded_at")
+        },
+    )
+
     # send_request is not exposed on this SDK client shape; use generated operation.
-    cast(Any, client)._client.skillsets.create_or_update(
+    result = cast(Any, client)._client.skillsets.create_or_update(
         skillset_name=config.skillset_name,
         prefer="return=representation",
         skillset=json.dumps(payload).encode("utf-8"),
-        headers=cast(Any, client)._merge_client_headers(None),
     )
+    result_skills = [s.get("name") for s in getattr(result, "skills", []) or []] if hasattr(result, "skills") else []
+    logger.info("Skillset PUT response — skills: %s", result_skills)
 
 
 def _delete_if_exists(delete_fn, resource_name: str, resource_kind: str) -> None:
