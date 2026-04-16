@@ -3927,6 +3927,10 @@ def _extract_dedupe_hashes(skipped: list[str]) -> list[str]:
     return list(dict.fromkeys(hashes))
 
 
+def _dedupe_blob_prefix(corpus: str, dedupe_hash: str) -> str:
+    return f"corpus-{corpus}/by-dedupe/{dedupe_hash}"
+
+
 def _mark_dedupe_blobs_for_reindex(
     corpus: str, dedupe_hashes: list[str], *, user_id: str
 ) -> dict[str, Any]:
@@ -3942,21 +3946,27 @@ def _mark_dedupe_blobs_for_reindex(
     failed: list[str] = []
 
     for dedupe_hash in dedupe_hashes:
-        blob_name = f"corpus-{corpus}/by-dedupe/{dedupe_hash}"
-        blob = container.get_blob_client(blob_name)
-        try:
-            if not blob.exists():
-                not_found.append(blob_name)
-                continue
+        dedupe_prefix = _dedupe_blob_prefix(corpus, dedupe_hash)
+        matching_blob_names = [
+            blob.name for blob in container.list_blobs(name_starts_with=dedupe_prefix)
+        ]
+        if not matching_blob_names:
+            not_found.append(f"{dedupe_prefix}*")
+            continue
 
-            props = blob.get_blob_properties()
-            metadata = dict(props.metadata or {})
-            metadata["reindex_requested_at"] = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-            metadata["reindex_requested_by"] = _sanitise_blob_name_component(user_id or "anonymous")
-            blob.set_blob_metadata(metadata=metadata)
-            touched += 1
-        except Exception as exc:
-            failed.append(f"{blob_name}: {exc}")
+        for blob_name in matching_blob_names:
+            blob = container.get_blob_client(blob_name)
+            try:
+                props = blob.get_blob_properties()
+                metadata = dict(props.metadata or {})
+                metadata["reindex_requested_at"] = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+                metadata["reindex_requested_by"] = _sanitise_blob_name_component(
+                    user_id or "anonymous"
+                )
+                blob.set_blob_metadata(metadata=metadata)
+                touched += 1
+            except Exception as exc:
+                failed.append(f"{blob_name}: {exc}")
 
     return {
         "requested": len(dedupe_hashes),
@@ -4053,11 +4063,12 @@ def _upload_corpus_files(
             )
             dedupe_hash = normalised_text_sha256 or content_sha256
             dedupe_method = "normalised_text_sha256" if normalised_text_sha256 else "content_sha256"
-            hash_blob_name = f"corpus-{corpus}/by-dedupe/{dedupe_hash}"
-            hash_blob_client = container.get_blob_client(hash_blob_name)
-            if hash_blob_client.exists():
+            hash_blob_prefix = _dedupe_blob_prefix(corpus, dedupe_hash)
+            if any(True for _ in container.list_blobs(name_starts_with=hash_blob_prefix)):
                 skipped.append(f"{original_name}: duplicate-{dedupe_method}:{dedupe_hash}")
                 continue
+
+            hash_blob_name = f"{hash_blob_prefix}{ext}"
 
             if upload_batch_id is None:
                 upload_batch_id = str(uuid.uuid4())
