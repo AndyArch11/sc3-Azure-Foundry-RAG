@@ -15,6 +15,7 @@ def _cfg() -> IngestionConfig:
         data_source_name="grounding-index-datasource",
         skillset_name="grounding-index-skillset",
         indexer_name="grounding-index-indexer",
+        ai_services_endpoint="https://foundry.cognitiveservices.azure.com",
         azure_openai_endpoint="https://openai.example",
         embedding_deployment_name="text-embedding-3-large",
         embedding_dimensions=3072,

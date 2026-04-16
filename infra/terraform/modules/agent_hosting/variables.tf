@@ -10,6 +10,7 @@ variable "agent_runtime_client_id" { type = string }
 variable "agent_runtime_principal_id" { type = string }
 variable "azure_search_endpoint" { type = string }
 variable "azure_openai_endpoint" { type = string }
+variable "ai_services_endpoint" { type = string }
 variable "azure_cosmos_endpoint" { type = string }
 variable "cosmos_database_name" { type = string }
 variable "cosmos_container_name" { type = string }

@@ -229,6 +229,7 @@ module "agent_hosting" {
   agent_runtime_principal_id                        = module.identity.agent_runtime_principal_id
   azure_search_endpoint                             = "https://${module.data_services.search_service_name}.search.windows.net"
   azure_openai_endpoint                             = "https://${module.foundry.foundry_account_name}.openai.azure.com"
+  ai_services_endpoint                              = "https://${module.foundry.foundry_account_name}.cognitiveservices.azure.com"
   azure_cosmos_endpoint                             = "https://${module.data_services.cosmosdb_account_name}.documents.azure.com:443/"
   cosmos_database_name                              = var.cosmos_database_name
   cosmos_container_name                             = var.cosmos_container_name

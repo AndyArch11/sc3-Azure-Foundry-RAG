@@ -124,6 +124,10 @@ resource "azurerm_container_app_job" "ingestion" {
         value = var.azure_openai_endpoint
       }
       env {
+        name  = "AI_SERVICES_ENDPOINT"
+        value = var.ai_services_endpoint
+      }
+      env {
         name  = "AZURE_STORAGE_ACCOUNT_NAME"
         value = var.storage_account_name
       }

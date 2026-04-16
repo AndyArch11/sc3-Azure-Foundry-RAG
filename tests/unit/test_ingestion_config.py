@@ -14,6 +14,7 @@ def test_require_raises_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_ingestion_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AZURE_SEARCH_ENDPOINT", "https://search.example")
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://openai.example")
+    monkeypatch.setenv("AI_SERVICES_ENDPOINT", "https://foundry.cognitiveservices.azure.com")
     monkeypatch.setenv("AZURE_STORAGE_ACCOUNT_NAME", "storacct")
     monkeypatch.setenv(
         "AZURE_STORAGE_RESOURCE_ID",

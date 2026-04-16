@@ -20,6 +20,9 @@ class IngestionConfig:
     skillset_name: str
     indexer_name: str
 
+    # Azure AI Services (Foundry) — used for skillset enrichment billing via managed identity
+    ai_services_endpoint: str
+
     # Azure OpenAI embedding skill
     azure_openai_endpoint: str
     embedding_deployment_name: str
@@ -48,6 +51,7 @@ class IngestionConfig:
             ),
             skillset_name=os.environ.get("AZURE_SEARCH_SKILLSET_NAME", f"{index_name}-skillset"),
             indexer_name=os.environ.get("AZURE_SEARCH_INDEXER_NAME", f"{index_name}-indexer"),
+            ai_services_endpoint=_require("AI_SERVICES_ENDPOINT"),
             azure_openai_endpoint=_require("AZURE_OPENAI_ENDPOINT"),
             embedding_deployment_name=os.environ.get(
                 "EMBEDDING_DEPLOYMENT_NAME", "text-embedding-ada-002"
