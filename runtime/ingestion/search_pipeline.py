@@ -58,6 +58,7 @@ from azure.search.documents.indexes.models import (
     AzureOpenAIEmbeddingSkill,
     BlobIndexerImageAction,
     AIServicesAccountIdentity,
+    ConditionalSkill,
     DocumentExtractionSkill,
     HnswAlgorithmConfiguration,
     IndexingParameters,
@@ -440,7 +441,36 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         outputs=[OutputFieldMappingEntry(name="textItems", target_name="pages")],
     )
 
-    # 5. AzureOpenAIEmbeddingSkill ───────────────────────────────────────────
+    # 5. ConditionalSkill — default uploaded_by ────────────────────────────
+    # Blobs that were uploaded before the uploaded_by metadata tag was
+    # introduced (or via out-of-band tooling) may lack that tag.  Rather
+    # than letting the index-projection fail on a missing field we coerce
+    # the value to an empty string so every chunk document is always
+    # written with a valid uploaded_by field.
+    default_uploaded_by = ConditionalSkill(
+        name="default-uploaded-by",
+        description="Default uploaded_by to empty string when blob metadata is absent",
+        context="/document",
+        inputs=[
+            InputFieldMappingEntry(
+                name="condition",
+                source="=($(/document/metadata_uploaded_by) == null)",
+            ),
+            InputFieldMappingEntry(name="whenTrue", source="='' "),
+            InputFieldMappingEntry(
+                name="whenFalse",
+                source="/document/metadata_uploaded_by",
+            ),
+        ],
+        outputs=[
+            OutputFieldMappingEntry(
+                name="output",
+                target_name="uploaded_by_safe",
+            )
+        ],
+    )
+
+    # 6. AzureOpenAIEmbeddingSkill ───────────────────────────────────────────
     # Generates a dense vector embedding for each chunk.
     # Context is per-page so one embedding is produced per chunk.
     # auth: the search service system-assigned managed identity is used;
@@ -495,7 +525,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
                     ),
                     InputFieldMappingEntry(
                         name="uploaded_by",
-                        source="/document/metadata_uploaded_by",
+                        source="/document/uploaded_by_safe",
                     ),
                     InputFieldMappingEntry(
                         name="upload_batch",
@@ -539,7 +569,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
     skillset = SearchIndexerSkillset(
         name=config.skillset_name,
         description="PDF and Excel enrichment: extract → OCR → merge → split → embed",
-        skills=[document_extraction, ocr, merge, split, embedding],
+        skills=[document_extraction, ocr, merge, split, default_uploaded_by, embedding],
         cognitive_services_account=AIServicesAccountIdentity(
             subdomain_url=config.ai_services_endpoint,
         ),
