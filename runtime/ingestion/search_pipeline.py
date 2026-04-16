@@ -511,7 +511,33 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         ],
     )
 
-    # 7. AzureOpenAIEmbeddingSkill ───────────────────────────────────────────
+    # 7. ConditionalSkill - default normalised_text_sha256
+    # Legacy blobs can carry an empty normalised_text_sha256 value. Fall back
+    # to dedupe_hash so projection fields remain non-empty and indexable.
+    default_normalised_text_sha256 = ConditionalSkill(
+        name="default-normalised-text-sha256",
+        description="Default normalised_text_sha256 to dedupe_hash when metadata is empty",
+        context="/document",
+        inputs=[
+            InputFieldMappingEntry(
+                name="condition",
+                source="=($(/document/metadata_normalised_text_sha256) == null || $(/document/metadata_normalised_text_sha256) == '')",
+            ),
+            InputFieldMappingEntry(name="whenTrue", source="/document/metadata_dedupe_hash"),
+            InputFieldMappingEntry(
+                name="whenFalse",
+                source="/document/metadata_normalised_text_sha256",
+            ),
+        ],
+        outputs=[
+            OutputFieldMappingEntry(
+                name="output",
+                target_name="normalised_text_sha256_safe",
+            )
+        ],
+    )
+
+    # 8. AzureOpenAIEmbeddingSkill ───────────────────────────────────────────
     # Generates a dense vector embedding for each chunk.
     # Context is per-page so one embedding is produced per chunk.
     # auth: the search service system-assigned managed identity is used;
@@ -582,11 +608,11 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
                     ),
                     InputFieldMappingEntry(
                         name="content_sha256",
-                        source="/document/metadata_content_sha256",
+                        source="/document/metadata_dedupe_hash",
                     ),
                     InputFieldMappingEntry(
                         name="normalised_text_sha256",
-                        source="/document/metadata_normalised_text_sha256",
+                        source="/document/normalised_text_sha256_safe",
                     ),
                     InputFieldMappingEntry(
                         name="dedupe_hash",
@@ -617,6 +643,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
             split,
             default_uploaded_by,
             default_uploaded_at,
+            default_normalised_text_sha256,
             embedding,
         ],
         cognitive_services_account=AIServicesAccountIdentity(

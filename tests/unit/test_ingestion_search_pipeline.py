@@ -222,6 +222,12 @@ def test_ensure_skillset_uses_preview_rest_with_explicit_null_identity(monkeypat
         "=($(/document/metadata_uploaded_at) == null || $(/document/metadata_uploaded_at) == '')"
     )
     assert by_name["default-uploaded-at"]["inputs"][1]["source"] == "='1970-01-01T00:00:00Z'"
+    assert by_name["default-normalised-text-sha256"]["inputs"][0]["source"] == (
+        "=($(/document/metadata_normalised_text_sha256) == null || $(/document/metadata_normalised_text_sha256) == '')"
+    )
+    assert by_name["default-normalised-text-sha256"]["inputs"][1]["source"] == (
+        "/document/metadata_dedupe_hash"
+    )
 
     projection_mappings = (
         captured["body"]["indexProjections"]["selectors"][0]["mappings"]
@@ -229,6 +235,7 @@ def test_ensure_skillset_uses_preview_rest_with_explicit_null_identity(monkeypat
     mapping_sources = {m["name"]: m["source"] for m in projection_mappings}
     assert mapping_sources["uploaded_by"] == "/document/uploaded_by_safe"
     assert mapping_sources["uploaded_at"] == "/document/uploaded_at_safe"
+    assert mapping_sources["normalised_text_sha256"] == "/document/normalised_text_sha256_safe"
 
 
 
