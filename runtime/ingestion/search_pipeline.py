@@ -484,7 +484,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
                     ),
                     InputFieldMappingEntry(
                         name="normalised_text_sha256",
-                        source="/document/metadata_normalized_text_sha256",
+                        source="/document/metadata_normalised_text_sha256",
                     ),
                     InputFieldMappingEntry(
                         name="dedupe_hash",

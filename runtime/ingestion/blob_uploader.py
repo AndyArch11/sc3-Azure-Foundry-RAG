@@ -70,7 +70,7 @@ def upload_source_files(
                 "original_filename": path.name,
                 # For this loader path, binary hash is the canonical dedupe key.
                 "content_sha256": content_sha256,
-                "normalized_text_sha256": "",
+                "normalised_text_sha256": "",
                 "dedupe_hash": content_sha256,
                 "dedupe_method": "content_sha256",
             }

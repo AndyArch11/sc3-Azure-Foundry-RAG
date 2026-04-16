@@ -85,4 +85,5 @@ def test_upload_source_files_uploads_supported_and_tracks_skipped_failed(
     assert metadata_by_blob["a.pdf"]["corpus_role"] == "narrative_guidance"
     assert metadata_by_blob["a.pdf"]["upload_source"] == "ingestion_runner"
     assert metadata_by_blob["a.pdf"]["original_filename"] == "a.pdf"
+    assert metadata_by_blob["a.pdf"]["normalised_text_sha256"] == ""
     assert metadata_by_blob["a.pdf"]["dedupe_method"] == "content_sha256"
