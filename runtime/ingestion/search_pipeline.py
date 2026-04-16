@@ -49,9 +49,11 @@ from __future__ import annotations
 import logging
 import time
 from typing import Any, Optional, cast
+from urllib.parse import quote
 
 from azure.core.credentials import TokenCredential
 from azure.core.exceptions import HttpResponseError, ResourceExistsError, ResourceNotFoundError
+from azure.core.rest import HttpRequest
 from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
 from azure.search.documents.indexes.models import (
     AzureOpenAIEmbeddingSkill,
@@ -91,6 +93,40 @@ from azure.search.documents.indexes.models import (
 from .config import IngestionConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _create_or_update_skillset_via_preview_rest(
+    client: SearchIndexerClient,
+    config: IngestionConfig,
+    skillset: SearchIndexerSkillset,
+) -> None:
+    """Persist skillset with the preview REST contract required for AIServicesByIdentity.
+
+    The Search preview API expects the `cognitiveServices.identity` property to be
+    present and explicitly set to null when using the search service's system-assigned
+    managed identity. The SDK model omits null-valued properties, so we send this one
+    payload through the preview REST endpoint directly.
+    """
+
+    payload = skillset.serialize()
+    payload["cognitiveServices"] = {
+        "@odata.type": "#Microsoft.Azure.Search.AIServicesByIdentity",
+        "description": "Bill enrichment against the attached AI Services account via the search service managed identity.",
+        "subdomainUrl": config.ai_services_endpoint,
+        "identity": None,
+    }
+
+    request = HttpRequest(
+        "PUT",
+        (
+            f"{config.search_endpoint}/skillsets/{quote(config.skillset_name, safe='')}"
+            "?api-version=2025-11-01-preview"
+        ),
+        headers={"Content-Type": "application/json"},
+        json=payload,
+    )
+    response = cast(Any, client).send_request(request)
+    response.raise_for_status()
 
 
 def _delete_if_exists(delete_fn, resource_name: str, resource_kind: str) -> None:
@@ -515,7 +551,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         index_projection=index_projections,
     )
 
-    client.create_or_update_skillset(skillset)
+    _create_or_update_skillset_via_preview_rest(client, config, skillset)
     logger.info("Skillset ensured: %s", config.skillset_name)
 
 

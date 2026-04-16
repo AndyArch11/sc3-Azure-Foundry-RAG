@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 from azure.core.credentials import AccessToken
@@ -172,6 +173,41 @@ def test_ensure_data_source_uses_storage_resource_id(monkeypatch) -> None:
 
     assert captured["name"] == "grounding-index-datasource"
     assert captured["connection_string"].startswith("ResourceId=")
+
+
+def test_ensure_skillset_uses_preview_rest_with_explicit_null_identity(monkeypatch) -> None:
+    captured = {}
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+    class _Client:
+        def __init__(self, endpoint: str, credential) -> None:
+            captured["endpoint"] = endpoint
+
+        def send_request(self, request):
+            captured["method"] = request.method
+            captured["url"] = request.url
+            captured["body"] = json.loads(request.content)
+            return _Response()
+
+    monkeypatch.setattr(search_pipeline, "SearchIndexerClient", _Client)
+
+    search_pipeline.ensure_skillset(_cfg(), credential=_FakeCredential())
+
+    assert captured["method"] == "PUT"
+    assert captured["url"].endswith(
+        "/skillsets/grounding-index-skillset?api-version=2025-11-01-preview"
+    )
+    assert captured["body"]["cognitiveServices"]["@odata.type"] == (
+        "#Microsoft.Azure.Search.AIServicesByIdentity"
+    )
+    assert captured["body"]["cognitiveServices"]["subdomainUrl"] == (
+        "https://foundry.cognitiveservices.azure.com"
+    )
+    assert "identity" in captured["body"]["cognitiveServices"]
+    assert captured["body"]["cognitiveServices"]["identity"] is None
 
 
 
