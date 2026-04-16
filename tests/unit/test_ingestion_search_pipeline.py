@@ -212,6 +212,24 @@ def test_ensure_skillset_uses_preview_rest_with_explicit_null_identity(monkeypat
     assert "identity" in captured["body"]["cognitiveServices"]
     assert captured["body"]["cognitiveServices"]["identity"] is None
 
+    skills = captured["body"]["skills"]
+    by_name = {skill.get("name"): skill for skill in skills}
+    assert by_name["default-uploaded-by"]["inputs"][0]["source"] == (
+        "=($(/document/metadata_uploaded_by) == null || $(/document/metadata_uploaded_by) == '')"
+    )
+    assert by_name["default-uploaded-by"]["inputs"][1]["source"] == "='unknown'"
+    assert by_name["default-uploaded-at"]["inputs"][0]["source"] == (
+        "=($(/document/metadata_uploaded_at) == null || $(/document/metadata_uploaded_at) == '')"
+    )
+    assert by_name["default-uploaded-at"]["inputs"][1]["source"] == "='1970-01-01T00:00:00Z'"
+
+    projection_mappings = (
+        captured["body"]["indexProjections"]["selectors"][0]["mappings"]
+    )
+    mapping_sources = {m["name"]: m["source"] for m in projection_mappings}
+    assert mapping_sources["uploaded_by"] == "/document/uploaded_by_safe"
+    assert mapping_sources["uploaded_at"] == "/document/uploaded_at_safe"
+
 
 
 

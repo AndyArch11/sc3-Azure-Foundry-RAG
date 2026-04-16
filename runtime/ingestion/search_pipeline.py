@@ -454,9 +454,9 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         inputs=[
             InputFieldMappingEntry(
                 name="condition",
-                source="=($(/document/metadata_uploaded_by) == null)",
+                source="=($(/document/metadata_uploaded_by) == null || $(/document/metadata_uploaded_by) == '')",
             ),
-            InputFieldMappingEntry(name="whenTrue", source="='' "),
+            InputFieldMappingEntry(name="whenTrue", source="='unknown'"),
             InputFieldMappingEntry(
                 name="whenFalse",
                 source="/document/metadata_uploaded_by",
@@ -470,7 +470,33 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         ],
     )
 
-    # 6. AzureOpenAIEmbeddingSkill ───────────────────────────────────────────
+    # 6. ConditionalSkill - default uploaded_at
+    # Some legacy blobs do not include uploaded_at metadata. Coerce missing
+    # values to an empty string so index projections do not fail.
+    default_uploaded_at = ConditionalSkill(
+        name="default-uploaded-at",
+        description="Default uploaded_at to empty string when blob metadata is absent",
+        context="/document",
+        inputs=[
+            InputFieldMappingEntry(
+                name="condition",
+                source="=($(/document/metadata_uploaded_at) == null || $(/document/metadata_uploaded_at) == '')",
+            ),
+            InputFieldMappingEntry(name="whenTrue", source="='1970-01-01T00:00:00Z'"),
+            InputFieldMappingEntry(
+                name="whenFalse",
+                source="/document/metadata_uploaded_at",
+            ),
+        ],
+        outputs=[
+            OutputFieldMappingEntry(
+                name="output",
+                target_name="uploaded_at_safe",
+            )
+        ],
+    )
+
+    # 7. AzureOpenAIEmbeddingSkill ───────────────────────────────────────────
     # Generates a dense vector embedding for each chunk.
     # Context is per-page so one embedding is produced per chunk.
     # auth: the search service system-assigned managed identity is used;
@@ -533,7 +559,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
                     ),
                     InputFieldMappingEntry(
                         name="uploaded_at",
-                        source="/document/metadata_uploaded_at",
+                        source="/document/uploaded_at_safe",
                     ),
                     InputFieldMappingEntry(
                         name="original_filename",
@@ -569,7 +595,15 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
     skillset = SearchIndexerSkillset(
         name=config.skillset_name,
         description="PDF and Excel enrichment: extract → OCR → merge → split → embed",
-        skills=[document_extraction, ocr, merge, split, default_uploaded_by, embedding],
+        skills=[
+            document_extraction,
+            ocr,
+            merge,
+            split,
+            default_uploaded_by,
+            default_uploaded_at,
+            embedding,
+        ],
         cognitive_services_account=AIServicesAccountIdentity(
             subdomain_url=config.ai_services_endpoint,
         ),
