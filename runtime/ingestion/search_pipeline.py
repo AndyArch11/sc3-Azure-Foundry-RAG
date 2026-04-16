@@ -116,14 +116,20 @@ def _create_or_update_skillset_via_preview_rest(
         "identity": None,
     }
 
-    logger.debug(
+    logger.info(
         "Skillset payload projection sources: %s",
         {
             m["name"]: m["source"]
             for m in payload.get("indexProjections", {})
             .get("selectors", [{}])[0]
             .get("mappings", [])
-            if m.get("name") in ("uploaded_by", "uploaded_at")
+            if m.get("name")
+            in (
+                "uploaded_by",
+                "uploaded_at",
+                "content_sha256",
+                "normalised_text_sha256",
+            )
         },
     )
 
