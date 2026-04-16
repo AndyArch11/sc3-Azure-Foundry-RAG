@@ -286,11 +286,31 @@ def _run_azure(args: argparse.Namespace) -> int:
             print(f"Input directory does not exist: {input_dir}", file=sys.stderr)
             return 2
         logger.info("Uploading source documents to blob storage…")
+        upload_batch = (
+            os.getenv("INGESTION_UPLOAD_BATCH", "").strip()
+            or os.getenv("CONTAINER_APP_JOB_EXECUTION_NAME", "").strip()
+            or None
+        )
         upload_summary = upload_source_files(
             storage_account_name=config.storage_account_name,
             container_name=config.storage_container_name,
             input_dir=input_dir,
             credential=credential,
+            corpus=os.getenv("INGESTION_CORPUS", "b").strip() or "b",
+            corpus_role=(
+                os.getenv("INGESTION_CORPUS_ROLE", "narrative_guidance").strip()
+                or "narrative_guidance"
+            ),
+            upload_source=(
+                os.getenv("INGESTION_UPLOAD_SOURCE", "ingestion_runner").strip()
+                or "ingestion_runner"
+            ),
+            uploaded_by=(
+                os.getenv("INGESTION_UPLOADED_BY", "").strip()
+                or os.getenv("CONTAINER_APP_JOB_NAME", "").strip()
+                or "ingestion_job"
+            ),
+            upload_batch=upload_batch,
         )
         logger.info(
             "Upload complete: %d uploaded, %d skipped, %d failed",

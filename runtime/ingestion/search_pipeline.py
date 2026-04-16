@@ -42,9 +42,6 @@ Prerequisites
     Storage Blob Data Reader    on the storage account
     Cognitive Services User     on the Foundry / AI Services account (for OcrSkill)
     Cognitive Services OpenAI User  on the Foundry account (for embedding skill)
-- If using key-based embedding auth (AZURE_OPENAI_API_KEY set), the MI roles
-  for OpenAI are not required for the skill itself but are still recommended
-  for runtime query access.
 """
 
 from __future__ import annotations
@@ -415,9 +412,8 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
     # 5. AzureOpenAIEmbeddingSkill ───────────────────────────────────────────
     # Generates a dense vector embedding for each chunk.
     # Context is per-page so one embedding is produced per chunk.
-    # auth: if azure_openai_api_key is None the search service system-assigned
-    # managed identity is used — requires MI to have Cognitive Services OpenAI
-    # User role on the Foundry / AI Services account.
+    # auth: the search service system-assigned managed identity is used;
+    # it must have Cognitive Services OpenAI User on the Foundry / AI Services account.
     embedding = AzureOpenAIEmbeddingSkill(
         name="embedding",
         description="Embed each text chunk using Azure OpenAI",
@@ -426,7 +422,6 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         deployment_name=config.embedding_deployment_name,
         model_name=config.embedding_deployment_name,
         dimensions=config.embedding_dimensions,
-        api_key=config.azure_openai_api_key,
         inputs=[InputFieldMappingEntry(name="text", source="/document/pages/*")],
         outputs=[OutputFieldMappingEntry(name="embedding", target_name="content_vector")],
     )

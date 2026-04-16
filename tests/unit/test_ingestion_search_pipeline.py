@@ -18,7 +18,6 @@ def _cfg() -> IngestionConfig:
         azure_openai_endpoint="https://openai.example",
         embedding_deployment_name="text-embedding-3-large",
         embedding_dimensions=3072,
-        azure_openai_api_key=None,
         storage_account_name="storacct",
         storage_container_name="grounding-data",
         storage_resource_id="/subscriptions/x/resourceGroups/y/providers/Microsoft.Storage/storageAccounts/storacct",

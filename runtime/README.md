@@ -198,8 +198,6 @@ Controls index environment variables:
 | `EMBEDDING_DEPLOYMENT_NAME` | `text-embedding-ada-002` | Must match deployed model name |
 | `EMBEDDING_DIMENSIONS` | `1536` | Match the embedding model |
 | `AZURE_STORAGE_CONTAINER_NAME` | `grounding-data` | Pre-provisioned by Terraform |
-| `AZURE_OPENAI_API_KEY` | _(unset)_ | Leave unset for managed identity flow |
-| `AZURE_ENRICHMENT_MI_RESOURCE_ID` | _(required)_ | User-assigned managed identity resource ID used by skillset enrichment |
 | `CHUNK_SIZE` | `1200` | Characters per chunk |
 | `CHUNK_OVERLAP` | `200` | Overlap between adjacent chunks |
 | `QUERY_WEB_REQUIRED_GROUP_OBJECT_ID` | _(unset)_ | Optional Entra security group object ID required by query web app |
@@ -208,6 +206,31 @@ Controls index environment variables:
 | `INGESTION_JOB_SUBSCRIPTION_ID` | _(unset)_ | Required to trigger ingestion Container App Job from query web API |
 | `INGESTION_JOB_RESOURCE_GROUP` | _(unset)_ | Required to trigger ingestion Container App Job from query web API |
 | `INGESTION_JOB_NAME` | _(unset)_ | Required to trigger ingestion Container App Job from query web API |
+| `INGESTION_CORPUS` | `b` | Blob metadata stamped by `ingestion.runner --mode azure`; use `c` for Corpus C |
+| `INGESTION_CORPUS_ROLE` | `narrative_guidance` | Blob metadata stamped by `ingestion.runner --mode azure`; use `customer_evidence` for Corpus C |
+| `INGESTION_UPLOAD_SOURCE` | `ingestion_runner` | Blob metadata stamped by `ingestion.runner --mode azure` |
+| `INGESTION_UPLOADED_BY` | `INGESTION_JOB_NAME` or `ingestion_job` | Blob metadata stamped by `ingestion.runner --mode azure` |
+| `INGESTION_UPLOAD_BATCH` | `CONTAINER_APP_JOB_EXECUTION_NAME` or generated UUID | Blob metadata stamped by `ingestion.runner --mode azure` |
+
+### Corpus Metadata Defaults For Azure Mode
+
+The grounding ingestion path used by `python3 -m ingestion.runner --mode azure` now
+stamps the blob metadata required by the grounding-index skillset projection.
+
+Default runtime azure mode behavior targets Corpus B:
+
+- `INGESTION_CORPUS=b`
+- `INGESTION_CORPUS_ROLE=narrative_guidance`
+- `INGESTION_UPLOAD_SOURCE=ingestion_runner`
+
+To target Corpus C with the same runtime uploader, override the corpus metadata:
+
+- `INGESTION_CORPUS=c`
+- `INGESTION_CORPUS_ROLE=customer_evidence`
+
+These overrides apply only to the grounding ingestion path for Corpus B and Corpus C.
+Corpus A uses the controls pipeline and does not use the grounding-index skillset
+projection.
 
 ## Prerequisites
 
@@ -272,23 +295,24 @@ export AZURE_SEARCH_ENDPOINT="${SEARCH_EP}"
 export AZURE_OPENAI_ENDPOINT="${FOUNDRY_EP}"
 export AZURE_STORAGE_ACCOUNT_NAME="${STORAGE_NAME}"
 export AZURE_STORAGE_RESOURCE_ID="${STORAGE_ID}"
+export INGESTION_CORPUS="b"
+export INGESTION_CORPUS_ROLE="narrative_guidance"
 
 python3 -m ingestion.runner --mode azure --input-dir ./samples
 ```
 
-If you need API-key-based embedding access for sandbox testing, resolve the Foundry account name first and then fetch a key:
+To upload into Corpus C instead:
 
 ```bash
-FOUNDRY_NAME=$(az cognitiveservices account list \
-  -g "${RG_NAME}" \
-  --query "[?kind=='AIServices'][0].name" \
-  -o tsv)
+export INGESTION_CORPUS="c"
+export INGESTION_CORPUS_ROLE="customer_evidence"
 
-export AZURE_OPENAI_API_KEY=$(az cognitiveservices account keys list \
-  -g "${RG_NAME}" \
-  -n "${FOUNDRY_NAME}" \
-  --query key1 -o tsv)
+python3 -m ingestion.runner --mode azure --input-dir ./samples
 ```
+
+The ingestion pipeline is now fully keyless. Search enrichment billing uses
+`DefaultCognitiveServicesAccount()`, and the embedding skill uses the Search
+service managed identity. No `AZURE_OPENAI_API_KEY` fallback is used.
 
 ## Runtime Image Rollout
 

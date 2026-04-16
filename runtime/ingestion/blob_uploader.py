@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+from datetime import UTC, datetime
 from dataclasses import dataclass, field
 from pathlib import Path
+from uuid import uuid4
 
 from azure.core.credentials import TokenCredential
 from azure.storage.blob import BlobServiceClient
@@ -33,10 +36,18 @@ def upload_source_files(
     input_dir: Path,
     credential: TokenCredential,
     overwrite: bool = True,
+    *,
+    corpus: str = "b",
+    corpus_role: str = "narrative_guidance",
+    upload_source: str = "ingestion_runner",
+    uploaded_by: str = "ingestion_job",
+    upload_batch: str | None = None,
 ) -> UploadSummary:
     account_url = f"https://{storage_account_name}.blob.core.windows.net"
     client = BlobServiceClient(account_url=account_url, credential=credential)
     container_client = client.get_container_client(container_name)
+    uploaded_at = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    effective_upload_batch = str(upload_batch or "").strip() or str(uuid4())
 
     summary = UploadSummary()
     for path in sorted(input_dir.rglob("*")):
@@ -47,8 +58,28 @@ def upload_source_files(
             continue
         blob_name = path.relative_to(input_dir).as_posix()
         try:
-            with path.open("rb") as f:
-                container_client.upload_blob(blob_name, f, overwrite=overwrite)
+            content = path.read_bytes()
+            content_sha256 = hashlib.sha256(content).hexdigest()
+            metadata = {
+                "corpus": corpus,
+                "corpus_role": corpus_role,
+                "upload_source": upload_source,
+                "uploaded_by": uploaded_by,
+                "upload_batch": effective_upload_batch,
+                "uploaded_at": uploaded_at,
+                "original_filename": path.name,
+                # For this loader path, binary hash is the canonical dedupe key.
+                "content_sha256": content_sha256,
+                "normalized_text_sha256": "",
+                "dedupe_hash": content_sha256,
+                "dedupe_method": "content_sha256",
+            }
+            container_client.upload_blob(
+                blob_name,
+                content,
+                overwrite=overwrite,
+                metadata=metadata,
+            )
             summary.uploaded.append(blob_name)
         except Exception as exc:
             summary.failed.append(f"{blob_name}: {exc}")

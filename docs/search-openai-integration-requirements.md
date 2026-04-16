@@ -13,7 +13,7 @@ The full compliance assessment workflow has two independent layers:
 2. **Framework Matching & Assessment Layer** ⚠️ (Requires Search + OpenAI)
    - Matches extracted resources against compliance frameworks (e.g., CIS, NIST)
    - Generates compliance findings and evidence citations
-   - Requires: Azure Search Index + Azure OpenAI API
+   - Requires: Azure Search Index + Azure OpenAI endpoint access
 
 ## Supported Components (Extraction Only)
 
@@ -68,10 +68,13 @@ Deploy or provide connection details:
 Deploy or provide connection details:
 ```
 - Endpoint: https://<openai-resource-name>.openai.azure.com/
-- API Key: <openai-api-key>
 - Deployment: compliance-assessment (or your deployment name)
 - Model: gpt-4 or gpt-3.5-turbo
 ```
+
+Authentication requirements:
+- The runtime uses Azure AD tokens from `DefaultAzureCredential`; no `AZURE_OPENAI_API_KEY` env var is required.
+- The executing identity must be able to request tokens for `https://cognitiveservices.azure.com/.default`.
 
 **LLM Usage**:
 - Semantic matching between extracted resources and controls
@@ -90,7 +93,6 @@ AZURE_SEARCH_INDEX_NAME=compliance-framework-index
 
 # OpenAI Service
 AZURE_OPENAI_ENDPOINT=https://<resource-name>.openai.azure.com/
-AZURE_OPENAI_API_KEY=<api-key>
 
 # Optional: LLM-based control applicability review with Mistral
 CONTROL_LLM_REVIEW_ENABLED=true

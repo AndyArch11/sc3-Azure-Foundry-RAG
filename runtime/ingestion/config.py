@@ -24,8 +24,6 @@ class IngestionConfig:
     azure_openai_endpoint: str
     embedding_deployment_name: str
     embedding_dimensions: int
-    # None → search service system-assigned managed identity; set for dev key auth
-    azure_openai_api_key: str | None
 
     # Azure Storage (blob source)
     storage_account_name: str
@@ -55,7 +53,6 @@ class IngestionConfig:
                 "EMBEDDING_DEPLOYMENT_NAME", "text-embedding-ada-002"
             ),
             embedding_dimensions=int(os.environ.get("EMBEDDING_DIMENSIONS", "1536")),
-            azure_openai_api_key=os.environ.get("AZURE_OPENAI_API_KEY"),
             storage_account_name=_require("AZURE_STORAGE_ACCOUNT_NAME"),
             storage_container_name=os.environ.get("AZURE_STORAGE_CONTAINER_NAME", "grounding-data"),
             storage_resource_id=_require("AZURE_STORAGE_RESOURCE_ID"),
