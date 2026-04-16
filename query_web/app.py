@@ -4100,7 +4100,8 @@ def _upload_corpus_files(
                 }
             )
         except Exception as exc:
-            failed.append(f"{original_name}: {exc}")
+            logger.warning("Failed to upload file %s: %s", original_name, exc, exc_info=True)
+            failed.append(f"{original_name}: upload failed")
         finally:
             try:
                 file.file.close()
@@ -4186,7 +4187,8 @@ def _upload_corpus_a_reference_files(
                 }
             )
         except Exception as exc:
-            failed.append(f"{original_name}: {exc}")
+            logger.warning("Failed to upload file %s: %s", original_name, exc, exc_info=True)
+            failed.append(f"{original_name}: upload failed")
         finally:
             try:
                 file.file.close()
@@ -5155,7 +5157,8 @@ async def upload_corpus_a_reference_documents(
             status_code=status_code,
         )
     except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=400)
+        logger.warning("Bad request to /api/corpus-a/upload: %s", exc)
+        return JSONResponse({"error": "Invalid request parameters."}, status_code=400)
     except Exception as exc:
         logger.exception("Failed /api/corpus-a/upload request: %s", exc)
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
@@ -5238,7 +5241,7 @@ def start_compliance_report(request: Request, payload: ComplianceReportRequest) 
         except Exception as exc:
             logger.exception("Compliance report job failed: %s", exc)
             _update_report_job(
-                job.job_id, state="failed", message="Compliance report failed", error=str(exc)
+                job.job_id, state="failed", message="Compliance report failed", error=_INTERNAL_ERROR_MESSAGE
             )
 
     threading.Thread(target=_run, daemon=True).start()
@@ -5277,7 +5280,7 @@ def start_azure_compliance_report(
         except Exception as exc:
             logger.exception("Azure compliance report job failed: %s", exc)
             _update_report_job(
-                job.job_id, state="failed", message="Azure compliance report failed", error=str(exc)
+                job.job_id, state="failed", message="Azure compliance report failed", error=_INTERNAL_ERROR_MESSAGE
             )
 
     threading.Thread(target=_run, daemon=True).start()
