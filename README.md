@@ -259,7 +259,6 @@ Build and push the ingestion image from a Docker-capable host inside the VNet, t
 
 - `sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-ingestion.sh`
 - Update `ingestion_job_image_tag` in `infra/terraform/environments/<env>/<env>.tfvars` with `<immutable-ingestion-tag>` container tag
-- Optional for larger OCR/enrichment runs: populate `ingestion_cognitive_services_api_key_vault_secret_id` in the same tfvars file with a Key Vault secret ID containing the AI Services/Cognitive Services API key. Leave it unset to keep the free skillset quota.
 
 Roll out the new image tag from jumpbox with the standard non-RBAC rollout script:
 
@@ -288,7 +287,6 @@ If RBAC resources need reconciliation after rollout, run:
 
 After rollout, use the ingestion workflow described in [runtime/README.md](runtime/README.md) to upload files and start the Container App Job.
 
-When `ingestion_cognitive_services_api_key_vault_secret_id` is set, the rollout injects `COGNITIVE_SERVICES_API_KEY` into the ingestion job via a Key Vault-backed Container Apps secret. This is intentionally optional and disabled by default.
 
 ### Load Control Data
 

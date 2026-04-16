@@ -80,11 +80,6 @@ variable "query_web_required_group_object_id" {
   description = "Optional Entra ID security group object ID required by query web app."
   default     = ""
 }
-variable "ingestion_cognitive_services_api_key_vault_secret_id" {
-  type        = string
-  description = "Optional Key Vault secret ID containing a Cognitive Services / AI Services API key for billed ingestion skillset enrichment. Leave empty to keep free-tier enrichment behaviour."
-  default     = ""
-}
 variable "ingestion_job_image_tag" { type = string }
 variable "query_web_image_tag" { type = string }
 variable "confluence_poller_image_tag" {

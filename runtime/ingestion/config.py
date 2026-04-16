@@ -35,12 +35,9 @@ class IngestionConfig:
     # Obtain with: az storage account show -g <rg> -n <name> --query id -o tsv
     storage_resource_id: str
 
-    # Cognitive Services for skill enrichment billing.
-    # None → free tier: limited to 20 enrichments per indexer run (acceptable for sandbox).
-    # Set COGNITIVE_SERVICES_API_KEY to use a paid AI Services account for larger runs.
-    # Enterprise path: replace key auth with AIServicesByIdentity once Search service MI
-    # has Cognitive Services User role on the AI Services account.
-    cognitive_services_api_key: str | None
+    # Resource ID for MI-based skillset enrichment (AIServices API kind)
+    enrichment_mi_resource_id: str
+
 
     # Chunking
     chunk_size: int
@@ -66,7 +63,7 @@ class IngestionConfig:
             storage_account_name=_require("AZURE_STORAGE_ACCOUNT_NAME"),
             storage_container_name=os.environ.get("AZURE_STORAGE_CONTAINER_NAME", "grounding-data"),
             storage_resource_id=_require("AZURE_STORAGE_RESOURCE_ID"),
-            cognitive_services_api_key=os.environ.get("COGNITIVE_SERVICES_API_KEY"),
+            enrichment_mi_resource_id=_require("AZURE_ENRICHMENT_MI_RESOURCE_ID"),
             chunk_size=int(os.environ.get("CHUNK_SIZE", "1200")),
             chunk_overlap=int(os.environ.get("CHUNK_OVERLAP", "200")),
         )

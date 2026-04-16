@@ -1425,6 +1425,7 @@ def _build_per_control_report_payload(
     corpus_c_upload_batch: str | None = None,
     corpus_b_filtered_total: int | None = None,
     corpus_c_filtered_total: int | None = None,
+    corpus_c_scope_label: str = "Corpus C artifacts retrieved",
 ) -> dict[str, Any]:
     findings: list[dict[str, Any]] = []
     total = len(controls)
@@ -1458,6 +1459,7 @@ def _build_per_control_report_payload(
         corpus_c_upload_batch=corpus_c_upload_batch,
         corpus_b_filtered_total=corpus_b_filtered_total,
         corpus_c_filtered_total=corpus_c_filtered_total,
+        corpus_c_scope_label=corpus_c_scope_label,
         assessment_strategy="per_control",
     )
     control_ids = [
@@ -1802,6 +1804,7 @@ def _generate_azure_compliance_report_result(
             corpus_c_chunks=corpus_c_chunks,
             temperature=payload.temperature,
             progress_cb=progress_cb,
+            corpus_c_scope_label="Live Azure artifacts collected",
         )
     else:
         if progress_cb:
@@ -1967,6 +1970,7 @@ def _build_compliance_scope_inputs(
     corpus_c_upload_batch: str | None = None,
     corpus_b_filtered_total: int | None = None,
     corpus_c_filtered_total: int | None = None,
+    corpus_c_scope_label: str = "Corpus C artifacts retrieved",
     assessment_strategy: str | None = None,
 ) -> list[str]:
     items: list[str] = []
@@ -1976,7 +1980,7 @@ def _build_compliance_scope_inputs(
         [
             f"Corpus A controls retrieved: {controls_count}",
             f"Corpus B guidance retrieved: {corpus_b_chunk_count}",
-            f"Corpus C artifacts retrieved: {corpus_c_chunk_count}",
+            f"{corpus_c_scope_label}: {corpus_c_chunk_count}",
         ]
     )
     if corpus_b_indexed_total > 0:

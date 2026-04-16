@@ -22,30 +22,12 @@ def _cfg() -> IngestionConfig:
         storage_account_name="storacct",
         storage_container_name="grounding-data",
         storage_resource_id="/subscriptions/x/resourceGroups/y/providers/Microsoft.Storage/storageAccounts/storacct",
-        cognitive_services_api_key=None,
+        enrichment_mi_resource_id="/subscriptions/x/resourceGroups/y/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-agent-runtime",
         chunk_size=1000,
         chunk_overlap=100,
     )
 
 
-def _cfg_with_cognitive_key() -> IngestionConfig:
-    return IngestionConfig(
-        search_endpoint="https://search.example",
-        search_index_name="grounding-index",
-        data_source_name="grounding-index-datasource",
-        skillset_name="grounding-index-skillset",
-        indexer_name="grounding-index-indexer",
-        azure_openai_endpoint="https://openai.example",
-        embedding_deployment_name="text-embedding-3-large",
-        embedding_dimensions=3072,
-        azure_openai_api_key="unused",
-        storage_account_name="storacct",
-        storage_container_name="grounding-data",
-        storage_resource_id="/subscriptions/x/resourceGroups/y/providers/Microsoft.Storage/storageAccounts/storacct",
-        cognitive_services_api_key="cs-key",
-        chunk_size=1000,
-        chunk_overlap=100,
-    )
 
 
 class _FakeCredential:
@@ -53,10 +35,6 @@ class _FakeCredential:
         return AccessToken("token", 9999999999)
 
 
-def test_cognitive_services_account_optional_key() -> None:
-    cfg = _cfg()
-    assert search_pipeline._cognitive_services_account(cfg) is None
-    assert search_pipeline._cognitive_services_account(_cfg_with_cognitive_key()) is not None
 
 
 def test_delete_if_exists_swallows_not_found(monkeypatch) -> None:
@@ -196,25 +174,6 @@ def test_ensure_data_source_uses_storage_resource_id(monkeypatch) -> None:
     assert captured["connection_string"].startswith("ResourceId=")
 
 
-def test_ensure_skillset_sets_cognitive_account_when_key_present(monkeypatch) -> None:
-    captured = {}
-
-    class _Client:
-        def __init__(self, endpoint: str, credential) -> None:
-            pass
-
-        def create_or_update_skillset(self, skillset):
-            captured["name"] = skillset.name
-            captured["skills_len"] = len(skillset.skills or [])
-            captured["has_cognitive_account"] = skillset.cognitive_services_account is not None
-
-    monkeypatch.setattr(search_pipeline, "SearchIndexerClient", _Client)
-
-    search_pipeline.ensure_skillset(_cfg_with_cognitive_key(), credential=_FakeCredential())
-
-    assert captured["name"] == "grounding-index-skillset"
-    assert captured["skills_len"] == 5
-    assert captured["has_cognitive_account"] is True
 
 
 def test_run_indexer_attaches_when_already_in_progress(monkeypatch) -> None:

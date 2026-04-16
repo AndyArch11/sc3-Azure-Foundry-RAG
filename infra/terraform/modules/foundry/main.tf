@@ -282,6 +282,12 @@ resource "azapi_resource" "account_capability_host" {
   parent_id                 = azurerm_cognitive_account.foundry.id
   schema_validation_enabled = false
 
+  timeouts {
+    create = "60m"
+    update = "90m"
+    delete = "60m"
+  }
+
   depends_on = [
     azapi_resource.model_deployment_embedding,
     azapi_resource.model_deployment_query,
@@ -296,12 +302,34 @@ resource "azapi_resource" "account_capability_host" {
   }
 }
 
+# Force destroy/create of project capability host when backing connection names
+# change, as long-running in-place updates can hang in preview APIs.
+resource "terraform_data" "project_capability_host_recreate" {
+  input = {
+    vector_store_connection  = var.search_service_name
+    storage_connection       = var.storage_account_name
+    thread_storage_connection = var.cosmosdb_account_name
+  }
+}
+
 # Project capability host must reference exactly one connection per backing store.
 resource "azapi_resource" "project_capability_host" {
   type                      = "Microsoft.CognitiveServices/accounts/projects/capabilityHosts@2025-04-01-preview"
   name                      = "caphostproj"
   parent_id                 = azapi_resource.foundry_project.id
   schema_validation_enabled = false
+
+  timeouts {
+    create = "60m"
+    update = "90m"
+    delete = "60m"
+  }
+
+  lifecycle {
+    replace_triggered_by = [
+      terraform_data.project_capability_host_recreate,
+    ]
+  }
 
   # If intermittent RBAC propagation failures return, add an explicit time_sleep
   # between role assignments and this resource.

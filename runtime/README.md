@@ -199,7 +199,7 @@ Controls index environment variables:
 | `EMBEDDING_DIMENSIONS` | `1536` | Match the embedding model |
 | `AZURE_STORAGE_CONTAINER_NAME` | `grounding-data` | Pre-provisioned by Terraform |
 | `AZURE_OPENAI_API_KEY` | _(unset)_ | Leave unset for managed identity flow |
-| `COGNITIVE_SERVICES_API_KEY` | _(unset)_ | Optional for larger OCR/enrichment runs; in deployed environments prefer wiring this from Key Vault via Terraform rather than setting it manually |
+| `AZURE_ENRICHMENT_MI_RESOURCE_ID` | _(required)_ | User-assigned managed identity resource ID used by skillset enrichment |
 | `CHUNK_SIZE` | `1200` | Characters per chunk |
 | `CHUNK_OVERLAP` | `200` | Overlap between adjacent chunks |
 | `QUERY_WEB_REQUIRED_GROUP_OBJECT_ID` | _(unset)_ | Optional Entra security group object ID required by query web app |
@@ -374,7 +374,6 @@ az storage blob upload-batch \
 
 ### Trigger And Inspect The Ingestion Job
 
-If you expect runs larger than the free Azure AI Search skillset enrichment quota, configure `ingestion_cognitive_services_api_key_vault_secret_id` in Terraform to inject `COGNITIVE_SERVICES_API_KEY` into the Container App Job from Key Vault. Leave it unset to keep the current free-tier behaviour.
 
 ```bash
 RG_NAME=$(terraform -chdir=infra/terraform output -raw resource_group_name)

@@ -469,11 +469,6 @@ variable "query_web_entra_client_secret_key_vault_secret_id" {
   default     = ""
 }
 
-variable "ingestion_cognitive_services_api_key_vault_secret_id" {
-  type        = string
-  description = "Optional Key Vault secret ID containing the Cognitive Services / AI Services API key used by the ingestion skillset for billed enrichment. Leave empty to stay on the free skillset quota."
-  default     = ""
-}
 
 # Bring-Your-Own-Network (BYOL): optional pre-created network resource IDs.
 # If provided, phase 2 (network creation) can be skipped entirely.

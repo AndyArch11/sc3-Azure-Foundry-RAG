@@ -49,10 +49,6 @@ control_llm_review_heuristic_threshold = 0.75
 # Optional shared token for query web app auth gate.
 # query_web_auth_token       = "change-me"
 
-# Optional: Key Vault secret id for billed Search skillset enrichment.
-# Leave unset to keep the free skillset quota; set when larger OCR/enrichment runs are needed.
-# ingestion_cognitive_services_api_key_vault_secret_id = "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<kv>/secrets/<secret-name>/<version>"
-
 # Optional overrides. These default in variables.tf and usually do not need to be set.
 # instance                   = "001"
 # cosmos_database_name       = "rag-conversations"

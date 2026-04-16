@@ -69,9 +69,6 @@ guardrail_metrics_in_response        = true
 
 # Optional shared token for query web app auth gate.
 # query_web_auth_token       = "change-me"
-# Optional: Key Vault secret id for billed Search skillset enrichment.
-# Leave unset to keep free-tier enrichment limits; set only when larger ingestion runs are needed.
-# ingestion_cognitive_services_api_key_vault_secret_id = "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<kv>/secrets/<secret-name>/<version>"
 # Optional Entra security group object ID required for query web access.
 query_web_required_group_object_id = "7c110a48-68ac-4514-ae8f-1f674091b559"
 

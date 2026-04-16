@@ -102,14 +102,6 @@ resource "azurerm_container_app_job" "ingestion" {
     identity = var.agent_runtime_identity_id
   }
 
-  dynamic "secret" {
-    for_each = var.ingestion_cognitive_services_api_key_vault_secret_id != "" ? [1] : []
-    content {
-      name                = "ingestion-cognitive-services-api-key"
-      key_vault_secret_id = var.ingestion_cognitive_services_api_key_vault_secret_id
-      identity            = var.agent_runtime_identity_id
-    }
-  }
 
   template {
     container {
@@ -122,6 +114,10 @@ resource "azurerm_container_app_job" "ingestion" {
       env {
         name  = "AZURE_CLIENT_ID"
         value = var.agent_runtime_client_id
+      }
+      env {
+        name  = "AZURE_ENRICHMENT_MI_RESOURCE_ID"
+        value = var.agent_runtime_identity_id
       }
       env {
         name  = "AZURE_SEARCH_ENDPOINT"
@@ -146,13 +142,6 @@ resource "azurerm_container_app_job" "ingestion" {
       env {
         name  = "EMBEDDING_DIMENSIONS"
         value = tostring(var.embedding_dimensions)
-      }
-      dynamic "env" {
-        for_each = var.ingestion_cognitive_services_api_key_vault_secret_id != "" ? [1] : []
-        content {
-          name        = "COGNITIVE_SERVICES_API_KEY"
-          secret_name = "ingestion-cognitive-services-api-key"
-        }
       }
     }
   }

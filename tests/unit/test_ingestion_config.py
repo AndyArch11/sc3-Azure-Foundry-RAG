@@ -19,11 +19,14 @@ def test_ingestion_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "AZURE_STORAGE_RESOURCE_ID",
         "/subscriptions/x/resourceGroups/y/providers/Microsoft.Storage/storageAccounts/storacct",
     )
+    monkeypatch.setenv(
+        "AZURE_ENRICHMENT_MI_RESOURCE_ID",
+        "/subscriptions/x/resourceGroups/y/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-agent-runtime",
+    )
     monkeypatch.setenv("AZURE_SEARCH_INDEX_NAME", "grounding-index")
     monkeypatch.setenv("EMBEDDING_DEPLOYMENT_NAME", "text-embedding-3-large")
     monkeypatch.setenv("EMBEDDING_DIMENSIONS", "3072")
     monkeypatch.setenv("AZURE_STORAGE_CONTAINER_NAME", "grounding-data")
-    monkeypatch.setenv("COGNITIVE_SERVICES_API_KEY", "cs-key")
     monkeypatch.setenv("CHUNK_SIZE", "1000")
     monkeypatch.setenv("CHUNK_OVERLAP", "100")
 
@@ -38,6 +41,9 @@ def test_ingestion_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.embedding_dimensions == 3072
     assert cfg.storage_account_name == "storacct"
     assert cfg.storage_container_name == "grounding-data"
-    assert cfg.cognitive_services_api_key == "cs-key"
+    assert (
+        cfg.enrichment_mi_resource_id
+        == "/subscriptions/x/resourceGroups/y/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-agent-runtime"
+    )
     assert cfg.chunk_size == 1000
     assert cfg.chunk_overlap == 100

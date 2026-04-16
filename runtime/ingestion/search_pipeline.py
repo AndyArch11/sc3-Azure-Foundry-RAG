@@ -326,18 +326,6 @@ def ensure_data_source(config: IngestionConfig, credential: TokenCredential) -> 
 # ---------------------------------------------------------------------------
 
 
-def _cognitive_services_account(config: IngestionConfig) -> Optional[CognitiveServicesAccountKey]:
-    """
-    Return the cognitive services account binding for skillset enrichment.
-
-    None (free tier) → limited to 20 enrichments per indexer run.
-    Suitable for sandbox use.  For production, set COGNITIVE_SERVICES_API_KEY
-    (retrieved from Key Vault, not stored in code) or transition to
-    AIServicesByIdentity once the Search MI has Cognitive Services User role.
-    """
-    if config.cognitive_services_api_key:
-        return CognitiveServicesAccountKey(key=config.cognitive_services_api_key)
-    return None  # free tier
 
 
 def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> None:
@@ -519,11 +507,17 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         ),
     )
 
+
+    # MI-based enrichment: use AIServices API kind with resourceId
     skillset = SearchIndexerSkillset(
         name=config.skillset_name,
         description="PDF and Excel enrichment: extract → OCR → merge → split → embed",
         skills=[document_extraction, ocr, merge, split, embedding],
-        cognitive_services_account=_cognitive_services_account(config),
+        cognitive_services_account=cast(Any, {
+            "resourceId": config.enrichment_mi_resource_id,
+            "apiVersion": "2023-01-01-preview",
+            "kind": "AIServices"
+        }),
         index_projection=index_projections,
     )
 

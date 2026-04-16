@@ -447,6 +447,25 @@ def test_compliance_report_corrects_model_claims_when_grounding_exists() -> None
     ]
 
 
+def test_build_compliance_scope_inputs_can_distinguish_live_azure_evidence() -> None:
+    result = app_module._build_compliance_scope_inputs(
+        controls_count=7,
+        corpus_b_chunk_count=0,
+        corpus_c_chunk_count=38,
+        corpus_b_indexed_total=0,
+        corpus_c_indexed_total=0,
+        corpus_c_scope_label="Live Azure artifacts collected",
+        assessment_strategy="per_control",
+    )
+
+    assert result == [
+        "Corpus A controls retrieved: 7",
+        "Corpus B guidance retrieved: 0",
+        "Live Azure artifacts collected: 38",
+        "Assessment strategy: per_control",
+    ]
+
+
 def test_compliance_report_soft_mode_returns_fallback_report_on_empty_model_output() -> None:
     client = _test_client()
 
