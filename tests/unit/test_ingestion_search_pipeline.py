@@ -178,28 +178,31 @@ def test_ensure_data_source_uses_storage_resource_id(monkeypatch) -> None:
 def test_ensure_skillset_uses_preview_rest_with_explicit_null_identity(monkeypatch) -> None:
     captured = {}
 
-    class _Response:
-        def raise_for_status(self) -> None:
-            return None
+    class _SkillsetsOps:
+        def create_or_update(self, **kwargs):
+            captured["skillset_name"] = kwargs["skillset_name"]
+            captured["prefer"] = kwargs["prefer"]
+            captured["body"] = json.loads(kwargs["skillset"].decode("utf-8"))
+            return object()
+
+    class _GeneratedClient:
+        def __init__(self) -> None:
+            self.skillsets = _SkillsetsOps()
 
     class _Client:
         def __init__(self, endpoint: str, credential) -> None:
             captured["endpoint"] = endpoint
+            self._client = _GeneratedClient()
 
-        def send_request(self, request):
-            captured["method"] = request.method
-            captured["url"] = request.url
-            captured["body"] = json.loads(request.content)
-            return _Response()
+        def _merge_client_headers(self, headers):
+            return headers
 
     monkeypatch.setattr(search_pipeline, "SearchIndexerClient", _Client)
 
     search_pipeline.ensure_skillset(_cfg(), credential=_FakeCredential())
 
-    assert captured["method"] == "PUT"
-    assert captured["url"].endswith(
-        "/skillsets/grounding-index-skillset?api-version=2025-11-01-preview"
-    )
+    assert captured["skillset_name"] == "grounding-index-skillset"
+    assert captured["prefer"] == "return=representation"
     assert captured["body"]["cognitiveServices"]["@odata.type"] == (
         "#Microsoft.Azure.Search.AIServicesByIdentity"
     )

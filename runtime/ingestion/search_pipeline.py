@@ -46,14 +46,13 @@ Prerequisites
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any, Optional, cast
-from urllib.parse import quote
 
 from azure.core.credentials import TokenCredential
 from azure.core.exceptions import HttpResponseError, ResourceExistsError, ResourceNotFoundError
-from azure.core.rest import HttpRequest
 from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
 from azure.search.documents.indexes.models import (
     AzureOpenAIEmbeddingSkill,
@@ -100,12 +99,12 @@ def _create_or_update_skillset_via_preview_rest(
     config: IngestionConfig,
     skillset: SearchIndexerSkillset,
 ) -> None:
-    """Persist skillset with the preview REST contract required for AIServicesByIdentity.
+    """Persist skillset with preview contract details required for AIServicesByIdentity.
 
-    The Search preview API expects the `cognitiveServices.identity` property to be
-    present and explicitly set to null when using the search service's system-assigned
-    managed identity. The SDK model omits null-valued properties, so we send this one
-    payload through the preview REST endpoint directly.
+    The Search preview API expects `cognitiveServices.identity` to be explicitly null
+    when using the search service system-assigned managed identity. The SDK model omits
+    null-valued properties, so we submit this payload as raw JSON bytes via the low-level
+    generated operation to preserve null fields.
     """
 
     payload = skillset.serialize()
@@ -116,17 +115,13 @@ def _create_or_update_skillset_via_preview_rest(
         "identity": None,
     }
 
-    request = HttpRequest(
-        "PUT",
-        (
-            f"{config.search_endpoint}/skillsets/{quote(config.skillset_name, safe='')}"
-            "?api-version=2025-11-01-preview"
-        ),
-        headers={"Content-Type": "application/json"},
-        json=payload,
+    # send_request is not exposed on this SDK client shape; use generated operation.
+    cast(Any, client)._client.skillsets.create_or_update(
+        skillset_name=config.skillset_name,
+        prefer="return=representation",
+        skillset=json.dumps(payload).encode("utf-8"),
+        headers=cast(Any, client)._merge_client_headers(None),
     )
-    response = cast(Any, client).send_request(request)
-    response.raise_for_status()
 
 
 def _delete_if_exists(delete_fn, resource_name: str, resource_kind: str) -> None:
