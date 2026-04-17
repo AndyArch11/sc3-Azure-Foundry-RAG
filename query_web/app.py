@@ -15,7 +15,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Literal, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, cast
 
 
 import requests  # type: ignore[import-untyped]
@@ -797,6 +797,9 @@ class AskRequest(BaseModel):
     controls_semantic: bool | None = None
     controls_framework: str | None = None
     controls_comparison_mode: str = "auto-detect"
+    evidence_corpora_include: list[str] | None = None
+    evidence_corpora_exclude: list[str] | None = None
+    advanced_mode: bool = False
 
 
 class CorpusAIngestRequest(BaseModel):
@@ -816,6 +819,8 @@ class ComplianceReportRequest(BaseModel):
     controls_comparison_mode: str = "auto-detect"
     corpus_b_upload_batch: str | None = None
     corpus_c_upload_batch: str | None = None
+    evidence_corpora_include: list[str] | None = None
+    evidence_corpora_exclude: list[str] | None = None
     assessment_strategy: Literal["single_pass", "per_control"] = "single_pass"
     validation_mode: Literal["hard", "soft"] = "hard"
     auth_token: str = ""
@@ -1528,39 +1533,64 @@ def _generate_compliance_report_result(
         comparison_mode=_normalise_controls_comparison_mode(payload.controls_comparison_mode),
     )
 
-    corpus_b_filter = "corpus eq 'b'"
-    corpus_b_indexed_total = _count_search_documents_total_by_filter(
-        search_client, filter_expr=corpus_b_filter
+    selected_evidence_corpora = _resolve_evidence_corpora(
+        payload.evidence_corpora_include,
+        payload.evidence_corpora_exclude,
+        default_corpora=["b", "c"],
     )
+    evidence_corpus_filter_expr = _build_evidence_corpus_filter(selected_evidence_corpora)
+    include_corpus_b = "b" in selected_evidence_corpora
+    include_corpus_c = "c" in selected_evidence_corpora
+
+    corpus_b_filter = "corpus eq 'b'"
     corpus_b_filtered_total: int | None = None
-    if payload.corpus_b_upload_batch:
-        escaped_batch = payload.corpus_b_upload_batch.replace("'", "''")
-        corpus_b_filter = f"{corpus_b_filter} and upload_batch eq '{escaped_batch}'"
-        corpus_b_filtered_total = _count_search_documents_total_by_filter(
+    if include_corpus_b:
+        corpus_b_filter_expr = corpus_b_filter
+        corpus_b_indexed_total = _count_search_documents_total_by_filter(
             search_client, filter_expr=corpus_b_filter
         )
-    corpus_b_chunks, b_timings = _hybrid_search(
-        question,
-        retrieve_k=payload.retrieve_k,
-        evidence_filter=corpus_b_filter,
-    )
+        if payload.corpus_b_upload_batch:
+            escaped_batch = payload.corpus_b_upload_batch.replace("'", "''")
+            corpus_b_filter = f"{corpus_b_filter} and upload_batch eq '{escaped_batch}'"
+            corpus_b_filter_expr = corpus_b_filter
+            corpus_b_filtered_total = _count_search_documents_total_by_filter(
+                search_client, filter_expr=corpus_b_filter
+            )
+        corpus_b_chunks, b_timings = _hybrid_search(
+            question,
+            retrieve_k=payload.retrieve_k,
+            evidence_filter=corpus_b_filter,
+        )
+    else:
+        corpus_b_indexed_total = 0
+        corpus_b_chunks = []
+        b_timings = {"search_s": 0.0}
+        corpus_b_filter_expr = None
 
     corpus_c_filter = "corpus eq 'c'"
-    corpus_c_indexed_total = _count_search_documents_total_by_filter(
-        search_client, filter_expr=corpus_c_filter
-    )
     corpus_c_filtered_total: int | None = None
-    if payload.corpus_c_upload_batch:
-        escaped_batch = payload.corpus_c_upload_batch.replace("'", "''")
-        corpus_c_filter = f"{corpus_c_filter} and upload_batch eq '{escaped_batch}'"
-        corpus_c_filtered_total = _count_search_documents_total_by_filter(
+    if include_corpus_c:
+        corpus_c_filter_expr = corpus_c_filter
+        corpus_c_indexed_total = _count_search_documents_total_by_filter(
             search_client, filter_expr=corpus_c_filter
         )
-    corpus_c_chunks, c_timings = _hybrid_search(
-        question,
-        retrieve_k=payload.retrieve_k,
-        evidence_filter=corpus_c_filter,
-    )
+        if payload.corpus_c_upload_batch:
+            escaped_batch = payload.corpus_c_upload_batch.replace("'", "''")
+            corpus_c_filter = f"{corpus_c_filter} and upload_batch eq '{escaped_batch}'"
+            corpus_c_filter_expr = corpus_c_filter
+            corpus_c_filtered_total = _count_search_documents_total_by_filter(
+                search_client, filter_expr=corpus_c_filter
+            )
+        corpus_c_chunks, c_timings = _hybrid_search(
+            question,
+            retrieve_k=payload.retrieve_k,
+            evidence_filter=corpus_c_filter,
+        )
+    else:
+        corpus_c_indexed_total = 0
+        corpus_c_chunks = []
+        c_timings = {"search_s": 0.0}
+        corpus_c_filter_expr = None
 
     strategy = payload.assessment_strategy
     used_fallback_payload = False
@@ -1727,6 +1757,12 @@ def _generate_compliance_report_result(
         "corpus_c_indexed_total": corpus_c_indexed_total,
         "corpus_b_upload_batch_filter": payload.corpus_b_upload_batch,
         "corpus_c_upload_batch_filter": payload.corpus_c_upload_batch,
+        "evidence_corpora_selected": selected_evidence_corpora,
+        "audit": {
+            "evidence_corpus_filter_expr": evidence_corpus_filter_expr,
+            "corpus_b_filter_expr": corpus_b_filter_expr,
+            "corpus_c_filter_expr": corpus_c_filter_expr,
+        },
         "corpus_b_filtered_total": corpus_b_filtered_total,
         "corpus_c_filtered_total": corpus_c_filtered_total,
         "timings": {
@@ -2105,6 +2141,7 @@ class AskResponse(BaseModel):
     evaluation: dict[str, Any] | None
     iterations: int | None
     metrics: dict[str, float] | None
+    audit: dict[str, Any] | None = None
     error: str
 
 
@@ -2391,6 +2428,11 @@ def _hybrid_search(
     not yet run), it returns an empty result set rather than failing the query.
     """
     timings: dict[str, float] = {}
+
+    if evidence_filter == "__none__":
+        timings["embedding_s"] = 0.0
+        timings["search_s"] = 0.0
+        return [], timings
 
     t0 = time.perf_counter()
     try:
@@ -2709,6 +2751,81 @@ _CONTROLS_COMPARISON_MODES = {
     "auto-detect",
     "force_cross_framework_comparison",
 }
+
+_EVIDENCE_CORPUS_ALIASES = {
+    "a": "a",
+    "corpus-a": "a",
+    "corpus_a": "a",
+    "b": "b",
+    "corpus-b": "b",
+    "corpus_b": "b",
+    "c": "c",
+    "corpus-c": "c",
+    "corpus_c": "c",
+    "legacy": "legacy",
+}
+
+_EVIDENCE_CORPUS_ORDER = ("a", "b", "c", "legacy")
+
+
+def _normalise_evidence_corpus(raw_value: str) -> str | None:
+    value = (raw_value or "").strip().lower()
+    if not value:
+        return None
+    return _EVIDENCE_CORPUS_ALIASES.get(value)
+
+
+def _normalise_evidence_corpora(values: Iterable[str] | None) -> list[str] | None:
+    if values is None:
+        return None
+
+    selected: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        normalised = _normalise_evidence_corpus(raw)
+        if not normalised or normalised in seen:
+            continue
+        selected.append(normalised)
+        seen.add(normalised)
+    return selected
+
+
+def _parse_evidence_corpora_csv(raw_value: str | None) -> list[str] | None:
+    text = (raw_value or "").strip()
+    if not text:
+        return None
+    parts = [part.strip() for part in text.split(",") if part.strip()]
+    return _normalise_evidence_corpora(parts)
+
+
+def _resolve_evidence_corpora(
+    include: Iterable[str] | None,
+    exclude: Iterable[str] | None,
+    *,
+    default_corpora: Iterable[str] | None = None,
+) -> list[str]:
+    include_normalised = _normalise_evidence_corpora(include)
+    exclude_normalised = set(_normalise_evidence_corpora(exclude) or [])
+
+    if include is not None:
+        base = include_normalised or []
+    else:
+        defaults = _normalise_evidence_corpora(default_corpora)
+        base = defaults if defaults is not None else list(_EVIDENCE_CORPUS_ORDER)
+    return [corpus for corpus in base if corpus not in exclude_normalised]
+
+
+def _build_evidence_corpus_filter(selected_corpora: Iterable[str]) -> str | None:
+    selected_set = set(selected_corpora)
+    selected = [c for c in _EVIDENCE_CORPUS_ORDER if c in selected_set]
+    if not selected:
+        return "__none__"
+    if set(selected) == set(_EVIDENCE_CORPUS_ORDER):
+        return None
+    if len(selected) == 1:
+        return f"corpus eq '{selected[0]}'"
+    clauses = [f"corpus eq '{corpus}'" for corpus in selected]
+    return "(" + " or ".join(clauses) + ")"
 
 
 def _normalise_controls_comparison_mode(raw_value: str | None) -> str:
@@ -3435,6 +3552,8 @@ def _run_rag(
     controls_semantic: bool,
     controls_framework: str | None = None,
     controls_comparison_mode: str = "auto-detect",
+    evidence_corpora_include: list[str] | None = None,
+    evidence_corpora_exclude: list[str] | None = None,
     conversation_history: list[ConversationMessage] | None = None,
     feedback_context: str = "",
 ) -> dict[str, Any]:
@@ -3472,7 +3591,21 @@ def _run_rag(
             blocked["metrics"].update(guardrail_decision.metrics)
         return blocked
 
-    chunks, retrieval_timings = _hybrid_search(question, retrieve_k=retrieve_k)
+    selected_evidence_corpora = _resolve_evidence_corpora(
+        evidence_corpora_include,
+        evidence_corpora_exclude,
+    )
+    evidence_filter = _build_evidence_corpus_filter(selected_evidence_corpora)
+    chunks, retrieval_timings = _hybrid_search(
+        question,
+        retrieve_k=retrieve_k,
+        evidence_filter=evidence_filter,
+    )
+    retrieval_timings["evidence_corpus_filter_enabled"] = float(
+        evidence_filter not in {None, "__none__"}
+    )
+    retrieval_timings["evidence_corpus_none_selected"] = float(evidence_filter == "__none__")
+    retrieval_timings["evidence_corpus_selected_count"] = float(len(selected_evidence_corpora))
     controls, controls_timings = _controls_search(
         question,
         retrieve_k=config.controls_top_k,
@@ -3499,6 +3632,10 @@ def _run_rag(
                 "reason": "No search context returned.",
             },
             "iterations": 1,
+            "audit": {
+                "evidence_corpus_filter_expr": evidence_filter,
+                "evidence_corpora_selected": selected_evidence_corpora,
+            },
             "metrics": {
                 **retrieval_timings,
                 **controls_timings,
@@ -3706,6 +3843,10 @@ def _run_rag(
         "controls_debug": controls_debug,
         "evaluation": evaluation,
         "iterations": iterations,
+        "audit": {
+            "evidence_corpus_filter_expr": evidence_filter,
+            "evidence_corpora_selected": selected_evidence_corpora,
+        },
         "metrics": metrics,
     }
 
@@ -4577,6 +4718,9 @@ def home(request: Request) -> HTMLResponse:
             "controls_semantic": config.controls_semantic_default,
             "controls_framework": "",
             "controls_comparison_mode": "auto-detect",
+            "evidence_corpora_include": "",
+            "evidence_corpora_exclude": "",
+            "advanced_mode": False,
             "auth_token": "",
             "index_name": config.search_index_name,
             "embedding_deployment": config.embedding_deployment,
@@ -4599,12 +4743,16 @@ def ask(
     controls_semantic: str = Form(""),
     controls_framework: str = Form(""),
     controls_comparison_mode: str = Form("auto-detect"),
+    evidence_corpora_include: str = Form(""),
+    evidence_corpora_exclude: str = Form(""),
+    advanced_mode: str = Form(""),
     auth_token: str = Form(""),
     session_id: str = Form(default=""),
     conversation_id: str = Form(default=""),
 ) -> HTMLResponse:
     user_id = _get_user_id(auth_token, session_id)
     session = None
+    advanced_mode_enabled = _form_bool(advanced_mode, default=False)
 
     if not _is_authorised_request(auth_token, request):
         return templates.TemplateResponse(
@@ -4630,6 +4778,9 @@ def ask(
                 "controls_comparison_mode": _normalise_controls_comparison_mode(
                     controls_comparison_mode
                 ),
+                "evidence_corpora_include": (evidence_corpora_include or "").strip(),
+                "evidence_corpora_exclude": (evidence_corpora_exclude or "").strip(),
+                "advanced_mode": advanced_mode_enabled,
                 "auth_token": "",
                 "index_name": config.search_index_name,
                 "embedding_deployment": config.embedding_deployment,
@@ -4654,6 +4805,10 @@ def ask(
     controls_framework_value = (controls_framework or "").strip().lower()
     controls_framework_filter = _normalise_framework_filter(controls_framework_value)
     controls_comparison_mode_value = _normalise_controls_comparison_mode(controls_comparison_mode)
+    evidence_corpora_include_value = (evidence_corpora_include or "").strip()
+    evidence_corpora_exclude_value = (evidence_corpora_exclude or "").strip()
+    evidence_corpora_include_filter = _parse_evidence_corpora_csv(evidence_corpora_include_value)
+    evidence_corpora_exclude_filter = _parse_evidence_corpora_csv(evidence_corpora_exclude_value)
 
     try:
         conversation_history = session.messages if session else []
@@ -4666,6 +4821,8 @@ def ask(
             controls_semantic=controls_semantic_enabled,
             controls_framework=controls_framework_filter,
             controls_comparison_mode=controls_comparison_mode_value,
+            evidence_corpora_include=evidence_corpora_include_filter,
+            evidence_corpora_exclude=evidence_corpora_exclude_filter,
             conversation_history=conversation_history,
             feedback_context=feedback_context,
         )
@@ -4710,6 +4867,9 @@ def ask(
             "controls_semantic": controls_semantic_enabled,
             "controls_framework": controls_framework_value,
             "controls_comparison_mode": controls_comparison_mode_value,
+            "evidence_corpora_include": evidence_corpora_include_value,
+            "evidence_corpora_exclude": evidence_corpora_exclude_value,
+            "advanced_mode": advanced_mode_enabled,
             "auth_token": auth_token,
             "index_name": config.search_index_name,
             "embedding_deployment": config.embedding_deployment,
@@ -4735,6 +4895,7 @@ def ask_api(request: Request, payload: AskRequest) -> AskResponse:
             evaluation=None,
             iterations=None,
             metrics=None,
+            audit=None,
             error="Question must not be empty.",
         )
 
@@ -4747,6 +4908,7 @@ def ask_api(request: Request, payload: AskRequest) -> AskResponse:
             evaluation=None,
             iterations=None,
             metrics=None,
+            audit=None,
             error=_unauthorised_message(request),
         )
 
@@ -4764,6 +4926,8 @@ def ask_api(request: Request, payload: AskRequest) -> AskResponse:
             controls_comparison_mode=_normalise_controls_comparison_mode(
                 payload.controls_comparison_mode
             ),
+            evidence_corpora_include=_normalise_evidence_corpora(payload.evidence_corpora_include),
+            evidence_corpora_exclude=_normalise_evidence_corpora(payload.evidence_corpora_exclude),
         )
         return AskResponse(
             answer=result["answer"],
@@ -4773,6 +4937,7 @@ def ask_api(request: Request, payload: AskRequest) -> AskResponse:
             evaluation=result["evaluation"],
             iterations=result["iterations"],
             metrics=result["metrics"],
+            audit=result.get("audit"),
             error="",
         )
     except Exception as exc:
@@ -4785,6 +4950,7 @@ def ask_api(request: Request, payload: AskRequest) -> AskResponse:
             evaluation=None,
             iterations=None,
             metrics=None,
+            audit=None,
             error=_INTERNAL_ERROR_MESSAGE,
         )
 

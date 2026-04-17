@@ -582,6 +582,77 @@ def test_compliance_report_uses_corpus_b_upload_batch_filter() -> None:
     assert hybrid_mock.call_count == 2
     first_call_kwargs = hybrid_mock.call_args_list[0].kwargs
     assert first_call_kwargs["evidence_filter"] == "corpus eq 'b' and upload_batch eq 'batch-b-123'"
+    assert body["audit"]["corpus_b_filter_expr"] == "corpus eq 'b' and upload_batch eq 'batch-b-123'"
+    assert body["audit"]["corpus_c_filter_expr"] == "corpus eq 'c'"
+
+
+def test_compliance_report_respects_evidence_corpus_include_exclude() -> None:
+    client = _test_client()
+
+    valid_report_json = (
+        "{"
+        '"schema_version":"v1.1",'
+        '"executive_summary":"Summary",'
+        '"scope_and_inputs":["Corpus A","Corpus B","Corpus C"],'
+        '"controls_assessed":["REQ-1"],'
+        '"guidance_applied":["Guide 1"],'
+        '"findings":[{'
+        '"finding_id":"F-1",'
+        '"requirement_id":"REQ-1",'
+        '"framework":"NIST CSF",'
+        '"status":"compliant",'
+        '"severity":"low",'
+        '"rationale":"Met",'
+        '"evidence_sources":["doc1"],'
+        '"gaps":[], '
+        '"recommendations":["Keep monitoring"]'
+        "}],"
+        '"overall_risk_rating":"low",'
+        '"missing_evidence":[], '
+        '"recommended_actions":["Continue"], '
+        '"citations":["REQ-1:doc1"]'
+        "}"
+    )
+
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_controls_search",
+            return_value=([], {"controls_search_s": 0.01}),
+        ),
+        patch.object(
+            app_module,
+            "_hybrid_search",
+            return_value=([], {"search_s": 0.01}),
+        ) as hybrid_mock,
+        patch.object(
+            app_module,
+            "_chat_completion",
+            return_value=valid_report_json,
+        ),
+    ):
+        response = client.post(
+            "/api/compliance/report",
+            json={
+                "question": "Assess control coverage.",
+                "evidence_corpora_include": ["corpus-b", "corpus-c"],
+                "evidence_corpora_exclude": ["c"],
+                "validation_mode": "hard",
+                "auth_token": "",
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["schema_valid"] is True
+    assert body["evidence_corpora_selected"] == ["b"]
+    assert body["corpus_c_count"] == 0
+    assert body["audit"]["evidence_corpus_filter_expr"] == "corpus eq 'b'"
+    assert body["audit"]["corpus_c_filter_expr"] is None
+    assert hybrid_mock.call_count == 1
+    call_kwargs = hybrid_mock.call_args_list[0].kwargs
+    assert call_kwargs["evidence_filter"] == "corpus eq 'b'"
 
 
 def test_assess_control_finding_coerces_scalar_list_fields() -> None:

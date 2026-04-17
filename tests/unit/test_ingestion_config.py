@@ -24,6 +24,7 @@ def test_ingestion_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EMBEDDING_DEPLOYMENT_NAME", "text-embedding-3-large")
     monkeypatch.setenv("EMBEDDING_DIMENSIONS", "3072")
     monkeypatch.setenv("AZURE_STORAGE_CONTAINER_NAME", "grounding-data")
+    monkeypatch.setenv("AZURE_STORAGE_CONTAINER_QUERY", "corpus-b/by-dedupe/")
     monkeypatch.setenv("CHUNK_SIZE", "1000")
     monkeypatch.setenv("CHUNK_OVERLAP", "100")
 
@@ -38,5 +39,6 @@ def test_ingestion_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.embedding_dimensions == 3072
     assert cfg.storage_account_name == "storacct"
     assert cfg.storage_container_name == "grounding-data"
+    assert cfg.storage_container_query == "corpus-b/by-dedupe/"
     assert cfg.chunk_size == 1000
     assert cfg.chunk_overlap == 100

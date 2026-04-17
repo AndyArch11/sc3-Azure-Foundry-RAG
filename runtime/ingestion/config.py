@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from typing import Optional
 
 
 def _require(key: str) -> str:
@@ -31,6 +32,9 @@ class IngestionConfig:
     # Azure Storage (blob source)
     storage_account_name: str
     storage_container_name: str
+    # Optional blob virtual directory prefix used by Azure Search data source
+    # query, e.g. "corpus-b/by-dedupe/" or "corpus-c/by-dedupe/".
+    storage_container_query: Optional[str]
     # ARM resource ID for managed-identity data source connection, e.g.:
     #   /subscriptions/.../resourceGroups/.../providers/Microsoft.Storage/storageAccounts/name
     # Obtain with: az storage account show -g <rg> -n <name> --query id -o tsv
@@ -59,6 +63,9 @@ class IngestionConfig:
             embedding_dimensions=int(os.environ.get("EMBEDDING_DIMENSIONS", "1536")),
             storage_account_name=_require("AZURE_STORAGE_ACCOUNT_NAME"),
             storage_container_name=os.environ.get("AZURE_STORAGE_CONTAINER_NAME", "grounding-data"),
+            storage_container_query=(
+                (os.environ.get("AZURE_STORAGE_CONTAINER_QUERY") or "").strip() or None
+            ),
             storage_resource_id=_require("AZURE_STORAGE_RESOURCE_ID"),
             chunk_size=int(os.environ.get("CHUNK_SIZE", "1200")),
             chunk_overlap=int(os.environ.get("CHUNK_OVERLAP", "200")),

@@ -363,7 +363,10 @@ def ensure_data_source(config: IngestionConfig, credential: TokenCredential) -> 
         name=config.data_source_name,
         type=SearchIndexerDataSourceType.AZURE_BLOB,
         connection_string=connection_string,
-        container=SearchIndexerDataContainer(name=config.storage_container_name),
+        container=SearchIndexerDataContainer(
+            name=config.storage_container_name,
+            query=config.storage_container_query,
+        ),
     )
 
     client.create_or_update_data_source_connection(data_source)
@@ -474,7 +477,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         inputs=[
             InputFieldMappingEntry(
                 name="condition",
-                source="=($(/document/metadata_uploaded_by) == null || $(/document/metadata_uploaded_by) == '')",
+                source="=(if(exists($(/document/metadata_uploaded_by)), $(/document/metadata_uploaded_by) == null || $(/document/metadata_uploaded_by) == '', true))",
             ),
             InputFieldMappingEntry(name="whenTrue", source="='unknown'"),
             InputFieldMappingEntry(
@@ -500,7 +503,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         inputs=[
             InputFieldMappingEntry(
                 name="condition",
-                source="=($(/document/metadata_uploaded_at) == null || $(/document/metadata_uploaded_at) == '')",
+                source="=(if(exists($(/document/metadata_uploaded_at)), $(/document/metadata_uploaded_at) == null || $(/document/metadata_uploaded_at) == '', true))",
             ),
             InputFieldMappingEntry(name="whenTrue", source="='1970-01-01T00:00:00Z'"),
             InputFieldMappingEntry(
@@ -526,7 +529,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         inputs=[
             InputFieldMappingEntry(
                 name="condition",
-                source="=($(/document/metadata_dedupe_hash) == null || $(/document/metadata_dedupe_hash) == '')",
+                source="=(if(exists($(/document/metadata_dedupe_hash)), $(/document/metadata_dedupe_hash) == null || $(/document/metadata_dedupe_hash) == '', true))",
             ),
             InputFieldMappingEntry(name="whenTrue", source="/document/metadata_storage_path"),
             InputFieldMappingEntry(
@@ -549,7 +552,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         inputs=[
             InputFieldMappingEntry(
                 name="condition",
-                source="=($(/document/metadata_dedupe_method) == null || $(/document/metadata_dedupe_method) == '')",
+                source="=(if(exists($(/document/metadata_dedupe_method)), $(/document/metadata_dedupe_method) == null || $(/document/metadata_dedupe_method) == '', true))",
             ),
             InputFieldMappingEntry(name="whenTrue", source="='content_sha256'"),
             InputFieldMappingEntry(
@@ -572,7 +575,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         inputs=[
             InputFieldMappingEntry(
                 name="condition",
-                source="=($(/document/metadata_corpus) == null || $(/document/metadata_corpus) == '')",
+                source="=(if(exists($(/document/metadata_corpus)), $(/document/metadata_corpus) == null || $(/document/metadata_corpus) == '', true))",
             ),
             InputFieldMappingEntry(name="whenTrue", source="='legacy'"),
             InputFieldMappingEntry(
@@ -595,7 +598,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         inputs=[
             InputFieldMappingEntry(
                 name="condition",
-                source="=($(/document/metadata_corpus_role) == null || $(/document/metadata_corpus_role) == '')",
+                source="=(if(exists($(/document/metadata_corpus_role)), $(/document/metadata_corpus_role) == null || $(/document/metadata_corpus_role) == '', true))",
             ),
             InputFieldMappingEntry(name="whenTrue", source="='unknown'"),
             InputFieldMappingEntry(
@@ -618,7 +621,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         inputs=[
             InputFieldMappingEntry(
                 name="condition",
-                source="=($(/document/metadata_upload_source) == null || $(/document/metadata_upload_source) == '')",
+                source="=(if(exists($(/document/metadata_upload_source)), $(/document/metadata_upload_source) == null || $(/document/metadata_upload_source) == '', true))",
             ),
             InputFieldMappingEntry(name="whenTrue", source="='legacy'"),
             InputFieldMappingEntry(
@@ -641,7 +644,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         inputs=[
             InputFieldMappingEntry(
                 name="condition",
-                source="=($(/document/metadata_upload_batch) == null || $(/document/metadata_upload_batch) == '')",
+                source="=(if(exists($(/document/metadata_upload_batch)), $(/document/metadata_upload_batch) == null || $(/document/metadata_upload_batch) == '', true))",
             ),
             InputFieldMappingEntry(name="whenTrue", source="='legacy'"),
             InputFieldMappingEntry(
@@ -664,7 +667,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         inputs=[
             InputFieldMappingEntry(
                 name="condition",
-                source="=($(/document/metadata_original_filename) == null || $(/document/metadata_original_filename) == '')",
+                source="=(if(exists($(/document/metadata_original_filename)), $(/document/metadata_original_filename) == null || $(/document/metadata_original_filename) == '', true))",
             ),
             InputFieldMappingEntry(name="whenTrue", source="/document/metadata_storage_name"),
             InputFieldMappingEntry(
@@ -687,7 +690,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         inputs=[
             InputFieldMappingEntry(
                 name="condition",
-                source="=($(/document/metadata_normalised_text_sha256) == null || $(/document/metadata_normalised_text_sha256) == '')",
+                source="=(if(exists($(/document/metadata_normalised_text_sha256)), $(/document/metadata_normalised_text_sha256) == null || $(/document/metadata_normalised_text_sha256) == '', true))",
             ),
             InputFieldMappingEntry(name="whenTrue", source="/document/dedupe_hash_safe"),
             InputFieldMappingEntry(

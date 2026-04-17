@@ -107,6 +107,55 @@ def test_api_ask_returns_guardrail_refusal_for_blocked_prompt() -> None:
     assert body["evaluation"]["acceptable"] is False
 
 
+def test_evidence_corpus_helpers_normalise_and_build_filter() -> None:
+    selected = app_module._resolve_evidence_corpora(
+        ["corpus-b", "C", "unknown"],
+        ["c"],
+    )
+
+    assert selected == ["b"]
+    assert app_module._build_evidence_corpus_filter(selected) == "corpus eq 'b'"
+    assert app_module._build_evidence_corpus_filter([]) == "__none__"
+
+
+def test_api_ask_forwards_evidence_corpus_filters() -> None:
+    client = TestClient(app_module.app)
+
+    with patch.object(
+        app_module,
+        "_run_rag",
+        return_value={
+            "answer": "ok",
+            "results": [],
+            "controls_results": [],
+            "controls_debug": None,
+            "evaluation": {"acceptable": True, "score": 1.0, "reason": "ok"},
+            "iterations": 1,
+            "metrics": {},
+            "audit": {"evidence_corpus_filter_expr": "corpus eq 'b'"},
+        },
+    ) as run_mock:
+        response = client.post(
+            "/api/ask",
+            json={
+                "question": "test question",
+                "retrieve_k": 5,
+                "temperature": 0.1,
+                "auth_token": "",
+                "controls_semantic": False,
+                "evidence_corpora_include": ["corpus-b", "c"],
+                "evidence_corpora_exclude": ["legacy"],
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["audit"]["evidence_corpus_filter_expr"] == "corpus eq 'b'"
+    kwargs = run_mock.call_args.kwargs
+    assert kwargs["evidence_corpora_include"] == ["b", "c"]
+    assert kwargs["evidence_corpora_exclude"] == ["legacy"]
+
+
 def test_call_validator_parses_fenced_json_response() -> None:
     test_config = replace(
         app_module.config,

@@ -46,7 +46,14 @@
           <label for="question"><strong>Question</strong></label>
           <textarea id="question" name="question" placeholder="Ask about your indexed documents..." title="Enter a question to run against indexed corpora and control guidance.">{{ question or '' }}</textarea>
 
-          <div class="grid">
+          <div class="field" style="margin-top:10px">
+            <label for="advanced_mode" style="display:flex;gap:8px;align-items:center;cursor:pointer">
+              <input id="advanced_mode" name="advanced_mode" type="checkbox" value="1" {% if advanced_mode %}checked{% endif %} />
+              <span><strong>Advanced</strong></span>
+            </label>
+          </div>
+
+          <div class="grid" id="ask-advanced-fields" {% if not advanced_mode %}style="display:none"{% endif %}>
             <div class="field">
               <label for="retrieve_k">Top K chunks</label>
               <input id="retrieve_k" name="retrieve_k" type="number" min="1" max="20" value="{{ retrieve_k }}" title="Number of top chunks retrieved from the grounding index for each query." />
@@ -83,6 +90,14 @@
               </select>
             </div>
             <div class="field">
+              <label for="evidence_corpora_include">Include corpora (B,C,etc)</label>
+              <input id="evidence_corpora_include" name="evidence_corpora_include" type="text" value="{{ evidence_corpora_include or '' }}" placeholder="e.g. b,c" title="Comma-separated evidence corpora to include in grounding retrieval. Supports aliases like corpus-b, corpus-c, a, b, c, legacy." />
+            </div>
+            <div class="field">
+              <label for="evidence_corpora_exclude">Exclude corpora</label>
+              <input id="evidence_corpora_exclude" name="evidence_corpora_exclude" type="text" value="{{ evidence_corpora_exclude or '' }}" placeholder="e.g. legacy" title="Comma-separated evidence corpora to exclude from grounding retrieval." />
+            </div>
+            <div class="field">
               <label for="auth_token">Access token{% if not auth_enabled %} (disabled){% endif %}</label>
               <input id="auth_token" name="auth_token" type="password" value="{{ auth_token or '' }}" {% if not auth_enabled %}disabled{% endif %} title="Optional bearer token used when API authentication is enabled." />
             </div>
@@ -96,8 +111,8 @@
         <p style="color:#b91c1c"><strong>Error:</strong> {{ error }}</p>
         {% endif %}
 
-        {% if evaluation %}
-        <div class="source">
+        {% if advanced_mode and evaluation %}
+        <div class="source" id="ask-evaluation-panel">
           <h3>Evaluation</h3>
           <p><strong>Acceptable:</strong> {{ evaluation.acceptable }} | <strong>Confidence:</strong> {{ '%.2f'|format(evaluation.score) }}</p>
           <p><strong>Reason:</strong> {{ evaluation.reason }}</p>
@@ -110,8 +125,8 @@
         </div>
         {% endif %}
 
-        {% if metrics %}
-        <div class="source">
+        {% if advanced_mode and metrics %}
+        <div class="source" id="ask-metrics-panel">
           <h3>Metrics</h3>
           <div class="metrics">
             <div class="metric"><div class="k">RAG retrieval</div><div class="v">{{ '%.3f'|format(metrics.rag_retrieval_s) }} s</div></div>
@@ -126,15 +141,15 @@
         </div>
         {% endif %}
 
-        {% if controls_debug %}
-        <div class="source">
+        {% if advanced_mode and controls_debug %}
+        <div class="source" id="ask-controls-debug-panel">
           <h3>Controls Retrieval Debug</h3>
           <div class="ops-status">{{ controls_debug | tojson(indent=2) }}</div>
         </div>
         {% endif %}
 
-        {% if controls_results %}
-        <div class="source">
+        {% if advanced_mode and controls_results %}
+        <div class="source" id="ask-controls-results-panel">
           <h3>Retrieved Controls (Top {{ controls_results|length }})</h3>
           {% for c in controls_results %}
             <p>
@@ -173,8 +188,8 @@
         </div>
         {% endif %}
 
-        {% if results %}
-        <div class="source">
+        {% if advanced_mode and results %}
+        <div class="source" id="ask-retrieved-chunks-panel">
           <h3>Retrieved Chunks (Top {{ results|length }})</h3>
           {% for r in results %}
             <p>
@@ -243,6 +258,14 @@
             <div class="field">
               <label for="cr-upload-batch">Corpus C upload batch (optional)</label>
               <input id="cr-upload-batch" type="text" placeholder="e.g. 4f1f2..." title="Optional: limit Corpus C evidence to a specific upload batch ID." />
+            </div>
+            <div class="field">
+              <label for="cr-corpora-include">Include evidence corpora</label>
+              <input id="cr-corpora-include" type="text" placeholder="e.g. b,c" title="Optional: comma-separated evidence corpora to include for report retrieval." />
+            </div>
+            <div class="field">
+              <label for="cr-corpora-exclude">Exclude evidence corpora</label>
+              <input id="cr-corpora-exclude" type="text" placeholder="e.g. c" title="Optional: comma-separated evidence corpora to exclude for report retrieval." />
             </div>
             <div class="field">
               <label for="cr-validation-mode">Schema validation mode</label>

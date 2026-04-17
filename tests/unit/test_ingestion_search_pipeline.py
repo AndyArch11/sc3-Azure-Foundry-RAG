@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 from types import SimpleNamespace
 
@@ -22,6 +23,7 @@ def _cfg() -> IngestionConfig:
         embedding_dimensions=3072,
         storage_account_name="storacct",
         storage_container_name="grounding-data",
+        storage_container_query=None,
         storage_resource_id="/subscriptions/x/resourceGroups/y/providers/Microsoft.Storage/storageAccounts/storacct",
 
         chunk_size=1000,
@@ -166,6 +168,8 @@ def test_ensure_data_source_uses_storage_resource_id(monkeypatch) -> None:
         def create_or_update_data_source_connection(self, ds):
             captured["name"] = ds.name
             captured["connection_string"] = ds.connection_string
+            captured["container_name"] = ds.container.name
+            captured["container_query"] = ds.container.query
 
     monkeypatch.setattr(search_pipeline, "SearchIndexerClient", _Client)
 
@@ -173,6 +177,27 @@ def test_ensure_data_source_uses_storage_resource_id(monkeypatch) -> None:
 
     assert captured["name"] == "grounding-index-datasource"
     assert captured["connection_string"].startswith("ResourceId=")
+    assert captured["container_name"] == "grounding-data"
+    assert captured["container_query"] is None
+
+
+def test_ensure_data_source_passes_container_query(monkeypatch) -> None:
+    captured = {}
+
+    class _Client:
+        def __init__(self, endpoint: str, credential) -> None:
+            pass
+
+        def create_or_update_data_source_connection(self, ds):
+            captured["container_query"] = ds.container.query
+
+    monkeypatch.setattr(search_pipeline, "SearchIndexerClient", _Client)
+
+    cfg = _cfg()
+    cfg = dataclasses.replace(cfg, storage_container_query="corpus-c/by-dedupe/")
+    search_pipeline.ensure_data_source(cfg, credential=_FakeCredential())
+
+    assert captured["container_query"] == "corpus-c/by-dedupe/"
 
 
 def test_ensure_skillset_uses_preview_rest_with_explicit_null_identity(monkeypatch) -> None:
@@ -215,15 +240,15 @@ def test_ensure_skillset_uses_preview_rest_with_explicit_null_identity(monkeypat
     skills = captured["body"]["skills"]
     by_name = {skill.get("name"): skill for skill in skills}
     assert by_name["default-uploaded-by"]["inputs"][0]["source"] == (
-        "=($(/document/metadata_uploaded_by) == null || $(/document/metadata_uploaded_by) == '')"
+        "=(if(exists($(/document/metadata_uploaded_by)), $(/document/metadata_uploaded_by) == null || $(/document/metadata_uploaded_by) == '', true))"
     )
     assert by_name["default-uploaded-by"]["inputs"][1]["source"] == "='unknown'"
     assert by_name["default-uploaded-at"]["inputs"][0]["source"] == (
-        "=($(/document/metadata_uploaded_at) == null || $(/document/metadata_uploaded_at) == '')"
+        "=(if(exists($(/document/metadata_uploaded_at)), $(/document/metadata_uploaded_at) == null || $(/document/metadata_uploaded_at) == '', true))"
     )
     assert by_name["default-uploaded-at"]["inputs"][1]["source"] == "='1970-01-01T00:00:00Z'"
     assert by_name["default-normalised-text-sha256"]["inputs"][0]["source"] == (
-        "=($(/document/metadata_normalised_text_sha256) == null || $(/document/metadata_normalised_text_sha256) == '')"
+        "=(if(exists($(/document/metadata_normalised_text_sha256)), $(/document/metadata_normalised_text_sha256) == null || $(/document/metadata_normalised_text_sha256) == '', true))"
     )
     assert by_name["default-normalised-text-sha256"]["inputs"][1]["source"] == (
         "/document/dedupe_hash_safe"

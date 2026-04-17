@@ -858,6 +858,15 @@
       return;
     }
 
+    const corporaInclude = document.getElementById('cr-corpora-include').value
+      .split(',')
+      .map(v => v.trim())
+      .filter(Boolean);
+    const corporaExclude = document.getElementById('cr-corpora-exclude').value
+      .split(',')
+      .map(v => v.trim())
+      .filter(Boolean);
+
     const body = {
       question: question,
       retrieve_k: Number(document.getElementById('cr-retrieve-k').value || 5),
@@ -867,6 +876,8 @@
       controls_comparison_mode: document.getElementById('cr-controls-comparison-mode').value || 'auto-detect',
       corpus_b_upload_batch: document.getElementById('cr-b-upload-batch').value.trim() || null,
       corpus_c_upload_batch: document.getElementById('cr-upload-batch').value.trim() || null,
+      evidence_corpora_include: corporaInclude.length ? corporaInclude : null,
+      evidence_corpora_exclude: corporaExclude.length ? corporaExclude : null,
       assessment_strategy: 'per_control',
       validation_mode: document.getElementById('cr-validation-mode').value || 'hard',
       auth_token: _currentAuthToken(),
@@ -1017,6 +1028,15 @@
 
     const askForm = document.getElementById('ask-form');
     const askBtn = document.getElementById('ask-submit-btn');
+    const askAdvancedToggle = document.getElementById('advanced_mode');
+    const askAdvancedFields = document.getElementById('ask-advanced-fields');
+    if (askAdvancedToggle && askAdvancedFields) {
+      const refreshAdvancedVisibility = function () {
+        askAdvancedFields.style.display = askAdvancedToggle.checked ? '' : 'none';
+      };
+      askAdvancedToggle.addEventListener('change', refreshAdvancedVisibility);
+      refreshAdvancedVisibility();
+    }
     if (askForm && askBtn) {
       askForm.addEventListener('submit', function () {
         const questionField = document.getElementById('question');
