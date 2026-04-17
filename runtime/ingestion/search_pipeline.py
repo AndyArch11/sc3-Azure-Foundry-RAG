@@ -115,8 +115,8 @@ def _create_or_update_skillset_via_preview_rest(
         "identity": None,
     }
 
-    logger.info(
-        "Skillset payload projection sources: %s",
+    logger.warning(
+        "Skillset PUT payload — projection sources: %s",
         {
             m["name"]: m["source"]
             for m in payload.get("indexProjections", {})
@@ -142,7 +142,7 @@ def _create_or_update_skillset_via_preview_rest(
         s.get("name") if isinstance(s, dict) else getattr(s, "name", None)
         for s in (getattr(result, "skills", []) or [])
     ]
-    logger.info("Skillset PUT response — skills: %s", result_skills)
+    logger.warning("Skillset PUT response — skills: %s", result_skills)
 
 
 def _delete_if_exists(delete_fn, resource_name: str, resource_kind: str) -> None:

@@ -343,6 +343,11 @@ def _run_azure(args: argparse.Namespace) -> int:
     ensure_skillset(config, credential)
 
     logger.info("Ensuring indexer…")
+    # Brief pause to allow Azure Search to propagate the skillset update before the indexer runs.
+    import time as _time
+    _time.sleep(5)
+    logger.warning("Skillset propagation pause complete; proceeding with indexer provisioning.")
+
     ensure_indexer(config, credential)
 
     # Step 3: trigger and wait for indexer run
