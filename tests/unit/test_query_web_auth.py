@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+from types import SimpleNamespace
 from dataclasses import replace
 from unittest.mock import patch
 
@@ -315,3 +316,296 @@ def test_confluence_poll_status_falls_back_to_poll_state_when_summary_missing() 
     assert body["last_poll"]["polled_at"] == "2026-04-13T03:00:00+00:00"
     assert body["last_poll"]["last_processed_event_id"] == "evt-123"
     assert body["last_poll"]["poll_count"] == 5
+
+
+def test_search_resources_diagnostics_blocked_when_target_env_prod() -> None:
+    client = TestClient(app_module.app)
+    patched_config = replace(app_module.config, required_group_object_id="", auth_token="")
+
+    with (
+        patch.object(app_module, "config", patched_config),
+        patch.dict(os.environ, {"TARGET_ENV": "prod"}, clear=False),
+    ):
+        response = client.get("/api/diagnostics/search/resources")
+
+    body = response.json()
+    assert response.status_code == 403
+    assert "disabled" in body["error"].lower()
+    assert body["target_env"] == "prod"
+
+
+def test_search_resources_diagnostics_returns_resource_summary_in_dev() -> None:
+    client = TestClient(app_module.app)
+    patched_config = replace(app_module.config, required_group_object_id="", auth_token="")
+
+    class _FakeSearchIndexClient:
+        def __init__(self, endpoint: str, credential: object):
+            self.endpoint = endpoint
+            self.credential = credential
+
+        def list_indexes(self):
+            return [SimpleNamespace(name="grounding-index")]
+
+    class _FakeSearchIndexerClient:
+        def __init__(self, endpoint: str, credential: object):
+            self.endpoint = endpoint
+            self.credential = credential
+
+        def list_data_source_connections(self):
+            container = SimpleNamespace(name="grounding-data", query="corpus-b/by-dedupe/")
+            return [SimpleNamespace(name="grounding-index-datasource", type="azureblob", container=container)]
+
+        def list_skillsets(self):
+            return [SimpleNamespace(name="grounding-index-skillset", skills=[object(), object()])]
+
+        def list_indexers(self):
+            return [
+                SimpleNamespace(
+                    name="grounding-index-indexer",
+                    data_source_name="grounding-index-datasource",
+                    target_index_name="grounding-index",
+                    skillset_name="grounding-index-skillset",
+                )
+            ]
+
+        def get_indexer_status(self, name: str):
+            assert name == "grounding-index-indexer"
+            last_result = SimpleNamespace(
+                status="success",
+                item_count=7,
+                failed_item_count=0,
+                error_message=None,
+            )
+            return SimpleNamespace(last_result=last_result)
+
+    with (
+        patch.object(app_module, "config", patched_config),
+        patch.dict(os.environ, {"TARGET_ENV": "dev"}, clear=False),
+        patch.object(app_module, "SearchIndexClient", _FakeSearchIndexClient),
+        patch.object(app_module, "SearchIndexerClient", _FakeSearchIndexerClient),
+    ):
+        response = client.get("/api/diagnostics/search/resources")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["mode"] == "search-resources-diagnostics"
+    assert body["target_env"] == "dev"
+    assert body["indexes"][0]["name"] == "grounding-index"
+    assert body["data_sources"][0]["container"]["query"] == "corpus-b/by-dedupe/"
+    assert body["skillsets"][0]["skill_count"] == 2
+    assert body["indexers"][0]["last_result"]["status"] == "success"
+    assert body["indexers"][0]["last_result"]["items_processed"] == 7
+
+
+def test_storage_blobs_diagnostics_blocked_when_target_env_prod() -> None:
+    client = TestClient(app_module.app)
+    patched_config = replace(
+        app_module.config,
+        required_group_object_id="",
+        auth_token="",
+        storage_account_name="stdev",
+        storage_container_name="grounding-data",
+    )
+
+    with (
+        patch.object(app_module, "config", patched_config),
+        patch.dict(os.environ, {"TARGET_ENV": "prod"}, clear=False),
+    ):
+        response = client.get("/api/diagnostics/storage/blobs")
+
+    body = response.json()
+    assert response.status_code == 403
+    assert "disabled" in body["error"].lower()
+    assert body["target_env"] == "prod"
+
+
+def test_storage_blobs_diagnostics_returns_blob_inventory_in_dev() -> None:
+    client = TestClient(app_module.app)
+    patched_config = replace(
+        app_module.config,
+        required_group_object_id="",
+        auth_token="",
+        storage_account_name="stdev",
+        storage_container_name="grounding-data",
+    )
+
+    class _FakeContainer:
+        def list_blobs(self, name_starts_with: str | None = None):
+            assert name_starts_with == "corpus-b/by-dedupe/"
+            yield SimpleNamespace(
+                name="corpus-b/by-dedupe/hash1.pdf",
+                size=1234,
+                content_settings=SimpleNamespace(content_type="application/pdf"),
+                last_modified="2026-04-17T09:00:00+00:00",
+                etag='"etag-1"',
+                metadata={"corpus": "b", "upload_batch": "batch-1"},
+            )
+            yield SimpleNamespace(
+                name="corpus-b/by-dedupe/hash2.docx",
+                size=2345,
+                content_settings=SimpleNamespace(content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+                last_modified="2026-04-17T09:01:00+00:00",
+                etag='"etag-2"',
+                metadata={"corpus": "b", "upload_batch": "batch-2"},
+            )
+
+    class _FakeBlobServiceClient:
+        def __init__(self, account_url: str, credential: object):
+            self.account_url = account_url
+            self.credential = credential
+
+        def get_container_client(self, container_name: str):
+            assert container_name == "grounding-data"
+            return _FakeContainer()
+
+    with (
+        patch.object(app_module, "config", patched_config),
+        patch.dict(os.environ, {"TARGET_ENV": "dev"}, clear=False),
+        patch.object(app_module, "BlobServiceClient", _FakeBlobServiceClient),
+    ):
+        response = client.get(
+            "/api/diagnostics/storage/blobs?prefix=corpus-b/by-dedupe/&limit=10&include_metadata=true"
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["mode"] == "storage-blobs-diagnostics"
+    assert body["target_env"] == "dev"
+    assert body["storage_container_name"] == "grounding-data"
+    assert body["prefix"] == "corpus-b/by-dedupe/"
+    assert body["returned"] == 2
+    assert body["truncated"] is False
+    assert body["blobs"][0]["name"] == "corpus-b/by-dedupe/hash1.pdf"
+    assert body["blobs"][0]["metadata"]["upload_batch"] == "batch-1"
+
+
+def test_ingestion_overview_diagnostics_blocked_when_target_env_prod() -> None:
+    client = TestClient(app_module.app)
+    patched_config = replace(
+        app_module.config,
+        required_group_object_id="",
+        auth_token="",
+        storage_account_name="stdev",
+        storage_container_name="grounding-data",
+    )
+
+    with (
+        patch.object(app_module, "config", patched_config),
+        patch.dict(os.environ, {"TARGET_ENV": "prod"}, clear=False),
+    ):
+        response = client.get("/api/diagnostics/ingestion/overview")
+
+    body = response.json()
+    assert response.status_code == 403
+    assert "disabled" in body["error"].lower()
+    assert body["target_env"] == "prod"
+
+
+def test_ingestion_overview_diagnostics_returns_aggregate_snapshot_in_dev() -> None:
+    client = TestClient(app_module.app)
+    patched_config = replace(
+        app_module.config,
+        required_group_object_id="",
+        auth_token="",
+        storage_account_name="stdev",
+        storage_container_name="grounding-data",
+        ingestion_job_subscription_id="sub",
+        ingestion_job_resource_group="rg",
+        ingestion_job_name="job-ingestion",
+    )
+
+    class _FakeContainer:
+        def list_blobs(self, name_starts_with: str | None = None):
+            prefix = name_starts_with or ""
+            if prefix == "corpus-a/source/":
+                yield SimpleNamespace(
+                    name="corpus-a/source/nist/batch1/file1.jsonl",
+                    size=100,
+                    last_modified="2026-04-17T10:00:00+00:00",
+                    metadata={"corpus": "a", "upload_batch": "batch1"},
+                )
+            elif prefix == "corpus-b/by-dedupe/":
+                yield SimpleNamespace(
+                    name="corpus-b/by-dedupe/hash-b.pdf",
+                    size=200,
+                    last_modified="2026-04-17T10:01:00+00:00",
+                    metadata={"corpus": "b", "upload_batch": "batch-b"},
+                )
+            elif prefix == "corpus-c/by-dedupe/":
+                yield SimpleNamespace(
+                    name="corpus-c/by-dedupe/hash-c.pdf",
+                    size=300,
+                    last_modified="2026-04-17T10:02:00+00:00",
+                    metadata={"corpus": "c", "upload_batch": "batch-c"},
+                )
+
+    class _FakeBlobServiceClient:
+        def __init__(self, account_url: str, credential: object):
+            self.account_url = account_url
+            self.credential = credential
+
+        def get_container_client(self, container_name: str):
+            assert container_name == "grounding-data"
+            return _FakeContainer()
+
+    class _FakePager:
+        def __init__(self, count: int):
+            self._count = count
+            self._yielded = False
+
+        def __iter__(self):
+            if not self._yielded:
+                self._yielded = True
+                yield {"id": "1"}
+            return
+
+        def get_count(self):
+            return self._count
+
+    class _FakeSearchClient:
+        def search(self, **kwargs):
+            assert kwargs.get("include_total_count") is True
+            return _FakePager(9)
+
+    class _FakeSearchIndexerClient:
+        def __init__(self, endpoint: str, credential: object):
+            self.endpoint = endpoint
+            self.credential = credential
+
+        def get_data_source_connection(self, name: str):
+            assert name == "grounding-index-datasource"
+            # Empty query implies whole-container scan risk in shared-container setups.
+            return SimpleNamespace(container=SimpleNamespace(query=""))
+
+    with (
+        patch.object(app_module, "config", patched_config),
+        patch.dict(os.environ, {"TARGET_ENV": "dev"}, clear=False),
+        patch.object(app_module, "BlobServiceClient", _FakeBlobServiceClient),
+        patch.object(app_module, "SearchIndexerClient", _FakeSearchIndexerClient),
+        patch.object(app_module, "search_client", _FakeSearchClient()),
+        patch.object(app_module, "_count_search_documents_total_by_filter", side_effect=[4, 2, 1]),
+        patch.object(
+            app_module,
+            "_count_blob_prefix",
+            side_effect=[{"would_delete": 1}, {"would_delete": 5}, {"would_delete": 0}],
+        ),
+        patch.object(
+            app_module,
+            "_latest_ingestion_job_execution",
+            return_value={"name": "job-exec-1", "status": "Succeeded"},
+        ),
+    ):
+        response = client.get("/api/diagnostics/ingestion/overview?sample_limit=9")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["mode"] == "ingestion-overview-diagnostics"
+    assert body["target_env"] == "dev"
+    assert body["search_counts"]["grounding_total"] == 9
+    assert body["search_counts"]["corpus_b"] == 4
+    assert body["storage_counts"]["corpus_b_dedupe"] == 5
+    assert body["latest_ingestion_job"]["status"] == "Succeeded"
+    assert body["quick_flags"]["storage_has_corpus_b_but_search_corpus_b_empty"] is False
+    assert body["scope_query_diagnostics"]["configured_data_source_name"] == "grounding-index-datasource"
+    assert body["scope_query_diagnostics"]["active_data_source_query"] is None
+    assert body["scope_query_diagnostics"]["scope_bleed_risk_level"] == "high"

@@ -15,7 +15,24 @@ import os
 
 import logging
 
-_POLICY_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "query_web", "policies", "precedence_policy.json")
+
+def _resolve_policy_path() -> str:
+    env_path = os.getenv("PRECEDENCE_POLICY_PATH", "").strip()
+    if env_path:
+        return env_path
+
+    app_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    candidates = (
+        os.path.join(app_root, "policies", "precedence_policy.json"),
+        os.path.join(app_root, "query_web", "policies", "precedence_policy.json"),
+    )
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return candidates[0]
+
+
+_POLICY_PATH = _resolve_policy_path()
 try:
     with open(_POLICY_PATH, "r", encoding="utf-8") as f:
         _POLICY = json.load(f)

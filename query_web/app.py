@@ -22,7 +22,7 @@ import requests  # type: ignore[import-untyped]
 from azure.core.exceptions import HttpResponseError
 from azure.identity import DefaultAzureCredential
 from azure.search.documents import SearchClient
-from azure.search.documents.indexes import SearchIndexerClient
+from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
 from azure.search.documents.models import VectorizedQuery
 from azure.storage.blob import BlobServiceClient, ContentSettings
 from fastapi import FastAPI, File, Form, Request, UploadFile
@@ -2371,6 +2371,38 @@ def _unauthorised_message(request: Request | None = None) -> str:
     return "Unauthorised. Provide a valid access token."
 
 
+def _target_env_name() -> str:
+    # TARGET_ENV is the canonical flag in this repo; ENV is accepted as fallback.
+    return (
+        os.getenv("TARGET_ENV", "").strip().lower()
+        or os.getenv("ENV", "").strip().lower()
+        or "dev"
+    )
+
+
+def _diagnostics_enabled() -> bool:
+    return _target_env_name() != "prod"
+
+
+def _check_diagnostics_access(request: Request, auth_token: str) -> JSONResponse | None:
+    # TODO(security): require diagnostics access via a dedicated Entra group
+    # separate from the general app access group. Keep this gate stricter than
+    # baseline app access because diagnostics can expose operational metadata.
+    if not _is_authorised_request(auth_token, request):
+        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+
+    if not _diagnostics_enabled():
+        return JSONResponse(
+            {
+                "error": "Diagnostics endpoints are disabled when TARGET_ENV is 'prod'.",
+                "target_env": _target_env_name(),
+            },
+            status_code=403,
+        )
+
+    return None
+
+
 def _embed_query(question: str) -> list[float]:
     token = _cognitive_token()
     url = (
@@ -4503,6 +4535,348 @@ def api_config() -> JSONResponse:
             "evaluation_threshold": config.evaluation_threshold,
             "auth_enabled": bool(config.auth_token),
             "entra_group_auth_enabled": bool(config.required_group_object_id),
+        }
+    )
+
+
+@app.get("/api/diagnostics/search/resources")
+def search_resources_diagnostics(request: Request, auth_token: str = "") -> JSONResponse:
+    """Dev-only diagnostics for Search resources and current indexer state."""
+    denied = _check_diagnostics_access(request, auth_token)
+    if denied is not None:
+        return denied
+
+    try:
+        index_client = SearchIndexClient(endpoint=config.search_endpoint, credential=credential)
+        indexer_client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
+        indexer_client_any = cast(Any, indexer_client)
+
+        indexes: list[dict[str, Any]] = []
+        for index in index_client.list_indexes():
+            indexes.append({"name": str(getattr(index, "name", ""))})
+
+        data_sources: list[dict[str, Any]] = []
+        for data_source in indexer_client_any.list_data_source_connections():
+            container = getattr(data_source, "container", None)
+            data_sources.append(
+                {
+                    "name": str(getattr(data_source, "name", "")),
+                    "type": str(getattr(data_source, "type", "")),
+                    "container": {
+                        "name": str(getattr(container, "name", "")) if container else "",
+                        "query": str(getattr(container, "query", "")) if container else "",
+                    },
+                }
+            )
+
+        skillsets: list[dict[str, Any]] = []
+        for skillset in indexer_client_any.list_skillsets():
+            skills = getattr(skillset, "skills", None) or []
+            skillsets.append(
+                {
+                    "name": str(getattr(skillset, "name", "")),
+                    "skill_count": len(skills),
+                }
+            )
+
+        indexers: list[dict[str, Any]] = []
+        for indexer in indexer_client_any.list_indexers():
+            indexer_name = str(getattr(indexer, "name", ""))
+            status_summary: dict[str, Any] = {
+                "status": None,
+                "items_processed": None,
+                "items_failed": None,
+                "error_message": None,
+            }
+            try:
+                status = indexer_client.get_indexer_status(indexer_name)
+                run = getattr(status, "last_result", None)
+                if run is not None:
+                    status_summary = {
+                        "status": str(getattr(run, "status", "") or ""),
+                        "items_processed": getattr(run, "item_count", None),
+                        "items_failed": getattr(run, "failed_item_count", None),
+                        "error_message": getattr(run, "error_message", None),
+                    }
+            except Exception as exc:
+                status_summary["error_message"] = f"status unavailable: {exc}"
+
+            indexers.append(
+                {
+                    "name": indexer_name,
+                    "data_source_name": str(getattr(indexer, "data_source_name", "")),
+                    "target_index_name": str(getattr(indexer, "target_index_name", "")),
+                    "skillset_name": str(getattr(indexer, "skillset_name", "")),
+                    "last_result": status_summary,
+                }
+            )
+
+        configured_names = {
+            "index": config.search_index_name,
+            "indexer": os.getenv("AZURE_SEARCH_INDEXER_NAME", f"{config.search_index_name}-indexer").strip(),
+            "skillset": os.getenv("AZURE_SEARCH_SKILLSET_NAME", f"{config.search_index_name}-skillset").strip(),
+            "data_source": os.getenv("AZURE_SEARCH_DATASOURCE_NAME", f"{config.search_index_name}-datasource").strip(),
+        }
+
+        return JSONResponse(
+            {
+                "mode": "search-resources-diagnostics",
+                "target_env": _target_env_name(),
+                "search_endpoint": config.search_endpoint,
+                "configured_names": configured_names,
+                "indexes": indexes,
+                "data_sources": data_sources,
+                "skillsets": skillsets,
+                "indexers": indexers,
+            }
+        )
+    except Exception as exc:
+        logger.exception("Failed /api/diagnostics/search/resources request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+
+
+@app.get("/api/diagnostics/storage/blobs")
+def storage_blobs_diagnostics(
+    request: Request,
+    auth_token: str = "",
+    prefix: str = "",
+    limit: int = 200,
+    include_metadata: bool = False,
+) -> JSONResponse:
+    """Dev-only diagnostics for blob inventory in the grounding-data container."""
+    denied = _check_diagnostics_access(request, auth_token)
+    if denied is not None:
+        return denied
+
+    if not _is_corpus_upload_enabled():
+        return JSONResponse(
+            {
+                "configured": False,
+                "message": "Corpus upload/storage is not configured for this query-web instance.",
+                "target_env": _target_env_name(),
+            }
+        )
+
+    try:
+        capped_limit = max(1, min(limit, 1000))
+        prefix_value = prefix.strip()
+
+        account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
+        client = BlobServiceClient(account_url=account_url, credential=credential)
+        container = client.get_container_client(config.storage_container_name)
+
+        blob_items: list[dict[str, Any]] = []
+        scanned = 0
+        for blob in container.list_blobs(name_starts_with=prefix_value or None):
+            scanned += 1
+            if len(blob_items) >= capped_limit:
+                continue
+
+            item: dict[str, Any] = {
+                "name": str(getattr(blob, "name", "")),
+                "size": int(getattr(blob, "size", 0) or 0),
+                "content_type": str(getattr(getattr(blob, "content_settings", None), "content_type", "") or ""),
+                "last_modified": str(getattr(blob, "last_modified", "") or ""),
+                "etag": str(getattr(blob, "etag", "") or ""),
+            }
+            if include_metadata:
+                item["metadata"] = dict(getattr(blob, "metadata", None) or {})
+            blob_items.append(item)
+
+        return JSONResponse(
+            {
+                "mode": "storage-blobs-diagnostics",
+                "configured": True,
+                "target_env": _target_env_name(),
+                "storage_account_name": config.storage_account_name,
+                "storage_container_name": config.storage_container_name,
+                "prefix": prefix_value or None,
+                "limit": capped_limit,
+                "include_metadata": include_metadata,
+                "returned": len(blob_items),
+                "scanned": scanned,
+                "truncated": scanned > len(blob_items),
+                "blobs": blob_items,
+            }
+        )
+    except Exception as exc:
+        logger.exception("Failed /api/diagnostics/storage/blobs request: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+
+
+@app.get("/api/diagnostics/ingestion/overview")
+def ingestion_overview_diagnostics(
+    request: Request,
+    auth_token: str = "",
+    sample_limit: int = 30,
+    include_blob_samples: bool = True,
+) -> JSONResponse:
+    """Dev-only aggregate diagnostics to troubleshoot ingestion mismatches quickly."""
+    denied = _check_diagnostics_access(request, auth_token)
+    if denied is not None:
+        return denied
+
+    capped_sample_limit = max(0, min(sample_limit, 120))
+
+    grounding_total = 0
+    try:
+        pager = search_client.search(
+            search_text="*",
+            top=1,
+            include_total_count=True,
+            select=["id"],
+        )
+        for _ in pager:
+            break
+        grounding_total = int(pager.get_count() or 0)
+    except Exception as exc:
+        logger.warning("Failed to count grounding documents: %s", exc)
+
+    search_counts = {
+        "grounding_total": grounding_total,
+        "corpus_b": _count_search_documents_total_by_filter(
+            search_client,
+            filter_expr="corpus eq 'b'",
+        ),
+        "corpus_c": _count_search_documents_total_by_filter(
+            search_client,
+            filter_expr="corpus eq 'c'",
+        ),
+        "corpus_legacy": _count_search_documents_total_by_filter(
+            search_client,
+            filter_expr="corpus eq 'legacy'",
+        ),
+    }
+
+    storage_counts: dict[str, int] = {}
+    storage_samples: dict[str, list[dict[str, Any]]] = {}
+    storage_error: str | None = None
+
+    prefixes = {
+        "corpus_a_source": "corpus-a/source/",
+        "corpus_b_dedupe": "corpus-b/by-dedupe/",
+        "corpus_c_dedupe": "corpus-c/by-dedupe/",
+    }
+
+    if _is_corpus_upload_enabled():
+        for label, prefix in prefixes.items():
+            storage_counts[label] = int(_count_blob_prefix(prefix).get("would_delete", 0))
+
+        if include_blob_samples and capped_sample_limit > 0:
+            per_prefix_limit = max(1, capped_sample_limit // max(1, len(prefixes)))
+            try:
+                account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
+                blob_client = BlobServiceClient(account_url=account_url, credential=credential)
+                container = blob_client.get_container_client(config.storage_container_name)
+
+                for label, prefix in prefixes.items():
+                    rows: list[dict[str, Any]] = []
+                    for blob in container.list_blobs(name_starts_with=prefix):
+                        if len(rows) >= per_prefix_limit:
+                            break
+                        rows.append(
+                            {
+                                "name": str(getattr(blob, "name", "")),
+                                "size": int(getattr(blob, "size", 0) or 0),
+                                "last_modified": str(getattr(blob, "last_modified", "") or ""),
+                                "corpus": str((getattr(blob, "metadata", None) or {}).get("corpus", "")),
+                                "upload_batch": str((getattr(blob, "metadata", None) or {}).get("upload_batch", "")),
+                            }
+                        )
+                    storage_samples[label] = rows
+            except Exception as exc:
+                storage_error = str(exc)
+    else:
+        storage_error = "Storage upload integration is not configured for this instance."
+
+    latest_job: dict[str, Any] | None = None
+    latest_job_error: str | None = None
+    if _is_ingestion_job_trigger_enabled():
+        try:
+            latest_job = _latest_ingestion_job_execution()
+        except Exception as exc:
+            latest_job_error = str(exc)
+
+    quick_flags = {
+        "storage_has_corpus_b_but_search_corpus_b_empty": bool(
+            storage_counts.get("corpus_b_dedupe", 0) > 0 and search_counts.get("corpus_b", 0) == 0
+        ),
+        "storage_has_corpus_c_but_search_corpus_c_empty": bool(
+            storage_counts.get("corpus_c_dedupe", 0) > 0 and search_counts.get("corpus_c", 0) == 0
+        ),
+        "legacy_docs_present": bool(search_counts.get("corpus_legacy", 0) > 0),
+    }
+
+    configured_datasource_name = os.getenv(
+        "AZURE_SEARCH_DATASOURCE_NAME", f"{config.search_index_name}-datasource"
+    ).strip()
+    active_datasource_query: str | None = None
+    scope_query_error: str | None = None
+    try:
+        idxr_client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
+        ds = idxr_client.get_data_source_connection(configured_datasource_name)
+        container = getattr(ds, "container", None)
+        query_text = str(getattr(container, "query", "") or "").strip()
+        active_datasource_query = query_text or None
+    except Exception as exc:
+        scope_query_error = str(exc)
+
+    risk_level = "unknown"
+    risk_reason = "Unable to assess scope bleed risk."
+    if scope_query_error:
+        risk_level = "unknown"
+        risk_reason = "Data source query could not be retrieved."
+    elif not active_datasource_query:
+        corpus_a_count = storage_counts.get("corpus_a_source", 0)
+        corpus_b_count = storage_counts.get("corpus_b_dedupe", 0)
+        corpus_c_count = storage_counts.get("corpus_c_dedupe", 0)
+        if corpus_a_count > 0 and (corpus_b_count > 0 or corpus_c_count > 0):
+            risk_level = "high"
+            risk_reason = (
+                "Data source query is empty while multiple corpus prefixes exist in the same container."
+            )
+        elif corpus_a_count > 0 or corpus_b_count > 0 or corpus_c_count > 0:
+            risk_level = "medium"
+            risk_reason = "Data source query is empty; full container scan is possible."
+        else:
+            risk_level = "low"
+            risk_reason = "No corpus blobs found in storage counts."
+    elif active_datasource_query in {"corpus-b/by-dedupe/", "corpus-c/by-dedupe/"}:
+        risk_level = "low"
+        risk_reason = "Data source query is scoped to a corpus-specific dedupe prefix."
+    else:
+        risk_level = "medium"
+        risk_reason = "Data source query is set but not one of the expected corpus dedupe prefixes."
+
+    scope_query_diagnostics = {
+        "configured_data_source_name": configured_datasource_name,
+        "active_data_source_query": active_datasource_query,
+        "active_data_source_query_error": scope_query_error,
+        "scope_bleed_risk_level": risk_level,
+        "scope_bleed_risk_reason": risk_reason,
+    }
+
+    return JSONResponse(
+        {
+            "mode": "ingestion-overview-diagnostics",
+            "target_env": _target_env_name(),
+            "generated_at": _utc_now_iso(),
+            "config": {
+                "search_endpoint": config.search_endpoint,
+                "search_index_name": config.search_index_name,
+                "storage_account_name": config.storage_account_name,
+                "storage_container_name": config.storage_container_name,
+                "ingestion_job_trigger_enabled": _is_ingestion_job_trigger_enabled(),
+                "ingestion_job_name": config.ingestion_job_name,
+            },
+            "search_counts": search_counts,
+            "storage_counts": storage_counts,
+            "storage_samples": storage_samples,
+            "storage_error": storage_error,
+            "latest_ingestion_job": latest_job,
+            "latest_ingestion_job_error": latest_job_error,
+            "quick_flags": quick_flags,
+            "scope_query_diagnostics": scope_query_diagnostics,
         }
     )
 

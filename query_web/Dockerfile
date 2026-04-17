@@ -12,7 +12,7 @@ COPY query_web/app.py ./app.py
 COPY query_web/prompt_injection_guard.py ./prompt_injection_guard.py
 COPY query_web/templates ./templates
 COPY query_web/static ./static
-COPY query_web/policies /app/query_web/policies
+COPY query_web/policies /app/policies
 COPY runtime ./runtime
 
 RUN useradd -m -u 1000 appuser

@@ -379,6 +379,13 @@ def _run_azure(args: argparse.Namespace) -> int:
         "items_processed": result["items_processed"],
         "items_failed": result["items_failed"],
         "error_message": result["error_message"],
+        "scope_behavior": (
+            "Indexer run processes all blobs matching storage_container_query; "
+            "item counts may exceed newly uploaded file count when upload is skipped "
+            "or existing scoped blobs are reprocessed."
+            if args.skip_upload and config.storage_container_query
+            else None
+        ),
     }
     print(json.dumps(summary, ensure_ascii=True))
     return 0 if result["status"] == "success" else 1

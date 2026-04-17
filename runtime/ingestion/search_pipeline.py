@@ -971,21 +971,39 @@ def wait_for_indexer(
             if errors:
                 logger.error("Indexer reported %d item-level error(s): %s", len(errors), errors)
             if warnings:
-                warning_counts: dict[str, int] = {}
-                for warning in warnings:
+                optional_conditional_warnings = [
+                    warning
+                    for warning in warnings
+                    if str(warning.get("name") or "").startswith("Enrichment.ConditionalSkill.default-")
+                    and "Optional skill input is missing or empty"
+                    in str(warning.get("message") or "")
+                ]
+                actionable_warnings = [
+                    warning for warning in warnings if warning not in optional_conditional_warnings
+                ]
+
+                optional_counts: dict[str, int] = {}
+                for warning in optional_conditional_warnings:
                     name = str(warning.get("name") or "(unknown)")
-                    warning_counts[name] = warning_counts.get(name, 0) + 1
-                logger.warning(
-                    "Indexer reported %d warning(s) grouped by skill/input: %s",
-                    len(warnings),
-                    warning_counts,
-                )
-                sample_warning = warnings[0]
-                logger.warning(
-                    "Sample warning: name=%s details=%s",
-                    sample_warning.get("name"),
-                    sample_warning.get("details"),
-                )
+                    optional_counts[name] = optional_counts.get(name, 0) + 1
+
+                if optional_conditional_warnings:
+                    logger.info(
+                        "Indexer reported %d known optional metadata warning(s) (suppressed details): %s",
+                        len(optional_conditional_warnings),
+                        optional_counts,
+                    )
+
+                if actionable_warnings:
+                    actionable_counts: dict[str, int] = {}
+                    for warning in actionable_warnings:
+                        name = str(warning.get("name") or "(unknown)")
+                        actionable_counts[name] = actionable_counts.get(name, 0) + 1
+                    logger.warning(
+                        "Indexer reported %d actionable warning(s) grouped by skill/input: %s",
+                        len(actionable_warnings),
+                        actionable_counts,
+                    )
 
             return {
                 "status": status_text,
