@@ -12,6 +12,7 @@ import re
 import threading
 import time
 import uuid
+from urllib.parse import quote
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -47,6 +48,25 @@ from runtime.assessment_orchestration._framework_patterns import (
 from runtime.assessment_orchestration.azure_assessment import (
     collect_azure_grounding,
     run_azure_assessment,
+)
+
+from diagnostics import register_diagnostics_endpoints
+from status import register_status_endpoints
+from conversations import (
+    ConversationMessage,
+    ConversationSession,
+    ResponseRating,
+    _build_feedback_context as _conversations_build_feedback_context,
+    _get_user_id as _conversations_get_user_id,
+    _load_conversation as _conversations_load_conversation,
+    _save_conversation as _conversations_save_conversation,
+)
+from utils import (
+    _compute_normalised_text_hash,
+    _dedupe_blob_prefix,
+    _extract_dedupe_hashes,
+    _sanitise_blob_name_component,
+    _utc_now_iso,
 )
 
 if TYPE_CHECKING:
@@ -412,93 +432,7 @@ def load_config() -> QueryConfig:
     )
 
 
-@dataclass
-class ConversationMessage:
-    """A single message in a conversation."""
-
-    role: str  # "user" or "assistant"
-    content: str
-    timestamp: str = field(default_factory=_utc_now_iso)
-
-
-@dataclass
-class ResponseRating:
-    """User rating and TODO feedback for a prior assistant response."""
-
-    rating: int  # 1..5
-    todo: str = ""
-    assistant_timestamp: str = ""
-    timestamp: str = field(default_factory=_utc_now_iso)
-
-
-@dataclass
-class ConversationSession:
-    """Conversation session stored in CosmosDB."""
-
-    session_id: str
-    user_id: str  # auth_token hash or session token
-    conversation_id: str  # unique per conversation
-    messages: list[ConversationMessage] = field(default_factory=list)
-    response_ratings: list[ResponseRating] = field(default_factory=list)
-    created_at: str = field(default_factory=_utc_now_iso)
-    updated_at: str = field(default_factory=_utc_now_iso)
-    evaluation_threshold: float = 0.72
-
-    def to_dict(self) -> dict[str, Any]:
-        # Sanitise ID by replacing hyphens from UUIDs with underscores for Cosmos compatibility
-        sanitised_id = f"{self.user_id.replace('-', '_')}_{self.conversation_id.replace('-', '_')}"
-        return {
-            "id": sanitised_id,
-            "session_id": self.session_id,
-            "user_id": self.user_id,
-            "conversation_id": self.conversation_id,
-            "messages": [
-                {"role": m.role, "content": m.content, "timestamp": m.timestamp}
-                for m in self.messages
-            ],
-            "response_ratings": [
-                {
-                    "rating": r.rating,
-                    "todo": r.todo,
-                    "assistant_timestamp": r.assistant_timestamp,
-                    "timestamp": r.timestamp,
-                }
-                for r in self.response_ratings
-            ],
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
-            "evaluation_threshold": self.evaluation_threshold,
-            "type": "conversation",
-        }
-
-    @staticmethod
-    def from_dict(data: dict[str, Any]) -> "ConversationSession":
-        messages = [
-            ConversationMessage(
-                role=m["role"], content=m["content"], timestamp=m.get("timestamp", _utc_now_iso())
-            )
-            for m in data.get("messages", [])
-        ]
-        response_ratings = [
-            ResponseRating(
-                rating=int(r.get("rating", 0)),
-                todo=str(r.get("todo", "")),
-                assistant_timestamp=str(r.get("assistant_timestamp", "")),
-                timestamp=r.get("timestamp", _utc_now_iso()),
-            )
-            for r in data.get("response_ratings", [])
-        ]
-        return ConversationSession(
-            session_id=data["session_id"],
-            user_id=data["user_id"],
-            conversation_id=data["conversation_id"],
-            messages=messages,
-            response_ratings=response_ratings,
-            created_at=data.get("created_at", _utc_now_iso()),
-            updated_at=data.get("updated_at", _utc_now_iso()),
-            evaluation_threshold=data.get("evaluation_threshold", 0.72),
-        )
-
+# Conversation models and helpers moved to conversations.py module
 
 CYBER_PERSONA_PROMPT = (
     "You are a Cyber Security Assistant. Answer questions related to cyber safety, "
@@ -2146,61 +2080,19 @@ class AskResponse(BaseModel):
 
 
 def _get_user_id(auth_token: str, session_id: str) -> str:
-    """Generate a stable user identifier from auth token or session ID."""
-    import hashlib
-
-    if auth_token.strip():
-        return hashlib.sha256(auth_token.encode()).hexdigest()[:16]
-    return session_id[:16]
+    return _conversations_get_user_id(auth_token, session_id)
 
 
 def _load_conversation(user_id: str, conversation_id: str) -> ConversationSession:
-    """Load conversation from CosmosDB or create new one."""
-    if not conversations_container:
-        # Fallback to in-memory new conversation
-        return ConversationSession(
-            session_id=str(uuid.uuid4()),
-            user_id=user_id,
-            conversation_id=conversation_id,
-        )
-
-    # Sanitise ID by replacing hyphens from UUIDs with underscores for Cosmos compatibility
-    doc_id = f"{user_id.replace('-', '_')}_{conversation_id.replace('-', '_')}"
-    try:
-        doc = conversations_container.read_item(item=doc_id, partition_key=user_id)
-        return ConversationSession.from_dict(doc)
-    except CosmosResourceNotFoundError:
-        # Conversation doesn't exist yet
-        return ConversationSession(
-            session_id=str(uuid.uuid4()),
-            user_id=user_id,
-            conversation_id=conversation_id,
-        )
-    except Exception as exc:
-        raise RuntimeError(f"Conversation persistence read failed: {exc}") from exc
+    return _conversations_load_conversation(user_id, conversation_id, conversations_container)
 
 
 def _save_conversation(session: ConversationSession) -> None:
-    """Save conversation to CosmosDB."""
-    if not conversations_container:
-        return
-    try:
-        conversations_container.upsert_item(session.to_dict())
-    except Exception as exc:
-        raise RuntimeError(f"Conversation persistence write failed: {exc}") from exc
+    _conversations_save_conversation(session, conversations_container)
 
 
 def _build_feedback_context(session: ConversationSession, limit: int = 5) -> str:
-    """Build short feedback context from recent user ratings/TODO notes."""
-    if not session.response_ratings:
-        return ""
-
-    lines: list[str] = []
-    for rating in session.response_ratings[-limit:]:
-        todo_text = rating.todo.strip() or "No TODO provided"
-        lines.append(f"- rating={rating.rating}/5; todo={todo_text}")
-
-    return "Recent user feedback on prior answers:\n" + "\n".join(lines)
+    return _conversations_build_feedback_context(session, limit=limit)
 
 
 def _cognitive_token() -> str:
@@ -2401,6 +2293,86 @@ def _check_diagnostics_access(request: Request, auth_token: str) -> JSONResponse
         )
 
     return None
+
+
+def _resolve_acr_registry_name(explicit_registry_name: str = "") -> str:
+    candidates = [
+        explicit_registry_name,
+        os.getenv("ACR_NAME", ""),
+        os.getenv("AZURE_CONTAINER_REGISTRY_NAME", ""),
+        os.getenv("CONTAINER_REGISTRY_NAME", ""),
+    ]
+
+    login_server_candidates = [
+        os.getenv("ACR_LOGIN_SERVER", ""),
+        os.getenv("AZURE_CONTAINER_REGISTRY_LOGIN_SERVER", ""),
+        os.getenv("CONTAINER_REGISTRY_LOGIN_SERVER", ""),
+    ]
+    for login_server in login_server_candidates:
+        value = (login_server or "").strip().lower()
+        if value.endswith(".azurecr.io"):
+            candidates.append(value.split(".", 1)[0])
+
+    for candidate in candidates:
+        value = (candidate or "").strip()
+        if value:
+            return value
+
+    return ""
+
+
+def _list_acr_tags_via_management_api(
+    *,
+    subscription_id: str,
+    resource_group: str,
+    registry_name: str,
+    repository: str,
+    limit: int,
+) -> dict[str, Any]:
+    token = credential.get_token("https://management.azure.com/.default").token
+    encoded_repo = quote(repository, safe="")
+    base_url = (
+        f"https://management.azure.com/subscriptions/{subscription_id}"
+        f"/resourceGroups/{resource_group}"
+        f"/providers/Microsoft.ContainerRegistry/registries/{registry_name}"
+        f"/repositories/{encoded_repo}/tags"
+    )
+    url = f"{base_url}?api-version=2023-07-01&orderby=time_desc&n={limit}"
+
+    response = requests.get(
+        url,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+
+    if response.status_code >= 400:
+        raise RuntimeError(
+            "Failed to list ACR tags "
+            f"for repository '{repository}': {response.status_code} {response.text}"
+        )
+
+    payload = response.json()
+    values = payload.get("value", [])
+    tags: list[dict[str, Any]] = []
+    if isinstance(values, list):
+        for item in values:
+            if not isinstance(item, dict):
+                continue
+            digest = str(item.get("digest") or "").strip() or None
+            tags.append(
+                {
+                    "name": str(item.get("name") or "").strip(),
+                    "digest": digest,
+                    "created_time": item.get("createdTime"),
+                    "last_update_time": item.get("lastUpdateTime"),
+                }
+            )
+
+    return {
+        "tags": tags,
+        "raw_count": len(values) if isinstance(values, list) else 0,
+        "next_link": payload.get("nextLink"),
+    }
 
 
 def _embed_query(question: str) -> list[float]:
@@ -3883,10 +3855,7 @@ def _run_rag(
     }
 
 
-def _sanitise_blob_name_component(value: str) -> str:
-    text = value.strip().replace("\\", "_").replace("/", "_")
-    text = re.sub(r"[^A-Za-z0-9._-]", "_", text)
-    return text[:120] or "file"
+# Blob name sanitization moved to utils.py module
 
 
 def _compute_normalised_text_hash(
@@ -4104,8 +4073,7 @@ def _extract_dedupe_hashes(skipped: list[str]) -> list[str]:
     return list(dict.fromkeys(hashes))
 
 
-def _dedupe_blob_prefix(corpus: str, dedupe_hash: str) -> str:
-    return f"corpus-{corpus}/by-dedupe/{dedupe_hash}"
+# Dedupe blob prefix moved to utils.py module
 
 
 _REQUIRED_INGESTION_METADATA_KEYS = {
@@ -4446,97 +4414,48 @@ def _upload_corpus_a_reference_files(
     }
 
 
-@app.get("/health")
-def health() -> JSONResponse:
-    return JSONResponse(
-        {
-            "status": "ok",
-            "service": "rag-query-web",
-            "version_signature": QUERY_WEB_VERSION_SIGNATURE,
-            "index": config.search_index_name,
-            "controls_index": config.controls_index_name,
-            "controls_semantic_default": config.controls_semantic_default,
-            "controls_framework_authority_order": list(config.controls_framework_authority_order),
-            "precedence_policy_path": config.precedence_policy_path,
-            "precedence_policy_version": precedence_policy.version,
-            "precedence_policy_order": list(precedence_policy.default_framework_order),
-            "prompt_injection_guard_enabled": True,
-            "prompt_injection_validator_enabled": config.prompt_injection_validator_enabled,
-            "prompt_injection_validator_mode": config.prompt_injection_validator_mode,
-            "prompt_injection_validator_temperature": config.prompt_injection_validator_temperature,
-            "auth_enabled": bool(config.auth_token),
-            "entra_group_auth_enabled": bool(config.required_group_object_id),
-        }
-    )
+# Register diagnostics endpoints
+register_diagnostics_endpoints(
+    app,
+    credential,
+    config,
+    search_client,
+    _check_diagnostics_access,
+    _target_env_name,
+    _is_corpus_upload_enabled,
+    _is_ingestion_job_trigger_enabled,
+    _latest_ingestion_job_execution,
+    _count_blob_prefix,
+    _count_search_documents_total_by_filter,
+    _utc_now_iso,
+    _REQUIRED_INGESTION_METADATA_KEYS,
+)
 
 
-@app.get("/api/index-status")
-def index_status() -> JSONResponse:
-    """Diagnostic endpoint — returns document counts and reachability for both indexes."""
+# Register status endpoints
+register_status_endpoints(
+    app,
+    config,
+    search_client,
+    controls_search_client,
+    QUERY_WEB_VERSION_SIGNATURE,
+    precedence_policy,
+    _CONTROLS_FRAMEWORK_FILTERS,
+    _CORPUS_A_FRAMEWORKS,
+    _is_corpus_upload_enabled,
+    _is_ingestion_job_trigger_enabled,
+    COMPLIANCE_REPORT_SCHEMA_VERSION,
+)
 
-    def _probe(client: SearchClient, index_name: str) -> dict[str, Any]:
-        try:
-            pager = client.search(search_text="*", top=1, include_total_count=True)
-            results = list(pager)
-            # get_count() is on the pager object, available after first iteration
-            count = pager.get_count() if hasattr(pager, "get_count") else ("1+" if results else 0)
-            return {"reachable": True, "document_count": count}
-        except Exception as exc:
-            logger.exception("Index probe failed for %s: %s", index_name, exc)
-            return {"reachable": False, "error": "index probe failed"}
+# Register conversations endpoints
+from conversations import register_conversations_endpoints
 
-    return JSONResponse(
-        {
-            "grounding_index": {
-                "name": config.search_index_name,
-                **_probe(search_client, config.search_index_name),
-            },
-            "controls_index": {
-                "name": config.controls_index_name,
-                **_probe(controls_search_client, config.controls_index_name),
-            },
-        }
-    )
-
-
-@app.get("/api/config")
-def api_config() -> JSONResponse:
-    return JSONResponse(
-        {
-            "version_signature": QUERY_WEB_VERSION_SIGNATURE,
-            "search_index_name": config.search_index_name,
-            "controls_index_name": config.controls_index_name,
-            "embedding_deployment": config.embedding_deployment,
-            "query_deployment": config.query_deployment,
-            "evaluator_deployment": config.evaluator_deployment,
-            "default_top_k": config.search_top_k,
-            "controls_top_k": config.controls_top_k,
-            "controls_semantic_default": config.controls_semantic_default,
-            "controls_semantic_configuration_name": config.controls_semantic_configuration_name,
-            "controls_framework_filters": list(_CONTROLS_FRAMEWORK_FILTERS.keys()),
-            "controls_framework_authority_order": list(config.controls_framework_authority_order),
-            "precedence_policy_path": config.precedence_policy_path,
-            "precedence_policy_version": precedence_policy.version,
-            "precedence_policy_order": list(precedence_policy.default_framework_order),
-            "precedence_policy_rules_count": len(precedence_policy.rules),
-            "corpus_b_upload_enabled": _is_corpus_upload_enabled(),
-            "corpus_c_upload_enabled": _is_corpus_upload_enabled(),
-            "ingestion_job_trigger_enabled": _is_ingestion_job_trigger_enabled(),
-            "ingestion_job_name": config.ingestion_job_name,
-            "corpus_a_frameworks_supported": sorted(_CORPUS_A_FRAMEWORKS.keys()),
-            "prompt_injection_guard_enabled": True,
-            "prompt_injection_validator_enabled": config.prompt_injection_validator_enabled,
-            "prompt_injection_validator_mode": config.prompt_injection_validator_mode,
-            "prompt_injection_validator_threshold": config.prompt_injection_validator_threshold,
-            "prompt_injection_validator_temperature": config.prompt_injection_validator_temperature,
-            "compliance_report_schema_version": COMPLIANCE_REPORT_SCHEMA_VERSION,
-            "default_temperature": config.default_temperature,
-            "evaluator_temperature": config.evaluator_temperature,
-            "evaluation_threshold": config.evaluation_threshold,
-            "auth_enabled": bool(config.auth_token),
-            "entra_group_auth_enabled": bool(config.required_group_object_id),
-        }
-    )
+register_conversations_endpoints(
+    app,
+    conversations_container,
+    _is_authorised_request,
+    _unauthorised_message,
+)
 
 
 @app.get("/api/diagnostics/search/resources")
@@ -4881,191 +4800,119 @@ def ingestion_overview_diagnostics(
     )
 
 
-@app.get("/api/conversations/{user_id}")
-def get_conversations(request: Request, user_id: str, auth_token: str = "") -> JSONResponse:
-    """List all conversations for a user."""
-    if not _is_authorised_request(auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    if not conversations_container:
-        return JSONResponse({"conversations": []})
-
-    try:
-        query = "SELECT c.session_id, c.conversation_id, c.created_at, c.updated_at, c.messages FROM c WHERE c.user_id = @user_id AND c.type = 'conversation' ORDER BY c.updated_at DESC"
-        items = list(
-            conversations_container.query_items(
-                query=query,
-                parameters=[{"name": "@user_id", "value": user_id}],
-            )
-        )
-        return JSONResponse({"conversations": items})
-    except Exception as exc:
-        logger.exception("Failed to list conversations for user_id=%s: %s", user_id, exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
-
-
-@app.get("/api/conversations/{user_id}/{conversation_id}")
-def get_conversation_history(
-    request: Request, user_id: str, conversation_id: str, auth_token: str = ""
-) -> JSONResponse:
-    """Get full conversation history."""
-    if not _is_authorised_request(auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    try:
-        session = _load_conversation(user_id, conversation_id)
-        return JSONResponse(
-            {
-                "session_id": session.session_id,
-                "conversation_id": session.conversation_id,
-                "created_at": session.created_at,
-                "updated_at": session.updated_at,
-                "messages": [
-                    {"role": m.role, "content": m.content, "timestamp": m.timestamp}
-                    for m in session.messages
-                ],
-                "response_ratings": [
-                    {
-                        "rating": r.rating,
-                        "todo": r.todo,
-                        "assistant_timestamp": r.assistant_timestamp,
-                        "timestamp": r.timestamp,
-                    }
-                    for r in session.response_ratings
-                ],
-            }
-        )
-    except Exception as exc:
-        logger.exception(
-            "Failed to get conversation history for user_id=%s conversation_id=%s: %s",
-            user_id,
-            conversation_id,
-            exc,
-        )
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
-
-
-@app.post("/api/conversations/new")
-def create_conversation(request: Request, auth_token: str = Form("")) -> JSONResponse:
-    """Create a new conversation session."""
-    if not _is_authorised_request(auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    session_id = str(uuid.uuid4())
-    conversation_id = str(uuid.uuid4())
-    user_id = _get_user_id(auth_token, session_id)
-
-    try:
-        session = ConversationSession(
-            session_id=session_id,
-            user_id=user_id,
-            conversation_id=conversation_id,
-        )
-        _save_conversation(session)
-
-        return JSONResponse(
-            {
-                "session_id": session_id,
-                "conversation_id": conversation_id,
-                "user_id": user_id,
-            }
-        )
-    except Exception as exc:
-        logger.exception("Failed to create conversation for user_id=%s: %s", user_id, exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
-
-
-@app.post("/api/conversations/{conversation_id}/message")
-def add_message_to_conversation(
+@app.get("/api/diagnostics/acr/images")
+def acr_images_diagnostics(
     request: Request,
-    conversation_id: str,
-    user_id: str = Form(...),
-    role: str = Form(...),
-    content: str = Form(...),
-    auth_token: str = Form(""),
+    auth_token: str = "",
+    repository: str = "query-web",
+    limit: int = 30,
+    registry_name: str = "",
+    expected_tag: str = "",
 ) -> JSONResponse:
-    """Add a message to a conversation and optionally get a response."""
-    if not _is_authorised_request(auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+    """Dev-only diagnostics for ACR repository tags used by deployments."""
+    denied = _check_diagnostics_access(request, auth_token)
+    if denied is not None:
+        return denied
+
+    repo = repository.strip() or "query-web"
+    capped_limit = max(1, min(limit, 200))
+    resolved_registry_name = _resolve_acr_registry_name(registry_name)
+    expected_tag_value = expected_tag.strip()
+
+    if not resolved_registry_name:
+        return JSONResponse(
+            {
+                "mode": "acr-images-diagnostics",
+                "configured": False,
+                "target_env": _target_env_name(),
+                "message": "ACR registry name is not configured.",
+                "repository": repo,
+                "expected_tag": expected_tag_value or None,
+            }
+        )
+
+    subscription_id = config.ingestion_job_subscription_id
+    resource_group = config.ingestion_job_resource_group
+    if not subscription_id or not resource_group:
+        return JSONResponse(
+            {
+                "mode": "acr-images-diagnostics",
+                "configured": False,
+                "target_env": _target_env_name(),
+                "registry_name": resolved_registry_name,
+                "repository": repo,
+                "expected_tag": expected_tag_value or None,
+                "message": (
+                    "ACR diagnostics requires INGESTION_JOB_SUBSCRIPTION_ID and "
+                    "INGESTION_JOB_RESOURCE_GROUP to be configured."
+                ),
+            }
+        )
 
     try:
-        session = _load_conversation(user_id, conversation_id)
-        session.messages.append(ConversationMessage(role=role, content=content))
-        session.updated_at = _utc_now_iso()
-        _save_conversation(session)
+        result = _list_acr_tags_via_management_api(
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+            registry_name=resolved_registry_name,
+            repository=repo,
+            limit=capped_limit,
+        )
+        tags = result.get("tags", [])
+        distinct_digests = {
+            str(tag.get("digest") or "").strip() for tag in tags if str(tag.get("digest") or "").strip()
+        }
+        expected_tag_present = False
+        if expected_tag_value:
+            expected_tag_present = any(
+                str(tag.get("name") or "").strip() == expected_tag_value for tag in tags
+            )
 
         return JSONResponse(
             {
-                "message_id": len(session.messages),
-                "timestamp": session.messages[-1].timestamp,
-                "updated_at": session.updated_at,
+                "mode": "acr-images-diagnostics",
+                "configured": True,
+                "target_env": _target_env_name(),
+                "registry_name": resolved_registry_name,
+                "repository": repo,
+                "expected_tag": expected_tag_value or None,
+                "limit": capped_limit,
+                "tag_count": len(tags),
+                "distinct_digest_count": len(distinct_digests),
+                "has_results": bool(tags),
+                "tags": tags,
+                "next_link": result.get("next_link"),
+                "quick_flags": {
+                    "repository_empty": not bool(tags),
+                    "multiple_tags_share_digest": len(tags) > len(distinct_digests) if tags else False,
+                    "expected_tag_present": expected_tag_present if expected_tag_value else None,
+                },
             }
         )
     except Exception as exc:
-        logger.exception(
-            "Failed to add message for user_id=%s conversation_id=%s: %s",
-            user_id,
-            conversation_id,
-            exc,
-        )
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
-
-
-@app.post("/api/conversations/{conversation_id}/rating")
-def add_response_rating(
-    request: Request,
-    conversation_id: str,
-    user_id: str = Form(...),
-    rating: int = Form(...),
-    todo: str = Form(default=""),
-    assistant_timestamp: str = Form(default=""),
-    auth_token: str = Form(""),
-) -> JSONResponse:
-    """Store user rating/TODO feedback for a prior assistant response."""
-    if not _is_authorised_request(auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    if rating < 1 or rating > 5:
-        return JSONResponse({"error": "rating must be between 1 and 5"}, status_code=400)
-
-    try:
-        session = _load_conversation(user_id, conversation_id)
-
-        if assistant_timestamp:
-            has_target = any(
-                m.role == "assistant" and m.timestamp == assistant_timestamp
-                for m in session.messages
-            )
-            if not has_target:
-                return JSONResponse(
-                    {"error": "assistant message not found for assistant_timestamp"},
-                    status_code=404,
-                )
-
-        session.response_ratings.append(
-            ResponseRating(
-                rating=rating,
-                todo=todo.strip(),
-                assistant_timestamp=assistant_timestamp.strip(),
-            )
-        )
-        session.updated_at = _utc_now_iso()
-        _save_conversation(session)
-
+        logger.exception("Failed /api/diagnostics/acr/images request: %s", exc)
         return JSONResponse(
             {
-                "ratings_count": len(session.response_ratings),
-                "updated_at": session.updated_at,
-            }
+                "mode": "acr-images-diagnostics",
+                "configured": True,
+                "target_env": _target_env_name(),
+                "registry_name": resolved_registry_name,
+                "repository": repo,
+                "expected_tag": expected_tag_value or None,
+                "error": _INTERNAL_ERROR_MESSAGE,
+            },
+            status_code=500,
         )
-    except Exception as exc:
-        logger.exception(
-            "Failed to add response rating for user_id=%s conversation_id=%s: %s",
-            user_id,
-            conversation_id,
-            exc,
-        )
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+
+
+# Diagnostics endpoints moved to diagnostics.py module
+
+
+
+
+# Conversation endpoints moved to conversations.py module
+
+
+
 
 
 @app.get("/", response_class=HTMLResponse)

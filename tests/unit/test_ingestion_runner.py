@@ -9,6 +9,34 @@ import pytest
 from runtime.ingestion import runner
 
 
+def test_parse_args_controls_mode_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "runner.py",
+            "--mode",
+            "controls",
+            "--controls-framework",
+            "pci_dss",
+            "--replace-existing",
+            "--dry-run",
+            "--no-guidance",
+            "--controls-source-prefix",
+            "corpus-a/source/pci_dss/batch-123",
+        ],
+    )
+
+    args = runner.parse_args()
+
+    assert args.mode == "controls"
+    assert args.controls_framework == "pci_dss"
+    assert args.replace_existing is True
+    assert args.dry_run is True
+    assert args.no_guidance is True
+    assert args.controls_source_prefix == "corpus-a/source/pci_dss/batch-123"
+
+
 def test_run_local_requires_input_dir() -> None:
     args = argparse.Namespace(input_dir=None)
     assert runner._run_local(args) == 2

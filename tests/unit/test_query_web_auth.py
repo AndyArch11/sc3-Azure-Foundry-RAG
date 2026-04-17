@@ -609,3 +609,89 @@ def test_ingestion_overview_diagnostics_returns_aggregate_snapshot_in_dev() -> N
     assert body["scope_query_diagnostics"]["configured_data_source_name"] == "grounding-index-datasource"
     assert body["scope_query_diagnostics"]["active_data_source_query"] is None
     assert body["scope_query_diagnostics"]["scope_bleed_risk_level"] == "high"
+
+
+def test_acr_images_diagnostics_blocked_when_target_env_prod() -> None:
+    client = TestClient(app_module.app)
+    patched_config = replace(app_module.config, required_group_object_id="", auth_token="")
+
+    with (
+        patch.object(app_module, "config", patched_config),
+        patch.dict(os.environ, {"TARGET_ENV": "prod"}, clear=False),
+    ):
+        response = client.get("/api/diagnostics/acr/images")
+
+    body = response.json()
+    assert response.status_code == 403
+    assert "disabled" in body["error"].lower()
+    assert body["target_env"] == "prod"
+
+
+def test_acr_images_diagnostics_returns_tag_inventory_in_dev() -> None:
+    client = TestClient(app_module.app)
+    patched_config = replace(
+        app_module.config,
+        required_group_object_id="",
+        auth_token="",
+        ingestion_job_subscription_id="sub-123",
+        ingestion_job_resource_group="rg-dev",
+    )
+
+    class _FakeCredential:
+        def get_token(self, scope: str):
+            assert scope == "https://management.azure.com/.default"
+            return SimpleNamespace(token="fake-token")
+
+    class _FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {
+                "value": [
+                    {
+                        "name": "20260417-1",
+                        "digest": "sha256:abc",
+                        "createdTime": "2026-04-17T12:00:00Z",
+                        "lastUpdateTime": "2026-04-17T12:01:00Z",
+                    },
+                    {
+                        "name": "20260417-2",
+                        "digest": "sha256:abc",
+                        "createdTime": "2026-04-17T12:05:00Z",
+                        "lastUpdateTime": "2026-04-17T12:06:00Z",
+                    },
+                ]
+            }
+
+    def _fake_get(url: str, headers: dict[str, str], timeout: int):
+        assert "acrdevaue04" in url
+        assert "query-web" in url
+        assert "n=5" in url
+        assert headers["Authorization"] == "Bearer fake-token"
+        assert timeout == 30
+        return _FakeResponse()
+
+    with (
+        patch.object(app_module, "config", patched_config),
+        patch.object(app_module, "credential", _FakeCredential()),
+        patch.dict(os.environ, {"TARGET_ENV": "dev", "ACR_NAME": "acrdevaue04"}, clear=False),
+        patch.object(app_module.requests, "get", side_effect=_fake_get),
+    ):
+        response = client.get(
+            "/api/diagnostics/acr/images?repository=query-web&limit=5&expected_tag=20260417-2"
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["mode"] == "acr-images-diagnostics"
+    assert body["target_env"] == "dev"
+    assert body["registry_name"] == "acrdevaue04"
+    assert body["repository"] == "query-web"
+    assert body["expected_tag"] == "20260417-2"
+    assert body["tag_count"] == 2
+    assert body["distinct_digest_count"] == 1
+    assert body["quick_flags"]["repository_empty"] is False
+    assert body["quick_flags"]["multiple_tags_share_digest"] is True
+    assert body["quick_flags"]["expected_tag_present"] is True
+    assert body["tags"][0]["name"] == "20260417-1"
