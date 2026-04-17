@@ -552,17 +552,26 @@
           const executionName = (data.job && data.job.execution_name) ||
             (data.jobs && data.jobs.length > 0 && data.jobs[0].job && data.jobs[0].job.execution_name) || null;
           const statusEl = document.getElementById('ca-status');
-          statusEl.textContent += '\n\n[Job triggered' + (executionName ? ' (' + executionName + ')' : '') + '. Polling job status every 15s, up to 30 checks (~7.5 min)...]';
-          _pollCorpusAIndexStatus(30, 0, executionName);
+          statusEl.textContent += '\n\n[Job triggered' + (executionName ? ' (' + executionName + ')' : '') + '. Polling job status every 15s, up to 120 checks (~30 min)...]';
+          _pollCorpusAIndexStatus(120, 0, executionName, Date.now());
         }
       })
       .catch(err => _renderCorpusAStatus({ error: String(err) }));
   }
 
-  function _pollCorpusAIndexStatus(maxPollIntervals, pollCount, executionName) {
+  function _formatElapsedDuration(startedAtMs) {
+    const elapsedMs = Math.max(0, Date.now() - startedAtMs);
+    const totalSeconds = Math.floor(elapsedMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return minutes + 'm ' + String(seconds).padStart(2, '0') + 's';
+  }
+
+  function _pollCorpusAIndexStatus(maxPollIntervals, pollCount, executionName, pollStartedAtMs) {
     if (pollCount >= maxPollIntervals) {
       const statusEl = document.getElementById('ca-status');
-      statusEl.textContent += '\n\n[Polling stopped after ' + maxPollIntervals + ' checks. Use "Job Diagnostics" or check Azure Portal for final status.]';
+      const elapsed = _formatElapsedDuration(pollStartedAtMs || Date.now());
+      statusEl.textContent += '\n\n[Polling stopped after ' + maxPollIntervals + ' checks (elapsed ' + elapsed + '). Use "Job Diagnostics" or check Azure Portal for final status.]';
       return;
     }
     setTimeout(() => {
@@ -585,8 +594,9 @@
           if (exec) {
             const st = exec.status || 'Unknown';
             const execShortName = (exec.id || '').split('/').pop();
+            const elapsed = _formatElapsedDuration(pollStartedAtMs || Date.now());
             statusEl.textContent = (
-              `[Poll ${pollCount + 1}/${maxPollIntervals} at ${now}]\n` +
+              `[Poll ${pollCount + 1}/${maxPollIntervals} at ${now}; elapsed ${elapsed}]\n` +
               `Execution: ${execShortName}\n` +
               `Status: ${st}\n` +
               `Started: ${exec.startTime || 'unknown'}\n` +
@@ -602,11 +612,12 @@
               return;
             }
           } else {
-            statusEl.textContent = `[Poll ${pollCount + 1}/${maxPollIntervals} at ${now}] Waiting for execution to appear...\n${JSON.stringify(diagData, null, 2)}`;
+            const elapsed = _formatElapsedDuration(pollStartedAtMs || Date.now());
+            statusEl.textContent = `[Poll ${pollCount + 1}/${maxPollIntervals} at ${now}; elapsed ${elapsed}] Waiting for execution to appear...\n${JSON.stringify(diagData, null, 2)}`;
           }
-          _pollCorpusAIndexStatus(maxPollIntervals, pollCount + 1, executionName);
+          _pollCorpusAIndexStatus(maxPollIntervals, pollCount + 1, executionName, pollStartedAtMs);
         })
-        .catch(() => _pollCorpusAIndexStatus(maxPollIntervals, pollCount + 1, executionName));
+        .catch(() => _pollCorpusAIndexStatus(maxPollIntervals, pollCount + 1, executionName, pollStartedAtMs));
     }, 15000);
   }
 
@@ -686,15 +697,22 @@
         if (data && data.triggered_job && !data.error) {
           const executionName = _extractExecutionName(data);
           const statusEl = document.getElementById('cb-status');
-          statusEl.textContent += '\n\n[Job triggered' + (executionName ? ' (' + executionName + ')' : '') + '. Polling this execution only...]';
-          _pollCorpusBIndexStatus(40, 0, executionName);
+          statusEl.textContent += '\n\n[Job triggered' + (executionName ? ' (' + executionName + ')' : '') + '. Polling this execution only every 5s, up to 360 checks (~30 min)...]';
+          _pollCorpusBIndexStatus(360, 0, executionName, Date.now());
         }
       })
       .catch(err => _renderCorpusBStatus({ error: String(err) }));
   }
 
-  function _pollCorpusListAndJobStatus(listEndpoint, statusElementId, batchFieldId, maxPollIntervals, pollCount, executionName) {
-    if (pollCount >= maxPollIntervals) return;
+  function _pollCorpusListAndJobStatus(listEndpoint, statusElementId, batchFieldId, maxPollIntervals, pollCount, executionName, pollStartedAtMs) {
+    if (pollCount >= maxPollIntervals) {
+      const statusEl = document.getElementById(statusElementId);
+      if (statusEl) {
+        const elapsed = _formatElapsedDuration(pollStartedAtMs || Date.now());
+        statusEl.textContent += '\n\n[Polling stopped after ' + maxPollIntervals + ' checks (elapsed ' + elapsed + '). Use Job Diagnostics or Azure Portal for final status.]';
+      }
+      return;
+    }
     setTimeout(() => {
       const token = _currentAuthToken();
       const params = new URLSearchParams();
@@ -717,20 +735,21 @@
           const exec = _findExecution(diagData, executionName);
           const execShortName = exec && exec.id ? exec.id.split('/').pop() : executionName;
           const jobStatus = exec ? (exec.status || 'unknown') : 'pending lookup';
+          const elapsed = _formatElapsedDuration(pollStartedAtMs || Date.now());
           const countLabel = overall === null
             ? `Total count: ${total}; Returned: ${returned}`
             : `Filtered count: ${total}; Overall count: ${overall}; Returned: ${returned}`;
-          const pollMsg = `\n[${countLabel}; refreshed at ${new Date().toLocaleTimeString()}] [Ingestion job: ${execShortName || 'unknown'} status=${jobStatus}]\n`;
+          const pollMsg = `\n[${countLabel}; refreshed at ${new Date().toLocaleTimeString()}; elapsed ${elapsed}] [Ingestion job: ${execShortName || 'unknown'} status=${jobStatus}]\n`;
           statusEl.textContent = pollMsg + JSON.stringify(data, null, 2);
           if (exec && (exec.status === 'Succeeded' || exec.status === 'Failed')) return;
-          _pollCorpusListAndJobStatus(listEndpoint, statusElementId, batchFieldId, maxPollIntervals, pollCount + 1, executionName);
+          _pollCorpusListAndJobStatus(listEndpoint, statusElementId, batchFieldId, maxPollIntervals, pollCount + 1, executionName, pollStartedAtMs);
         })
-        .catch(() => _pollCorpusListAndJobStatus(listEndpoint, statusElementId, batchFieldId, maxPollIntervals, pollCount + 1, executionName));
+        .catch(() => _pollCorpusListAndJobStatus(listEndpoint, statusElementId, batchFieldId, maxPollIntervals, pollCount + 1, executionName, pollStartedAtMs));
     }, 5000);
   }
 
-  function _pollCorpusBIndexStatus(maxPollIntervals, pollCount, executionName) {
-    _pollCorpusListAndJobStatus('/api/corpus-b/list', 'cb-status', 'cr-b-upload-batch', maxPollIntervals, pollCount, executionName);
+  function _pollCorpusBIndexStatus(maxPollIntervals, pollCount, executionName, pollStartedAtMs) {
+    _pollCorpusListAndJobStatus('/api/corpus-b/list', 'cb-status', 'cr-b-upload-batch', maxPollIntervals, pollCount, executionName, pollStartedAtMs);
   }
 
   function uploadCorpusCIngest() {
@@ -759,15 +778,15 @@
         if (data && data.triggered_job && !data.error) {
           const executionName = _extractExecutionName(data);
           const statusEl = document.getElementById('cc-status');
-          statusEl.textContent += '\n\n[Job triggered' + (executionName ? ' (' + executionName + ')' : '') + '. Polling this execution only...]';
-          _pollCorpusCIndexStatus(40, 0, executionName);
+          statusEl.textContent += '\n\n[Job triggered' + (executionName ? ' (' + executionName + ')' : '') + '. Polling this execution only every 5s, up to 360 checks (~30 min)...]';
+          _pollCorpusCIndexStatus(360, 0, executionName, Date.now());
         }
       })
       .catch(err => _renderCorpusCStatus({ error: String(err) }));
   }
 
-  function _pollCorpusCIndexStatus(maxPollIntervals, pollCount, executionName) {
-    _pollCorpusListAndJobStatus('/api/corpus-c/list', 'cc-status', 'cr-upload-batch', maxPollIntervals, pollCount, executionName);
+  function _pollCorpusCIndexStatus(maxPollIntervals, pollCount, executionName, pollStartedAtMs) {
+    _pollCorpusListAndJobStatus('/api/corpus-c/list', 'cc-status', 'cr-upload-batch', maxPollIntervals, pollCount, executionName, pollStartedAtMs);
   }
 
   function clearCorpusC() {

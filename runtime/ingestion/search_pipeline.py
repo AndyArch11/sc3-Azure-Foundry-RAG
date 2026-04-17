@@ -971,7 +971,21 @@ def wait_for_indexer(
             if errors:
                 logger.error("Indexer reported %d item-level error(s): %s", len(errors), errors)
             if warnings:
-                logger.warning("Indexer reported %d warning(s): %s", len(warnings), warnings)
+                warning_counts: dict[str, int] = {}
+                for warning in warnings:
+                    name = str(warning.get("name") or "(unknown)")
+                    warning_counts[name] = warning_counts.get(name, 0) + 1
+                logger.warning(
+                    "Indexer reported %d warning(s) grouped by skill/input: %s",
+                    len(warnings),
+                    warning_counts,
+                )
+                sample_warning = warnings[0]
+                logger.warning(
+                    "Sample warning: name=%s details=%s",
+                    sample_warning.get("name"),
+                    sample_warning.get("details"),
+                )
 
             return {
                 "status": status_text,

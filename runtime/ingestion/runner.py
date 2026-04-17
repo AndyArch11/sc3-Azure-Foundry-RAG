@@ -67,6 +67,14 @@ modes:
         default=False,
         help="(azure mode) skip blob upload; files must already be in the grounding-data container",
     )
+    parser.add_argument(
+        "--storage-container-query",
+        default=None,
+        help=(
+            "(azure mode) optional blob virtual-directory query/prefix override for the datasource "
+            "(for example corpus-b/by-dedupe/ or corpus-c/by-dedupe/)"
+        ),
+    )
     # local mode
     parser.add_argument(
         "--output-jsonl", default="./out/chunks.jsonl", help="(local mode) JSONL output path"
@@ -271,6 +279,13 @@ def _run_azure(args: argparse.Namespace) -> int:
         wait_for_indexer,
     )
 
+    # Allow per-run scoping without requiring long-lived env var changes on the job.
+    storage_container_query_override = (
+        str(getattr(args, "storage_container_query", "") or "").strip()
+    )
+    if storage_container_query_override:
+        os.environ["AZURE_STORAGE_CONTAINER_QUERY"] = storage_container_query_override
+
     try:
         config = IngestionConfig.from_env()
     except ValueError as exc:
@@ -357,6 +372,7 @@ def _run_azure(args: argparse.Namespace) -> int:
 
     summary = {
         "mode": "azure",
+        "storage_container_query": config.storage_container_query,
         "uploaded_files": len(upload_summary.uploaded) if upload_summary is not None else "skipped",
         "upload_failed": len(upload_summary.failed) if upload_summary is not None else 0,
         "indexer_status": result["status"],

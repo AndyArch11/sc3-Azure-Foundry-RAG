@@ -4975,6 +4975,8 @@ async def upload_corpus_b_and_trigger(
         upload_result = _upload_corpus_b_files(files, user_id=user_id)
         trigger_result: dict[str, Any] | None = None
         reindex_touch: dict[str, Any] | None = None
+        scope_query = "corpus-b/by-dedupe/"
+        effective_scope_query: str | None = None
         should_trigger_for_reindex = (
             reindex_on_dedupe and not upload_result["uploaded"] and bool(upload_result["skipped"])
         )
@@ -4982,7 +4984,24 @@ async def upload_corpus_b_and_trigger(
             dedupe_hashes = _extract_dedupe_hashes(upload_result["skipped"])
             reindex_touch = _mark_dedupe_blobs_for_reindex("b", dedupe_hashes, user_id=user_id)
         if trigger_job and (upload_result["uploaded"] or should_trigger_for_reindex):
-            trigger_result = _trigger_ingestion_job()
+            try:
+                trigger_result = _trigger_ingestion_job_with_args(
+                    [
+                        "--mode",
+                        "azure",
+                        "--skip-upload",
+                        "--storage-container-query",
+                        scope_query,
+                    ]
+                )
+                effective_scope_query = scope_query
+            except Exception as exc:
+                logger.warning(
+                    "Corpus B scoped job start failed; falling back to default job args: %s",
+                    exc,
+                )
+                trigger_result = _trigger_ingestion_job()
+                effective_scope_query = None
 
         latest_job: dict[str, Any] | None = None
         if trigger_result:
@@ -5020,6 +5039,9 @@ async def upload_corpus_b_and_trigger(
                 "triggered_job": bool(trigger_result),
                 "job": trigger_result,
                 "job_latest": latest_job,
+                "requested_scope_query": scope_query,
+                "effective_scope_query": effective_scope_query,
+                "scope_query_applied": bool(effective_scope_query),
                 "reindex_on_dedupe": reindex_on_dedupe,
                 "reindex_touch": reindex_touch,
                 "indexer_reset": {
@@ -5066,6 +5088,8 @@ async def upload_corpus_c_and_trigger(
         )
         trigger_result: dict[str, Any] | None = None
         reindex_touch: dict[str, Any] | None = None
+        scope_query = "corpus-c/by-dedupe/"
+        effective_scope_query: str | None = None
         should_trigger_for_reindex = (
             reindex_on_dedupe and not upload_result["uploaded"] and bool(upload_result["skipped"])
         )
@@ -5073,10 +5097,24 @@ async def upload_corpus_c_and_trigger(
             dedupe_hashes = _extract_dedupe_hashes(upload_result["skipped"])
             reindex_touch = _mark_dedupe_blobs_for_reindex("c", dedupe_hashes, user_id=user_id)
         if trigger_job and (upload_result["uploaded"] or should_trigger_for_reindex):
-            # The ingestion job template already defaults to --mode azure --skip-upload.
-            # Starting with an args override can be rejected by ARM in some environments
-            # unless a full container image spec is supplied in the override payload.
-            trigger_result = _trigger_ingestion_job()
+            try:
+                trigger_result = _trigger_ingestion_job_with_args(
+                    [
+                        "--mode",
+                        "azure",
+                        "--skip-upload",
+                        "--storage-container-query",
+                        scope_query,
+                    ]
+                )
+                effective_scope_query = scope_query
+            except Exception as exc:
+                logger.warning(
+                    "Corpus C scoped job start failed; falling back to default job args: %s",
+                    exc,
+                )
+                trigger_result = _trigger_ingestion_job()
+                effective_scope_query = None
 
         latest_job: dict[str, Any] | None = None
         if trigger_result:
@@ -5114,6 +5152,9 @@ async def upload_corpus_c_and_trigger(
                 "triggered_job": bool(trigger_result),
                 "job": trigger_result,
                 "job_latest": latest_job,
+                "requested_scope_query": scope_query,
+                "effective_scope_query": effective_scope_query,
+                "scope_query_applied": bool(effective_scope_query),
                 "reindex_on_dedupe": reindex_on_dedupe,
                 "reindex_touch": reindex_touch,
                 "indexer_reset": {
