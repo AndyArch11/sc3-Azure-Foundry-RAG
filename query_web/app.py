@@ -59,6 +59,8 @@ except Exception:
 
 CosmosResourceNotFoundError: type[Exception] = _CosmosResourceNotFoundError
 
+QUERY_WEB_VERSION_SIGNATURE = "query-web-meta-safe-v2-20260417"
+
 ALLOWED_EXTENSIONS = {
     ".pdf",
     ".xlsx",
@@ -111,8 +113,9 @@ def _count_blob_prefix(prefix: str) -> dict[str, int]:
     try:
         blobs = container.list_blobs(name_starts_with=prefix)
         for blob in blobs:
-            ext = Path(blob.name).suffix.lower()
-            if ext in ALLOWED_EXTENSIONS:
+            # Count every blob under the prefix so legacy extensionless
+            # dedupe blobs are visible in dry-run and diagnostics.
+            if blob.name:
                 count += 1
     except Exception as exc:
         logger.warning(f"Failed to count blobs with prefix {prefix}: {exc}")
@@ -2019,8 +2022,9 @@ def _delete_blob_prefix(prefix: str) -> dict[str, int]:
     try:
         blobs = container.list_blobs(name_starts_with=prefix)
         for blob in blobs:
-            ext = Path(blob.name).suffix.lower()
-            if ext in ALLOWED_EXTENSIONS:
+            # Delete every blob under the prefix so legacy extensionless
+            # dedupe blobs cannot survive between runs.
+            if blob.name:
                 container.delete_blob(blob.name)
                 deleted += 1
     except Exception as exc:
@@ -3931,6 +3935,28 @@ def _dedupe_blob_prefix(corpus: str, dedupe_hash: str) -> str:
     return f"corpus-{corpus}/by-dedupe/{dedupe_hash}"
 
 
+_REQUIRED_INGESTION_METADATA_KEYS = {
+    "corpus",
+    "corpus_role",
+    "upload_source",
+    "uploaded_by",
+    "upload_batch",
+    "uploaded_at",
+    "original_filename",
+    "dedupe_hash",
+    "dedupe_method",
+}
+
+
+def _blob_has_required_ingestion_metadata(metadata: dict[str, str] | None) -> bool:
+    if not metadata:
+        return False
+    for key in _REQUIRED_INGESTION_METADATA_KEYS:
+        if not str(metadata.get(key) or "").strip():
+            return False
+    return True
+
+
 def _mark_dedupe_blobs_for_reindex(
     corpus: str, dedupe_hashes: list[str], *, user_id: str
 ) -> dict[str, Any]:
@@ -4064,11 +4090,10 @@ def _upload_corpus_files(
             dedupe_hash = normalised_text_sha256 or content_sha256
             dedupe_method = "normalised_text_sha256" if normalised_text_sha256 else "content_sha256"
             hash_blob_prefix = _dedupe_blob_prefix(corpus, dedupe_hash)
-            if any(True for _ in container.list_blobs(name_starts_with=hash_blob_prefix)):
-                skipped.append(f"{original_name}: duplicate-{dedupe_method}:{dedupe_hash}")
-                continue
-
             hash_blob_name = f"{hash_blob_prefix}{ext}"
+            existing_blob_names = [
+                blob.name for blob in container.list_blobs(name_starts_with=hash_blob_prefix)
+            ]
 
             if upload_batch_id is None:
                 upload_batch_id = str(uuid.uuid4())
@@ -4088,6 +4113,24 @@ def _upload_corpus_files(
                 "hash_method": hash_method,
             }
 
+            should_repair_existing = False
+            for existing_blob_name in existing_blob_names:
+                existing_blob = container.get_blob_client(existing_blob_name)
+                try:
+                    existing_props = existing_blob.get_blob_properties()
+                    existing_metadata = dict(existing_props.metadata or {})
+                except Exception:
+                    existing_metadata = {}
+                existing_ext = Path(existing_blob_name).suffix.lower()
+                metadata_ok = _blob_has_required_ingestion_metadata(existing_metadata)
+                if not metadata_ok or existing_ext != ext:
+                    should_repair_existing = True
+                    break
+
+            if existing_blob_names and not should_repair_existing:
+                skipped.append(f"{original_name}: duplicate-{dedupe_method}:{dedupe_hash}")
+                continue
+
             container.upload_blob(
                 name=hash_blob_name,
                 data=content,
@@ -4098,6 +4141,19 @@ def _upload_corpus_files(
                 ),
             )
 
+            if should_repair_existing:
+                for existing_blob_name in existing_blob_names:
+                    if existing_blob_name == hash_blob_name:
+                        continue
+                    try:
+                        container.delete_blob(existing_blob_name)
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to delete stale dedupe blob %s during repair: %s",
+                            existing_blob_name,
+                            exc,
+                        )
+
             uploaded.append(
                 {
                     "blob_name": hash_blob_name,
@@ -4107,6 +4163,7 @@ def _upload_corpus_files(
                     "normalised_text_sha256": normalised_text_sha256,
                     "dedupe_hash": dedupe_hash,
                     "dedupe_method": dedupe_method,
+                    "repaired_existing": should_repair_existing,
                     "metadata": metadata,
                 }
             )
@@ -4222,6 +4279,7 @@ def health() -> JSONResponse:
         {
             "status": "ok",
             "service": "rag-query-web",
+            "version_signature": QUERY_WEB_VERSION_SIGNATURE,
             "index": config.search_index_name,
             "controls_index": config.controls_index_name,
             "controls_semantic_default": config.controls_semantic_default,
@@ -4272,6 +4330,7 @@ def index_status() -> JSONResponse:
 def api_config() -> JSONResponse:
     return JSONResponse(
         {
+            "version_signature": QUERY_WEB_VERSION_SIGNATURE,
             "search_index_name": config.search_index_name,
             "controls_index_name": config.controls_index_name,
             "embedding_deployment": config.embedding_deployment,

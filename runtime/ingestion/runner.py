@@ -15,6 +15,10 @@ from .extractors import discover_supported_files, extract_source_document
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
 
+# Bump this when ingestion runtime behavior changes in ways operators may need
+# to verify quickly from job logs.
+INGESTION_VERSION_SIGNATURE = "ingestion-meta-safe-v2-20260417"
+
 
 _CONTROLS_SOURCE_TARGET_FILENAMES = {
     "cis_controls": {
@@ -497,6 +501,7 @@ def _run_controls(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    logger.warning("Ingestion version signature: %s", INGESTION_VERSION_SIGNATURE)
     args = parse_args()
     if args.mode == "azure":
         return _run_azure(args)

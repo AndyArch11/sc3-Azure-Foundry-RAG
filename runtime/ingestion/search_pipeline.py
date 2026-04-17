@@ -520,6 +520,167 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
     # 7. ConditionalSkill - default normalised_text_sha256
     # Legacy blobs can carry an empty normalised_text_sha256 value. Fall back
     # to dedupe_hash so projection fields remain non-empty and indexable.
+    default_dedupe_hash = ConditionalSkill(
+        name="default-dedupe-hash",
+        description="Default dedupe_hash to storage path when metadata is empty",
+        context="/document",
+        inputs=[
+            InputFieldMappingEntry(
+                name="condition",
+                source="=($(/document/metadata_dedupe_hash) == null || $(/document/metadata_dedupe_hash) == '')",
+            ),
+            InputFieldMappingEntry(name="whenTrue", source="/document/metadata_storage_path"),
+            InputFieldMappingEntry(
+                name="whenFalse",
+                source="/document/metadata_dedupe_hash",
+            ),
+        ],
+        outputs=[
+            OutputFieldMappingEntry(
+                name="output",
+                target_name="dedupe_hash_safe",
+            )
+        ],
+    )
+
+    default_dedupe_method = ConditionalSkill(
+        name="default-dedupe-method",
+        description="Default dedupe_method when metadata is empty",
+        context="/document",
+        inputs=[
+            InputFieldMappingEntry(
+                name="condition",
+                source="=($(/document/metadata_dedupe_method) == null || $(/document/metadata_dedupe_method) == '')",
+            ),
+            InputFieldMappingEntry(name="whenTrue", source="='content_sha256'"),
+            InputFieldMappingEntry(
+                name="whenFalse",
+                source="/document/metadata_dedupe_method",
+            ),
+        ],
+        outputs=[
+            OutputFieldMappingEntry(
+                name="output",
+                target_name="dedupe_method_safe",
+            )
+        ],
+    )
+
+    default_corpus = ConditionalSkill(
+        name="default-corpus",
+        description="Default corpus when metadata is empty",
+        context="/document",
+        inputs=[
+            InputFieldMappingEntry(
+                name="condition",
+                source="=($(/document/metadata_corpus) == null || $(/document/metadata_corpus) == '')",
+            ),
+            InputFieldMappingEntry(name="whenTrue", source="='legacy'"),
+            InputFieldMappingEntry(
+                name="whenFalse",
+                source="/document/metadata_corpus",
+            ),
+        ],
+        outputs=[
+            OutputFieldMappingEntry(
+                name="output",
+                target_name="corpus_safe",
+            )
+        ],
+    )
+
+    default_corpus_role = ConditionalSkill(
+        name="default-corpus-role",
+        description="Default corpus_role when metadata is empty",
+        context="/document",
+        inputs=[
+            InputFieldMappingEntry(
+                name="condition",
+                source="=($(/document/metadata_corpus_role) == null || $(/document/metadata_corpus_role) == '')",
+            ),
+            InputFieldMappingEntry(name="whenTrue", source="='unknown'"),
+            InputFieldMappingEntry(
+                name="whenFalse",
+                source="/document/metadata_corpus_role",
+            ),
+        ],
+        outputs=[
+            OutputFieldMappingEntry(
+                name="output",
+                target_name="corpus_role_safe",
+            )
+        ],
+    )
+
+    default_upload_source = ConditionalSkill(
+        name="default-upload-source",
+        description="Default upload_source when metadata is empty",
+        context="/document",
+        inputs=[
+            InputFieldMappingEntry(
+                name="condition",
+                source="=($(/document/metadata_upload_source) == null || $(/document/metadata_upload_source) == '')",
+            ),
+            InputFieldMappingEntry(name="whenTrue", source="='legacy'"),
+            InputFieldMappingEntry(
+                name="whenFalse",
+                source="/document/metadata_upload_source",
+            ),
+        ],
+        outputs=[
+            OutputFieldMappingEntry(
+                name="output",
+                target_name="upload_source_safe",
+            )
+        ],
+    )
+
+    default_upload_batch = ConditionalSkill(
+        name="default-upload-batch",
+        description="Default upload_batch when metadata is empty",
+        context="/document",
+        inputs=[
+            InputFieldMappingEntry(
+                name="condition",
+                source="=($(/document/metadata_upload_batch) == null || $(/document/metadata_upload_batch) == '')",
+            ),
+            InputFieldMappingEntry(name="whenTrue", source="='legacy'"),
+            InputFieldMappingEntry(
+                name="whenFalse",
+                source="/document/metadata_upload_batch",
+            ),
+        ],
+        outputs=[
+            OutputFieldMappingEntry(
+                name="output",
+                target_name="upload_batch_safe",
+            )
+        ],
+    )
+
+    default_original_filename = ConditionalSkill(
+        name="default-original-filename",
+        description="Default original_filename to storage name when metadata is empty",
+        context="/document",
+        inputs=[
+            InputFieldMappingEntry(
+                name="condition",
+                source="=($(/document/metadata_original_filename) == null || $(/document/metadata_original_filename) == '')",
+            ),
+            InputFieldMappingEntry(name="whenTrue", source="/document/metadata_storage_name"),
+            InputFieldMappingEntry(
+                name="whenFalse",
+                source="/document/metadata_original_filename",
+            ),
+        ],
+        outputs=[
+            OutputFieldMappingEntry(
+                name="output",
+                target_name="original_filename_safe",
+            )
+        ],
+    )
+
     default_normalised_text_sha256 = ConditionalSkill(
         name="default-normalised-text-sha256",
         description="Default normalised_text_sha256 to dedupe_hash when metadata is empty",
@@ -529,7 +690,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
                 name="condition",
                 source="=($(/document/metadata_normalised_text_sha256) == null || $(/document/metadata_normalised_text_sha256) == '')",
             ),
-            InputFieldMappingEntry(name="whenTrue", source="/document/metadata_dedupe_hash"),
+            InputFieldMappingEntry(name="whenTrue", source="/document/dedupe_hash_safe"),
             InputFieldMappingEntry(
                 name="whenFalse",
                 source="/document/metadata_normalised_text_sha256",
@@ -586,15 +747,15 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
                     ),
                     InputFieldMappingEntry(
                         name="corpus",
-                        source="/document/metadata_corpus",
+                        source="/document/corpus_safe",
                     ),
                     InputFieldMappingEntry(
                         name="corpus_role",
-                        source="/document/metadata_corpus_role",
+                        source="/document/corpus_role_safe",
                     ),
                     InputFieldMappingEntry(
                         name="upload_source",
-                        source="/document/metadata_upload_source",
+                        source="/document/upload_source_safe",
                     ),
                     InputFieldMappingEntry(
                         name="uploaded_by",
@@ -602,7 +763,7 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
                     ),
                     InputFieldMappingEntry(
                         name="upload_batch",
-                        source="/document/metadata_upload_batch",
+                        source="/document/upload_batch_safe",
                     ),
                     InputFieldMappingEntry(
                         name="uploaded_at",
@@ -610,11 +771,11 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
                     ),
                     InputFieldMappingEntry(
                         name="original_filename",
-                        source="/document/metadata_original_filename",
+                        source="/document/original_filename_safe",
                     ),
                     InputFieldMappingEntry(
                         name="content_sha256",
-                        source="/document/metadata_dedupe_hash",
+                        source="/document/dedupe_hash_safe",
                     ),
                     InputFieldMappingEntry(
                         name="normalised_text_sha256",
@@ -622,11 +783,11 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
                     ),
                     InputFieldMappingEntry(
                         name="dedupe_hash",
-                        source="/document/metadata_dedupe_hash",
+                        source="/document/dedupe_hash_safe",
                     ),
                     InputFieldMappingEntry(
                         name="dedupe_method",
-                        source="/document/metadata_dedupe_method",
+                        source="/document/dedupe_method_safe",
                     ),
                 ],
             )
@@ -649,6 +810,13 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
             split,
             default_uploaded_by,
             default_uploaded_at,
+            default_dedupe_hash,
+            default_dedupe_method,
+            default_corpus,
+            default_corpus_role,
+            default_upload_source,
+            default_upload_batch,
+            default_original_filename,
             default_normalised_text_sha256,
             embedding,
         ],
