@@ -9,7 +9,11 @@ COPY runtime/requirements.txt ./runtime-requirements.txt
 RUN pip install --no-cache-dir -r query_web-requirements.txt -r runtime-requirements.txt
 
 COPY query_web/app.py ./app.py
+COPY query_web/conversations.py ./conversations.py
+COPY query_web/diagnostics.py ./diagnostics.py
 COPY query_web/prompt_injection_guard.py ./prompt_injection_guard.py
+COPY query_web/status.py ./status.py
+COPY query_web/utils.py ./utils.py
 COPY query_web/templates ./templates
 COPY query_web/static ./static
 COPY query_web/policies /app/policies
