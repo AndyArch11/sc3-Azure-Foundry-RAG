@@ -57,7 +57,6 @@ from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClien
 from azure.search.documents.indexes.models import (
     AzureOpenAIEmbeddingSkill,
     BlobIndexerImageAction,
-    AIServicesAccountIdentity,
     ConditionalSkill,
     DocumentExtractionSkill,
     HnswAlgorithmConfiguration,
@@ -820,9 +819,6 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
             default_normalised_text_sha256,
             embedding,
         ],
-        cognitive_services_account=AIServicesAccountIdentity(
-            subdomain_url=config.ai_services_endpoint,
-        ),
         index_projection=index_projections,
     )
 
