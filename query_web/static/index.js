@@ -858,14 +858,8 @@
       return;
     }
 
-    const corporaInclude = document.getElementById('cr-corpora-include').value
-      .split(',')
-      .map(v => v.trim())
-      .filter(Boolean);
-    const corporaExclude = document.getElementById('cr-corpora-exclude').value
-      .split(',')
-      .map(v => v.trim())
-      .filter(Boolean);
+    const corporaSelected = Array.from(document.getElementById('cr-corpora')?.selectedOptions || []).map(o => o.value);
+    const corporaInclude = corporaSelected;
 
     const body = {
       question: question,
@@ -877,7 +871,6 @@
       corpus_b_upload_batch: document.getElementById('cr-b-upload-batch').value.trim() || null,
       corpus_c_upload_batch: document.getElementById('cr-upload-batch').value.trim() || null,
       evidence_corpora_include: corporaInclude.length ? corporaInclude : null,
-      evidence_corpora_exclude: corporaExclude.length ? corporaExclude : null,
       assessment_strategy: 'per_control',
       validation_mode: document.getElementById('cr-validation-mode').value || 'hard',
       auth_token: _currentAuthToken(),

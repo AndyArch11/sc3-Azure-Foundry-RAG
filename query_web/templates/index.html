@@ -90,16 +90,12 @@
               </select>
             </div>
             <div class="field">
-              <label for="evidence_corpora_include">Include corpora (B,C,etc)</label>
-              <input id="evidence_corpora_include" name="evidence_corpora_include" type="text" value="{{ evidence_corpora_include or '' }}" placeholder="e.g. b,c" title="Comma-separated evidence corpora to include in grounding retrieval. Supports aliases like corpus-b, corpus-c, a, b, c, legacy." />
-            </div>
-            <div class="field">
-              <label for="evidence_corpora_exclude">Exclude corpora</label>
-              <input id="evidence_corpora_exclude" name="evidence_corpora_exclude" type="text" value="{{ evidence_corpora_exclude or '' }}" placeholder="e.g. legacy" title="Comma-separated evidence corpora to exclude from grounding retrieval." />
-            </div>
-            <div class="field">
-              <label for="auth_token">Access token{% if not auth_enabled %} (disabled){% endif %}</label>
-              <input id="auth_token" name="auth_token" type="password" value="{{ auth_token or '' }}" {% if not auth_enabled %}disabled{% endif %} title="Optional bearer token used when API authentication is enabled." />
+              <label for="evidence_corpora_include">Evidence corpora</label>
+              <select id="evidence_corpora_include" name="evidence_corpora_include" multiple title="Select which evidence corpora to include in retrieval. Leave all unselected to use all corpora.">
+                <option value="a" {% if 'a' in (evidence_corpora_include or []) %}selected{% endif %}>Corpus A</option>
+                <option value="b" {% if 'b' in (evidence_corpora_include or []) %}selected{% endif %}>Corpus B</option>
+                <option value="c" {% if 'c' in (evidence_corpora_include or []) %}selected{% endif %}>Corpus C</option>
+              </select>
             </div>
           </div>
           <input type="hidden" name="session_id" id="session_id_field" value="{{ session_id or '' }}" />
@@ -260,12 +256,12 @@
               <input id="cr-upload-batch" type="text" placeholder="e.g. 4f1f2..." title="Optional: limit Corpus C evidence to a specific upload batch ID." />
             </div>
             <div class="field">
-              <label for="cr-corpora-include">Include evidence corpora</label>
-              <input id="cr-corpora-include" type="text" placeholder="e.g. b,c" title="Optional: comma-separated evidence corpora to include for report retrieval." />
-            </div>
-            <div class="field">
-              <label for="cr-corpora-exclude">Exclude evidence corpora</label>
-              <input id="cr-corpora-exclude" type="text" placeholder="e.g. c" title="Optional: comma-separated evidence corpora to exclude for report retrieval." />
+              <label for="cr-corpora">Evidence corpora</label>
+              <select id="cr-corpora" multiple title="Select which evidence corpora to include in the report. Leave all unselected to use all corpora.">
+                <option value="a">Corpus A</option>
+                <option value="b">Corpus B</option>
+                <option value="c">Corpus C</option>
+              </select>
             </div>
             <div class="field">
               <label for="cr-validation-mode">Schema validation mode</label>

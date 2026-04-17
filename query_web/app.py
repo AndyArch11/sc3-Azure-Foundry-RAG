@@ -4718,8 +4718,7 @@ def home(request: Request) -> HTMLResponse:
             "controls_semantic": config.controls_semantic_default,
             "controls_framework": "",
             "controls_comparison_mode": "auto-detect",
-            "evidence_corpora_include": "",
-            "evidence_corpora_exclude": "",
+            "evidence_corpora_include": [],
             "advanced_mode": False,
             "auth_token": "",
             "index_name": config.search_index_name,
@@ -4743,8 +4742,7 @@ def ask(
     controls_semantic: str = Form(""),
     controls_framework: str = Form(""),
     controls_comparison_mode: str = Form("auto-detect"),
-    evidence_corpora_include: str = Form(""),
-    evidence_corpora_exclude: str = Form(""),
+    evidence_corpora_include: list[str] = Form(default=[]),
     advanced_mode: str = Form(""),
     auth_token: str = Form(""),
     session_id: str = Form(default=""),
@@ -4778,8 +4776,7 @@ def ask(
                 "controls_comparison_mode": _normalise_controls_comparison_mode(
                     controls_comparison_mode
                 ),
-                "evidence_corpora_include": (evidence_corpora_include or "").strip(),
-                "evidence_corpora_exclude": (evidence_corpora_exclude or "").strip(),
+                "evidence_corpora_include": evidence_corpora_include,
                 "advanced_mode": advanced_mode_enabled,
                 "auth_token": "",
                 "index_name": config.search_index_name,
@@ -4805,10 +4802,8 @@ def ask(
     controls_framework_value = (controls_framework or "").strip().lower()
     controls_framework_filter = _normalise_framework_filter(controls_framework_value)
     controls_comparison_mode_value = _normalise_controls_comparison_mode(controls_comparison_mode)
-    evidence_corpora_include_value = (evidence_corpora_include or "").strip()
-    evidence_corpora_exclude_value = (evidence_corpora_exclude or "").strip()
-    evidence_corpora_include_filter = _parse_evidence_corpora_csv(evidence_corpora_include_value)
-    evidence_corpora_exclude_filter = _parse_evidence_corpora_csv(evidence_corpora_exclude_value)
+    evidence_corpora_include_filter = _normalise_evidence_corpora(evidence_corpora_include) if evidence_corpora_include else None
+    evidence_corpora_exclude_filter: list[str] | None = None
 
     try:
         conversation_history = session.messages if session else []
@@ -4867,8 +4862,7 @@ def ask(
             "controls_semantic": controls_semantic_enabled,
             "controls_framework": controls_framework_value,
             "controls_comparison_mode": controls_comparison_mode_value,
-            "evidence_corpora_include": evidence_corpora_include_value,
-            "evidence_corpora_exclude": evidence_corpora_exclude_value,
+            "evidence_corpora_include": evidence_corpora_include,
             "advanced_mode": advanced_mode_enabled,
             "auth_token": auth_token,
             "index_name": config.search_index_name,
