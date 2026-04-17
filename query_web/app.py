@@ -4465,17 +4465,33 @@ def search_resources_diagnostics(request: Request, auth_token: str = "") -> JSON
     if denied is not None:
         return denied
 
-    try:
-        index_client = SearchIndexClient(endpoint=config.search_endpoint, credential=credential)
-        indexer_client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
-        indexer_client_any = cast(Any, indexer_client)
+    index_client = SearchIndexClient(endpoint=config.search_endpoint, credential=credential)
+    indexer_client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
+    indexer_client_any = cast(Any, indexer_client)
 
-        indexes: list[dict[str, Any]] = []
+    indexes: list[dict[str, Any]] = []
+    data_sources: list[dict[str, Any]] = []
+    skillsets: list[dict[str, Any]] = []
+    indexers: list[dict[str, Any]] = []
+    errors: dict[str, str] = {}
+
+    try:
         for index in index_client.list_indexes():
             indexes.append({"name": str(getattr(index, "name", ""))})
+    except Exception as exc:
+        errors["indexes"] = str(exc)
 
-        data_sources: list[dict[str, Any]] = []
-        for data_source in indexer_client_any.list_data_source_connections():
+    try:
+        list_data_sources = getattr(indexer_client_any, "list_data_source_connections", None)
+        if callable(list_data_sources):
+            ds_iterable = list_data_sources()
+        else:
+            legacy_list_data_sources = getattr(indexer_client_any, "list_data_sources", None)
+            if not callable(legacy_list_data_sources):
+                raise RuntimeError("SearchIndexerClient data source listing API is unavailable.")
+            ds_iterable = legacy_list_data_sources()
+
+        for data_source in cast(Any, ds_iterable):
             container = getattr(data_source, "container", None)
             data_sources.append(
                 {
@@ -4487,8 +4503,10 @@ def search_resources_diagnostics(request: Request, auth_token: str = "") -> JSON
                     },
                 }
             )
+    except Exception as exc:
+        errors["data_sources"] = str(exc)
 
-        skillsets: list[dict[str, Any]] = []
+    try:
         for skillset in indexer_client_any.list_skillsets():
             skills = getattr(skillset, "skills", None) or []
             skillsets.append(
@@ -4497,8 +4515,10 @@ def search_resources_diagnostics(request: Request, auth_token: str = "") -> JSON
                     "skill_count": len(skills),
                 }
             )
+    except Exception as exc:
+        errors["skillsets"] = str(exc)
 
-        indexers: list[dict[str, Any]] = []
+    try:
         for indexer in indexer_client_any.list_indexers():
             indexer_name = str(getattr(indexer, "name", ""))
             status_summary: dict[str, Any] = {
@@ -4529,29 +4549,31 @@ def search_resources_diagnostics(request: Request, auth_token: str = "") -> JSON
                     "last_result": status_summary,
                 }
             )
-
-        configured_names = {
-            "index": config.search_index_name,
-            "indexer": os.getenv("AZURE_SEARCH_INDEXER_NAME", f"{config.search_index_name}-indexer").strip(),
-            "skillset": os.getenv("AZURE_SEARCH_SKILLSET_NAME", f"{config.search_index_name}-skillset").strip(),
-            "data_source": os.getenv("AZURE_SEARCH_DATASOURCE_NAME", f"{config.search_index_name}-datasource").strip(),
-        }
-
-        return JSONResponse(
-            {
-                "mode": "search-resources-diagnostics",
-                "target_env": _target_env_name(),
-                "search_endpoint": config.search_endpoint,
-                "configured_names": configured_names,
-                "indexes": indexes,
-                "data_sources": data_sources,
-                "skillsets": skillsets,
-                "indexers": indexers,
-            }
-        )
     except Exception as exc:
-        logger.exception("Failed /api/diagnostics/search/resources request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+        errors["indexers"] = str(exc)
+
+    configured_names = {
+        "index": config.search_index_name,
+        "indexer": os.getenv("AZURE_SEARCH_INDEXER_NAME", f"{config.search_index_name}-indexer").strip(),
+        "skillset": os.getenv("AZURE_SEARCH_SKILLSET_NAME", f"{config.search_index_name}-skillset").strip(),
+        "data_source": os.getenv("AZURE_SEARCH_DATASOURCE_NAME", f"{config.search_index_name}-datasource").strip(),
+    }
+
+    payload: dict[str, Any] = {
+        "mode": "search-resources-diagnostics",
+        "target_env": _target_env_name(),
+        "search_endpoint": config.search_endpoint,
+        "configured_names": configured_names,
+        "indexes": indexes,
+        "data_sources": data_sources,
+        "skillsets": skillsets,
+        "indexers": indexers,
+    }
+    if errors:
+        payload["errors"] = errors
+        payload["partial"] = True
+
+    return JSONResponse(payload)
 
 
 @app.get("/api/diagnostics/storage/blobs")
