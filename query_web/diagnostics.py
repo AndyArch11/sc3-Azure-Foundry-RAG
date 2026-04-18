@@ -142,6 +142,7 @@ def register_diagnostics_endpoints(
                 errors_count = 0
                 warnings_count = 0
                 error_items: list[str] = []
+                warning_items: list[str] = []
 
                 if "errors" in exec_dict:
                     errors_list = exec_dict["errors"]
@@ -153,6 +154,13 @@ def register_diagnostics_endpoints(
                     warnings_list = exec_dict["warnings"]
                     if isinstance(warnings_list, list):
                         warnings_count = len(warnings_list)
+                        warning_items = [str(w) for w in warnings_list[:3]]
+
+                rate_limit_detected = any(
+                    marker in item.lower()
+                    for item in [*error_items, *warning_items]
+                    for marker in ("ratelimitreached", "toomanyrequests", "retry after")
+                )
 
                 execution_history.append(
                     {
@@ -164,6 +172,8 @@ def register_diagnostics_endpoints(
                         "errors_count": errors_count,
                         "warnings_count": warnings_count,
                         "error_samples": error_items,
+                        "warning_samples": warning_items,
+                        "rate_limit_detected": rate_limit_detected,
                     }
                 )
 
@@ -250,7 +260,16 @@ def register_diagnostics_endpoints(
             blobs_with_complete_metadata = 0
             sample_blobs: list[dict[str, Any]] = []
 
-            for blob in container.list_blobs(name_starts_with=prefix_value):
+            try:
+                blobs_iter = container.list_blobs(
+                    name_starts_with=prefix_value,
+                    include=["metadata"],
+                )
+            except TypeError:
+                # Support test doubles / older client signatures that do not accept `include`.
+                blobs_iter = container.list_blobs(name_starts_with=prefix_value)
+
+            for blob in blobs_iter:
                 total_scanned += 1
                 if total_scanned > sample_size:
                     break
@@ -491,7 +510,27 @@ def register_diagnostics_endpoints(
                         "recent_errors": bool(
                             any(
                                 int(e.get("items_failed", 0)) > 0
+                                or int(e.get("errors_count", 0)) > 0
                                 for e in result.get("execution_history", [])[:3]
+                            )
+                        ),
+                        "recent_warnings": bool(
+                            any(
+                                int(e.get("warnings_count", 0)) > 0
+                                for e in result.get("execution_history", [])[:3]
+                            )
+                        ),
+                        "recent_non_success": bool(
+                            any(
+                                str(e.get("status") or "").strip().lower()
+                                not in {"success", "reset"}
+                                for e in result.get("execution_history", [])[:3]
+                            )
+                        ),
+                        "recent_rate_limits": bool(
+                            any(
+                                bool(e.get("rate_limit_detected"))
+                                for e in result.get("execution_history", [])[:5]
                             )
                         ),
                         "execution_history_available": bool(

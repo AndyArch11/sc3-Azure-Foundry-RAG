@@ -4467,7 +4467,12 @@ def search_resources_diagnostics(request: Request, auth_token: str = "") -> JSON
 
     index_client = SearchIndexClient(endpoint=config.search_endpoint, credential=credential)
     indexer_client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
-    indexer_client_any = cast(Any, indexer_client)
+    configured_names = {
+        "index": config.search_index_name,
+        "indexer": os.getenv("AZURE_SEARCH_INDEXER_NAME", f"{config.search_index_name}-indexer").strip(),
+        "skillset": os.getenv("AZURE_SEARCH_SKILLSET_NAME", f"{config.search_index_name}-skillset").strip(),
+        "data_source": os.getenv("AZURE_SEARCH_DATASOURCE_NAME", f"{config.search_index_name}-datasource").strip(),
+    }
 
     indexes: list[dict[str, Any]] = []
     data_sources: list[dict[str, Any]] = []
@@ -4482,16 +4487,9 @@ def search_resources_diagnostics(request: Request, auth_token: str = "") -> JSON
         errors["indexes"] = str(exc)
 
     try:
-        list_data_sources = getattr(indexer_client_any, "list_data_source_connections", None)
-        if callable(list_data_sources):
-            ds_iterable = list_data_sources()
-        else:
-            legacy_list_data_sources = getattr(indexer_client_any, "list_data_sources", None)
-            if not callable(legacy_list_data_sources):
-                raise RuntimeError("SearchIndexerClient data source listing API is unavailable.")
-            ds_iterable = legacy_list_data_sources()
-
-        for data_source in cast(Any, ds_iterable):
+        get_data_source = getattr(indexer_client, "get_data_source_connection", None)
+        if callable(get_data_source):
+            data_source = get_data_source(configured_names["data_source"])
             container = getattr(data_source, "container", None)
             data_sources.append(
                 {
@@ -4503,11 +4501,31 @@ def search_resources_diagnostics(request: Request, auth_token: str = "") -> JSON
                     },
                 }
             )
+        else:
+            list_data_sources = getattr(indexer_client, "list_data_source_connections", None)
+            if not callable(list_data_sources):
+                list_data_sources = getattr(indexer_client, "list_data_sources", None)
+            if not callable(list_data_sources):
+                raise RuntimeError("SearchIndexerClient data source listing API is unavailable.")
+            for data_source in cast(Any, list_data_sources()):
+                container = getattr(data_source, "container", None)
+                data_sources.append(
+                    {
+                        "name": str(getattr(data_source, "name", "")),
+                        "type": str(getattr(data_source, "type", "")),
+                        "container": {
+                            "name": str(getattr(container, "name", "")) if container else "",
+                            "query": str(getattr(container, "query", "")) if container else "",
+                        },
+                    }
+                )
     except Exception as exc:
         errors["data_sources"] = str(exc)
 
     try:
-        for skillset in indexer_client_any.list_skillsets():
+        get_skillset = getattr(indexer_client, "get_skillset", None)
+        if callable(get_skillset):
+            skillset = get_skillset(configured_names["skillset"])
             skills = getattr(skillset, "skills", None) or []
             skillsets.append(
                 {
@@ -4515,11 +4533,32 @@ def search_resources_diagnostics(request: Request, auth_token: str = "") -> JSON
                     "skill_count": len(skills),
                 }
             )
+        else:
+            list_skillsets = getattr(indexer_client, "list_skillsets", None)
+            if not callable(list_skillsets):
+                raise RuntimeError("SearchIndexerClient skillset listing API is unavailable.")
+            for skillset in cast(Any, list_skillsets()):
+                skills = getattr(skillset, "skills", None) or []
+                skillsets.append(
+                    {
+                        "name": str(getattr(skillset, "name", "")),
+                        "skill_count": len(skills),
+                    }
+                )
     except Exception as exc:
         errors["skillsets"] = str(exc)
 
     try:
-        for indexer in indexer_client_any.list_indexers():
+        get_indexer = getattr(indexer_client, "get_indexer", None)
+        if callable(get_indexer):
+            indexer_iterable: list[Any] = [get_indexer(configured_names["indexer"])]
+        else:
+            list_indexers = getattr(indexer_client, "list_indexers", None)
+            if not callable(list_indexers):
+                raise RuntimeError("SearchIndexerClient indexer listing API is unavailable.")
+            indexer_iterable = list(cast(Any, list_indexers()))
+
+        for indexer in indexer_iterable:
             indexer_name = str(getattr(indexer, "name", ""))
             status_summary: dict[str, Any] = {
                 "status": None,
@@ -4551,13 +4590,6 @@ def search_resources_diagnostics(request: Request, auth_token: str = "") -> JSON
             )
     except Exception as exc:
         errors["indexers"] = str(exc)
-
-    configured_names = {
-        "index": config.search_index_name,
-        "indexer": os.getenv("AZURE_SEARCH_INDEXER_NAME", f"{config.search_index_name}-indexer").strip(),
-        "skillset": os.getenv("AZURE_SEARCH_SKILLSET_NAME", f"{config.search_index_name}-skillset").strip(),
-        "data_source": os.getenv("AZURE_SEARCH_DATASOURCE_NAME", f"{config.search_index_name}-datasource").strip(),
-    }
 
     payload: dict[str, Any] = {
         "mode": "search-resources-diagnostics",
@@ -4608,7 +4640,17 @@ def storage_blobs_diagnostics(
 
         blob_items: list[dict[str, Any]] = []
         scanned = 0
-        for blob in container.list_blobs(name_starts_with=prefix_value or None):
+        list_kwargs: dict[str, Any] = {"name_starts_with": prefix_value or None}
+        if include_metadata:
+            list_kwargs["include"] = ["metadata"]
+
+        try:
+            blobs_iter = container.list_blobs(**list_kwargs)
+        except TypeError:
+            # Support test doubles / older client signatures that do not accept `include`.
+            blobs_iter = container.list_blobs(name_starts_with=prefix_value or None)
+
+        for blob in blobs_iter:
             scanned += 1
             if len(blob_items) >= capped_limit:
                 continue
@@ -4712,7 +4754,10 @@ def ingestion_overview_diagnostics(
 
                 for label, prefix in prefixes.items():
                     rows: list[dict[str, Any]] = []
-                    for blob in container.list_blobs(name_starts_with=prefix):
+                    for blob in container.list_blobs(
+                        name_starts_with=prefix,
+                        include=["metadata"],
+                    ):
                         if len(rows) >= per_prefix_limit:
                             break
                         rows.append(
@@ -4738,6 +4783,54 @@ def ingestion_overview_diagnostics(
         except Exception as exc:
             latest_job_error = str(exc)
 
+    indexer_history_summary: dict[str, Any] | None = None
+    indexer_history_error: str | None = None
+    try:
+        indexer_name = os.getenv(
+            "AZURE_SEARCH_INDEXER_NAME", f"{config.search_index_name}-indexer"
+        ).strip()
+        idxr_client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
+        status = idxr_client.get_indexer_status(indexer_name)
+        status_dict = status.__dict__ if hasattr(status, "__dict__") else {}
+        execution_history_raw = list(status_dict.get("execution_history", []) or [])
+        recent_entries: list[dict[str, Any]] = []
+        for execution in execution_history_raw[:3]:
+            if hasattr(execution, "__dict__"):
+                exec_dict = execution.__dict__.copy()
+            else:
+                exec_dict = dict(execution) if isinstance(execution, dict) else {}
+            raw_errors = exec_dict.get("errors")
+            errors_list = raw_errors if isinstance(raw_errors, list) else []
+            raw_warnings = exec_dict.get("warnings")
+            warnings_list = raw_warnings if isinstance(raw_warnings, list) else []
+            samples = [str(item) for item in [*errors_list[:2], *warnings_list[:2]]]
+            recent_entries.append(
+                {
+                    "status": str(exec_dict.get("status") or "unknown"),
+                    "items_failed": int(exec_dict.get("items_failed") or 0),
+                    "errors_count": len(errors_list),
+                    "warnings_count": len(warnings_list),
+                    "rate_limit_detected": any(
+                        marker in sample.lower()
+                        for sample in samples
+                        for marker in ("ratelimitreached", "toomanyrequests", "retry after")
+                    ),
+                    "samples": samples,
+                }
+            )
+        indexer_history_summary = {
+            "indexer_name": indexer_name,
+            "recent_entries": recent_entries,
+            "recent_rate_limits": any(bool(entry.get("rate_limit_detected")) for entry in recent_entries),
+            "recent_warnings": any(int(entry.get("warnings_count", 0)) > 0 for entry in recent_entries),
+            "recent_non_success": any(
+                str(entry.get("status") or "").strip().lower() not in {"success", "reset"}
+                for entry in recent_entries
+            ),
+        }
+    except Exception as exc:
+        indexer_history_error = str(exc)
+
     quick_flags = {
         "storage_has_corpus_b_but_search_corpus_b_empty": bool(
             storage_counts.get("corpus_b_dedupe", 0) > 0 and search_counts.get("corpus_b", 0) == 0
@@ -4746,6 +4839,12 @@ def ingestion_overview_diagnostics(
             storage_counts.get("corpus_c_dedupe", 0) > 0 and search_counts.get("corpus_c", 0) == 0
         ),
         "legacy_docs_present": bool(search_counts.get("corpus_legacy", 0) > 0),
+        "recent_indexer_rate_limits": bool(
+            (indexer_history_summary or {}).get("recent_rate_limits")
+        ),
+        "recent_indexer_warnings": bool(
+            (indexer_history_summary or {}).get("recent_warnings")
+        ),
     }
 
     configured_datasource_name = os.getenv(
@@ -4816,6 +4915,8 @@ def ingestion_overview_diagnostics(
             "storage_error": storage_error,
             "latest_ingestion_job": latest_job,
             "latest_ingestion_job_error": latest_job_error,
+            "indexer_history_summary": indexer_history_summary,
+            "indexer_history_error": indexer_history_error,
             "quick_flags": quick_flags,
             "scope_query_diagnostics": scope_query_diagnostics,
         }
