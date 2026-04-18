@@ -528,6 +528,7 @@ def test_retrieval_based_fallback_answer_preserves_corpus_b_vs_c_attribution() -
         {
             "requirement_id": "E8-regular-backups-ML2-001",
             "framework": "Essential Eight",
+            "requirement_text": "Backups of data are performed and retained in line with business continuity needs.",
         }
     ]
     corpus_b_chunks = [
@@ -536,7 +537,13 @@ def test_retrieval_based_fallback_answer_preserves_corpus_b_vs_c_attribution() -
             "original_filename": "Weekly Backups Procedure.pdf",
             "source_uri": "blob://backups-guidance.pdf",
             "corpus": "b",
-        }
+        },
+        {
+            "source_name": "other-name.pdf",
+            "original_filename": "Weekly Backups Procedure.pdf",
+            "source_uri": "blob://backups-guidance-duplicate.pdf",
+            "corpus": "b",
+        },
     ]
 
     answer = app_module._build_retrieval_based_fallback_answer(
@@ -549,7 +556,9 @@ def test_retrieval_based_fallback_answer_preserves_corpus_b_vs_c_attribution() -
 
     assert "## Corpus B Basis (Narrative Guidance)" in answer
     assert "Weekly Backups Procedure.pdf" in answer
+    assert answer.count("Weekly Backups Procedure.pdf") == 1
     assert "c730dcc3ffbf59ac41d094aa92bb6bc42fb9e74c77b169075aaf844ce37751b7.pdf" not in answer
+    assert "Backups of data are performed and retained in line with business continuity needs." in answer
     assert "## Corpus C Basis (Assessed Artifacts/Evidence)" in answer
     assert "No Corpus C chunks were retrieved." in answer
 

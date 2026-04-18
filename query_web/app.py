@@ -648,24 +648,43 @@ def _build_retrieval_based_fallback_answer(
     frameworks = sorted({str(c.get("framework") or "").strip() for c in controls if c.get("framework")})
     framework_text = ", ".join(frameworks) if frameworks else "none"
 
+    def _guidance_snippet(control: dict[str, Any], limit: int = 220) -> str:
+        text = sanitise_untrusted_text(str(control.get("requirement_text") or "").strip())
+        if not text:
+            return "Requirement text unavailable in retrieved control metadata."
+        if len(text) <= limit:
+            return text
+        return text[:limit].rstrip() + "..."
+
     control_examples = [
-        f"- {str(c.get('requirement_id') or '(no id)')}: {str(c.get('framework') or '(unknown framework)')}"
+        (
+            f"- {str(c.get('requirement_id') or '(no id)')} | "
+            f"{str(c.get('framework') or '(unknown framework)')}: "
+            f"{_guidance_snippet(c)}"
+        )
         for c in controls[:5]
     ]
     if not control_examples:
         control_examples = ["- No Corpus A controls were retrieved."]
 
-    corpus_b_examples = [
-        f"- {_chunk_reference_label(c)}"
-        for c in resolved_corpus_b_chunks[:5]
-    ]
+    def _unique_source_labels(items: list[dict[str, Any]], *, limit: int = 5) -> list[str]:
+        labels: list[str] = []
+        seen: set[str] = set()
+        for item in items:
+            label = _chunk_reference_label(item).strip()
+            if not label or label in seen:
+                continue
+            seen.add(label)
+            labels.append(f"- {label}")
+            if len(labels) >= limit:
+                break
+        return labels
+
+    corpus_b_examples = _unique_source_labels(resolved_corpus_b_chunks)
     if not corpus_b_examples:
         corpus_b_examples = ["- No Corpus B chunks were retrieved."]
 
-    corpus_c_examples = [
-        f"- {_chunk_reference_label(c)}"
-        for c in resolved_corpus_c_chunks[:5]
-    ]
+    corpus_c_examples = _unique_source_labels(resolved_corpus_c_chunks)
     if not corpus_c_examples:
         corpus_c_examples = ["- No Corpus C chunks were retrieved."]
 
