@@ -455,7 +455,11 @@ def test_summarise_controls_distribution_includes_framework_and_family_counts() 
         "controls_diversity_mode_enabled": 1.0,
     }
 
-    summary = app_module._summarise_controls_distribution(controls, timings)
+    summary = app_module._summarise_controls_distribution(
+        controls,
+        timings,
+        preferred_framework="Essential Eight",
+    )
 
     assert summary["total_controls"] == 5
     assert summary["distinct_frameworks"] == 2
@@ -464,6 +468,8 @@ def test_summarise_controls_distribution_includes_framework_and_family_counts() 
     assert summary["framework_counts"][0]["count"] == 4
     assert summary["retrieval_modes"]["semantic_enabled"] is True
     assert summary["retrieval_modes"]["diversity_mode_enabled"] is True
+    assert summary["retrieval_diagnostics"]["preferred_framework_selected"] == "Essential Eight"
+    assert summary["retrieval_diagnostics"]["preferred_framework_backfill_used"] is False
 
 
 def test_controls_coverage_disclaimer_for_singular_framework_when_forced() -> None:
@@ -537,12 +543,14 @@ def test_retrieval_based_fallback_answer_preserves_corpus_b_vs_c_attribution() -
             "original_filename": "Weekly Backups Procedure.pdf",
             "source_uri": "blob://backups-guidance.pdf",
             "corpus": "b",
+            "content": "Maintain isolated immutable backup copies and test restoration quarterly.",
         },
         {
             "source_name": "other-name.pdf",
             "original_filename": "Weekly Backups Procedure.pdf",
             "source_uri": "blob://backups-guidance-duplicate.pdf",
             "corpus": "b",
+            "content": "Duplicate blob should not duplicate source labels in fallback output.",
         },
     ]
 
@@ -559,6 +567,7 @@ def test_retrieval_based_fallback_answer_preserves_corpus_b_vs_c_attribution() -
     assert answer.count("Weekly Backups Procedure.pdf") == 1
     assert "c730dcc3ffbf59ac41d094aa92bb6bc42fb9e74c77b169075aaf844ce37751b7.pdf" not in answer
     assert "Backups of data are performed and retained in line with business continuity needs." in answer
+    assert "Maintain isolated immutable backup copies and test restoration quarterly." in answer
     assert "## Corpus C Basis (Assessed Artifacts/Evidence)" in answer
     assert "No Corpus C chunks were retrieved." in answer
 
@@ -642,3 +651,65 @@ def test_controls_search_diversity_backfill_semantic_error_falls_back_to_keyword
     frameworks = {str(item.get("framework")) for item in controls}
     assert timings["controls_diversity_mode_enabled"] == 1.0
     assert "AESCSF" in frameworks
+
+
+def test_controls_search_backfills_preferred_framework_when_missing() -> None:
+    base_items = [
+        {
+            "requirement_id": "AES-1",
+            "framework": "AESCSF",
+            "framework_version": "v2",
+            "control_family": "Incident Response",
+            "maturity_level": "ML1",
+            "requirement_text": "Data backups are tested.",
+            "guidance_text": "",
+            "source_uri": "controls://aes-1",
+            "score": 0.8,
+        }
+    ]
+    preferred_items = [
+        {
+            "requirement_id": "E8-1",
+            "framework": "Essential Eight",
+            "framework_version": "November 2023",
+            "control_family": "Regular backups",
+            "maturity_level": "ML2",
+            "requirement_text": "Backups are performed and retained.",
+            "guidance_text": "",
+            "source_uri": "controls://e8-1",
+            "score": 0.7,
+        }
+    ]
+
+    def _fake_fetch(
+        search_text: str,
+        retrieve_k: int,
+        use_semantic: bool,
+        framework_filter: str | None = None,
+    ):
+        if framework_filter is None:
+            return base_items
+        if framework_filter == "Essential Eight":
+            return preferred_items
+        return []
+
+    with (
+        patch.object(app_module, "_fetch_controls", side_effect=_fake_fetch),
+        patch.object(app_module, "_preferred_framework_for_question", return_value="Essential Eight"),
+        patch.object(
+            app_module,
+            "_apply_framework_authority_preference",
+            side_effect=lambda items, top_k, question: items,
+        ),
+    ):
+        controls, timings = app_module._controls_search(
+            "What should be considered for backups?",
+            retrieve_k=4,
+            use_semantic=False,
+            framework_filter_override=None,
+        )
+
+    frameworks = {str(item.get("framework")) for item in controls}
+    assert "Essential Eight" in frameworks
+    assert timings["controls_preferred_framework"] == 1.0
+    assert timings["controls_preferred_framework_backfill_used"] == 1.0

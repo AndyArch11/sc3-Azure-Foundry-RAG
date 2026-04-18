@@ -667,7 +667,27 @@ def _build_retrieval_based_fallback_answer(
     if not control_examples:
         control_examples = ["- No Corpus A controls were retrieved."]
 
-    def _unique_source_labels(items: list[dict[str, Any]], *, limit: int = 5) -> list[str]:
+    focus_terms = _question_focus_terms(question)
+
+    def _chunk_snippet(chunk: dict[str, Any], *, limit: int = 220) -> str:
+        content = sanitise_untrusted_text(str(chunk.get("content") or "").strip())
+        if not content:
+            return "Narrative guidance retrieved; excerpt unavailable in this chunk."
+        if not focus_terms:
+            return content[:limit].rstrip() + ("..." if len(content) > limit else "")
+
+        sentence_candidates = re.split(r"(?<=[.!?])\\s+", content)
+        for sentence in sentence_candidates:
+            low = sentence.lower()
+            if any(term in low for term in focus_terms):
+                if len(sentence) <= limit:
+                    return sentence
+                return sentence[:limit].rstrip() + "..."
+        return content[:limit].rstrip() + ("..." if len(content) > limit else "")
+
+    def _unique_source_labels(
+        items: list[dict[str, Any]], *, limit: int = 5, include_excerpt: bool = False
+    ) -> list[str]:
         labels: list[str] = []
         seen: set[str] = set()
         for item in items:
@@ -675,12 +695,15 @@ def _build_retrieval_based_fallback_answer(
             if not label or label in seen:
                 continue
             seen.add(label)
-            labels.append(f"- {label}")
+            if include_excerpt:
+                labels.append(f"- {label}: {_chunk_snippet(item)}")
+            else:
+                labels.append(f"- {label}")
             if len(labels) >= limit:
                 break
         return labels
 
-    corpus_b_examples = _unique_source_labels(resolved_corpus_b_chunks)
+    corpus_b_examples = _unique_source_labels(resolved_corpus_b_chunks, include_excerpt=True)
     if not corpus_b_examples:
         corpus_b_examples = ["- No Corpus B chunks were retrieved."]
 
@@ -2983,6 +3006,10 @@ def _preferred_framework_for_question(question: str) -> str | None:
             if preferred:
                 return preferred
 
+    # Heuristic fallback when policy rules do not explicitly cover common intents.
+    if any(term in text for term in ("backup", "backups", "recovery", "restore", "restoration")):
+        return "Essential Eight"
+
     return None
 
 
@@ -3152,7 +3179,10 @@ def _select_diverse_controls(items: list[dict[str, Any]], top_k: int) -> list[di
 
 
 def _summarise_controls_distribution(
-    controls: list[dict[str, Any]], controls_timings: dict[str, float]
+    controls: list[dict[str, Any]],
+    controls_timings: dict[str, float],
+    *,
+    preferred_framework: str | None = None,
 ) -> dict[str, Any]:
     framework_counts: dict[str, int] = {}
     family_counts: dict[str, int] = {}
@@ -3182,6 +3212,12 @@ def _summarise_controls_distribution(
             ),
             "diversity_mode_enabled": bool(
                 controls_timings.get("controls_diversity_mode_enabled", 0.0) >= 0.5
+            ),
+        },
+        "retrieval_diagnostics": {
+            "preferred_framework_selected": preferred_framework,
+            "preferred_framework_backfill_used": bool(
+                controls_timings.get("controls_preferred_framework_backfill_used", 0.0) >= 0.5
             ),
         },
     }
@@ -3394,6 +3430,9 @@ def _controls_search(
     timings["controls_framework_filter_enabled"] = 1.0 if framework_filter else 0.0
     timings["controls_authority_policy_enabled"] = 1.0
     diversity_mode = framework_filter is None and (detected_comparison or forced_comparison)
+    preferred_framework = _preferred_framework_for_question(question)
+    timings["controls_preferred_framework"] = 1.0 if preferred_framework else 0.0
+    timings["controls_preferred_framework_backfill_used"] = 0.0
     timings["controls_comparison_detected"] = 1.0 if detected_comparison else 0.0
     timings["controls_comparison_forced"] = 1.0 if forced_comparison else 0.0
     timings["controls_diversity_mode_enabled"] = 1.0 if diversity_mode else 0.0
@@ -3438,6 +3477,22 @@ def _controls_search(
             framework_name=framework_filter,
         )
         items = _merge_control_candidates(items, variant_items)
+
+    if (
+        not diversity_mode
+        and framework_filter is None
+        and preferred_framework
+        and not any(str(item.get("framework") or "") == preferred_framework for item in items)
+    ):
+        per_framework_k = max(2, min(5, retrieve_k))
+        for variant in query_variants:
+            framework_items = _fetch_controls_with_fallback(
+                variant,
+                top_k=per_framework_k,
+                framework_name=preferred_framework,
+            )
+            items = _merge_control_candidates(items, framework_items)
+        timings["controls_preferred_framework_backfill_used"] = 1.0
 
     if diversity_mode:
         # Backfill candidates per framework so a single crowded top-k slice
@@ -3681,7 +3736,11 @@ def _run_rag(
         framework_filter_override=controls_framework,
         comparison_mode=controls_comparison_mode,
     )
-    controls_debug = _summarise_controls_distribution(controls, controls_timings)
+    controls_debug = _summarise_controls_distribution(
+        controls,
+        controls_timings,
+        preferred_framework=_preferred_framework_for_question(question),
+    )
     controls_disclaimer = _controls_coverage_disclaimer(
         controls_debug=controls_debug,
         comparison_detected=bool(controls_timings.get("controls_comparison_detected", 0.0) >= 0.5),
