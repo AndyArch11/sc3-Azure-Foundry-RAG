@@ -71,6 +71,45 @@ def test_indexer_history_diagnostics_returns_recent_errors() -> None:
     assert body["quick_flags"]["recent_errors"] is True
 
 
+def test_indexer_history_diagnostics_separates_optional_warning_noise() -> None:
+    class _FakeSearchIndexerClient:
+        def __init__(self, endpoint: str, credential: object):
+            self.endpoint = endpoint
+            self.credential = credential
+
+        def get_indexer_status(self, name: str):
+            assert name == "grounding-index-indexer"
+            history = [
+                SimpleNamespace(
+                    start_time="2026-04-17T01:00:00Z",
+                    end_time="2026-04-17T01:01:00Z",
+                    status="success",
+                    item_count=7,
+                    failed_item_count=0,
+                    errors=[],
+                    warnings=[
+                        {
+                            "name": "Enrichment.ConditionalSkill.default-normalised-text-sha256",
+                            "message": "Optional skill input is missing or empty",
+                        }
+                    ],
+                )
+            ]
+            return SimpleNamespace(execution_history=history)
+
+    with patch("azure.search.documents.indexes.SearchIndexerClient", _FakeSearchIndexerClient):
+        client = _build_client()
+        response = client.get("/api/diagnostics/search/indexer-history?limit=3")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["execution_history"][0]["warnings_count"] == 1
+    assert body["execution_history"][0]["known_optional_warnings_count"] == 1
+    assert body["execution_history"][0]["actionable_warnings_count"] == 0
+    assert body["quick_flags"]["recent_warnings"] is False
+    assert body["quick_flags"]["recent_known_optional_warnings"] is True
+
+
 def test_index_samples_diagnostics_truncates_content_and_uses_selected_fields() -> None:
     class _FakeSearchClient:
         def search(self, **kwargs):

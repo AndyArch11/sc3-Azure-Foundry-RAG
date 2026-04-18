@@ -143,6 +143,7 @@ def register_diagnostics_endpoints(
                 warnings_count = 0
                 error_items: list[str] = []
                 warning_items: list[str] = []
+                warnings_list: list[Any] = []
 
                 if "errors" in exec_dict:
                     errors_list = exec_dict["errors"]
@@ -155,6 +156,14 @@ def register_diagnostics_endpoints(
                     if isinstance(warnings_list, list):
                         warnings_count = len(warnings_list)
                         warning_items = [str(w) for w in warnings_list[:3]]
+
+                known_optional_warning_count = sum(
+                    1
+                    for warning in (warnings_list if isinstance(warnings_list, list) else [])
+                    if str(warning).find("Enrichment.ConditionalSkill.default-") >= 0
+                    and str(warning).find("Optional skill input is missing or empty") >= 0
+                )
+                actionable_warning_count = max(0, warnings_count - known_optional_warning_count)
 
                 rate_limit_detected = any(
                     marker in item.lower()
@@ -176,6 +185,8 @@ def register_diagnostics_endpoints(
                         ),
                         "errors_count": errors_count,
                         "warnings_count": warnings_count,
+                        "known_optional_warnings_count": known_optional_warning_count,
+                        "actionable_warnings_count": actionable_warning_count,
                         "error_samples": error_items,
                         "warning_samples": warning_items,
                         "rate_limit_detected": rate_limit_detected,
@@ -529,7 +540,13 @@ def register_diagnostics_endpoints(
                         ),
                         "recent_warnings": bool(
                             any(
-                                int(e.get("warnings_count", 0)) > 0
+                                int(e.get("actionable_warnings_count", 0)) > 0
+                                for e in result.get("execution_history", [])[:3]
+                            )
+                        ),
+                        "recent_known_optional_warnings": bool(
+                            any(
+                                int(e.get("known_optional_warnings_count", 0)) > 0
                                 for e in result.get("execution_history", [])[:3]
                             )
                         ),

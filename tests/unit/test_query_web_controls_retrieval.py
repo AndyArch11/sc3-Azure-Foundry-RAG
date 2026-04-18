@@ -523,6 +523,37 @@ def test_retrieval_based_fallback_answer_flags_cross_framework_gap() -> None:
     assert "## Corpus A Basis (Normative Requirements)" in answer
 
 
+def test_retrieval_based_fallback_answer_preserves_corpus_b_vs_c_attribution() -> None:
+    controls = [
+        {
+            "requirement_id": "E8-regular-backups-ML2-001",
+            "framework": "Essential Eight",
+        }
+    ]
+    corpus_b_chunks = [
+        {
+            "source_name": "c730dcc3ffbf59ac41d094aa92bb6bc42fb9e74c77b169075aaf844ce37751b7.pdf",
+            "original_filename": "Weekly Backups Procedure.pdf",
+            "source_uri": "blob://backups-guidance.pdf",
+            "corpus": "b",
+        }
+    ]
+
+    answer = app_module._build_retrieval_based_fallback_answer(
+        question="What should be considered for backups?",
+        controls=controls,
+        chunks=corpus_b_chunks,
+        corpus_b_chunks=corpus_b_chunks,
+        corpus_c_chunks=[],
+    )
+
+    assert "## Corpus B Basis (Narrative Guidance)" in answer
+    assert "Weekly Backups Procedure.pdf" in answer
+    assert "c730dcc3ffbf59ac41d094aa92bb6bc42fb9e74c77b169075aaf844ce37751b7.pdf" not in answer
+    assert "## Corpus C Basis (Assessed Artifacts/Evidence)" in answer
+    assert "No Corpus C chunks were retrieved." in answer
+
+
 def test_infer_framework_filter_aliases_and_unknown() -> None:
     assert app_module._infer_framework_filter("Need NIST CSF alignment") == "NIST CSF"
     assert app_module._infer_framework_filter("Essential Eight controls") == "Essential Eight"

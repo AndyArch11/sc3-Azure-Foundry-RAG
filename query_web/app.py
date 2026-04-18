@@ -602,12 +602,49 @@ def _ensure_visible_answer(answer: str) -> str:
     )
 
 
+def _chunk_reference_label(chunk: dict[str, Any], *, fallback: str = "(unknown source)") -> str:
+    """Return a reader-friendly source label, preferring original filename metadata."""
+    original_filename = str(chunk.get("original_filename") or "").strip()
+    if original_filename:
+        return original_filename
+
+    source_name = str(chunk.get("source_name") or "").strip()
+    if source_name:
+        return source_name
+
+    source_path = str(chunk.get("source_path") or "").strip()
+    if source_path:
+        path_name = Path(source_path).name.strip()
+        if path_name:
+            return path_name
+        return source_path
+
+    source_uri = str(chunk.get("source_uri") or "").strip()
+    if source_uri:
+        return source_uri
+
+    return fallback
+
+
 def _build_retrieval_based_fallback_answer(
     *,
     question: str,
     controls: list[dict[str, Any]],
     chunks: list[dict[str, Any]],
+    corpus_b_chunks: list[dict[str, Any]] | None = None,
+    corpus_c_chunks: list[dict[str, Any]] | None = None,
 ) -> str:
+    # Prefer explicit corpus groupings passed from retrieval flow.
+    resolved_corpus_b_chunks = list(corpus_b_chunks or [])
+    resolved_corpus_c_chunks = list(corpus_c_chunks or [])
+    if not resolved_corpus_b_chunks and not resolved_corpus_c_chunks and chunks:
+        resolved_corpus_b_chunks = [
+            c
+            for c in chunks
+            if c.get("corpus") == "b" or c.get("corpus_role") == "narrative_guidance"
+        ]
+        resolved_corpus_c_chunks = [c for c in chunks if c not in resolved_corpus_b_chunks]
+
     frameworks = sorted({str(c.get("framework") or "").strip() for c in controls if c.get("framework")})
     framework_text = ", ".join(frameworks) if frameworks else "none"
 
@@ -618,12 +655,19 @@ def _build_retrieval_based_fallback_answer(
     if not control_examples:
         control_examples = ["- No Corpus A controls were retrieved."]
 
-    source_examples = [
-        f"- {str(c.get('source_name') or c.get('source_uri') or '(unknown source)')}"
-        for c in chunks[:5]
+    corpus_b_examples = [
+        f"- {_chunk_reference_label(c)}"
+        for c in resolved_corpus_b_chunks[:5]
     ]
-    if not source_examples:
-        source_examples = ["- No Corpus C chunks were retrieved."]
+    if not corpus_b_examples:
+        corpus_b_examples = ["- No Corpus B chunks were retrieved."]
+
+    corpus_c_examples = [
+        f"- {_chunk_reference_label(c)}"
+        for c in resolved_corpus_c_chunks[:5]
+    ]
+    if not corpus_c_examples:
+        corpus_c_examples = ["- No Corpus C chunks were retrieved."]
 
     comparison_intent = _is_cross_framework_comparison_intent(question)
     comparison_note = ""
@@ -645,9 +689,10 @@ def _build_retrieval_based_fallback_answer(
                 "",
                 "## Corpus B Basis (Narrative Guidance)",
                 "Use retrieved Corpus B guidance (if any) as interpretive support only; no additional model interpretation is provided in this fallback.",
+                *corpus_b_examples,
                 "",
                 "## Corpus C Basis (Assessed Artifacts/Evidence)",
-                *source_examples,
+                *corpus_c_examples,
                 "",
                 "## Discrepancies and Precedence Resolution",
                 "Potential contradictions cannot be fully resolved in this fallback mode; apply configured framework precedence to conflicting controls.",
@@ -977,9 +1022,9 @@ def _normalise_compliance_report_payload(
         if str(item.get("framework") or "").strip()
     ]
     source_names = [
-        str(item.get("source_name") or "").strip()
+        _chunk_reference_label(item, fallback="")
         for item in [*corpus_c_chunks, *corpus_b_chunks]
-        if str(item.get("source_name") or "").strip()
+        if _chunk_reference_label(item, fallback="")
     ]
 
     default_requirement_id = control_ids[0] if control_ids else "UNMAPPED"
@@ -1181,9 +1226,9 @@ def _build_fallback_compliance_report_payload(
         if str(item.get("framework") or "").strip()
     ]
     evidence_sources = [
-        str(item.get("source_name") or "").strip()
+        _chunk_reference_label(item, fallback="")
         for item in [*corpus_c_chunks, *corpus_b_chunks]
-        if str(item.get("source_name") or "").strip()
+        if _chunk_reference_label(item, fallback="")
     ]
 
     return {
@@ -1280,11 +1325,11 @@ def _assess_control_finding_with_llm(
     framework = str(control.get("framework") or "").strip() or "Unknown"
 
     b_context = "\n\n".join(
-        f"Source: {c.get('source_name', 'guidance')}\nExcerpt: {sanitise_untrusted_text(str(c.get('content') or '')[:900])}"
+        f"Source: {_chunk_reference_label(c, fallback='guidance')}\nExcerpt: {sanitise_untrusted_text(str(c.get('content') or '')[:900])}"
         for c in corpus_b_chunks
     )
     c_context = "\n\n".join(
-        f"Source: {c.get('source_name', 'artifact')}\nExcerpt: {sanitise_untrusted_text(str(c.get('content') or '')[:1200])}"
+        f"Source: {_chunk_reference_label(c, fallback='artifact')}\nExcerpt: {sanitise_untrusted_text(str(c.get('content') or '')[:1200])}"
         for c in corpus_c_chunks
     )
 
@@ -1336,7 +1381,7 @@ def _assess_control_finding_with_llm(
         "severity": "medium",
         "rationale": "Insufficient evidence for deterministic assessment in per-control mode.",
         "evidence_sources": [
-            str(item.get("source_name") or "evidence")
+            _chunk_reference_label(item, fallback="evidence")
             for item in (corpus_c_chunks or corpus_b_chunks)[:3]
         ]
         or ["No evidence sources retrieved"],
@@ -1410,9 +1455,9 @@ def _build_per_control_report_payload(
         if str(c.get("requirement_id") or "").strip()
     ]
     source_names = [
-        str(item.get("source_name") or "").strip()
+        _chunk_reference_label(item, fallback="")
         for item in [*corpus_b_chunks, *corpus_c_chunks]
-        if str(item.get("source_name") or "").strip()
+        if _chunk_reference_label(item, fallback="")
     ]
 
     statuses = [str(item.get("status") or "").strip().lower() for item in findings]
@@ -1550,14 +1595,14 @@ def _generate_compliance_report_result(
                 f"Framework: {c['framework']} {c['framework_version']}\n"
                 f"Control Family: {c['control_family']}\n"
                 f"Requirement: {sanitise_untrusted_text(c['requirement_text'][:1200])}\n"
-                f"Guidance: {sanitise_untrusted_text(c['guidance_text'][:800])}"
+                f"Guidance: {sanitise_untrusted_text(c['guidance_text'][:800]) or 'No supplementary guidance is available for this control; assess solely against the requirement text above.'}"
             )
             for c in controls
         )
 
         corpus_b_context = "\n\n".join(
             (
-                f"Source: {c['source_name']}\n"
+                f"Source: {_chunk_reference_label(c)}\n"
                 f"Excerpt: {sanitise_untrusted_text(c['content'][:1500])}"
             )
             for c in corpus_b_chunks
@@ -1565,7 +1610,7 @@ def _generate_compliance_report_result(
 
         corpus_c_context = "\n\n".join(
             (
-                f"Source: {c['source_name']}\n"
+                f"Source: {_chunk_reference_label(c)}\n"
                 f"Excerpt: {sanitise_untrusted_text(c['content'][:1500])}"
             )
             for c in corpus_c_chunks
@@ -3662,12 +3707,18 @@ def _run_rag(
     corpus_c_chunks = [c for c in chunks if c not in corpus_b_chunks]
 
     corpus_b_context = "\n\n".join(
-        (f"Source: {c['source_name']}\n" f"Excerpt: {sanitise_untrusted_text(c['content'][:1500])}")
+        (
+            f"Source: {_chunk_reference_label(c)}\n"
+            f"Excerpt: {sanitise_untrusted_text(c['content'][:1500])}"
+        )
         for c in corpus_b_chunks
     )
 
     evidence_context = "\n\n".join(
-        (f"Source: {c['source_name']}\n" f"Excerpt: {sanitise_untrusted_text(c['content'][:1500])}")
+        (
+            f"Source: {_chunk_reference_label(c)}\n"
+            f"Excerpt: {sanitise_untrusted_text(c['content'][:1500])}"
+        )
         for c in corpus_c_chunks
     )
 
@@ -3678,7 +3729,7 @@ def _run_rag(
             f"Control Family: {c['control_family']}\n"
             f"Maturity Level: {c['maturity_level']}\n"
             f"Requirement: {sanitise_untrusted_text(c['requirement_text'][:1200])}\n"
-            f"Guidance: {sanitise_untrusted_text(c['guidance_text'][:800])}"
+            f"Guidance: {sanitise_untrusted_text(c['guidance_text'][:800]) or 'No supplementary guidance is available for this control; assess solely against the requirement text above.'}"
         )
         for c in controls
     )
@@ -3768,6 +3819,8 @@ def _run_rag(
             question=question,
             controls=controls,
             chunks=chunks,
+            corpus_b_chunks=corpus_b_chunks,
+            corpus_c_chunks=corpus_c_chunks,
         )
     answer = _prepend_disclaimer(answer, controls_disclaimer)
     llm_reply_s = round(time.perf_counter() - t_llm, 3)
@@ -3811,6 +3864,8 @@ def _run_rag(
                 question=question,
                 controls=controls,
                 chunks=chunks,
+                corpus_b_chunks=corpus_b_chunks,
+                corpus_c_chunks=corpus_c_chunks,
             )
         answer = _prepend_disclaimer(answer, controls_disclaimer)
         llm_retry_s = round(time.perf_counter() - t_retry, 3)
@@ -4803,6 +4858,13 @@ def ingestion_overview_diagnostics(
             errors_list = raw_errors if isinstance(raw_errors, list) else []
             raw_warnings = exec_dict.get("warnings")
             warnings_list = raw_warnings if isinstance(raw_warnings, list) else []
+            known_optional_warning_count = sum(
+                1
+                for warning in warnings_list
+                if str(warning).find("Enrichment.ConditionalSkill.default-") >= 0
+                and str(warning).find("Optional skill input is missing or empty") >= 0
+            )
+            actionable_warning_count = max(0, len(warnings_list) - known_optional_warning_count)
             samples = [str(item) for item in [*errors_list[:2], *warnings_list[:2]]]
             recent_entries.append(
                 {
@@ -4812,6 +4874,8 @@ def ingestion_overview_diagnostics(
                     ),
                     "errors_count": len(errors_list),
                     "warnings_count": len(warnings_list),
+                    "known_optional_warnings_count": known_optional_warning_count,
+                    "actionable_warnings_count": actionable_warning_count,
                     "rate_limit_detected": any(
                         marker in sample.lower()
                         for sample in samples
@@ -4824,7 +4888,12 @@ def ingestion_overview_diagnostics(
             "indexer_name": indexer_name,
             "recent_entries": recent_entries,
             "recent_rate_limits": any(bool(entry.get("rate_limit_detected")) for entry in recent_entries),
-            "recent_warnings": any(int(entry.get("warnings_count", 0)) > 0 for entry in recent_entries),
+            "recent_warnings": any(
+                int(entry.get("actionable_warnings_count", 0)) > 0 for entry in recent_entries
+            ),
+            "recent_known_optional_warnings": any(
+                int(entry.get("known_optional_warnings_count", 0)) > 0 for entry in recent_entries
+            ),
             "recent_non_success": any(
                 str(entry.get("status") or "").strip().lower() not in {"success", "reset"}
                 for entry in recent_entries
@@ -4846,6 +4915,9 @@ def ingestion_overview_diagnostics(
         ),
         "recent_indexer_warnings": bool(
             (indexer_history_summary or {}).get("recent_warnings")
+        ),
+        "recent_indexer_known_optional_warnings": bool(
+            (indexer_history_summary or {}).get("recent_known_optional_warnings")
         ),
     }
 
