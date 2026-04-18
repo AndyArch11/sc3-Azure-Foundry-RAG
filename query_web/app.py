@@ -3478,22 +3478,6 @@ def _controls_search(
         )
         items = _merge_control_candidates(items, variant_items)
 
-    if (
-        not diversity_mode
-        and framework_filter is None
-        and preferred_framework
-        and not any(str(item.get("framework") or "") == preferred_framework for item in items)
-    ):
-        per_framework_k = max(2, min(5, retrieve_k))
-        for variant in query_variants:
-            framework_items = _fetch_controls_with_fallback(
-                variant,
-                top_k=per_framework_k,
-                framework_name=preferred_framework,
-            )
-            items = _merge_control_candidates(items, framework_items)
-        timings["controls_preferred_framework_backfill_used"] = 1.0
-
     if diversity_mode:
         # Backfill candidates per framework so a single crowded top-k slice
         # cannot hide relevant controls from other frameworks.
@@ -3524,6 +3508,33 @@ def _controls_search(
         items = _select_diverse_controls(ranked_items, top_k=retrieve_k)
     else:
         items = ranked_items[:retrieve_k]
+
+    # Preferred-framework backfill: checked AFTER final ranking/slice so that
+    # low-scoring preferred-framework candidates that were retrieved but ranked
+    # out of the top-k are still surfaced.
+    if (
+        not diversity_mode
+        and framework_filter is None
+        and preferred_framework
+        and not any(str(item.get("framework") or "") == preferred_framework for item in items)
+    ):
+        per_framework_k = max(2, min(5, retrieve_k))
+        backfill_items: list[dict[str, Any]] = []
+        for variant in query_variants:
+            framework_items = _fetch_controls_with_fallback(
+                variant,
+                top_k=per_framework_k,
+                framework_name=preferred_framework,
+            )
+            backfill_items = _merge_control_candidates(backfill_items, framework_items)
+        if backfill_items:
+            combined = _merge_control_candidates(items, backfill_items)
+            re_ranked = _apply_framework_authority_preference(
+                combined, top_k=max(len(combined), retrieve_k), question=question
+            )
+            items = re_ranked[:retrieve_k]
+        timings["controls_preferred_framework_backfill_used"] = 1.0
+
     timings["controls_search_s"] = round(time.perf_counter() - t0, 3)
     return items, timings
 
