@@ -105,6 +105,90 @@ def test_run_azure_configuration_error(monkeypatch: pytest.MonkeyPatch) -> None:
     assert runner._run_azure(args) == 1
 
 
+def test_run_azure_uses_rate_limit_backoff_helper(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class _Cfg:
+        search_endpoint = "https://search.example"
+        search_index_name = "grounding-index"
+        data_source_name = "grounding-index-datasource"
+        skillset_name = "grounding-index-skillset"
+        indexer_name = "grounding-index-indexer"
+        storage_account_name = "storacct"
+        storage_container_name = "grounding-data"
+        storage_container_query = "corpus-b/by-dedupe/"
+
+        @classmethod
+        def from_env(cls):
+            return cls()
+
+    called: dict[str, object] = {}
+
+    def _run_with_backoff(
+        config,
+        credential,
+        max_attempts=4,
+        base_backoff_seconds=30,
+        max_backoff_seconds=300,
+    ):
+        called["max_attempts"] = max_attempts
+        called["base_backoff_seconds"] = base_backoff_seconds
+        called["max_backoff_seconds"] = max_backoff_seconds
+        return {
+            "status": "success",
+            "items_processed": 7,
+            "items_failed": 0,
+            "error_message": None,
+            "attempt": 2,
+            "max_attempts": max_attempts,
+        }
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.ingestion.config",
+        type("M", (), {"IngestionConfig": _Cfg}),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.ingestion.blob_uploader",
+        type("BU", (), {"upload_source_files": lambda **kwargs: None}),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.ingestion.search_pipeline",
+        type(
+            "SP",
+            (),
+            {
+                "ensure_search_index": lambda config, credential: None,
+                "ensure_data_source": lambda config, credential: None,
+                "ensure_skillset": lambda config, credential: None,
+                "ensure_indexer": lambda config, credential: None,
+                "run_indexer_with_rate_limit_backoff": _run_with_backoff,
+            },
+        ),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "azure.identity",
+        type("A", (), {"DefaultAzureCredential": lambda: object()}),
+    )
+    args = argparse.Namespace(
+        skip_upload=True,
+        input_dir=None,
+        storage_container_query="",
+    )
+
+    assert runner._run_azure(args) == 0
+    payload = json.loads(capsys.readouterr().out.strip())
+
+    assert payload["indexer_status"] == "success"
+    assert payload["indexer_attempt"] == 2
+    assert payload["indexer_max_attempts"] == 4
+    assert payload["rate_limit_retry"]["enabled"] is True
+    assert called["max_attempts"] == 4
+
+
 def test_run_reset_and_controls_and_main_dispatch(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -167,8 +167,13 @@ def register_diagnostics_endpoints(
                         "start_time": str(exec_dict.get("start_time") or ""),
                         "end_time": str(exec_dict.get("end_time") or ""),
                         "status": str(exec_dict.get("status") or "unknown"),
-                        "items_processed": int(exec_dict.get("items_processed") or 0),
-                        "items_failed": int(exec_dict.get("items_failed") or 0),
+                        # SDK uses item_count / failed_item_count (not items_processed / items_failed)
+                        "items_processed": int(
+                            exec_dict.get("item_count") or exec_dict.get("items_processed") or 0
+                        ),
+                        "items_failed": int(
+                            exec_dict.get("failed_item_count") or exec_dict.get("items_failed") or 0
+                        ),
                         "errors_count": errors_count,
                         "warnings_count": warnings_count,
                         "error_samples": error_items,
@@ -241,6 +246,7 @@ def register_diagnostics_endpoints(
     def _validate_blob_metadata_completeness(
         prefix: str = "",
         sample_size: int = 100,
+        include_values: bool = False,
     ) -> dict[str, Any]:
         """Scan blobs and validate required ingestion metadata."""
         if not _is_corpus_upload_enabled():
@@ -289,17 +295,24 @@ def register_diagnostics_endpoints(
                             missing_metadata_keys[key] = missing_metadata_keys.get(key, 0) + 1
 
                 if len(sample_blobs) < 5:
-                    sample_blobs.append(
-                        {
-                            "name": str(getattr(blob, "name", "")),
-                            "has_complete_metadata": has_all_required,
-                            "metadata_keys_present": list(metadata.keys()),
-                            "missing_keys": [
-                                k
-                                for k in _REQUIRED_INGESTION_METADATA_KEYS
-                                if not str(metadata.get(k) or "").strip()
-                            ],
+                    sample_entry: dict[str, Any] = {
+                        "name": str(getattr(blob, "name", "")),
+                        "has_complete_metadata": has_all_required,
+                        "metadata_keys_present": list(metadata.keys()),
+                        "missing_keys": [
+                            k
+                            for k in _REQUIRED_INGESTION_METADATA_KEYS
+                            if not str(metadata.get(k) or "").strip()
+                        ],
+                    }
+                    if include_values:
+                        sample_entry["metadata_values"] = {
+                            key: str(metadata.get(key) or "")
+                            for key in sorted(metadata.keys())
                         }
+
+                    sample_blobs.append(
+                        sample_entry
                     )
 
             completeness_pct = (
@@ -590,6 +603,7 @@ def register_diagnostics_endpoints(
         auth_token: str = "",
         prefix: str = "",
         sample_size: int = 100,
+        include_values: bool = False,
     ) -> JSONResponse:
         """Dev-only diagnostics to validate blob metadata completeness."""
         denied = _check_diagnostics_access(request, auth_token)
@@ -601,7 +615,9 @@ def register_diagnostics_endpoints(
 
         try:
             result = _validate_blob_metadata_completeness(
-                prefix=prefix_value, sample_size=capped_sample_size
+                prefix=prefix_value,
+                sample_size=capped_sample_size,
+                include_values=include_values,
             )
 
             return JSONResponse(
@@ -610,6 +626,7 @@ def register_diagnostics_endpoints(
                     "target_env": _target_env_name(),
                     "prefix": prefix_value,
                     "sample_size": capped_sample_size,
+                    "include_values": include_values,
                     "configured": result.get("configured", False),
                     "total_scanned": result.get("total_scanned", 0),
                     "blobs_with_complete_metadata": result.get(

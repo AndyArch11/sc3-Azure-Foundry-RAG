@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from typing import Any, Optional, cast
 
@@ -56,6 +57,7 @@ from azure.core.exceptions import HttpResponseError, ResourceExistsError, Resour
 from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
 from azure.search.documents.indexes.models import (
     AzureOpenAIEmbeddingSkill,
+    BlobIndexerDataToExtract,
     BlobIndexerImageAction,
     ConditionalSkill,
     DocumentExtractionSkill,
@@ -844,6 +846,12 @@ def ensure_indexer(config: IngestionConfig, credential: TokenCredential) -> None
             allow_skillset_to_read_file_data=True,
             # Generate normalised page images so OcrSkill can process them.
             image_action=BlobIndexerImageAction.GENERATE_NORMALIZED_IMAGES,
+            # Explicitly extract both content AND custom blob metadata into the
+            # enrichment tree so ConditionalSkills can read /document/metadata_*
+            # paths (corpus, upload_batch, corpus_role, etc.).  Without this,
+            # allow_skillset_to_read_file_data=True may only surface the built-in
+            # metadata_storage_* fields, leaving custom metadata absent.
+            data_to_extract=BlobIndexerDataToExtract.CONTENT_AND_METADATA,
             # azure-search-documents 11.6.0 injects queryTimeout by default,
             # but Azure Blob indexers reject that property.
             query_timeout=cast(Any, None),
@@ -1043,3 +1051,136 @@ def wait_for_indexer(
         "items_failed": None,
         "error_message": f"Timed out waiting for indexer after {timeout_seconds}s",
     }
+
+
+def _extract_retry_after_seconds_from_text(text: str) -> Optional[int]:
+    """Parse provider-advised retry delay (seconds) from error text."""
+    if not text:
+        return None
+
+    # Examples seen in AOAI / Search skill errors:
+    # - "Please retry after 49 seconds."
+    # - "retry after 15 seconds"
+    # - "Retry-After: 30"
+    for pattern in (
+        r"retry\s*after\s*(\d+)\s*second",
+        r"retry-after\s*[:=]\s*(\d+)",
+    ):
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            try:
+                value = int(match.group(1))
+                if value >= 0:
+                    return value
+            except (ValueError, TypeError):
+                continue
+    return None
+
+
+def _detect_rate_limit_retry_after_seconds(result: dict[str, Any]) -> Optional[int]:
+    """Return advised retry delay if a rate-limit signal exists in indexer result."""
+    markers = ("ratelimitreached", "toomanyrequests", "retry after")
+
+    text_candidates: list[str] = []
+    top_error = result.get("error_message")
+    if isinstance(top_error, str) and top_error.strip():
+        text_candidates.append(top_error)
+
+    for entry in result.get("errors") or []:
+        if not isinstance(entry, dict):
+            continue
+        for key in ("error_message", "details", "name"):
+            value = entry.get(key)
+            if isinstance(value, str) and value.strip():
+                text_candidates.append(value)
+
+    for entry in result.get("warnings") or []:
+        if not isinstance(entry, dict):
+            continue
+        for key in ("message", "details", "name"):
+            value = entry.get(key)
+            if isinstance(value, str) and value.strip():
+                text_candidates.append(value)
+
+    has_rate_limit_signal = any(
+        marker in candidate.lower()
+        for candidate in text_candidates
+        for marker in markers
+    )
+    if not has_rate_limit_signal:
+        return None
+
+    for candidate in text_candidates:
+        retry_after = _extract_retry_after_seconds_from_text(candidate)
+        if retry_after is not None:
+            return retry_after
+
+    return None
+
+
+def run_indexer_with_rate_limit_backoff(
+    config: IngestionConfig,
+    credential: TokenCredential,
+    *,
+    poll_interval_seconds: int = 10,
+    timeout_seconds: int = 1800,
+    max_attempts: int = 4,
+    base_backoff_seconds: int = 30,
+    max_backoff_seconds: int = 300,
+) -> dict[str, Any]:
+    """Run indexer with retries on rate-limit transient failures.
+
+    - Honors provider-advised "retry after" delay when available.
+    - Otherwise uses exponential backoff: base * 2^(attempt-1), capped.
+    """
+    safe_attempts = max(1, int(max_attempts))
+    safe_base = max(1, int(base_backoff_seconds))
+    safe_cap = max(safe_base, int(max_backoff_seconds))
+
+    last_result: dict[str, Any] = {
+        "status": "unknown",
+        "items_processed": None,
+        "items_failed": None,
+        "error_message": None,
+    }
+
+    for attempt in range(1, safe_attempts + 1):
+        if attempt > 1:
+            previous_retry_after = _detect_rate_limit_retry_after_seconds(last_result)
+            computed_delay = min(safe_base * (2 ** (attempt - 2)), safe_cap)
+            delay_seconds = (
+                max(1, previous_retry_after)
+                if previous_retry_after is not None
+                else computed_delay
+            )
+            logger.warning(
+                "Retrying indexer after rate limit (attempt %d/%d) in %ds",
+                attempt,
+                safe_attempts,
+                delay_seconds,
+            )
+            time.sleep(delay_seconds)
+
+        run_indexer(config, credential)
+        result = wait_for_indexer(
+            config,
+            credential,
+            poll_interval_seconds=poll_interval_seconds,
+            timeout_seconds=timeout_seconds,
+        )
+        result["attempt"] = attempt
+        result["max_attempts"] = safe_attempts
+        last_result = result
+
+        status_lower = str(result.get("status") or "").strip().lower()
+        if status_lower == "success":
+            return result
+
+        if status_lower != "transientfailure":
+            return result
+
+        retry_after = _detect_rate_limit_retry_after_seconds(result)
+        if retry_after is None or attempt >= safe_attempts:
+            return result
+
+    return last_result

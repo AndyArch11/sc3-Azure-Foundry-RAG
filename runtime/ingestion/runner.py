@@ -275,8 +275,7 @@ def _run_azure(args: argparse.Namespace) -> int:
         ensure_indexer,
         ensure_search_index,
         ensure_skillset,
-        run_indexer,
-        wait_for_indexer,
+        run_indexer_with_rate_limit_backoff,
     )
 
     # Allow per-run scoping without requiring long-lived env var changes on the job.
@@ -365,10 +364,24 @@ def _run_azure(args: argparse.Namespace) -> int:
 
     ensure_indexer(config, credential)
 
-    # Step 3: trigger and wait for indexer run
+    # Step 3: trigger and wait for indexer run with rate-limit aware retry.
     logger.info("Running indexer…")
-    run_indexer(config, credential)
-    result = wait_for_indexer(config, credential)
+    max_attempts = max(1, int(os.getenv("INGESTION_INDEXER_MAX_ATTEMPTS", "4") or "4"))
+    base_backoff_seconds = max(
+        1, int(os.getenv("INGESTION_RATE_LIMIT_BASE_BACKOFF_SECONDS", "30") or "30")
+    )
+    max_backoff_seconds = max(
+        base_backoff_seconds,
+        int(os.getenv("INGESTION_RATE_LIMIT_MAX_BACKOFF_SECONDS", "300") or "300"),
+    )
+
+    result = run_indexer_with_rate_limit_backoff(
+        config,
+        credential,
+        max_attempts=max_attempts,
+        base_backoff_seconds=base_backoff_seconds,
+        max_backoff_seconds=max_backoff_seconds,
+    )
 
     summary = {
         "mode": "azure",
@@ -379,6 +392,13 @@ def _run_azure(args: argparse.Namespace) -> int:
         "items_processed": result["items_processed"],
         "items_failed": result["items_failed"],
         "error_message": result["error_message"],
+        "indexer_attempt": result.get("attempt", 1),
+        "indexer_max_attempts": result.get("max_attempts", max_attempts),
+        "rate_limit_retry": {
+            "enabled": True,
+            "base_backoff_seconds": base_backoff_seconds,
+            "max_backoff_seconds": max_backoff_seconds,
+        },
         "scope_behavior": (
             "Indexer run processes all blobs matching storage_container_query; "
             "item counts may exceed newly uploaded file count when upload is skipped "

@@ -382,3 +382,79 @@ def test_wait_for_indexer_handles_reset_then_success(monkeypatch) -> None:
 
     assert result["status"] == "success"
     assert calls["n"] >= 2
+
+
+def test_detect_rate_limit_retry_after_seconds() -> None:
+    result = {
+        "status": "transientFailure",
+        "error_message": None,
+        "errors": [
+            {
+                "error_message": "Web Api response status: 'TooManyRequests'",
+                "details": "RateLimitReached. Please retry after 49 seconds.",
+            }
+        ],
+        "warnings": [],
+    }
+
+    assert search_pipeline._detect_rate_limit_retry_after_seconds(result) == 49
+
+
+def test_run_indexer_with_rate_limit_backoff_retries_and_succeeds(
+    monkeypatch,
+) -> None:
+    calls = {"run": 0, "wait": 0, "sleep": []}
+
+    def _fake_run_indexer(config, credential):
+        calls["run"] += 1
+
+    def _fake_wait_for_indexer(
+        config,
+        credential,
+        poll_interval_seconds=10,
+        timeout_seconds=1800,
+    ):
+        calls["wait"] += 1
+        if calls["wait"] == 1:
+            return {
+                "status": "transientFailure",
+                "items_processed": 0,
+                "items_failed": 1,
+                "error_message": "TooManyRequests",
+                "errors": [
+                    {
+                        "error_message": "RateLimitReached",
+                        "details": "Please retry after 7 seconds.",
+                    }
+                ],
+                "warnings": [],
+            }
+        return {
+            "status": "success",
+            "items_processed": 7,
+            "items_failed": 0,
+            "error_message": None,
+            "errors": [],
+            "warnings": [],
+        }
+
+    def _fake_sleep(seconds: int) -> None:
+        calls["sleep"].append(seconds)
+
+    monkeypatch.setattr(search_pipeline, "run_indexer", _fake_run_indexer)
+    monkeypatch.setattr(search_pipeline, "wait_for_indexer", _fake_wait_for_indexer)
+    monkeypatch.setattr(search_pipeline.time, "sleep", _fake_sleep)
+
+    result = search_pipeline.run_indexer_with_rate_limit_backoff(
+        _cfg(),
+        credential=_FakeCredential(),
+        max_attempts=3,
+        base_backoff_seconds=30,
+        max_backoff_seconds=300,
+    )
+
+    assert result["status"] == "success"
+    assert result["attempt"] == 2
+    assert calls["run"] == 2
+    assert calls["wait"] == 2
+    assert calls["sleep"] == [7]

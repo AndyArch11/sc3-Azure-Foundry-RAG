@@ -40,13 +40,20 @@
       margin-bottom: 4px;
       color: var(--muted);
     }
-    .field input {
+    .field input:not([type="checkbox"]):not([type="radio"]) {
       width: 100%;
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 8px;
       box-sizing: border-box;
       font: inherit;
+    }
+    .field input[type="checkbox"],
+    .field input[type="radio"] {
+      width: auto;
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
     }
     .field select {
       width: 100%;

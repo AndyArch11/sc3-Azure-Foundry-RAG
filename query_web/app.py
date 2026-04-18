@@ -4807,7 +4807,9 @@ def ingestion_overview_diagnostics(
             recent_entries.append(
                 {
                     "status": str(exec_dict.get("status") or "unknown"),
-                    "items_failed": int(exec_dict.get("items_failed") or 0),
+                    "items_failed": int(
+                        exec_dict.get("failed_item_count") or exec_dict.get("items_failed") or 0
+                    ),
                     "errors_count": len(errors_list),
                     "warnings_count": len(warnings_list),
                     "rate_limit_detected": any(

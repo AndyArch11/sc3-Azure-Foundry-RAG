@@ -145,6 +145,42 @@ def test_storage_metadata_validation_reports_missing_keys() -> None:
     assert body["quick_flags"]["critical_metadata_missing"] is True
 
 
+def test_storage_metadata_validation_can_include_sample_metadata_values() -> None:
+    class _FakeContainer:
+        def list_blobs(self, name_starts_with=None):
+            assert name_starts_with == "corpus-b/by-dedupe/"
+            yield SimpleNamespace(
+                name="corpus-b/by-dedupe/hash-1.pdf",
+                metadata={
+                    "corpus": "b",
+                    "uploaded_at": "20260417T000000Z",
+                    "upload_batch": "batch-123",
+                },
+            )
+
+    class _FakeBlobServiceClient:
+        def __init__(self, account_url: str, credential: object):
+            self.account_url = account_url
+            self.credential = credential
+
+        def get_container_client(self, container_name: str):
+            assert container_name == "grounding-data"
+            return _FakeContainer()
+
+    with patch("azure.storage.blob.BlobServiceClient", _FakeBlobServiceClient):
+        client = _build_client()
+        response = client.get(
+            "/api/diagnostics/storage/metadata-validation"
+            "?prefix=corpus-b/by-dedupe/&sample_size=5&include_values=true"
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["include_values"] is True
+    assert body["sample_blobs"][0]["metadata_values"]["corpus"] == "b"
+    assert body["sample_blobs"][0]["metadata_values"]["upload_batch"] == "batch-123"
+
+
 def test_datasource_connectivity_diagnostics_enumerates_blobs() -> None:
     class _FakeSearchIndexerClient:
         def __init__(self, endpoint: str, credential: object):
