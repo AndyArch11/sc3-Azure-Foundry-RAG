@@ -3,7 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RAG Query Console</title>
+  <title>{{ app_title }}</title>
+  <!-- Favicons -->
+  <link rel="icon" type="image/svg+xml" href="/static/branding/favicon.svg?v={{ static_version }}" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/branding/favicon-32.png?v={{ static_version }}" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/branding/favicon-16.png?v={{ static_version }}" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/branding/favicon-180.png?v={{ static_version }}" />
+  <link rel="shortcut icon" href="/static/branding/favicon.ico?v={{ static_version }}" />
   <link rel="stylesheet" href="/static/index.css?v={{ static_version }}" />
 </head>
 <body>
@@ -11,7 +17,14 @@
     <script id="server-data" type="application/json">{"question": {{ question | tojson }}, "answer": {{ answer | tojson }}, "error": {{ error | tojson }}, "user_id": {{ user_id | tojson }}}</script>
     <div class="card">
       <div style="margin-bottom:6px">
-        <h1 style="margin-bottom:2px">RAG Query Console</h1>
+        <picture id="page-logo" style="display:block;margin-bottom:6px">
+          <source srcset="/static/branding/logo.svg?v={{ static_version }}" type="image/svg+xml" />
+          <img src="/static/branding/logo.png?v={{ static_version }}"
+               alt="{{ app_title }}"
+               style="height:40px;width:auto;max-width:100%;object-fit:contain"
+               onerror="this.closest('picture').style.display='none'" />
+        </picture>
+        <h1 style="margin-bottom:2px">{{ app_title }}</h1>
       </div>
       <p class="muted">Private-network cyber-security assistant using hybrid search over your indexed content.</p>
 
@@ -76,10 +89,10 @@
               <label for="controls_framework">Controls framework</label>
               <select id="controls_framework" name="controls_framework" title="Restrict control retrieval to a specific framework, or auto-infer from your question.">
                 <option value="" {% if not controls_framework %}selected{% endif %}>Auto (infer from question)</option>
-                <option value="nist_csf" {% if controls_framework == "nist_csf" %}selected{% endif %}>NIST CSF</option>
                 <option value="essential_eight" {% if controls_framework == "essential_eight" %}selected{% endif %}>Essential Eight</option>
-                <option value="aescsf" {% if controls_framework == "aescsf" %}selected{% endif %}>AESCSF</option>
                 <option value="ism" {% if controls_framework == "ism" %}selected{% endif %}>ISM</option>
+                <option value="aescsf" {% if controls_framework == "aescsf" %}selected{% endif %}>AESCSF</option>
+                <option value="nist_csf" {% if controls_framework == "nist_csf" %}selected{% endif %}>NIST CSF</option>
                 <option value="cis_controls" {% if controls_framework == "cis_controls" %}selected{% endif %}>CIS Controls</option>
                 <option value="pci_dss" {% if controls_framework == "pci_dss" %}selected{% endif %}>PCI DSS</option>
                 <option value="pspf" {% if controls_framework == "pspf" %}selected{% endif %}>PSPF</option>
@@ -106,6 +119,8 @@
           <input type="hidden" name="conversation_id" id="conversation_id_field" value="{{ conversation_id or '' }}" />
           <button type="submit" id="ask-submit-btn" title="Send the question and generate an answer using the current retrieval settings.">Ask</button>
         </form>
+
+        <div id="ask-results-section">
 
         {% if error %}
         <p style="color:#b91c1c"><strong>Error:</strong> {{ error }}</p>
@@ -209,6 +224,8 @@
         {% endif %}
 
         <p class="muted" style="margin-top:14px">Index: <code>{{ index_name }}</code> | Embedding: <code>{{ embedding_deployment }}</code> | Query: <code>{{ query_deployment }}</code> | Threshold: <code>{{ evaluation_threshold }}</code></p>
+
+        </div><!-- /ask-results-section -->
       </div>
       <!-- /Ask tab -->
 
@@ -235,10 +252,10 @@
               <label for="cr-controls-framework">Controls framework</label>
               <select id="cr-controls-framework" title="Restrict Corpus A control retrieval for the report to one framework, or auto-infer.">
                 <option value="">Auto (infer from question)</option>
-                <option value="nist_csf">NIST CSF</option>
                 <option value="essential_eight">Essential Eight</option>
-                <option value="aescsf">AESCSF</option>
                 <option value="ism">ISM</option>
+                <option value="aescsf">AESCSF</option>
+                <option value="nist_csf">NIST CSF</option>
                 <option value="cis_controls">CIS Controls</option>
                 <option value="pci_dss">PCI DSS</option>
                 <option value="pspf">PSPF</option>
@@ -253,18 +270,14 @@
             </div>
             <div class="field">
               <label for="cr-b-upload-batch">Corpus B upload batch (optional)</label>
-              <input id="cr-b-upload-batch" type="text" placeholder="e.g. 4f1f2..." title="Optional: limit Corpus B evidence to a specific upload batch ID." />
+              <select id="cr-b-upload-batch" title="Optional: limit Corpus B evidence to a specific upload batch ID.">
+                <option value="">All batches</option>
+              </select>
             </div>
             <div class="field">
               <label for="cr-upload-batch">Corpus C upload batch (optional)</label>
-              <input id="cr-upload-batch" type="text" placeholder="e.g. 4f1f2..." title="Optional: limit Corpus C evidence to a specific upload batch ID." />
-            </div>
-            <div class="field">
-              <label for="cr-corpora">Evidence corpora</label>
-              <select id="cr-corpora" multiple title="Select which evidence corpora to include in the report. Leave all unselected to use all corpora.">
-                <option value="a">Corpus A</option>
-                <option value="b">Corpus B</option>
-                <option value="c">Corpus C</option>
+              <select id="cr-upload-batch" title="Optional: limit Corpus C evidence to a specific upload batch ID.">
+                <option value="">All batches</option>
               </select>
             </div>
             <div class="field">
@@ -276,11 +289,12 @@
             </div>
           </div>
           <div class="field" style="margin-top:8px">
-            <label for="cr-question">Assessment question</label>
-            <textarea id="cr-question" placeholder="Assess compliance against required controls for these artifacts..." title="Enter the assessment prompt used to drive compliance analysis."></textarea>
+            <label for="cr-question">Assessment question (optional)</label>
+            <textarea id="cr-question" placeholder="Optional: provide a focused assessment topic. Leave blank for a generic assessment of Corpus C artifacts against Corpus A and B." title="Optional: enter a focused assessment prompt. Leave empty to generate a generic assessment."></textarea>
           </div>
+          <p id="cr-corpus-c-availability" class="muted">Checking Corpus C availability...</p>
           <div class="ops-row">
-            <button type="button" onclick="generateComplianceReport()" title="Start a compliance assessment job using Corpus A, B, and C inputs.">Generate Compliance Report</button>
+            <button id="cr-generate-btn" type="button" onclick="generateComplianceReport()" title="Start a compliance assessment job using Corpus A and B grounding against Corpus C artifacts.">Generate Compliance Report</button>
             <button type="button" class="btn-secondary" onclick="downloadComplianceReportMarkdown()" title="Download the latest generated compliance report as Markdown.">Download Markdown</button>
             <button type="button" class="btn-secondary" onclick="downloadComplianceReportJson()" title="Download the latest generated compliance report as structured JSON.">Download JSON</button>
             <button type="button" class="btn-secondary" onclick="downloadComplianceFindingsCsv()" title="Download the findings table from the latest compliance report as CSV.">Download Findings CSV</button>
@@ -303,11 +317,11 @@
             <div class="field">
               <label for="az-controls-framework">Controls framework</label>
               <select id="az-controls-framework" title="Select the compliance framework to evaluate against Azure configuration evidence.">
-                <option value="NIST CSF" selected>NIST CSF</option>
                 <option value="Essential Eight">Essential Eight</option>
-                <option value="AESCSF">AESCSF</option>
-                <option value="CIS Controls">CIS Controls</option>
                 <option value="ISM">ISM</option>
+                <option value="AESCSF">AESCSF</option>
+                <option value="NIST CSF" selected>NIST CSF</option>
+                <option value="CIS Controls">CIS Controls</option>
                 <option value="PCI DSS">PCI DSS</option>
                 <option value="PSPF">PSPF</option>
               </select>
@@ -450,7 +464,7 @@
               <label><input type="checkbox" id="cc-clear-blobs" title="Also delete backing Corpus C blobs from storage, not just index entries." /> Also delete Corpus C blobs</label>
             </div>
           </fieldset>
-          <div id="cc-status" class="ops-status">No Corpus C upload yet.</div>
+          <div id="cc-status" class="ops-status">No Corpus C action yet.</div>
         </div>
 
       </div>

@@ -324,12 +324,19 @@
     const batchField = document.getElementById('cr-upload-batch');
     if (batchField) {
       if (payload && payload.upload && payload.upload.upload_batch_id) {
+        _ensureSelectOption(batchField, payload.upload.upload_batch_id);
         batchField.value = payload.upload.upload_batch_id;
       } else {
         batchField.value = '';
       }
     }
-    target.textContent = JSON.stringify(payload, null, 2);
+    let prefix = '';
+    if (payload && payload.mode === 'corpus-c-list' && payload.upload_batch_filter) {
+      const overall = typeof payload.overall_total_count === 'number' ? payload.overall_total_count : 'unknown';
+      const filtered = typeof payload.total_count === 'number' ? payload.total_count : 'unknown';
+      prefix = `[Corpus C filter active: upload_batch=${payload.upload_batch_filter}; matched=${filtered}; overall=${overall}]\n`;
+    }
+    target.textContent = prefix + JSON.stringify(payload, null, 2);
   }
 
   function _renderCorpusBStatus(payload) {
@@ -337,6 +344,7 @@
     const batchField = document.getElementById('cr-b-upload-batch');
     if (batchField) {
       if (payload && payload.upload && payload.upload.upload_batch_id) {
+        _ensureSelectOption(batchField, payload.upload.upload_batch_id);
         batchField.value = payload.upload.upload_batch_id;
       } else {
         batchField.value = '';
@@ -349,6 +357,95 @@
       prefix = `[Corpus B filter active: upload_batch=${payload.upload_batch_filter}; matched=${filtered}; overall=${overall}]\n`;
     }
     target.textContent = prefix + JSON.stringify(payload, null, 2);
+  }
+
+  function _ensureSelectOption(selectEl, value) {
+    if (!selectEl || !value) return;
+    const exists = Array.from(selectEl.options || []).some(o => o.value === value);
+    if (!exists) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      selectEl.appendChild(option);
+    }
+  }
+
+  function _setBatchSelectOptions(selectId, items) {
+    const selectEl = document.getElementById(selectId);
+    if (!selectEl) return;
+
+    const previousValue = (selectEl.value || '').trim();
+    const latestByBatch = new Map();
+    for (const item of (items || [])) {
+      const batch = String((item && item.upload_batch) || '').trim();
+      if (!batch) continue;
+      const uploadedAt = String((item && item.uploaded_at) || '');
+      const existing = latestByBatch.get(batch);
+      if (!existing || uploadedAt > existing) {
+        latestByBatch.set(batch, uploadedAt);
+      }
+    }
+
+    const sortedBatches = Array.from(latestByBatch.entries())
+      .sort((a, b) => String(b[1]).localeCompare(String(a[1])))
+      .map(([batch]) => batch);
+
+    selectEl.innerHTML = '';
+    const allOpt = document.createElement('option');
+    allOpt.value = '';
+    allOpt.textContent = 'All batches';
+    selectEl.appendChild(allOpt);
+
+    for (const batch of sortedBatches) {
+      const opt = document.createElement('option');
+      opt.value = batch;
+      opt.textContent = batch;
+      selectEl.appendChild(opt);
+    }
+
+    if (previousValue) {
+      _ensureSelectOption(selectEl, previousValue);
+      selectEl.value = previousValue;
+    }
+  }
+
+  function _refreshComplianceBatchOptions() {
+    const token = _currentAuthToken();
+    const params = new URLSearchParams();
+    if (token) params.set('auth_token', token);
+    params.set('limit', '200');
+    const qs = params.toString();
+
+    Promise.all([
+      fetch('/api/corpus-b/list' + (qs ? ('?' + qs) : '')).then(r => r.json()),
+      fetch('/api/corpus-c/list' + (qs ? ('?' + qs) : '')).then(r => r.json()),
+    ])
+      .then(([bData, cData]) => {
+        _setBatchSelectOptions('cr-b-upload-batch', bData && bData.items ? bData.items : []);
+        _setBatchSelectOptions('cr-upload-batch', cData && cData.items ? cData.items : []);
+
+        const cTotal = cData && typeof cData.total_count === 'number' ? cData.total_count : null;
+        const hintEl = document.getElementById('cr-corpus-c-availability');
+        const generateBtn = document.getElementById('cr-generate-btn');
+        const hasCorpusC = typeof cTotal === 'number' && cTotal > 0;
+        if (generateBtn) generateBtn.disabled = !hasCorpusC;
+        if (hintEl) {
+          if (cTotal === null) {
+            hintEl.textContent = 'Unable to determine Corpus C availability right now.';
+          } else if (!hasCorpusC) {
+            hintEl.textContent = 'Compliance Report is disabled: there are no Corpus C documents to assess.';
+          } else {
+            hintEl.textContent = 'Corpus C documents available for assessment: ' + String(cTotal) + '.';
+          }
+        }
+      })
+      .catch(() => {
+        // Keep existing values/options when batch discovery fails.
+        const hintEl = document.getElementById('cr-corpus-c-availability');
+        if (hintEl) {
+          hintEl.textContent = 'Unable to determine Corpus C availability right now.';
+        }
+      });
   }
 
   function _renderComplianceReport(payload) {
@@ -651,7 +748,10 @@
       body: JSON.stringify(body),
     })
       .then(r => r.json())
-      .then(data => _renderCorpusBStatus(data))
+      .then(data => {
+        _renderCorpusBStatus(data);
+        _refreshComplianceBatchOptions();
+      })
       .catch(err => _renderCorpusBStatus({ error: String(err) }));
   }
 
@@ -667,7 +767,10 @@
     const qs = params.toString();
     fetch('/api/corpus-b/list' + (qs ? ('?' + qs) : ''))
       .then(r => r.json())
-      .then(data => _renderCorpusBStatus(data))
+      .then(data => {
+        _renderCorpusBStatus(data);
+        _refreshComplianceBatchOptions();
+      })
       .catch(err => _renderCorpusBStatus({ error: String(err) }));
   }
 
@@ -693,6 +796,7 @@
       .then(r => r.json())
       .then(data => {
         _renderCorpusBStatus(data);
+        _refreshComplianceBatchOptions();
         input.value = '';
         if (data && data.triggered_job && !data.error) {
           const executionName = _extractExecutionName(data);
@@ -774,6 +878,7 @@
       .then(r => r.json())
       .then(data => {
         _renderCorpusCStatus(data);
+        _refreshComplianceBatchOptions();
         input.value = '';
         if (data && data.triggered_job && !data.error) {
           const executionName = _extractExecutionName(data);
@@ -802,7 +907,10 @@
       body: JSON.stringify(body),
     })
       .then(r => r.json())
-      .then(data => _renderCorpusCStatus(data))
+      .then(data => {
+        _renderCorpusCStatus(data);
+        _refreshComplianceBatchOptions();
+      })
       .catch(err => _renderCorpusCStatus({ error: String(err) }));
   }
 
@@ -818,7 +926,10 @@
     const qs = params.toString();
     fetch('/api/corpus-c/list' + (qs ? ('?' + qs) : ''))
       .then(r => r.json())
-      .then(data => _renderCorpusCStatus(data))
+      .then(data => {
+        _renderCorpusCStatus(data);
+        _refreshComplianceBatchOptions();
+      })
       .catch(err => _renderCorpusCStatus({ error: String(err) }));
   }
 
@@ -872,13 +983,14 @@
 
   function generateComplianceReport() {
     const question = document.getElementById('cr-question').value.trim();
-    if (!question) {
-      _renderComplianceReport({ error: 'Assessment question is required.' });
+
+    const generateBtn = document.getElementById('cr-generate-btn');
+    if (generateBtn && generateBtn.disabled) {
+      _renderComplianceReport({
+        error: 'Compliance Report is unavailable because there are no Corpus C documents to assess.',
+      });
       return;
     }
-
-    const corporaSelected = Array.from(document.getElementById('cr-corpora')?.selectedOptions || []).map(o => o.value);
-    const corporaInclude = corporaSelected;
 
     const body = {
       question: question,
@@ -889,7 +1001,6 @@
       controls_comparison_mode: document.getElementById('cr-controls-comparison-mode').value || 'auto-detect',
       corpus_b_upload_batch: document.getElementById('cr-b-upload-batch').value.trim() || null,
       corpus_c_upload_batch: document.getElementById('cr-upload-batch').value.trim() || null,
-      evidence_corpora_include: corporaInclude.length ? corporaInclude : null,
       assessment_strategy: 'per_control',
       validation_mode: document.getElementById('cr-validation-mode').value || 'hard',
       auth_token: _currentAuthToken(),
@@ -1042,9 +1153,12 @@
     const askBtn = document.getElementById('ask-submit-btn');
     const askAdvancedToggle = document.getElementById('advanced_mode');
     const askAdvancedFields = document.getElementById('ask-advanced-fields');
+    const askResultsSection = document.getElementById('ask-results-section');
     if (askAdvancedToggle && askAdvancedFields) {
       const refreshAdvancedVisibility = function () {
-        askAdvancedFields.style.display = askAdvancedToggle.checked ? '' : 'none';
+        const show = askAdvancedToggle.checked ? '' : 'none';
+        askAdvancedFields.style.display = show;
+        if (askResultsSection) { askResultsSection.style.display = show; }
       };
       askAdvancedToggle.addEventListener('change', refreshAdvancedVisibility);
       refreshAdvancedVisibility();
@@ -1063,6 +1177,8 @@
         askBtn.textContent = 'Asking...';
       });
     }
+
+    _refreshComplianceBatchOptions();
   });
 
   // Render static answer block (non-session / first load)

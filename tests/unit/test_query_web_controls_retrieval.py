@@ -572,6 +572,32 @@ def test_retrieval_based_fallback_answer_preserves_corpus_b_vs_c_attribution() -
     assert "No Corpus C chunks were retrieved." in answer
 
 
+def test_retrieval_based_fallback_answer_cleans_corpus_b_fragment_noise() -> None:
+    answer = app_module._build_retrieval_based_fallback_answer(
+        question="What should be considered for backups?",
+        controls=[],
+        chunks=[],
+        corpus_b_chunks=[
+            {
+                "source_name": "backup-guidance.xlsx",
+                "original_filename": "Backup Guidance.xlsx",
+                "corpus": "b",
+                "content": (
+                    "The solution implements a robust data backup strategy\tthat supports "
+                    "recovery objectives and ensures data availability.\n\n"
+                    "Protection of backup assets should include encryption and access controls."
+                ),
+            }
+        ],
+        corpus_c_chunks=[],
+    )
+
+    assert "retrieved text snippets" in answer
+    assert "The solution implements a robust data backup strategy that supports recovery objectives" in answer
+    assert "\t" not in answer
+    assert "Protection of backup assets should include encryption and access controls." in answer
+
+
 def test_infer_framework_filter_aliases_and_unknown() -> None:
     assert app_module._infer_framework_filter("Need NIST CSF alignment") == "NIST CSF"
     assert app_module._infer_framework_filter("Essential Eight controls") == "Essential Eight"

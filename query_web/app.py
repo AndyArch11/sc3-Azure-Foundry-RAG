@@ -212,6 +212,9 @@ class QueryConfig:
     prompt_injection_validator_mode: str
     guardrail_metrics_in_response: bool
 
+    branding_static_path: str
+    app_title: str
+
 
 logger = logging.getLogger(__name__)
 
@@ -429,6 +432,8 @@ def load_config() -> QueryConfig:
         ),
         prompt_injection_validator_mode=os.getenv("PROMPT_INJECTION_VALIDATOR_MODE", "off").lower(),
         guardrail_metrics_in_response=_env_bool("GUARDRAIL_METRICS_IN_RESPONSE", default=False),
+        branding_static_path=os.getenv("BRANDING_STATIC_PATH", "").strip(),
+        app_title=os.getenv("APP_TITLE", "RAG Query Console").strip(),
     )
 
 
@@ -669,21 +674,79 @@ def _build_retrieval_based_fallback_answer(
 
     focus_terms = _question_focus_terms(question)
 
+    def _normalise_excerpt_text(text: str) -> str:
+        # Clean OCR/tabular artifacts so fallback output reads as narrative text.
+        cleaned = sanitise_untrusted_text(text or "")
+        cleaned = cleaned.replace("\t", " ").replace("\r", " ").replace("\n", " ")
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        cleaned = re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
+        return cleaned.strip()
+
+    def _sentence_candidates(text: str) -> list[str]:
+        cleaned = _normalise_excerpt_text(text)
+        if not cleaned:
+            return []
+        parts = re.split(r"(?<=[.!?])\s+|\s*;\s+", cleaned)
+        return [part.strip() for part in parts if part and len(part.strip()) >= 40]
+
+    def _sentence_score(sentence: str) -> tuple[int, int, int]:
+        low = sentence.lower()
+        focus_hits = sum(1 for term in focus_terms if term in low)
+        signal_hits = sum(
+            1
+            for term in (
+                "backup",
+                "restore",
+                "recovery",
+                "availability",
+                "immutable",
+                "encryption",
+                "retention",
+                "test",
+                "continuity",
+                "access",
+            )
+            if term in low
+        )
+        # Penalise URL-heavy or obviously fragmentary lines.
+        noise_penalty = 1 if "http" in low else 0
+        return (focus_hits, signal_hits, -noise_penalty)
+
     def _chunk_snippet(chunk: dict[str, Any], *, limit: int = 220) -> str:
-        content = sanitise_untrusted_text(str(chunk.get("content") or "").strip())
+        content = _normalise_excerpt_text(str(chunk.get("content") or "").strip())
         if not content:
             return "Narrative guidance retrieved; excerpt unavailable in this chunk."
-        if not focus_terms:
-            return content[:limit].rstrip() + ("..." if len(content) > limit else "")
-
-        sentence_candidates = re.split(r"(?<=[.!?])\\s+", content)
-        for sentence in sentence_candidates:
-            low = sentence.lower()
-            if any(term in low for term in focus_terms):
-                if len(sentence) <= limit:
-                    return sentence
-                return sentence[:limit].rstrip() + "..."
+        candidates = _sentence_candidates(content)
+        if focus_terms and candidates:
+            ranked = sorted(candidates, key=_sentence_score, reverse=True)
+            if ranked:
+                best = ranked[0]
+                if len(best) <= limit:
+                    return best
+                return best[:limit].rstrip() + "..."
         return content[:limit].rstrip() + ("..." if len(content) > limit else "")
+
+    def _corpus_b_narrative(items: list[dict[str, Any]], *, limit: int = 3) -> list[str]:
+        statements: list[tuple[tuple[int, int, int], str, str]] = []
+        seen_sentences: set[str] = set()
+
+        for item in items:
+            label = _chunk_reference_label(item).strip() or "(unknown source)"
+            for sentence in _sentence_candidates(str(item.get("content") or "")):
+                key = sentence.lower()
+                if key in seen_sentences:
+                    continue
+                seen_sentences.add(key)
+                statements.append((_sentence_score(sentence), label, sentence))
+
+        if not statements:
+            return []
+
+        statements.sort(key=lambda row: row[0], reverse=True)
+        lines: list[str] = []
+        for _, _, sentence in statements[:limit]:
+            lines.append(f"- {sentence}")
+        return lines
 
     def _unique_source_labels(
         items: list[dict[str, Any]], *, limit: int = 5, include_excerpt: bool = False
@@ -706,10 +769,12 @@ def _build_retrieval_based_fallback_answer(
     corpus_b_examples = _unique_source_labels(resolved_corpus_b_chunks, include_excerpt=True)
     if not corpus_b_examples:
         corpus_b_examples = ["- No Corpus B chunks were retrieved."]
+    corpus_b_narrative = _corpus_b_narrative(resolved_corpus_b_chunks)
 
-    corpus_c_examples = _unique_source_labels(resolved_corpus_c_chunks)
+    corpus_c_examples = _unique_source_labels(resolved_corpus_c_chunks, include_excerpt=True)
     if not corpus_c_examples:
         corpus_c_examples = ["- No Corpus C chunks were retrieved."]
+    corpus_c_narrative = _corpus_b_narrative(resolved_corpus_c_chunks)
 
     comparison_intent = _is_cross_framework_comparison_intent(question)
     comparison_note = ""
@@ -730,10 +795,17 @@ def _build_retrieval_based_fallback_answer(
                 *control_examples,
                 "",
                 "## Corpus B Basis (Narrative Guidance)",
-                "Use retrieved Corpus B guidance (if any) as interpretive support only; no additional model interpretation is provided in this fallback.",
+                "Corpus B guidance below is synthesised directly from retrieved text snippets (fallback mode; no additional model completion was available).",
+                *corpus_b_narrative,
+                "",
+                "Retrieved excerpts:",
                 *corpus_b_examples,
                 "",
                 "## Corpus C Basis (Assessed Artifacts/Evidence)",
+                "Corpus C evidence below is synthesised directly from retrieved artifact text snippets (fallback mode; no additional model completion was available).",
+                *corpus_c_narrative,
+                "",
+                "Retrieved excerpts:",
                 *corpus_c_examples,
                 "",
                 "## Discrepancies and Precedence Resolution",
@@ -762,6 +834,29 @@ templates = Jinja2Templates(directory=str(_APP_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(_APP_DIR / "static")), name="static")
 credential = DefaultAzureCredential()
 config = load_config()
+
+# Mount branding directory: prefer BRANDING_STATIC_PATH override, fall back to bundled assets.
+_bundled_branding_dir = _APP_DIR / "static" / "branding"
+_branding_dir: Path = (
+    Path(config.branding_static_path)
+    if config.branding_static_path and Path(config.branding_static_path).is_dir()
+    else _bundled_branding_dir
+)
+app.mount(
+    "/static/branding",
+    StaticFiles(directory=str(_branding_dir)),
+    name="branding",
+)
+
+
+def _branding_ctx() -> dict[str, Any]:
+    """Return template context variables shared by every page response."""
+    return {
+        "app_title": config.app_title,
+        "static_version": _STATIC_VERSION,
+    }
+
+
 precedence_policy = _load_precedence_policy(
     config.precedence_policy_path,
     config.controls_framework_authority_order,
@@ -832,7 +927,7 @@ class CorpusAIngestRequest(BaseModel):
 
 
 class ComplianceReportRequest(BaseModel):
-    question: str
+    question: str = ""
     retrieve_k: int = Field(default=5, ge=1, le=20)
     controls_top_k: int = Field(default=4, ge=1, le=2000)
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
@@ -1543,25 +1638,29 @@ def _generate_compliance_report_result(
     progress_cb: Callable[[int, int, str, str], None] | None = None,
 ) -> dict[str, Any]:
     question = payload.question.strip()
-    if not question:
-        raise ValueError("question must not be empty")
+    effective_question = question
+    if not effective_question:
+        framework_hint = _canonical_framework_name(payload.controls_framework) or "selected"
+        effective_question = (
+            "Perform a general compliance assessment of Corpus C artifacts against "
+            f"Corpus A {framework_hint} controls and Corpus B guidance."
+        )
 
     controls, controls_timings = _controls_search(
-        question,
+        effective_question,
         retrieve_k=payload.controls_top_k,
         use_semantic=config.controls_semantic_default,
         framework_filter_override=_normalise_framework_filter(payload.controls_framework),
         comparison_mode=_normalise_controls_comparison_mode(payload.controls_comparison_mode),
     )
 
-    selected_evidence_corpora = _resolve_evidence_corpora(
-        payload.evidence_corpora_include,
-        payload.evidence_corpora_exclude,
-        default_corpora=["b", "c"],
-    )
+    # Compliance reports always assess Corpus C artifacts using Corpus A controls
+    # and Corpus B guidance; Corpus C is the assessment target, not an optional
+    # grounding corpus selector.
+    selected_evidence_corpora = ["b"]
     evidence_corpus_filter_expr = _build_evidence_corpus_filter(selected_evidence_corpora)
-    include_corpus_b = "b" in selected_evidence_corpora
-    include_corpus_c = "c" in selected_evidence_corpora
+    include_corpus_b = True
+    include_corpus_c = True
 
     corpus_b_filter = "corpus eq 'b'"
     corpus_b_filtered_total: int | None = None
@@ -1578,7 +1677,7 @@ def _generate_compliance_report_result(
                 search_client, filter_expr=corpus_b_filter
             )
         corpus_b_chunks, b_timings = _hybrid_search(
-            question,
+            effective_question,
             retrieve_k=payload.retrieve_k,
             evidence_filter=corpus_b_filter,
         )
@@ -1603,7 +1702,7 @@ def _generate_compliance_report_result(
                 search_client, filter_expr=corpus_c_filter
             )
         corpus_c_chunks, c_timings = _hybrid_search(
-            question,
+            effective_question,
             retrieve_k=payload.retrieve_k,
             evidence_filter=corpus_c_filter,
         )
@@ -1617,7 +1716,7 @@ def _generate_compliance_report_result(
     used_fallback_payload = False
     if strategy == "per_control" and controls:
         report_payload = _build_per_control_report_payload(
-            question=question,
+            question=effective_question,
             controls=controls,
             corpus_b_chunks=corpus_b_chunks,
             corpus_c_chunks=corpus_c_chunks,
@@ -1664,7 +1763,7 @@ def _generate_compliance_report_result(
             {
                 "role": "user",
                 "content": (
-                    f"Assessment question:\n{sanitise_untrusted_text(question)}\n\n"
+                    f"Assessment question:\n{sanitise_untrusted_text(effective_question)}\n\n"
                     "Use the following corpora:\n"
                     f"Corpus A (normative requirements):\n{controls_context or 'No Corpus A controls retrieved.'}\n\n"
                     f"Corpus B (narrative guidance):\n{corpus_b_context or 'No Corpus B guidance retrieved.'}\n\n"
@@ -1691,7 +1790,7 @@ def _generate_compliance_report_result(
             report_payload = _extract_json_object(model_response)
             report_payload = _normalise_compliance_report_payload(
                 report_payload,
-                question=question,
+                question=effective_question,
                 controls=controls,
                 corpus_b_chunks=corpus_b_chunks,
                 corpus_c_chunks=corpus_c_chunks,
@@ -1708,7 +1807,7 @@ def _generate_compliance_report_result(
                 raise
             used_fallback_payload = True
             report_payload = _build_fallback_compliance_report_payload(
-                question=question,
+                question=effective_question,
                 controls=controls,
                 corpus_b_chunks=corpus_b_chunks,
                 corpus_c_chunks=corpus_c_chunks,
@@ -1741,7 +1840,7 @@ def _generate_compliance_report_result(
                 f"Compliance report schema validation failed: {validation_error}"
             ) from exc
         fallback_payload = _build_fallback_compliance_report_payload(
-            question=question,
+            question=effective_question,
             controls=controls,
             corpus_b_chunks=corpus_b_chunks,
             corpus_c_chunks=corpus_c_chunks,
@@ -1778,6 +1877,8 @@ def _generate_compliance_report_result(
         "corpus_c_indexed_total": corpus_c_indexed_total,
         "corpus_b_upload_batch_filter": payload.corpus_b_upload_batch,
         "corpus_c_upload_batch_filter": payload.corpus_c_upload_batch,
+        "assessment_question_supplied": bool(question),
+        "effective_assessment_question": effective_question,
         "evidence_corpora_selected": selected_evidence_corpora,
         "audit": {
             "evidence_corpus_filter_expr": evidence_corpus_filter_expr,
@@ -4487,6 +4588,15 @@ def _upload_corpus_b_files(files: list[UploadFile], user_id: str) -> dict[str, A
     )
 
 
+def _upload_corpus_c_files(files: list[UploadFile], user_id: str) -> dict[str, Any]:
+    return _upload_corpus_files(
+        files,
+        user_id,
+        corpus="c",
+        corpus_role="assessed_artifact",
+    )
+
+
 def _upload_corpus_a_reference_files(
     files: list[UploadFile],
     user_id: str,
@@ -5218,7 +5328,7 @@ def home(request: Request) -> HTMLResponse:
         request,
         "index.html",
         {
-            "static_version": _STATIC_VERSION,
+            **_branding_ctx(),
             "question": "",
             "answer": "",
             "results": [],
@@ -5272,7 +5382,7 @@ def ask(
             request,
             "index.html",
             {
-                "static_version": _STATIC_VERSION,
+                **_branding_ctx(),
                 "question": question,
                 "answer": "",
                 "results": [],
@@ -5362,7 +5472,7 @@ def ask(
         request,
         "index.html",
         {
-            "static_version": _STATIC_VERSION,
+            **_branding_ctx(),
             "question": question,
             "answer": result["answer"],
             "results": result["results"],
@@ -5595,12 +5705,7 @@ async def upload_corpus_c_and_trigger(
     user_id = _get_user_id(auth_token, str(uuid.uuid4()))
 
     try:
-        upload_result = _upload_corpus_files(
-            files,
-            user_id=user_id,
-            corpus="c",
-            corpus_role="assessed_artifact",
-        )
+        upload_result = _upload_corpus_c_files(files, user_id=user_id)
         trigger_result: dict[str, Any] | None = None
         reindex_touch: dict[str, Any] | None = None
         scope_query = "corpus-c/by-dedupe/"
@@ -5955,10 +6060,41 @@ def generate_compliance_report(request: Request, payload: ComplianceReportReques
     if not _is_authorised_request(payload.auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
-    if not payload.question.strip():
-        return JSONResponse({"error": "question must not be empty"}, status_code=400)
-
     try:
+        corpus_c_base_filter = "corpus eq 'c'"
+        corpus_c_indexed_total = _count_search_documents_total_by_filter(
+            search_client,
+            filter_expr=corpus_c_base_filter,
+        )
+        if corpus_c_indexed_total <= 0:
+            return JSONResponse(
+                {
+                    "error": (
+                        "Compliance report is unavailable because there are no Corpus C "
+                        "documents to assess. Upload and index Corpus C artifacts first."
+                    )
+                },
+                status_code=400,
+            )
+
+        if payload.corpus_c_upload_batch:
+            escaped_batch = payload.corpus_c_upload_batch.replace("'", "''")
+            batch_filter = f"{corpus_c_base_filter} and upload_batch eq '{escaped_batch}'"
+            corpus_c_batch_total = _count_search_documents_total_by_filter(
+                search_client,
+                filter_expr=batch_filter,
+            )
+            if corpus_c_batch_total <= 0:
+                return JSONResponse(
+                    {
+                        "error": (
+                            "Compliance report is unavailable because the selected Corpus C "
+                            "upload batch has no indexed documents to assess."
+                        )
+                    },
+                    status_code=400,
+                )
+
         return JSONResponse(_generate_compliance_report_result(payload))
     except Exception as exc:
         if isinstance(exc, RuntimeError) and "schema validation failed" in str(exc).lower():
@@ -5997,8 +6133,44 @@ def generate_azure_compliance_report(
 def start_compliance_report(request: Request, payload: ComplianceReportRequest) -> JSONResponse:
     if not _is_authorised_request(payload.auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-    if not payload.question.strip():
-        return JSONResponse({"error": "question must not be empty"}, status_code=400)
+
+    try:
+        corpus_c_base_filter = "corpus eq 'c'"
+        corpus_c_indexed_total = _count_search_documents_total_by_filter(
+            search_client,
+            filter_expr=corpus_c_base_filter,
+        )
+        if corpus_c_indexed_total <= 0:
+            return JSONResponse(
+                {
+                    "error": (
+                        "Compliance report is unavailable because there are no Corpus C "
+                        "documents to assess. Upload and index Corpus C artifacts first."
+                    )
+                },
+                status_code=400,
+            )
+
+        if payload.corpus_c_upload_batch:
+            escaped_batch = payload.corpus_c_upload_batch.replace("'", "''")
+            batch_filter = f"{corpus_c_base_filter} and upload_batch eq '{escaped_batch}'"
+            corpus_c_batch_total = _count_search_documents_total_by_filter(
+                search_client,
+                filter_expr=batch_filter,
+            )
+            if corpus_c_batch_total <= 0:
+                return JSONResponse(
+                    {
+                        "error": (
+                            "Compliance report is unavailable because the selected Corpus C "
+                            "upload batch has no indexed documents to assess."
+                        )
+                    },
+                    status_code=400,
+                )
+    except Exception as exc:
+        logger.exception("Failed compliance report preflight validation: %s", exc)
+        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     job = _new_report_job("compliance")
 
@@ -6306,7 +6478,8 @@ def corpus_c_list(
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
     try:
-        filter_expr = "corpus eq 'c'"
+        base_filter_expr = "corpus eq 'c'"
+        filter_expr = base_filter_expr
         batch = upload_batch.strip()
         if batch:
             escaped = batch.replace("'", "''")
@@ -6328,10 +6501,18 @@ def corpus_c_list(
             limit=limit,
         )
 
+        overall_total_count: int | None = None
+        if batch:
+            overall_total_count = _count_search_documents_total_by_filter(
+                search_client,
+                filter_expr=base_filter_expr,
+            )
+
         return JSONResponse(
             {
                 "mode": "corpus-c-list",
                 "upload_batch_filter": batch or None,
+                "overall_total_count": overall_total_count,
                 **listing,
             }
         )

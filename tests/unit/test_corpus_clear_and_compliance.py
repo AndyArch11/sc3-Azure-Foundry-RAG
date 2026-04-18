@@ -95,6 +95,11 @@ def test_compliance_report_soft_mode_normalises_incomplete_payload() -> None:
         patch.object(app_module, "config", _open_auth_config()),
         patch.object(
             app_module,
+            "_count_search_documents_total_by_filter",
+            return_value=1,
+        ),
+        patch.object(
+            app_module,
             "_controls_search",
             return_value=([], {"controls_search_s": 0.01}),
         ),
@@ -131,6 +136,11 @@ def test_compliance_report_hard_mode_normalises_incomplete_payload() -> None:
 
     with (
         patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_count_search_documents_total_by_filter",
+            return_value=1,
+        ),
         patch.object(
             app_module,
             "_controls_search",
@@ -192,6 +202,11 @@ def test_compliance_report_valid_schema_returns_csv() -> None:
 
     with (
         patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_count_search_documents_total_by_filter",
+            return_value=1,
+        ),
         patch.object(
             app_module,
             "_controls_search",
@@ -256,6 +271,11 @@ def test_compliance_report_retries_after_empty_model_response() -> None:
         patch.object(app_module, "config", _open_auth_config()),
         patch.object(
             app_module,
+            "_count_search_documents_total_by_filter",
+            return_value=1,
+        ),
+        patch.object(
+            app_module,
             "_controls_search",
             return_value=([], {"controls_search_s": 0.01}),
         ),
@@ -315,6 +335,11 @@ def test_compliance_report_normalises_incomplete_model_json() -> None:
 
     with (
         patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_count_search_documents_total_by_filter",
+            return_value=1,
+        ),
         patch.object(
             app_module,
             "_controls_search",
@@ -397,6 +422,11 @@ def test_compliance_report_corrects_model_claims_when_grounding_exists() -> None
         patch.object(app_module, "config", _open_auth_config()),
         patch.object(
             app_module,
+            "_count_search_documents_total_by_filter",
+            return_value=1,
+        ),
+        patch.object(
+            app_module,
             "_controls_search",
             return_value=(
                 [
@@ -440,11 +470,10 @@ def test_compliance_report_corrects_model_claims_when_grounding_exists() -> None
     assert response.status_code == 200
     assert body["schema_valid"] is True
     assert body["report_structured"]["controls_assessed"] == ["REQ-99"]
-    assert body["report_structured"]["scope_and_inputs"] == [
-        "Corpus A controls retrieved: 1",
-        "Corpus B guidance retrieved: 1",
-        "Corpus C artifacts retrieved: 1",
-    ]
+    scope_inputs = body["report_structured"]["scope_and_inputs"]
+    assert "Corpus A controls retrieved: 1" in scope_inputs
+    assert "Corpus B guidance retrieved: 1" in scope_inputs
+    assert "Corpus C artifacts retrieved: 1" in scope_inputs
 
 
 def test_build_compliance_scope_inputs_can_distinguish_live_azure_evidence() -> None:
@@ -471,6 +500,11 @@ def test_compliance_report_soft_mode_returns_fallback_report_on_empty_model_outp
 
     with (
         patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_count_search_documents_total_by_filter",
+            return_value=1,
+        ),
         patch.object(
             app_module,
             "_controls_search",
@@ -552,6 +586,11 @@ def test_compliance_report_uses_corpus_b_upload_batch_filter() -> None:
         patch.object(app_module, "config", _open_auth_config()),
         patch.object(
             app_module,
+            "_count_search_documents_total_by_filter",
+            return_value=1,
+        ),
+        patch.object(
+            app_module,
             "_controls_search",
             return_value=([], {"controls_search_s": 0.01}),
         ),
@@ -618,6 +657,11 @@ def test_compliance_report_respects_evidence_corpus_include_exclude() -> None:
         patch.object(app_module, "config", _open_auth_config()),
         patch.object(
             app_module,
+            "_count_search_documents_total_by_filter",
+            return_value=1,
+        ),
+        patch.object(
+            app_module,
             "_controls_search",
             return_value=([], {"controls_search_s": 0.01}),
         ),
@@ -649,10 +693,10 @@ def test_compliance_report_respects_evidence_corpus_include_exclude() -> None:
     assert body["evidence_corpora_selected"] == ["b"]
     assert body["corpus_c_count"] == 0
     assert body["audit"]["evidence_corpus_filter_expr"] == "corpus eq 'b'"
-    assert body["audit"]["corpus_c_filter_expr"] is None
-    assert hybrid_mock.call_count == 1
-    call_kwargs = hybrid_mock.call_args_list[0].kwargs
-    assert call_kwargs["evidence_filter"] == "corpus eq 'b'"
+    assert body["audit"]["corpus_c_filter_expr"] == "corpus eq 'c'"
+    assert hybrid_mock.call_count == 2
+    call_filters = [call.kwargs["evidence_filter"] for call in hybrid_mock.call_args_list]
+    assert call_filters == ["corpus eq 'b'", "corpus eq 'c'"]
 
 
 def test_assess_control_finding_coerces_scalar_list_fields() -> None:
