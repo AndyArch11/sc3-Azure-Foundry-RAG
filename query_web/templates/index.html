@@ -10,9 +10,8 @@
   <div class="wrap">
     <script id="server-data" type="application/json">{"question": {{ question | tojson }}, "answer": {{ answer | tojson }}, "error": {{ error | tojson }}, "user_id": {{ user_id | tojson }}}</script>
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+      <div style="margin-bottom:6px">
         <h1 style="margin-bottom:2px">RAG Query Console</h1>
-        <button type="button" class="btn-secondary" id="show-past-btn" style="display:none;white-space:nowrap;margin-left:12px" onclick="togglePastConversations()" title="Show or hide the panel of saved conversations for this session.">Past Conversations</button>
       </div>
       <p class="muted">Private-network cyber-security assistant using hybrid search over your indexed content.</p>
 
@@ -25,6 +24,10 @@
 
       <!-- ── Ask tab ──────────────────────────────────────────────────────── -->
       <div id="tab-ask" class="tab-panel active" role="tabpanel">
+
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+          <button type="button" class="btn-secondary" id="show-past-btn" style="display:none;white-space:nowrap" onclick="togglePastConversations()" title="Show or hide the panel of saved conversations for this session.">Past Conversations</button>
+        </div>
 
         <div id="past-conv-panel" class="source" style="display:none">
           <div class="chat-header">
@@ -90,11 +93,12 @@
               </select>
             </div>
             <div class="field">
-              <label for="evidence_corpora_include">Evidence corpora</label>
-              <select id="evidence_corpora_include" name="evidence_corpora_include" multiple title="Select which evidence corpora to include in retrieval. Leave all unselected to use all corpora.">
-                <option value="a" {% if 'a' in (evidence_corpora_include or []) %}selected{% endif %}>Corpus A</option>
-                <option value="b" {% if 'b' in (evidence_corpora_include or []) %}selected{% endif %}>Corpus B</option>
-                <option value="c" {% if 'c' in (evidence_corpora_include or []) %}selected{% endif %}>Corpus C</option>
+              <label for="evidence_corpora_include">Filter by corpora</label>
+              <select id="evidence_corpora_include" name="evidence_corpora_include" multiple title="Select which corpora to include in the answer. Leave all unselected to use all corpora. Corpus A = normative control requirements; Corpus B = narrative guidance; Corpus C = assessed artifacts.">
+                <option value="a" {% if 'a' in (evidence_corpora_include or []) %}selected{% endif %}>Corpus A (controls)</option>
+                <option value="b" {% if 'b' in (evidence_corpora_include or []) %}selected{% endif %}>Corpus B (guidance)</option>
+                <option value="c" {% if 'c' in (evidence_corpora_include or []) %}selected{% endif %}>Corpus C (artifacts)</option>
+                <option value="legacy" {% if 'legacy' in (evidence_corpora_include or []) %}selected{% endif %}>Legacy (untagged docs)</option>
               </select>
             </div>
           </div>
@@ -190,7 +194,7 @@
           {% for r in results %}
             <p>
               <strong>{{ loop.index }}.</strong>
-              <span class="muted">{{ r.source_name }} | score={{ '%.4f'|format(r.score) }}</span><br />
+              <span class="muted">{{ r.original_filename or r.source_name }}{% if r.corpus %} <span style="font-size:.8em;padding:1px 5px;border-radius:3px;background:#e5e7eb;color:#374151">corpus:{{ r.corpus }}</span>{% endif %} | score={{ '%.4f'|format(r.score) }}</span><br />
               {{ r.content }}
             </p>
           {% endfor %}

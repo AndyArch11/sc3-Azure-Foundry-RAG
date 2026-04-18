@@ -3740,13 +3740,21 @@ def _run_rag(
     )
     retrieval_timings["evidence_corpus_none_selected"] = float(evidence_filter == "__none__")
     retrieval_timings["evidence_corpus_selected_count"] = float(len(selected_evidence_corpora))
-    controls, controls_timings = _controls_search(
-        question,
-        retrieve_k=config.controls_top_k,
-        use_semantic=controls_semantic,
-        framework_filter_override=controls_framework,
-        comparison_mode=controls_comparison_mode,
-    )
+
+    # Gate Corpus A controls retrieval: skip when the caller has explicitly scoped
+    # to specific corpora that do not include 'a'. When no filter is active
+    # (evidence_corpora_include is None) always retrieve controls.
+    include_controls = evidence_corpora_include is None or "a" in selected_evidence_corpora
+    if include_controls:
+        controls, controls_timings = _controls_search(
+            question,
+            retrieve_k=config.controls_top_k,
+            use_semantic=controls_semantic,
+            framework_filter_override=controls_framework,
+            comparison_mode=controls_comparison_mode,
+        )
+    else:
+        controls, controls_timings = [], {}
     controls_debug = _summarise_controls_distribution(
         controls,
         controls_timings,
