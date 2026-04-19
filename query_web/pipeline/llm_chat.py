@@ -6,10 +6,12 @@ import json
 import re
 from typing import TYPE_CHECKING, Any, cast
 
+from openai.types.chat import ChatCompletionMessageParam
+
 from query_web.security.prompt_injection_guard import BLOCKED_PROMPT_INJECTION_MESSAGE
 
 if TYPE_CHECKING:
-    from openai.types.chat import ChatCompletionMessageParam
+    pass
 
 CYBER_PERSONA_PROMPT = (
     "You are a Cyber Security Assistant. Answer questions related to cyber safety, "
