@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir -r query_web-requirements.txt -r runtime-requirem
 
 COPY query_web/ ./query_web/
 COPY runtime/ ./runtime/
+COPY query_web/policies/precedence_policy.json ./policies/precedence_policy.json
 
 RUN useradd -m -u 1000 appuser
 USER appuser
