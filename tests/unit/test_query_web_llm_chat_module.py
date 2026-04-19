@@ -11,7 +11,7 @@ os.environ.setdefault("AZURE_COSMOS_ENDPOINT", "https://test.documents.azure.com
 os.environ.setdefault("AZURE_COSMOS_DATABASE_NAME", "rag-conversations")
 os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 
-from query_web.llm_chat import (
+from query_web.pipeline.llm_chat import (
     _json_fallback_eval,
     _parse_eval,
     _parse_validator_response,

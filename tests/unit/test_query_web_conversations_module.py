@@ -6,7 +6,7 @@ from azure.cosmos.exceptions import CosmosResourceNotFoundError
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from query_web.conversations import (
+from query_web.endpoints.conversations import (
     ConversationMessage,
     ConversationSession,
     ResponseRating,
@@ -193,7 +193,7 @@ def test_create_conversation_returns_internal_error_on_save_failure() -> None:
     container.upsert_item.side_effect = ValueError("boom")
     client = _build_client(container=container)
 
-    with patch("query_web.conversations.uuid.uuid4", side_effect=["sess-1", "conv-1"]):
+    with patch("query_web.endpoints.conversations.uuid.uuid4", side_effect=["sess-1", "conv-1"]):
         response = client.post("/api/conversations/new", data={"auth_token": "secret-token"})
 
     assert response.status_code == 500
@@ -204,7 +204,7 @@ def test_create_conversation_persists_and_returns_ids() -> None:
     container = MagicMock()
     client = _build_client(container=container)
 
-    with patch("query_web.conversations.uuid.uuid4", side_effect=["sess-1", "conv-1"]):
+    with patch("query_web.endpoints.conversations.uuid.uuid4", side_effect=["sess-1", "conv-1"]):
         response = client.post("/api/conversations/new", data={"auth_token": "secret-token"})
 
     body = response.json()
@@ -264,7 +264,7 @@ def test_add_message_to_conversation_appends_message_and_updates_session() -> No
     ).to_dict()
     client = _build_client(container=container)
 
-    with patch("query_web.conversations._utc_now_iso", return_value="t-new"):
+    with patch("query_web.endpoints.conversations._utc_now_iso", return_value="t-new"):
         response = client.post(
             "/api/conversations/conv-1/message",
             data={
@@ -359,7 +359,7 @@ def test_add_response_rating_appends_feedback_and_updates_session() -> None:
     ).to_dict()
     client = _build_client(container=container)
 
-    with patch("query_web.conversations._utc_now_iso", return_value="t-new"):
+    with patch("query_web.endpoints.conversations._utc_now_iso", return_value="t-new"):
         response = client.post(
             "/api/conversations/conv-1/rating",
             data={

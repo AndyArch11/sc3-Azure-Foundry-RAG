@@ -9,7 +9,7 @@ from azure.cosmos.exceptions import CosmosResourceNotFoundError
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import JSONResponse
 
-from utils import _utc_now_iso
+from query_web.utils import _utc_now_iso
 
 logger = logging.getLogger(__name__)
 

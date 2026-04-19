@@ -11,7 +11,7 @@ os.environ.setdefault("AZURE_COSMOS_ENDPOINT", "https://test.documents.azure.com
 os.environ.setdefault("AZURE_COSMOS_DATABASE_NAME", "rag-conversations")
 os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 
-from query_web.rag_pipeline import _run_rag
+from query_web.pipeline.rag_pipeline import _run_rag
 
 
 class _GuardrailDecision(SimpleNamespace):

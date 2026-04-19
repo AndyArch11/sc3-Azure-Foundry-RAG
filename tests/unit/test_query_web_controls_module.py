@@ -13,7 +13,7 @@ os.environ.setdefault("AZURE_COSMOS_ENDPOINT", "https://test.documents.azure.com
 os.environ.setdefault("AZURE_COSMOS_DATABASE_NAME", "rag-conversations")
 os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 
-from query_web.controls import (
+from query_web.pipeline.controls import (
     _build_evidence_corpus_filter,
     _controls_coverage_disclaimer,
     _controls_query_variants,
@@ -637,7 +637,7 @@ def test_preferred_framework_for_question_rule_with_all_blank_keywords_skipped()
 
 def test_question_focus_terms_short_token_not_in_keep_list_skipped() -> None:
     """Token with len < 3 not in _QUERY_SHORT_KEEP is filtered out (line 327)."""
-    from query_web.controls import _question_focus_terms
+    from query_web.pipeline.controls import _question_focus_terms
     # "xy" is 2 chars and unlikely to be in _QUERY_SHORT_KEEP
     result = _question_focus_terms("authentication xy policy")
     assert "xy" not in result
@@ -782,7 +782,7 @@ def test_controls_coverage_disclaimer_empty_framework_counts_shows_none_name() -
 # _fetch_controls — semantic + full iteration (lines 405-446)
 # ---------------------------------------------------------------------------
 
-from query_web.controls import _fetch_controls
+from query_web.pipeline.controls import _fetch_controls
 
 
 def _make_search_result(
@@ -917,7 +917,7 @@ def test_select_diverse_controls_top_k_reached_in_first_pass_returns_early() -> 
 # _apply_framework_authority_preference — concept overlap scoring (lines 621, 634-635)
 # ---------------------------------------------------------------------------
 
-from query_web.controls import _apply_framework_authority_preference
+from query_web.pipeline.controls import _apply_framework_authority_preference
 
 
 def test_apply_framework_authority_preference_concept_overlap_ranks_first() -> None:
@@ -979,7 +979,7 @@ def test_apply_framework_authority_preference_preferred_rank_tiebreaker() -> Non
 # _fetch_controls_with_fallback exception paths (lines 726-727) via controls_search
 # ---------------------------------------------------------------------------
 
-from query_web.controls import controls_search as _controls_search_fn
+from query_web.pipeline.controls import controls_search as _controls_search_fn
 
 
 def _make_failing_svc(*, use_semantic_fallback_also_fails: bool = False) -> SimpleNamespace:

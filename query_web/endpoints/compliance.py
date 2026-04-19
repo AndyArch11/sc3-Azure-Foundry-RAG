@@ -16,8 +16,8 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from constants import COMPLIANCE_REPORT_SCHEMA_VERSION
-from utils import _utc_now_iso
+from query_web.constants import COMPLIANCE_REPORT_SCHEMA_VERSION
+from query_web.utils import _utc_now_iso
 
 logger = logging.getLogger(__name__)
 

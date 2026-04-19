@@ -14,7 +14,7 @@ os.environ.setdefault("AZURE_COSMOS_ENDPOINT", "https://test.documents.azure.com
 os.environ.setdefault("AZURE_COSMOS_DATABASE_NAME", "rag-conversations")
 os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 
-from query_web.compliance import (
+from query_web.endpoints.compliance import (
     ComplianceFinding,
     ComplianceReportRequest,
     ComplianceReportStructured,
@@ -594,7 +594,7 @@ def test_report_findings_to_csv_contains_all_findings() -> None:
 import time
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from query_web.compliance import register_compliance_endpoints
+from query_web.endpoints.compliance import register_compliance_endpoints
 
 
 _VALID_REPORT_RESULT = {
@@ -928,7 +928,7 @@ def test_endpoint_get_job_not_found() -> None:
 
 
 def test_endpoint_get_job_queued_has_no_result() -> None:
-    from query_web.compliance import _REPORT_JOBS, _REPORT_JOBS_LOCK, _ReportJob
+    from query_web.endpoints.compliance import _REPORT_JOBS, _REPORT_JOBS_LOCK, _ReportJob
     from query_web.utils import _utc_now_iso as _tnow
 
     job = _ReportJob(
@@ -953,7 +953,7 @@ def test_endpoint_get_job_queued_has_no_result() -> None:
 # ---------------------------------------------------------------------------
 # _chunk_azure_artifact
 # ---------------------------------------------------------------------------
-from query_web.compliance import _chunk_azure_artifact
+from query_web.endpoints.compliance import _chunk_azure_artifact
 
 
 def test_chunk_azure_artifact_splits_long_content() -> None:
@@ -985,7 +985,7 @@ def test_chunk_azure_artifact_default_title() -> None:
 # ---------------------------------------------------------------------------
 # _build_fallback_compliance_report_payload
 # ---------------------------------------------------------------------------
-from query_web.compliance import _build_fallback_compliance_report_payload
+from query_web.endpoints.compliance import _build_fallback_compliance_report_payload
 
 
 def test_build_fallback_compliance_report_payload_minimal() -> None:
@@ -1037,7 +1037,7 @@ def test_build_fallback_compliance_report_payload_includes_evidence_sources() ->
 # ---------------------------------------------------------------------------
 # _assess_control_finding_with_llm
 # ---------------------------------------------------------------------------
-from query_web.compliance import _assess_control_finding_with_llm
+from query_web.endpoints.compliance import _assess_control_finding_with_llm
 
 
 def _make_llm_svc(*, llm_response: str = '{"finding_id":"f-1","requirement_id":"R-1","framework":"ISM","status":"compliant","severity":"low","rationale":"ok","evidence_sources":["doc.pdf"],"gaps":[],"recommendations":[]}') -> SimpleNamespace:
@@ -1110,7 +1110,7 @@ def test_assess_control_finding_with_llm_includes_corpus_context() -> None:
 # ---------------------------------------------------------------------------
 # _build_per_control_report_payload
 # ---------------------------------------------------------------------------
-from query_web.compliance import _build_per_control_report_payload
+from query_web.endpoints.compliance import _build_per_control_report_payload
 
 
 def test_build_per_control_report_payload_empty_controls() -> None:
@@ -1185,7 +1185,7 @@ def test_build_per_control_report_payload_risk_medium_on_partial() -> None:
 # ---------------------------------------------------------------------------
 # _report_to_markdown
 # ---------------------------------------------------------------------------
-from query_web.compliance import _report_to_markdown
+from query_web.endpoints.compliance import _report_to_markdown
 
 
 def test_report_to_markdown_structure() -> None:
@@ -1226,7 +1226,7 @@ def test_report_to_markdown_empty_guidance_applied_shows_none() -> None:
 # ---------------------------------------------------------------------------
 # generate_compliance_report_result
 # ---------------------------------------------------------------------------
-from query_web.compliance import generate_compliance_report_result
+from query_web.endpoints.compliance import generate_compliance_report_result
 
 
 def _make_pipeline_svc(
@@ -1343,7 +1343,7 @@ def test_generate_compliance_report_result_with_batch_filters() -> None:
 # ---------------------------------------------------------------------------
 # generate_azure_compliance_report_result
 # ---------------------------------------------------------------------------
-from query_web.compliance import generate_azure_compliance_report_result, AzureComplianceReportRequest
+from query_web.endpoints.compliance import generate_azure_compliance_report_result, AzureComplianceReportRequest
 
 
 def _make_azure_pipeline_svc(*, assessment_payload: dict | None = None) -> SimpleNamespace:

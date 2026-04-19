@@ -15,7 +15,7 @@ os.environ.setdefault("AZURE_COSMOS_ENDPOINT", "https://test.documents.azure.com
 os.environ.setdefault("AZURE_COSMOS_DATABASE_NAME", "rag-conversations")
 os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 
-from query_web.auth import (
+from query_web.security.auth import (
     _decode_client_principal,
     _group_auth_failure_message,
     _groups_from_client_principal_header,

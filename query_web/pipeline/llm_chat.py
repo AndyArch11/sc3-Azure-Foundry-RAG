@@ -5,7 +5,7 @@ import json
 import re
 from typing import Any, cast
 
-from prompt_injection_guard import BLOCKED_PROMPT_INJECTION_MESSAGE
+from query_web.security.prompt_injection_guard import BLOCKED_PROMPT_INJECTION_MESSAGE
 
 CYBER_PERSONA_PROMPT = (
     "You are a Cyber Security Assistant. Answer questions related to cyber safety, "

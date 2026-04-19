@@ -6,7 +6,7 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from query_web.diagnostics import register_diagnostics_endpoints
+from query_web.endpoints.diagnostics import register_diagnostics_endpoints
 
 
 def _build_client(*, search_client=None, storage_enabled: bool = True) -> TestClient:
@@ -296,7 +296,7 @@ def test_field_mappings_diagnostics_reports_missing_target_fields() -> None:
             )
 
     with (
-        patch("query_web.diagnostics.SearchIndexClient", _FakeSearchIndexClient),
+        patch("query_web.endpoints.diagnostics.SearchIndexClient", _FakeSearchIndexClient),
         patch("azure.search.documents.indexes.SearchIndexerClient", _FakeSearchIndexerClient),
     ):
         client = _build_client()

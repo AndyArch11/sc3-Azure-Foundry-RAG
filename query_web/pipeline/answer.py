@@ -6,8 +6,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from prompt_injection_guard import sanitise_untrusted_text
-import controls as _controls_module
+from query_web.security.prompt_injection_guard import sanitise_untrusted_text
+import query_web.pipeline.controls as _controls_module
 
 
 def _unwrap_answer(text: str) -> str:

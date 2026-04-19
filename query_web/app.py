@@ -31,7 +31,7 @@ from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from prompt_injection_guard import (
+from query_web.security.prompt_injection_guard import (
     BLOCKED_PROMPT_INJECTION_MESSAGE,
     PROMPT_INJECTION_SYSTEM_PROMPT,
     VALIDATOR_SYSTEM_PROMPT,
@@ -51,19 +51,19 @@ from runtime.assessment_orchestration.azure_assessment import (
     run_azure_assessment,
 )
 
-from compliance import register_compliance_endpoints
-import compliance as _compliance_module
-from corpus import register_corpus_endpoints
-from diagnostics import register_diagnostics_endpoints
-from status import register_status_endpoints
-from ask import register_ask_endpoints
-from home import register_home_endpoints
-import controls
-import llm_chat
-import answer as _answer_module
-import search as _search_module
-import rag_pipeline
-from llm_chat import (
+from query_web.endpoints.compliance import register_compliance_endpoints
+import query_web.endpoints.compliance as _compliance_module
+from query_web.endpoints.corpus import register_corpus_endpoints
+from query_web.endpoints.diagnostics import register_diagnostics_endpoints
+from query_web.endpoints.status import register_status_endpoints
+from query_web.endpoints.ask import register_ask_endpoints
+from query_web.endpoints.home import register_home_endpoints
+import query_web.pipeline.controls as controls
+import query_web.pipeline.llm_chat as llm_chat
+import query_web.pipeline.answer as _answer_module
+import query_web.pipeline.search as _search_module
+import query_web.pipeline.rag_pipeline as rag_pipeline
+from query_web.pipeline.llm_chat import (
     CYBER_PERSONA_PROMPT,
     EVALUATOR_PROMPT,
     _json_fallback_eval,
@@ -71,16 +71,16 @@ from llm_chat import (
     _parse_validator_response,
     _prompt_injection_response,
 )
-from answer import (
+from query_web.pipeline.answer import (
     _unwrap_answer,
     _clean_markdown_whitespace,
     _ensure_visible_answer,
     _chunk_reference_label,
     _build_retrieval_based_fallback_answer,
 )
-from controls import _CONTROLS_FRAMEWORK_FILTERS
-from models import AskRequest, AskResponse
-from conversations import (
+from query_web.pipeline.controls import _CONTROLS_FRAMEWORK_FILTERS
+from query_web.models import AskRequest, AskResponse
+from query_web.endpoints.conversations import (
     ConversationMessage,
     ConversationSession,
     ResponseRating,
@@ -89,20 +89,20 @@ from conversations import (
     _load_conversation as _conversations_load_conversation,
     _save_conversation as _conversations_save_conversation,
 )
-from constants import (
+from query_web.constants import (
     ALLOWED_EXTENSIONS,
     COMPLIANCE_REPORT_SCHEMA_VERSION,
     MIME_TYPE_BY_EXTENSION,
     QUERY_WEB_VERSION_SIGNATURE,
 )
-from utils import (
+from query_web.utils import (
     _compute_normalised_text_hash,
     _dedupe_blob_prefix,
     _extract_dedupe_hashes,
     _sanitise_blob_name_component,
     _utc_now_iso,
 )
-from config import (
+from query_web.config import (
     QueryConfig,
     PrecedencePolicy,
     load_config,
@@ -1715,7 +1715,7 @@ register_ask_endpoints(
 )
 
 # Register conversations endpoints
-from conversations import register_conversations_endpoints
+from query_web.endpoints.conversations import register_conversations_endpoints
 
 register_conversations_endpoints(
     app,
