@@ -1,4 +1,36 @@
   const _TAB_KEY = 'rag_active_tab';
+  const _CORPUS_B_LIST_RETRY_MS = 5000;
+  const _CORPUS_B_LIST_MAX_RETRIES = 6;
+  const _CORPUS_C_LIST_RETRY_MS = 5000;
+  const _CORPUS_C_LIST_MAX_RETRIES = 6;
+  let _corpusBListRetryTimeout = null;
+  let _corpusCListRetryTimeout = null;
+
+  function _cancelCorpusBListRetry() {
+    if (_corpusBListRetryTimeout) {
+      clearTimeout(_corpusBListRetryTimeout);
+      _corpusBListRetryTimeout = null;
+    }
+  }
+
+  function _cancelCorpusCListRetry() {
+    if (_corpusCListRetryTimeout) {
+      clearTimeout(_corpusCListRetryTimeout);
+      _corpusCListRetryTimeout = null;
+    }
+  }
+
+  function _appendCorpusCStatusNote(note) {
+    const statusEl = document.getElementById('cc-status');
+    if (!statusEl) return;
+    statusEl.textContent += '\n\n' + note;
+  }
+
+  function _appendCorpusBStatusNote(note) {
+    const statusEl = document.getElementById('cb-status');
+    if (!statusEl) return;
+    statusEl.textContent += '\n\n' + note;
+  }
 
   function switchTab(name) {
     document.querySelectorAll('.top-tab').forEach(function (btn) {
@@ -736,6 +768,7 @@
   }
 
   function clearCorpusB() {
+    _cancelCorpusBListRetry();
     const body = {
       dry_run: document.getElementById('cb-clear-dry-run').checked,
       clear_blobs: document.getElementById('cb-clear-blobs').checked,
@@ -755,7 +788,17 @@
       .catch(err => _renderCorpusBStatus({ error: String(err) }));
   }
 
-  function listCorpusBIndexed() {
+  function listCorpusBIndexed(retryAttempt) {
+    const attempt = Number.isFinite(retryAttempt) ? retryAttempt : 0;
+    if (attempt === 0) {
+      _cancelCorpusBListRetry();
+      _renderCorpusBStatus({
+        mode: 'corpus-b-list',
+        status: 'Loading Corpus B indexed view...',
+        note: 'Indexing can take a few minutes after ingestion. We will auto-refresh briefly if no chunks are visible yet.',
+      });
+    }
+
     const token = _currentAuthToken();
     const params = new URLSearchParams();
     if (token) params.set('auth_token', token);
@@ -768,13 +811,52 @@
     fetch('/api/corpus-b/list' + (qs ? ('?' + qs) : ''))
       .then(r => r.json())
       .then(data => {
+        _cancelCorpusBListRetry();
         _renderCorpusBStatus(data);
         _refreshComplianceBatchOptions();
+
+        const total = data && typeof data.total_count === 'number' ? data.total_count : null;
+        const batchSuffix = batch ? (' for upload_batch=' + batch) : '';
+        if (total === 0 && attempt < _CORPUS_B_LIST_MAX_RETRIES) {
+          const nextAttempt = attempt + 1;
+          _appendCorpusBStatusNote(
+            '[No Corpus B indexed chunks visible' + batchSuffix +
+            ' yet. This can happen for several minutes after ingestion. Auto-refresh ' +
+            nextAttempt + '/' + _CORPUS_B_LIST_MAX_RETRIES + ' in ' +
+            (_CORPUS_B_LIST_RETRY_MS / 1000) + 's...]'
+          );
+          _corpusBListRetryTimeout = setTimeout(function () {
+            listCorpusBIndexed(nextAttempt);
+          }, _CORPUS_B_LIST_RETRY_MS);
+        } else if (total === 0) {
+          _appendCorpusBStatusNote(
+            '[Corpus B still shows 0 indexed chunks' + batchSuffix +
+            ' after auto-refresh attempts. Wait a little longer and click "View Corpus B Indexed" again.]'
+          );
+        } else if (total !== null) {
+          _appendCorpusBStatusNote(
+            '[Corpus B indexed chunks available: ' + total + '.]'
+          );
+        }
       })
-      .catch(err => _renderCorpusBStatus({ error: String(err) }));
+      .catch(err => {
+        _cancelCorpusBListRetry();
+        _renderCorpusBStatus({ error: String(err) });
+        if (attempt < _CORPUS_B_LIST_MAX_RETRIES) {
+          const nextAttempt = attempt + 1;
+          _appendCorpusBStatusNote(
+            '[Retrying Corpus B indexed view ' + nextAttempt + '/' + _CORPUS_B_LIST_MAX_RETRIES +
+            ' in ' + (_CORPUS_B_LIST_RETRY_MS / 1000) + 's after error.]'
+          );
+          _corpusBListRetryTimeout = setTimeout(function () {
+            listCorpusBIndexed(nextAttempt);
+          }, _CORPUS_B_LIST_RETRY_MS);
+        }
+      });
   }
 
   function uploadCorpusBIngest() {
+    _cancelCorpusBListRetry();
     const input = document.getElementById('cb-files');
     if (!input.files || !input.files.length) {
       _renderCorpusBStatus({ error: 'Select at least one file.' });
@@ -857,6 +939,7 @@
   }
 
   function uploadCorpusCIngest() {
+    _cancelCorpusCListRetry();
     const input = document.getElementById('cc-files');
     if (!input.files || !input.files.length) {
       _renderCorpusCStatus({ error: 'Select at least one file.' });
@@ -895,6 +978,7 @@
   }
 
   function clearCorpusC() {
+    _cancelCorpusCListRetry();
     const body = {
       dry_run: document.getElementById('cc-clear-dry-run').checked,
       clear_blobs: document.getElementById('cc-clear-blobs').checked,
@@ -914,7 +998,17 @@
       .catch(err => _renderCorpusCStatus({ error: String(err) }));
   }
 
-  function listCorpusCIndexed() {
+  function listCorpusCIndexed(retryAttempt) {
+    const attempt = Number.isFinite(retryAttempt) ? retryAttempt : 0;
+    if (attempt === 0) {
+      _cancelCorpusCListRetry();
+      _renderCorpusCStatus({
+        mode: 'corpus-c-list',
+        status: 'Loading Corpus C indexed view...',
+        note: 'Indexing can take a few minutes after ingestion. We will auto-refresh briefly if no chunks are visible yet.',
+      });
+    }
+
     const token = _currentAuthToken();
     const params = new URLSearchParams();
     if (token) params.set('auth_token', token);
@@ -927,10 +1021,48 @@
     fetch('/api/corpus-c/list' + (qs ? ('?' + qs) : ''))
       .then(r => r.json())
       .then(data => {
+        _cancelCorpusCListRetry();
         _renderCorpusCStatus(data);
         _refreshComplianceBatchOptions();
+
+        const total = data && typeof data.total_count === 'number' ? data.total_count : null;
+        const batchSuffix = batch ? (' for upload_batch=' + batch) : '';
+        if (total === 0 && attempt < _CORPUS_C_LIST_MAX_RETRIES) {
+          const nextAttempt = attempt + 1;
+          _appendCorpusCStatusNote(
+            '[No Corpus C indexed chunks visible' + batchSuffix +
+            ' yet. This can happen for several minutes after ingestion. Auto-refresh ' +
+            nextAttempt + '/' + _CORPUS_C_LIST_MAX_RETRIES + ' in ' +
+            (_CORPUS_C_LIST_RETRY_MS / 1000) + 's...]'
+          );
+          _corpusCListRetryTimeout = setTimeout(function () {
+            listCorpusCIndexed(nextAttempt);
+          }, _CORPUS_C_LIST_RETRY_MS);
+        } else if (total === 0) {
+          _appendCorpusCStatusNote(
+            '[Corpus C still shows 0 indexed chunks' + batchSuffix +
+            ' after auto-refresh attempts. Wait a little longer and click "View Corpus C Indexed" again.]'
+          );
+        } else if (total !== null) {
+          _appendCorpusCStatusNote(
+            '[Corpus C indexed chunks available: ' + total + '.]'
+          );
+        }
       })
-      .catch(err => _renderCorpusCStatus({ error: String(err) }));
+      .catch(err => {
+        _cancelCorpusCListRetry();
+        _renderCorpusCStatus({ error: String(err) });
+        if (attempt < _CORPUS_C_LIST_MAX_RETRIES) {
+          const nextAttempt = attempt + 1;
+          _appendCorpusCStatusNote(
+            '[Retrying Corpus C indexed view ' + nextAttempt + '/' + _CORPUS_C_LIST_MAX_RETRIES +
+            ' in ' + (_CORPUS_C_LIST_RETRY_MS / 1000) + 's after error.]'
+          );
+          _corpusCListRetryTimeout = setTimeout(function () {
+            listCorpusCIndexed(nextAttempt);
+          }, _CORPUS_C_LIST_RETRY_MS);
+        }
+      });
   }
 
   function _pollComplianceJob(jobId, isAzure) {

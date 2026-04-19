@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import sys
 import threading
 import time
 import uuid
@@ -50,6 +51,8 @@ from runtime.assessment_orchestration.azure_assessment import (
     run_azure_assessment,
 )
 
+from compliance import register_compliance_endpoints
+from corpus import register_corpus_endpoints
 from diagnostics import register_diagnostics_endpoints
 from status import register_status_endpoints
 from conversations import (
@@ -4682,8 +4685,6 @@ register_diagnostics_endpoints(
     credential,
     config,
     search_client,
-    _check_diagnostics_access,
-    _target_env_name,
     _is_corpus_upload_enabled,
     _is_ingestion_job_trigger_enabled,
     _latest_ingestion_job_execution,
@@ -4691,6 +4692,7 @@ register_diagnostics_endpoints(
     _count_search_documents_total_by_filter,
     _utc_now_iso,
     _REQUIRED_INGESTION_METADATA_KEYS,
+    svc=sys.modules[__name__],
 )
 
 
@@ -4709,6 +4711,10 @@ register_status_endpoints(
     COMPLIANCE_REPORT_SCHEMA_VERSION,
 )
 
+# Register extracted compliance and corpus endpoints.
+register_compliance_endpoints(app, svc=sys.modules[__name__])
+register_corpus_endpoints(app, svc=sys.modules[__name__])
+
 # Register conversations endpoints
 from conversations import register_conversations_endpoints
 
@@ -4720,7 +4726,8 @@ register_conversations_endpoints(
 )
 
 
-@app.get("/api/diagnostics/search/resources")
+# Duplicate endpoint registration moved to diagnostics.register_diagnostics_endpoints.
+# @app.get("/api/diagnostics/search/resources")
 def search_resources_diagnostics(request: Request, auth_token: str = "") -> JSONResponse:
     """Dev-only diagnostics for Search resources and current indexer state."""
     denied = _check_diagnostics_access(request, auth_token)
@@ -4870,7 +4877,8 @@ def search_resources_diagnostics(request: Request, auth_token: str = "") -> JSON
     return JSONResponse(payload)
 
 
-@app.get("/api/diagnostics/storage/blobs")
+# Duplicate endpoint registration moved to diagnostics.register_diagnostics_endpoints.
+# @app.get("/api/diagnostics/storage/blobs")
 def storage_blobs_diagnostics(
     request: Request,
     auth_token: str = "",
@@ -4949,7 +4957,8 @@ def storage_blobs_diagnostics(
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
-@app.get("/api/diagnostics/ingestion/overview")
+# Duplicate endpoint registration moved to diagnostics.register_diagnostics_endpoints.
+# @app.get("/api/diagnostics/ingestion/overview")
 def ingestion_overview_diagnostics(
     request: Request,
     auth_token: str = "",
@@ -5204,7 +5213,8 @@ def ingestion_overview_diagnostics(
     )
 
 
-@app.get("/api/diagnostics/acr/images")
+# Duplicate endpoint registration moved to diagnostics.register_diagnostics_endpoints.
+# @app.get("/api/diagnostics/acr/images")
 def acr_images_diagnostics(
     request: Request,
     auth_token: str = "",
@@ -5574,7 +5584,8 @@ def ask_api(request: Request, payload: AskRequest) -> AskResponse:
         )
 
 
-@app.post("/api/corpus-b/ingest")
+# Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
+# @app.post("/api/corpus-b/ingest")
 async def upload_corpus_b_and_trigger(
     request: Request,
     files: list[UploadFile] = File(...),
@@ -5683,7 +5694,8 @@ async def upload_corpus_b_and_trigger(
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
-@app.post("/api/corpus-c/ingest")
+# Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
+# @app.post("/api/corpus-c/ingest")
 async def upload_corpus_c_and_trigger(
     request: Request,
     files: list[UploadFile] = File(...),
@@ -5791,7 +5803,8 @@ async def upload_corpus_c_and_trigger(
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
-@app.post("/api/corpus-a/clear")
+# Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
+# @app.post("/api/corpus-a/clear")
 def clear_corpus_a(request: Request, payload: CorpusAClearRequest) -> JSONResponse:
     if not _is_authorised_request(payload.auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
@@ -5836,7 +5849,8 @@ def clear_corpus_a(request: Request, payload: CorpusAClearRequest) -> JSONRespon
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
-@app.post("/api/corpus-b/clear")
+# Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
+# @app.post("/api/corpus-b/clear")
 def clear_corpus_b(request: Request, payload: CorpusClearRequest) -> JSONResponse:
     if not _is_authorised_request(payload.auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
@@ -5876,7 +5890,8 @@ def clear_corpus_b(request: Request, payload: CorpusClearRequest) -> JSONRespons
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
-@app.post("/api/corpus-c/clear")
+# Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
+# @app.post("/api/corpus-c/clear")
 def clear_corpus_c(request: Request, payload: CorpusClearRequest) -> JSONResponse:
     if not _is_authorised_request(payload.auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
@@ -5916,7 +5931,8 @@ def clear_corpus_c(request: Request, payload: CorpusClearRequest) -> JSONRespons
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
-@app.post("/api/corpus-a/upload")
+# Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
+# @app.post("/api/corpus-a/upload")
 async def upload_corpus_a_reference_documents(
     request: Request,
     files: list[UploadFile] = File(...),
@@ -6055,7 +6071,8 @@ async def upload_corpus_a_reference_documents(
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
-@app.post("/api/compliance/report")
+# Duplicate endpoint registration moved to compliance.register_compliance_endpoints.
+# @app.post("/api/compliance/report")
 def generate_compliance_report(request: Request, payload: ComplianceReportRequest) -> JSONResponse:
     if not _is_authorised_request(payload.auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
@@ -6108,7 +6125,8 @@ def generate_compliance_report(request: Request, payload: ComplianceReportReques
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
-@app.post("/api/compliance/report/azure")
+# Duplicate endpoint registration moved to compliance.register_compliance_endpoints.
+# @app.post("/api/compliance/report/azure")
 def generate_azure_compliance_report(
     request: Request, payload: AzureComplianceReportRequest
 ) -> JSONResponse:
@@ -6129,7 +6147,8 @@ def generate_azure_compliance_report(
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
-@app.post("/api/compliance/report/start")
+# Duplicate endpoint registration moved to compliance.register_compliance_endpoints.
+# @app.post("/api/compliance/report/start")
 def start_compliance_report(request: Request, payload: ComplianceReportRequest) -> JSONResponse:
     if not _is_authorised_request(payload.auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
@@ -6206,7 +6225,8 @@ def start_compliance_report(request: Request, payload: ComplianceReportRequest) 
     return JSONResponse({"job_id": job.job_id, "mode": "compliance-report-job"})
 
 
-@app.post("/api/compliance/report/azure/start")
+# Duplicate endpoint registration moved to compliance.register_compliance_endpoints.
+# @app.post("/api/compliance/report/azure/start")
 def start_azure_compliance_report(
     request: Request, payload: AzureComplianceReportRequest
 ) -> JSONResponse:
@@ -6245,7 +6265,8 @@ def start_azure_compliance_report(
     return JSONResponse({"job_id": job.job_id, "mode": "azure-compliance-report-job"})
 
 
-@app.get("/api/compliance/report/jobs/{job_id}")
+# Duplicate endpoint registration moved to compliance.register_compliance_endpoints.
+# @app.get("/api/compliance/report/jobs/{job_id}")
 def get_compliance_report_job(job_id: str, request: Request, auth_token: str = "") -> JSONResponse:
     if not _is_authorised_request(auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
@@ -6272,7 +6293,8 @@ def get_compliance_report_job(job_id: str, request: Request, auth_token: str = "
     )
 
 
-@app.get("/api/corpus-a/status")
+# Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
+# @app.get("/api/corpus-a/status")
 def corpus_a_status(request: Request, auth_token: str = "") -> JSONResponse:
     if not _is_authorised_request(auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
@@ -6290,7 +6312,8 @@ def corpus_a_status(request: Request, auth_token: str = "") -> JSONResponse:
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
-@app.get("/api/corpus-a/list")
+# Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
+# @app.get("/api/corpus-a/list")
 def corpus_a_list(
     request: Request, auth_token: str = "", limit: int = 100, framework: str = ""
 ) -> JSONResponse:
@@ -6335,7 +6358,8 @@ def corpus_a_list(
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
-@app.get("/api/ingestion-job/diagnostics")
+# Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
+# @app.get("/api/ingestion-job/diagnostics")
 def ingestion_job_diagnostics(request: Request, auth_token: str = "") -> JSONResponse:
     """Fetch Container App Job execution history and logs for debugging."""
     if not _is_authorised_request(auth_token, request):
@@ -6419,7 +6443,8 @@ def ingestion_job_diagnostics(request: Request, auth_token: str = "") -> JSONRes
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
-@app.get("/api/corpus-b/list")
+# Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
+# @app.get("/api/corpus-b/list")
 def corpus_b_list(
     request: Request, auth_token: str = "", limit: int = 100, upload_batch: str = ""
 ) -> JSONResponse:
@@ -6470,7 +6495,8 @@ def corpus_b_list(
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
-@app.get("/api/corpus-c/list")
+# Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
+# @app.get("/api/corpus-c/list")
 def corpus_c_list(
     request: Request, auth_token: str = "", limit: int = 100, upload_batch: str = ""
 ) -> JSONResponse:
@@ -6521,7 +6547,8 @@ def corpus_c_list(
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
-@app.get("/api/ingestion-job/latest")
+# Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
+# @app.get("/api/ingestion-job/latest")
 def get_latest_ingestion_job_status(request: Request, auth_token: str = "") -> JSONResponse:
     if not _is_authorised_request(auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
@@ -6542,7 +6569,8 @@ def get_latest_ingestion_job_status(request: Request, auth_token: str = "") -> J
 
 
 
-@app.get("/api/confluence/poll-status")
+# Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
+# @app.get("/api/confluence/poll-status")
 def confluence_poll_status(
     request: Request,
     since_hours: int = 24,
@@ -6706,7 +6734,8 @@ def confluence_poll_status(
         return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
 
-@app.post("/api/corpus-a/ingest")
+# Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
+# @app.post("/api/corpus-a/ingest")
 def corpus_a_ingest(request: Request, payload: CorpusAIngestRequest) -> JSONResponse:
     if not _is_authorised_request(payload.auth_token, request):
         return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)

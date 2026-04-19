@@ -25,8 +25,6 @@ def _build_client(*, search_client=None, storage_enabled: bool = True) -> TestCl
         credential,
         config,
         search_client or SimpleNamespace(search=lambda **kwargs: []),
-        lambda request, auth_token: None,
-        lambda: "dev",
         lambda: storage_enabled,
         lambda: True,
         lambda: {"name": "job-1", "status": "Succeeded"},
@@ -34,6 +32,10 @@ def _build_client(*, search_client=None, storage_enabled: bool = True) -> TestCl
         lambda client, filter_expr: 0,
         lambda: "2026-04-17T00:00:00+00:00",
         {"corpus", "uploaded_at", "upload_batch"},
+        SimpleNamespace(
+            _is_authorised_request=lambda auth_token, request: True,
+            _unauthorised_message=lambda request=None: "Unauthorised.",
+        ),
     )
     return TestClient(app)
 
