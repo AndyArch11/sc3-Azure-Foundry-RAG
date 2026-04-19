@@ -66,6 +66,8 @@ SEARCH_ENDPOINT=$(terraform -chdir="${TF_DIR}" output -raw search_endpoint 2>/de
 
 If docker image has not deployed after running `rollout-agent-hosting.sh` even though the image has been created and deployed to ACR using `build-push-<container>.sh`, make sure that `infra/terraform/environments/<env>/<env>.tfvars` has been updated with the corresponding immutable `<container>-image-tag` value.
 
+If unable to auth to the web app or diagnostic pages after deployment, make sure that the web redirect url has been applied. `rollout-agent-hosting.sh` provides the command to apply if it has not been able to detect the presence of the callback on completion of the deployment.
+
 ### Health check
 
 ```bash
