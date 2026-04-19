@@ -1066,7 +1066,31 @@ class SearchBackedAssessmentAgent:
         ]
 
         raw_response = self._chat_completion(messages)
-        report_payload = _extract_json_object(raw_response)
+        report_payload: dict[str, Any]
+        try:
+            report_payload = _extract_json_object(raw_response)
+        except Exception as exc:
+            _LOGGER.warning("Compliance report JSON parse failed; retrying once: %s", exc)
+            retry_messages = [
+                *messages,
+                {
+                    "role": "user",
+                    "content": (
+                        "Your previous response was invalid JSON "
+                        f"({exc}). Return only a valid raw JSON object matching the schema. "
+                        "Do not include markdown fences, prose, comments, or trailing text."
+                    ),
+                },
+            ]
+            raw_response = self._chat_completion(retry_messages)
+            try:
+                report_payload = _extract_json_object(raw_response)
+            except Exception as retry_exc:
+                raise RuntimeError(
+                    "Compliance report JSON parsing failed after one retry: "
+                    f"{retry_exc}"
+                ) from retry_exc
+
         try:
             report = validate_compliance_report_payload(report_payload)
         except Exception as exc:
