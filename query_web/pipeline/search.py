@@ -90,7 +90,7 @@ def _hybrid_search(
 
     vector_query = VectorizedQuery(
         vector=vector,
-        k_nearest_neighbors=retrieve_k,
+        k=retrieve_k,
         fields="content_vector",
     )
 

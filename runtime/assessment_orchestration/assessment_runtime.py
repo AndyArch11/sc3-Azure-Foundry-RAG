@@ -560,9 +560,7 @@ def _hybrid_search(
         return False
 
     vector = embed_query(question)
-    vector_query = VectorizedQuery(
-        vector=vector, k_nearest_neighbors=retrieve_k, fields="content_vector"
-    )
+    vector_query = VectorizedQuery(vector=vector, k=retrieve_k, fields="content_vector")
     try:
         results = client.search(
             search_text=question,
