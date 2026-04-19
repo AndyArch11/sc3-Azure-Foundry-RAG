@@ -4729,152 +4729,16 @@ register_conversations_endpoints(
 # Duplicate endpoint registration moved to diagnostics.register_diagnostics_endpoints.
 # @app.get("/api/diagnostics/search/resources")
 def search_resources_diagnostics(request: Request, auth_token: str = "") -> JSONResponse:
-    """Dev-only diagnostics for Search resources and current indexer state."""
-    denied = _check_diagnostics_access(request, auth_token)
-    if denied is not None:
-        return denied
-
-    index_client = SearchIndexClient(endpoint=config.search_endpoint, credential=credential)
-    indexer_client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
-    configured_names = {
-        "index": config.search_index_name,
-        "indexer": os.getenv("AZURE_SEARCH_INDEXER_NAME", f"{config.search_index_name}-indexer").strip(),
-        "skillset": os.getenv("AZURE_SEARCH_SKILLSET_NAME", f"{config.search_index_name}-skillset").strip(),
-        "data_source": os.getenv("AZURE_SEARCH_DATASOURCE_NAME", f"{config.search_index_name}-datasource").strip(),
-    }
-
-    indexes: list[dict[str, Any]] = []
-    data_sources: list[dict[str, Any]] = []
-    skillsets: list[dict[str, Any]] = []
-    indexers: list[dict[str, Any]] = []
-    errors: dict[str, str] = {}
-
-    try:
-        for index in index_client.list_indexes():
-            indexes.append({"name": str(getattr(index, "name", ""))})
-    except Exception as exc:
-        errors["indexes"] = str(exc)
-
-    try:
-        get_data_source = getattr(indexer_client, "get_data_source_connection", None)
-        if callable(get_data_source):
-            data_source = get_data_source(configured_names["data_source"])
-            container = getattr(data_source, "container", None)
-            data_sources.append(
-                {
-                    "name": str(getattr(data_source, "name", "")),
-                    "type": str(getattr(data_source, "type", "")),
-                    "container": {
-                        "name": str(getattr(container, "name", "")) if container else "",
-                        "query": str(getattr(container, "query", "")) if container else "",
-                    },
-                }
+    # Legacy duplicate retained intentionally; active route is registered in diagnostics.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by diagnostics.register_diagnostics_endpoints."
             )
-        else:
-            list_data_sources = getattr(indexer_client, "list_data_source_connections", None)
-            if not callable(list_data_sources):
-                list_data_sources = getattr(indexer_client, "list_data_sources", None)
-            if not callable(list_data_sources):
-                raise RuntimeError("SearchIndexerClient data source listing API is unavailable.")
-            for data_source in cast(Any, list_data_sources()):
-                container = getattr(data_source, "container", None)
-                data_sources.append(
-                    {
-                        "name": str(getattr(data_source, "name", "")),
-                        "type": str(getattr(data_source, "type", "")),
-                        "container": {
-                            "name": str(getattr(container, "name", "")) if container else "",
-                            "query": str(getattr(container, "query", "")) if container else "",
-                        },
-                    }
-                )
-    except Exception as exc:
-        errors["data_sources"] = str(exc)
-
-    try:
-        get_skillset = getattr(indexer_client, "get_skillset", None)
-        if callable(get_skillset):
-            skillset = get_skillset(configured_names["skillset"])
-            skills = getattr(skillset, "skills", None) or []
-            skillsets.append(
-                {
-                    "name": str(getattr(skillset, "name", "")),
-                    "skill_count": len(skills),
-                }
-            )
-        else:
-            list_skillsets = getattr(indexer_client, "list_skillsets", None)
-            if not callable(list_skillsets):
-                raise RuntimeError("SearchIndexerClient skillset listing API is unavailable.")
-            for skillset in cast(Any, list_skillsets()):
-                skills = getattr(skillset, "skills", None) or []
-                skillsets.append(
-                    {
-                        "name": str(getattr(skillset, "name", "")),
-                        "skill_count": len(skills),
-                    }
-                )
-    except Exception as exc:
-        errors["skillsets"] = str(exc)
-
-    try:
-        get_indexer = getattr(indexer_client, "get_indexer", None)
-        if callable(get_indexer):
-            indexer_iterable: list[Any] = [get_indexer(configured_names["indexer"])]
-        else:
-            list_indexers = getattr(indexer_client, "list_indexers", None)
-            if not callable(list_indexers):
-                raise RuntimeError("SearchIndexerClient indexer listing API is unavailable.")
-            indexer_iterable = list(cast(Any, list_indexers()))
-
-        for indexer in indexer_iterable:
-            indexer_name = str(getattr(indexer, "name", ""))
-            status_summary: dict[str, Any] = {
-                "status": None,
-                "items_processed": None,
-                "items_failed": None,
-                "error_message": None,
-            }
-            try:
-                status = indexer_client.get_indexer_status(indexer_name)
-                run = getattr(status, "last_result", None)
-                if run is not None:
-                    status_summary = {
-                        "status": str(getattr(run, "status", "") or ""),
-                        "items_processed": getattr(run, "item_count", None),
-                        "items_failed": getattr(run, "failed_item_count", None),
-                        "error_message": getattr(run, "error_message", None),
-                    }
-            except Exception as exc:
-                status_summary["error_message"] = f"status unavailable: {exc}"
-
-            indexers.append(
-                {
-                    "name": indexer_name,
-                    "data_source_name": str(getattr(indexer, "data_source_name", "")),
-                    "target_index_name": str(getattr(indexer, "target_index_name", "")),
-                    "skillset_name": str(getattr(indexer, "skillset_name", "")),
-                    "last_result": status_summary,
-                }
-            )
-    except Exception as exc:
-        errors["indexers"] = str(exc)
-
-    payload: dict[str, Any] = {
-        "mode": "search-resources-diagnostics",
-        "target_env": _target_env_name(),
-        "search_endpoint": config.search_endpoint,
-        "configured_names": configured_names,
-        "indexes": indexes,
-        "data_sources": data_sources,
-        "skillsets": skillsets,
-        "indexers": indexers,
-    }
-    if errors:
-        payload["errors"] = errors
-        payload["partial"] = True
-
-    return JSONResponse(payload)
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to diagnostics.register_diagnostics_endpoints.
@@ -4886,75 +4750,16 @@ def storage_blobs_diagnostics(
     limit: int = 200,
     include_metadata: bool = False,
 ) -> JSONResponse:
-    """Dev-only diagnostics for blob inventory in the grounding-data container."""
-    denied = _check_diagnostics_access(request, auth_token)
-    if denied is not None:
-        return denied
-
-    if not _is_corpus_upload_enabled():
-        return JSONResponse(
-            {
-                "configured": False,
-                "message": "Corpus upload/storage is not configured for this query-web instance.",
-                "target_env": _target_env_name(),
-            }
-        )
-
-    try:
-        capped_limit = max(1, min(limit, 1000))
-        prefix_value = prefix.strip()
-
-        account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
-        client = BlobServiceClient(account_url=account_url, credential=credential)
-        container = client.get_container_client(config.storage_container_name)
-
-        blob_items: list[dict[str, Any]] = []
-        scanned = 0
-        list_kwargs: dict[str, Any] = {"name_starts_with": prefix_value or None}
-        if include_metadata:
-            list_kwargs["include"] = ["metadata"]
-
-        try:
-            blobs_iter = container.list_blobs(**list_kwargs)
-        except TypeError:
-            # Support test doubles / older client signatures that do not accept `include`.
-            blobs_iter = container.list_blobs(name_starts_with=prefix_value or None)
-
-        for blob in blobs_iter:
-            scanned += 1
-            if len(blob_items) >= capped_limit:
-                continue
-
-            item: dict[str, Any] = {
-                "name": str(getattr(blob, "name", "")),
-                "size": int(getattr(blob, "size", 0) or 0),
-                "content_type": str(getattr(getattr(blob, "content_settings", None), "content_type", "") or ""),
-                "last_modified": str(getattr(blob, "last_modified", "") or ""),
-                "etag": str(getattr(blob, "etag", "") or ""),
-            }
-            if include_metadata:
-                item["metadata"] = dict(getattr(blob, "metadata", None) or {})
-            blob_items.append(item)
-
-        return JSONResponse(
-            {
-                "mode": "storage-blobs-diagnostics",
-                "configured": True,
-                "target_env": _target_env_name(),
-                "storage_account_name": config.storage_account_name,
-                "storage_container_name": config.storage_container_name,
-                "prefix": prefix_value or None,
-                "limit": capped_limit,
-                "include_metadata": include_metadata,
-                "returned": len(blob_items),
-                "scanned": scanned,
-                "truncated": scanned > len(blob_items),
-                "blobs": blob_items,
-            }
-        )
-    except Exception as exc:
-        logger.exception("Failed /api/diagnostics/storage/blobs request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+    # Legacy duplicate retained intentionally; active route is registered in diagnostics.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by diagnostics.register_diagnostics_endpoints."
+            )
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to diagnostics.register_diagnostics_endpoints.
@@ -4965,251 +4770,15 @@ def ingestion_overview_diagnostics(
     sample_limit: int = 30,
     include_blob_samples: bool = True,
 ) -> JSONResponse:
-    """Dev-only aggregate diagnostics to troubleshoot ingestion mismatches quickly."""
-    denied = _check_diagnostics_access(request, auth_token)
-    if denied is not None:
-        return denied
-
-    capped_sample_limit = max(0, min(sample_limit, 120))
-
-    grounding_total = 0
-    try:
-        pager = search_client.search(
-            search_text="*",
-            top=1,
-            include_total_count=True,
-            select=["id"],
-        )
-        for _ in pager:
-            break
-        grounding_total = int(pager.get_count() or 0)
-    except Exception as exc:
-        logger.warning("Failed to count grounding documents: %s", exc)
-
-    search_counts = {
-        "grounding_total": grounding_total,
-        "corpus_b": _count_search_documents_total_by_filter(
-            search_client,
-            filter_expr="corpus eq 'b'",
-        ),
-        "corpus_c": _count_search_documents_total_by_filter(
-            search_client,
-            filter_expr="corpus eq 'c'",
-        ),
-        "corpus_legacy": _count_search_documents_total_by_filter(
-            search_client,
-            filter_expr="corpus eq 'legacy'",
-        ),
-    }
-
-    storage_counts: dict[str, int] = {}
-    storage_samples: dict[str, list[dict[str, Any]]] = {}
-    storage_error: str | None = None
-
-    prefixes = {
-        "corpus_a_source": "corpus-a/source/",
-        "corpus_b_dedupe": "corpus-b/by-dedupe/",
-        "corpus_c_dedupe": "corpus-c/by-dedupe/",
-    }
-
-    if _is_corpus_upload_enabled():
-        for label, prefix in prefixes.items():
-            storage_counts[label] = int(_count_blob_prefix(prefix).get("would_delete", 0))
-
-        if include_blob_samples and capped_sample_limit > 0:
-            per_prefix_limit = max(1, capped_sample_limit // max(1, len(prefixes)))
-            try:
-                account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
-                blob_client = BlobServiceClient(account_url=account_url, credential=credential)
-                container = blob_client.get_container_client(config.storage_container_name)
-
-                for label, prefix in prefixes.items():
-                    rows: list[dict[str, Any]] = []
-                    for blob in container.list_blobs(
-                        name_starts_with=prefix,
-                        include=["metadata"],
-                    ):
-                        if len(rows) >= per_prefix_limit:
-                            break
-                        rows.append(
-                            {
-                                "name": str(getattr(blob, "name", "")),
-                                "size": int(getattr(blob, "size", 0) or 0),
-                                "last_modified": str(getattr(blob, "last_modified", "") or ""),
-                                "corpus": str((getattr(blob, "metadata", None) or {}).get("corpus", "")),
-                                "upload_batch": str((getattr(blob, "metadata", None) or {}).get("upload_batch", "")),
-                            }
-                        )
-                    storage_samples[label] = rows
-            except Exception as exc:
-                storage_error = str(exc)
-    else:
-        storage_error = "Storage upload integration is not configured for this instance."
-
-    latest_job: dict[str, Any] | None = None
-    latest_job_error: str | None = None
-    if _is_ingestion_job_trigger_enabled():
-        try:
-            latest_job = _latest_ingestion_job_execution()
-        except Exception as exc:
-            latest_job_error = str(exc)
-
-    indexer_history_summary: dict[str, Any] | None = None
-    indexer_history_error: str | None = None
-    try:
-        indexer_name = os.getenv(
-            "AZURE_SEARCH_INDEXER_NAME", f"{config.search_index_name}-indexer"
-        ).strip()
-        idxr_client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
-        status = idxr_client.get_indexer_status(indexer_name)
-        status_dict = status.__dict__ if hasattr(status, "__dict__") else {}
-        execution_history_raw = list(status_dict.get("execution_history", []) or [])
-        recent_entries: list[dict[str, Any]] = []
-        for execution in execution_history_raw[:3]:
-            if hasattr(execution, "__dict__"):
-                exec_dict = execution.__dict__.copy()
-            else:
-                exec_dict = dict(execution) if isinstance(execution, dict) else {}
-            raw_errors = exec_dict.get("errors")
-            errors_list = raw_errors if isinstance(raw_errors, list) else []
-            raw_warnings = exec_dict.get("warnings")
-            warnings_list = raw_warnings if isinstance(raw_warnings, list) else []
-            known_optional_warning_count = sum(
-                1
-                for warning in warnings_list
-                if str(warning).find("Enrichment.ConditionalSkill.default-") >= 0
-                and str(warning).find("Optional skill input is missing or empty") >= 0
-            )
-            actionable_warning_count = max(0, len(warnings_list) - known_optional_warning_count)
-            samples = [str(item) for item in [*errors_list[:2], *warnings_list[:2]]]
-            recent_entries.append(
-                {
-                    "status": str(exec_dict.get("status") or "unknown"),
-                    "items_failed": int(
-                        exec_dict.get("failed_item_count") or exec_dict.get("items_failed") or 0
-                    ),
-                    "errors_count": len(errors_list),
-                    "warnings_count": len(warnings_list),
-                    "known_optional_warnings_count": known_optional_warning_count,
-                    "actionable_warnings_count": actionable_warning_count,
-                    "rate_limit_detected": any(
-                        marker in sample.lower()
-                        for sample in samples
-                        for marker in ("ratelimitreached", "toomanyrequests", "retry after")
-                    ),
-                    "samples": samples,
-                }
-            )
-        indexer_history_summary = {
-            "indexer_name": indexer_name,
-            "recent_entries": recent_entries,
-            "recent_rate_limits": any(bool(entry.get("rate_limit_detected")) for entry in recent_entries),
-            "recent_warnings": any(
-                int(entry.get("actionable_warnings_count", 0)) > 0 for entry in recent_entries
-            ),
-            "recent_known_optional_warnings": any(
-                int(entry.get("known_optional_warnings_count", 0)) > 0 for entry in recent_entries
-            ),
-            "recent_non_success": any(
-                str(entry.get("status") or "").strip().lower() not in {"success", "reset"}
-                for entry in recent_entries
-            ),
-        }
-    except Exception as exc:
-        indexer_history_error = str(exc)
-
-    quick_flags = {
-        "storage_has_corpus_b_but_search_corpus_b_empty": bool(
-            storage_counts.get("corpus_b_dedupe", 0) > 0 and search_counts.get("corpus_b", 0) == 0
-        ),
-        "storage_has_corpus_c_but_search_corpus_c_empty": bool(
-            storage_counts.get("corpus_c_dedupe", 0) > 0 and search_counts.get("corpus_c", 0) == 0
-        ),
-        "legacy_docs_present": bool(search_counts.get("corpus_legacy", 0) > 0),
-        "recent_indexer_rate_limits": bool(
-            (indexer_history_summary or {}).get("recent_rate_limits")
-        ),
-        "recent_indexer_warnings": bool(
-            (indexer_history_summary or {}).get("recent_warnings")
-        ),
-        "recent_indexer_known_optional_warnings": bool(
-            (indexer_history_summary or {}).get("recent_known_optional_warnings")
-        ),
-    }
-
-    configured_datasource_name = os.getenv(
-        "AZURE_SEARCH_DATASOURCE_NAME", f"{config.search_index_name}-datasource"
-    ).strip()
-    active_datasource_query: str | None = None
-    scope_query_error: str | None = None
-    try:
-        idxr_client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
-        ds = idxr_client.get_data_source_connection(configured_datasource_name)
-        container = getattr(ds, "container", None)
-        query_text = str(getattr(container, "query", "") or "").strip()
-        active_datasource_query = query_text or None
-    except Exception as exc:
-        scope_query_error = str(exc)
-
-    risk_level = "unknown"
-    risk_reason = "Unable to assess scope bleed risk."
-    if scope_query_error:
-        risk_level = "unknown"
-        risk_reason = "Data source query could not be retrieved."
-    elif not active_datasource_query:
-        corpus_a_count = storage_counts.get("corpus_a_source", 0)
-        corpus_b_count = storage_counts.get("corpus_b_dedupe", 0)
-        corpus_c_count = storage_counts.get("corpus_c_dedupe", 0)
-        if corpus_a_count > 0 and (corpus_b_count > 0 or corpus_c_count > 0):
-            risk_level = "high"
-            risk_reason = (
-                "Data source query is empty while multiple corpus prefixes exist in the same container."
-            )
-        elif corpus_a_count > 0 or corpus_b_count > 0 or corpus_c_count > 0:
-            risk_level = "medium"
-            risk_reason = "Data source query is empty; full container scan is possible."
-        else:
-            risk_level = "low"
-            risk_reason = "No corpus blobs found in storage counts."
-    elif active_datasource_query in {"corpus-b/by-dedupe/", "corpus-c/by-dedupe/"}:
-        risk_level = "low"
-        risk_reason = "Data source query is scoped to a corpus-specific dedupe prefix."
-    else:
-        risk_level = "medium"
-        risk_reason = "Data source query is set but not one of the expected corpus dedupe prefixes."
-
-    scope_query_diagnostics = {
-        "configured_data_source_name": configured_datasource_name,
-        "active_data_source_query": active_datasource_query,
-        "active_data_source_query_error": scope_query_error,
-        "scope_bleed_risk_level": risk_level,
-        "scope_bleed_risk_reason": risk_reason,
-    }
-
+    # Legacy duplicate retained intentionally; active route is registered in diagnostics.py.
     return JSONResponse(
         {
-            "mode": "ingestion-overview-diagnostics",
-            "target_env": _target_env_name(),
-            "generated_at": _utc_now_iso(),
-            "config": {
-                "search_endpoint": config.search_endpoint,
-                "search_index_name": config.search_index_name,
-                "storage_account_name": config.storage_account_name,
-                "storage_container_name": config.storage_container_name,
-                "ingestion_job_trigger_enabled": _is_ingestion_job_trigger_enabled(),
-                "ingestion_job_name": config.ingestion_job_name,
-            },
-            "search_counts": search_counts,
-            "storage_counts": storage_counts,
-            "storage_samples": storage_samples,
-            "storage_error": storage_error,
-            "latest_ingestion_job": latest_job,
-            "latest_ingestion_job_error": latest_job_error,
-            "indexer_history_summary": indexer_history_summary,
-            "indexer_history_error": indexer_history_error,
-            "quick_flags": quick_flags,
-            "scope_query_diagnostics": scope_query_diagnostics,
-        }
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by diagnostics.register_diagnostics_endpoints."
+            )
+        },
+        status_code=410,
     )
 
 
@@ -5223,99 +4792,16 @@ def acr_images_diagnostics(
     registry_name: str = "",
     expected_tag: str = "",
 ) -> JSONResponse:
-    """Dev-only diagnostics for ACR repository tags used by deployments."""
-    denied = _check_diagnostics_access(request, auth_token)
-    if denied is not None:
-        return denied
-
-    repo = repository.strip() or "query-web"
-    capped_limit = max(1, min(limit, 200))
-    resolved_registry_name = _resolve_acr_registry_name(registry_name)
-    expected_tag_value = expected_tag.strip()
-
-    if not resolved_registry_name:
-        return JSONResponse(
-            {
-                "mode": "acr-images-diagnostics",
-                "configured": False,
-                "target_env": _target_env_name(),
-                "message": "ACR registry name is not configured.",
-                "repository": repo,
-                "expected_tag": expected_tag_value or None,
-            }
-        )
-
-    subscription_id = config.ingestion_job_subscription_id
-    resource_group = config.ingestion_job_resource_group
-    if not subscription_id or not resource_group:
-        return JSONResponse(
-            {
-                "mode": "acr-images-diagnostics",
-                "configured": False,
-                "target_env": _target_env_name(),
-                "registry_name": resolved_registry_name,
-                "repository": repo,
-                "expected_tag": expected_tag_value or None,
-                "message": (
-                    "ACR diagnostics requires INGESTION_JOB_SUBSCRIPTION_ID and "
-                    "INGESTION_JOB_RESOURCE_GROUP to be configured."
-                ),
-            }
-        )
-
-    try:
-        result = _list_acr_tags_via_management_api(
-            subscription_id=subscription_id,
-            resource_group=resource_group,
-            registry_name=resolved_registry_name,
-            repository=repo,
-            limit=capped_limit,
-        )
-        tags = result.get("tags", [])
-        distinct_digests = {
-            str(tag.get("digest") or "").strip() for tag in tags if str(tag.get("digest") or "").strip()
-        }
-        expected_tag_present = False
-        if expected_tag_value:
-            expected_tag_present = any(
-                str(tag.get("name") or "").strip() == expected_tag_value for tag in tags
+    # Legacy duplicate retained intentionally; active route is registered in diagnostics.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by diagnostics.register_diagnostics_endpoints."
             )
-
-        return JSONResponse(
-            {
-                "mode": "acr-images-diagnostics",
-                "configured": True,
-                "target_env": _target_env_name(),
-                "registry_name": resolved_registry_name,
-                "repository": repo,
-                "expected_tag": expected_tag_value or None,
-                "limit": capped_limit,
-                "tag_count": len(tags),
-                "distinct_digest_count": len(distinct_digests),
-                "has_results": bool(tags),
-                "tags": tags,
-                "next_link": result.get("next_link"),
-                "quick_flags": {
-                    "repository_empty": not bool(tags),
-                    "multiple_tags_share_digest": len(tags) > len(distinct_digests) if tags else False,
-                    "expected_tag_present": expected_tag_present if expected_tag_value else None,
-                },
-            }
-        )
-    except Exception as exc:
-        logger.exception("Failed /api/diagnostics/acr/images request: %s", exc)
-        return JSONResponse(
-            {
-                "mode": "acr-images-diagnostics",
-                "configured": True,
-                "target_env": _target_env_name(),
-                "registry_name": resolved_registry_name,
-                "repository": repo,
-                "expected_tag": expected_tag_value or None,
-                "error": _INTERNAL_ERROR_MESSAGE,
-            },
-            status_code=500,
-        )
+        },
+        status_code=410,
+    )
 
 
 # Diagnostics endpoints moved to diagnostics.py module
@@ -5593,105 +5079,16 @@ async def upload_corpus_b_and_trigger(
     reindex_on_dedupe: bool = Form(False),
     auth_token: str = Form(""),
 ) -> JSONResponse:
-    if not _is_authorised_request(auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-
-    if not files:
-        return JSONResponse({"error": "No files uploaded."}, status_code=400)
-    for file in files:
-        if not _is_allowed_filetype(file.filename or ""):
-            return JSONResponse({"error": f"File type not allowed: {file.filename}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"}, status_code=400)
-        if not _extension_matches_mime(file.filename or "", file.content_type or ""):
-            return JSONResponse({"error": f"File type/content mismatch: {file.filename} (content_type: {file.content_type})"}, status_code=400)
-
-    user_id = _get_user_id(auth_token, str(uuid.uuid4()))
-
-    try:
-        upload_result = _upload_corpus_b_files(files, user_id=user_id)
-        trigger_result: dict[str, Any] | None = None
-        reindex_touch: dict[str, Any] | None = None
-        scope_query = "corpus-b/by-dedupe/"
-        effective_scope_query: str | None = None
-        should_trigger_for_reindex = (
-            reindex_on_dedupe and not upload_result["uploaded"] and bool(upload_result["skipped"])
-        )
-        if should_trigger_for_reindex:
-            dedupe_hashes = _extract_dedupe_hashes(upload_result["skipped"])
-            reindex_touch = _mark_dedupe_blobs_for_reindex("b", dedupe_hashes, user_id=user_id)
-        if trigger_job and (upload_result["uploaded"] or should_trigger_for_reindex):
-            try:
-                trigger_result = _trigger_ingestion_job_with_args(
-                    [
-                        "--mode",
-                        "azure",
-                        "--skip-upload",
-                        "--storage-container-query",
-                        scope_query,
-                    ]
-                )
-                effective_scope_query = scope_query
-            except Exception as exc:
-                logger.warning(
-                    "Corpus B scoped job start failed; falling back to default job args: %s",
-                    exc,
-                )
-                trigger_result = _trigger_ingestion_job()
-                effective_scope_query = None
-
-        latest_job: dict[str, Any] | None = None
-        if trigger_result:
-            try:
-                latest_job = _latest_ingestion_job_execution()
-            except Exception as exc:
-                logger.warning("Failed to fetch latest ingestion job execution: %s", exc)
-
-        message = ""
-        if not upload_result["uploaded"]:
-            if should_trigger_for_reindex:
-                message = (
-                    "No new Corpus B files were uploaded. Matching Corpus B blobs were marked "
-                    "for reindex to re-index existing blobs, and ingestion was triggered in the background."
-                )
-            else:
-                message = (
-                    "No new Corpus B files were uploaded; all files were skipped or failed, "
-                    "so no ingestion job was triggered and no new upload batch was created."
-                )
-
-        status_code = 200
-        if upload_result["failed"]:
-            status_code = 207
-
-        return JSONResponse(
-            {
-                "mode": "corpus-b-ingest",
-                "storage_account_name": config.storage_account_name,
-                "storage_container_name": config.storage_container_name,
-                "uploaded_count": len(upload_result["uploaded"]),
-                "skipped_count": len(upload_result["skipped"]),
-                "failed_count": len(upload_result["failed"]),
-                "upload": upload_result,
-                "triggered_job": bool(trigger_result),
-                "job": trigger_result,
-                "job_latest": latest_job,
-                "requested_scope_query": scope_query,
-                "effective_scope_query": effective_scope_query,
-                "scope_query_applied": bool(effective_scope_query),
-                "reindex_on_dedupe": reindex_on_dedupe,
-                "reindex_touch": reindex_touch,
-                "indexer_reset": {
-                    "performed": bool(should_trigger_for_reindex),
-                    "strategy": "blob_metadata_touch",
-                },
-                "indexing_notice": "Ingestion runs asynchronously. Indexed counts can remain unchanged until the job reaches Succeeded.",
-                "message": message,
-            },
-            status_code=status_code,
-        )
-    except Exception as exc:
-        logger.exception("Failed /api/corpus-b/ingest request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+    # Legacy duplicate retained intentionally; active route is registered in corpus.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by corpus.register_corpus_endpoints."
+            )
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
@@ -5703,232 +5100,61 @@ async def upload_corpus_c_and_trigger(
     reindex_on_dedupe: bool = Form(False),
     auth_token: str = Form(""),
 ) -> JSONResponse:
-    if not _is_authorised_request(auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    if not files:
-        return JSONResponse({"error": "No files uploaded."}, status_code=400)
-    for file in files:
-        if not _is_allowed_filetype(file.filename or ""):
-            return JSONResponse({"error": f"File type not allowed: {file.filename}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"}, status_code=400)
-        if not _extension_matches_mime(file.filename or "", file.content_type or ""):
-            return JSONResponse({"error": f"File type/content mismatch: {file.filename} (content_type: {file.content_type})"}, status_code=400)
-
-    user_id = _get_user_id(auth_token, str(uuid.uuid4()))
-
-    try:
-        upload_result = _upload_corpus_c_files(files, user_id=user_id)
-        trigger_result: dict[str, Any] | None = None
-        reindex_touch: dict[str, Any] | None = None
-        scope_query = "corpus-c/by-dedupe/"
-        effective_scope_query: str | None = None
-        should_trigger_for_reindex = (
-            reindex_on_dedupe and not upload_result["uploaded"] and bool(upload_result["skipped"])
-        )
-        if should_trigger_for_reindex:
-            dedupe_hashes = _extract_dedupe_hashes(upload_result["skipped"])
-            reindex_touch = _mark_dedupe_blobs_for_reindex("c", dedupe_hashes, user_id=user_id)
-        if trigger_job and (upload_result["uploaded"] or should_trigger_for_reindex):
-            try:
-                trigger_result = _trigger_ingestion_job_with_args(
-                    [
-                        "--mode",
-                        "azure",
-                        "--skip-upload",
-                        "--storage-container-query",
-                        scope_query,
-                    ]
-                )
-                effective_scope_query = scope_query
-            except Exception as exc:
-                logger.warning(
-                    "Corpus C scoped job start failed; falling back to default job args: %s",
-                    exc,
-                )
-                trigger_result = _trigger_ingestion_job()
-                effective_scope_query = None
-
-        latest_job: dict[str, Any] | None = None
-        if trigger_result:
-            try:
-                latest_job = _latest_ingestion_job_execution()
-            except Exception as exc:
-                logger.warning("Failed to fetch latest ingestion job execution: %s", exc)
-
-        message = ""
-        if not upload_result["uploaded"]:
-            if should_trigger_for_reindex:
-                message = (
-                    "No new Corpus C files were uploaded. Matching Corpus C blobs were marked "
-                    "for reindex to re-index existing blobs, and ingestion was triggered in the background."
-                )
-            else:
-                message = (
-                    "No new Corpus C files were uploaded; all files were skipped or failed, "
-                    "so no ingestion job was triggered and no new upload batch was created."
-                )
-
-        status_code = 200
-        if upload_result["failed"]:
-            status_code = 207
-
-        return JSONResponse(
-            {
-                "mode": "corpus-c-ingest",
-                "storage_account_name": config.storage_account_name,
-                "storage_container_name": config.storage_container_name,
-                "uploaded_count": len(upload_result["uploaded"]),
-                "skipped_count": len(upload_result["skipped"]),
-                "failed_count": len(upload_result["failed"]),
-                "upload": upload_result,
-                "triggered_job": bool(trigger_result),
-                "job": trigger_result,
-                "job_latest": latest_job,
-                "requested_scope_query": scope_query,
-                "effective_scope_query": effective_scope_query,
-                "scope_query_applied": bool(effective_scope_query),
-                "reindex_on_dedupe": reindex_on_dedupe,
-                "reindex_touch": reindex_touch,
-                "indexer_reset": {
-                    "performed": bool(should_trigger_for_reindex),
-                    "strategy": "blob_metadata_touch",
-                },
-                "indexing_notice": "Ingestion runs asynchronously. Indexed counts can remain unchanged until the job reaches Succeeded.",
-                "message": message,
-            },
-            status_code=status_code,
-        )
-    except Exception as exc:
-        logger.exception("Failed /api/corpus-c/ingest request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+    # Legacy duplicate retained intentionally; active route is registered in corpus.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by corpus.register_corpus_endpoints."
+            )
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
 # @app.post("/api/corpus-a/clear")
 def clear_corpus_a(request: Request, payload: CorpusAClearRequest) -> JSONResponse:
-    if not _is_authorised_request(payload.auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    frameworks = _selected_corpus_a_frameworks(payload.frameworks)
-    per_framework: dict[str, Any] = {}
-    total_deleted = 0
-    total_would_delete = 0
-    try:
-        for key in frameworks:
-            framework_name = _CORPUS_A_FRAMEWORKS[key]
-            escaped = framework_name.replace("'", "''")
-            if payload.dry_run:
-                result = _count_search_documents_by_filter(
-                    controls_search_client,
-                    filter_expr=f"framework eq '{escaped}'",
-                )
-                total_would_delete += result["would_delete"]
-            else:
-                result = _delete_search_documents_by_filter(
-                    controls_search_client,
-                    filter_expr=f"framework eq '{escaped}'",
-                    key_field="requirement_id",
-                )
-                total_deleted += result["deleted"]
-            per_framework[key] = {
-                "framework": framework_name,
-                **result,
-            }
-
-        return JSONResponse(
-            {
-                "mode": "corpus-a-clear",
-                "total_deleted": total_deleted,
-                "total_would_delete": total_would_delete,
-                "dry_run": payload.dry_run,
-                "frameworks": per_framework,
-            }
-        )
-    except Exception as exc:
-        logger.exception("Failed /api/corpus-a/clear request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+    # Legacy duplicate retained intentionally; active route is registered in corpus.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by corpus.register_corpus_endpoints."
+            )
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
 # @app.post("/api/corpus-b/clear")
 def clear_corpus_b(request: Request, payload: CorpusClearRequest) -> JSONResponse:
-    if not _is_authorised_request(payload.auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    try:
-        if payload.dry_run:
-            index_result = _count_search_documents_by_filter(
-                search_client,
-                filter_expr="corpus eq 'b'",
+    # Legacy duplicate retained intentionally; active route is registered in corpus.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by corpus.register_corpus_endpoints."
             )
-        else:
-            index_result = _delete_search_documents_by_filter(
-                search_client,
-                filter_expr="corpus eq 'b'",
-                key_field="id",
-            )
-
-        blob_result: dict[str, int] = {"deleted": 0} if not payload.dry_run else {"would_delete": 0}
-        if payload.clear_blobs:
-            blob_result = (
-                _count_blob_prefix("corpus-b/by-dedupe/")
-                if payload.dry_run
-                else _delete_blob_prefix("corpus-b/by-dedupe/")
-            )
-
-        return JSONResponse(
-            {
-                "mode": "corpus-b-clear",
-                "index": index_result,
-                "blobs": blob_result,
-                "clear_blobs": payload.clear_blobs,
-                "dry_run": payload.dry_run,
-            }
-        )
-    except Exception as exc:
-        logger.exception("Failed /api/corpus-b/clear request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
 # @app.post("/api/corpus-c/clear")
 def clear_corpus_c(request: Request, payload: CorpusClearRequest) -> JSONResponse:
-    if not _is_authorised_request(payload.auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    try:
-        if payload.dry_run:
-            index_result = _count_search_documents_by_filter(
-                search_client,
-                filter_expr="corpus eq 'c'",
+    # Legacy duplicate retained intentionally; active route is registered in corpus.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by corpus.register_corpus_endpoints."
             )
-        else:
-            index_result = _delete_search_documents_by_filter(
-                search_client,
-                filter_expr="corpus eq 'c'",
-                key_field="id",
-            )
-
-        blob_result: dict[str, int] = {"deleted": 0} if not payload.dry_run else {"would_delete": 0}
-        if payload.clear_blobs:
-            blob_result = (
-                _count_blob_prefix("corpus-c/by-dedupe/")
-                if payload.dry_run
-                else _delete_blob_prefix("corpus-c/by-dedupe/")
-            )
-
-        return JSONResponse(
-            {
-                "mode": "corpus-c-clear",
-                "index": index_result,
-                "blobs": blob_result,
-                "clear_blobs": payload.clear_blobs,
-                "dry_run": payload.dry_run,
-            }
-        )
-    except Exception as exc:
-        logger.exception("Failed /api/corpus-c/clear request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
@@ -5943,186 +5169,31 @@ async def upload_corpus_a_reference_documents(
     no_guidance: bool = Form(False),
     auth_token: str = Form(""),
 ) -> JSONResponse:
-    if not _is_authorised_request(auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    if not files:
-        return JSONResponse({"error": "No files uploaded."}, status_code=400)
-    for file in files:
-        if not _is_allowed_filetype(file.filename or ""):
-            return JSONResponse({"error": f"File type not allowed: {file.filename}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"}, status_code=400)
-        if not _extension_matches_mime(file.filename or "", file.content_type or ""):
-            return JSONResponse({"error": f"File type/content mismatch: {file.filename} (content_type: {file.content_type})"}, status_code=400)
-
-    try:
-        framework_key = _normalise_corpus_a_framework_key(framework)
-        raw_framework = (framework or "").strip().lower()
-        auto_mode = raw_framework in {"", "auto", "both", "all"}
-        if (not auto_mode) and (
-            not framework_key or framework_key not in _CORPUS_A_REFERENCE_UPLOAD_TARGETS
-        ):
-            return JSONResponse(
-                {
-                    "error": (
-                        "Corpus A source document upload supports cis_controls, pci_dss, or auto mode."
-                    )
-                },
-                status_code=400,
+    # Legacy duplicate retained intentionally; active route is registered in corpus.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by corpus.register_corpus_endpoints."
             )
-
-        user_id = _get_user_id(auth_token, str(uuid.uuid4()))
-        upload_results: list[dict[str, Any]] = []
-        if auto_mode:
-            classified = _classify_corpus_a_auto_uploads(files)
-            for key in sorted(classified.keys()):
-                upload_results.append(
-                    _upload_corpus_a_reference_files(
-                        classified[key],
-                        user_id=user_id,
-                        framework=key,
-                    )
-                )
-        else:
-            selected_framework_key = cast(str, framework_key)
-            upload_results.append(
-                _upload_corpus_a_reference_files(
-                    files,
-                    user_id=user_id,
-                    framework=selected_framework_key,
-                )
-            )
-
-        triggered_jobs: list[dict[str, Any]] = []
-        if trigger_job:
-            for upload_result in upload_results:
-                if not upload_result["uploaded"] or upload_result["failed"]:
-                    continue
-                args_override = [
-                    "--mode",
-                    "controls",
-                    "--controls-framework",
-                    str(upload_result["framework"]),
-                    "--controls-source-prefix",
-                    str(upload_result["source_prefix"]),
-                ]
-                if replace_existing:
-                    args_override.append("--replace-existing")
-                if dry_run:
-                    args_override.append("--dry-run")
-                if no_guidance:
-                    args_override.append("--no-guidance")
-                trigger_result = _trigger_ingestion_job_with_args(args_override)
-                triggered_jobs.append(
-                    {
-                        "framework": upload_result["framework"],
-                        "job": trigger_result,
-                    }
-                )
-
-        total_uploaded = sum(len(item["uploaded"]) for item in upload_results)
-        total_failed = sum(len(item["failed"]) for item in upload_results)
-
-        message = ""
-        if total_failed:
-            message = "One or more Corpus A source files failed to upload; ingestion job was not started for failed framework uploads."
-        elif not trigger_job:
-            message = "Corpus A source files staged successfully. Trigger the controls ingestion job separately if needed."
-        elif triggered_jobs:
-            triggered_frameworks = ", ".join(job["framework"] for job in triggered_jobs)
-            message = (
-                f"Corpus A source files uploaded and ingestion job triggered for: {triggered_frameworks}. "
-                "Check job status with the 'Job Diagnostics' button, or Azure Container Apps > Job > Execution History."
-            )
-
-        status_code = 200 if total_failed == 0 else 207
-        primary = upload_results[0]
-        return JSONResponse(
-            {
-                "mode": "corpus-a-upload",
-                "framework": (
-                    "auto" if auto_mode and len(upload_results) > 1 else primary["framework"]
-                ),
-                "framework_name": (
-                    "Multiple"
-                    if auto_mode and len(upload_results) > 1
-                    else primary["framework_name"]
-                ),
-                "storage_account_name": config.storage_account_name,
-                "storage_container_name": config.storage_container_name,
-                "uploaded_count": total_uploaded,
-                "failed_count": total_failed,
-                "upload": primary,
-                "uploads": upload_results,
-                "triggered_job": bool(triggered_jobs),
-                "job": triggered_jobs[0]["job"] if len(triggered_jobs) == 1 else None,
-                "jobs": triggered_jobs,
-                "replace_existing": replace_existing,
-                "dry_run": dry_run,
-                "no_guidance": no_guidance,
-                "message": message,
-            },
-            status_code=status_code,
-        )
-    except ValueError as exc:
-        logger.warning("Bad request to /api/corpus-a/upload: %s", exc)
-        return JSONResponse({"error": "Invalid request parameters."}, status_code=400)
-    except Exception as exc:
-        logger.exception("Failed /api/corpus-a/upload request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to compliance.register_compliance_endpoints.
 # @app.post("/api/compliance/report")
 def generate_compliance_report(request: Request, payload: ComplianceReportRequest) -> JSONResponse:
-    if not _is_authorised_request(payload.auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    try:
-        corpus_c_base_filter = "corpus eq 'c'"
-        corpus_c_indexed_total = _count_search_documents_total_by_filter(
-            search_client,
-            filter_expr=corpus_c_base_filter,
-        )
-        if corpus_c_indexed_total <= 0:
-            return JSONResponse(
-                {
-                    "error": (
-                        "Compliance report is unavailable because there are no Corpus C "
-                        "documents to assess. Upload and index Corpus C artifacts first."
-                    )
-                },
-                status_code=400,
+    # Legacy duplicate retained intentionally; active route is registered in compliance.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by compliance.register_compliance_endpoints."
             )
-
-        if payload.corpus_c_upload_batch:
-            escaped_batch = payload.corpus_c_upload_batch.replace("'", "''")
-            batch_filter = f"{corpus_c_base_filter} and upload_batch eq '{escaped_batch}'"
-            corpus_c_batch_total = _count_search_documents_total_by_filter(
-                search_client,
-                filter_expr=batch_filter,
-            )
-            if corpus_c_batch_total <= 0:
-                return JSONResponse(
-                    {
-                        "error": (
-                            "Compliance report is unavailable because the selected Corpus C "
-                            "upload batch has no indexed documents to assess."
-                        )
-                    },
-                    status_code=400,
-                )
-
-        return JSONResponse(_generate_compliance_report_result(payload))
-    except Exception as exc:
-        if isinstance(exc, RuntimeError) and "schema validation failed" in str(exc).lower():
-            logger.exception(
-                "Failed /api/compliance/report request due to schema validation: %s", exc
-            )
-            return JSONResponse(
-                {"error": "Compliance report schema validation failed."}, status_code=500
-            )
-        logger.exception("Failed /api/compliance/report request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to compliance.register_compliance_endpoints.
@@ -6130,99 +5201,31 @@ def generate_compliance_report(request: Request, payload: ComplianceReportReques
 def generate_azure_compliance_report(
     request: Request, payload: AzureComplianceReportRequest
 ) -> JSONResponse:
-    if not _is_authorised_request(payload.auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    try:
-        return JSONResponse(_generate_azure_compliance_report_result(payload))
-    except Exception as exc:
-        if isinstance(exc, RuntimeError) and "schema validation failed" in str(exc).lower():
-            logger.exception(
-                "Failed /api/compliance/report/azure due to schema validation: %s", exc
+    # Legacy duplicate retained intentionally; active route is registered in compliance.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by compliance.register_compliance_endpoints."
             )
-            return JSONResponse(
-                {"error": "Compliance report schema validation failed."}, status_code=500
-            )
-        logger.exception("Failed /api/compliance/report/azure request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to compliance.register_compliance_endpoints.
 # @app.post("/api/compliance/report/start")
 def start_compliance_report(request: Request, payload: ComplianceReportRequest) -> JSONResponse:
-    if not _is_authorised_request(payload.auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    try:
-        corpus_c_base_filter = "corpus eq 'c'"
-        corpus_c_indexed_total = _count_search_documents_total_by_filter(
-            search_client,
-            filter_expr=corpus_c_base_filter,
-        )
-        if corpus_c_indexed_total <= 0:
-            return JSONResponse(
-                {
-                    "error": (
-                        "Compliance report is unavailable because there are no Corpus C "
-                        "documents to assess. Upload and index Corpus C artifacts first."
-                    )
-                },
-                status_code=400,
+    # Legacy duplicate retained intentionally; active route is registered in compliance.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by compliance.register_compliance_endpoints."
             )
-
-        if payload.corpus_c_upload_batch:
-            escaped_batch = payload.corpus_c_upload_batch.replace("'", "''")
-            batch_filter = f"{corpus_c_base_filter} and upload_batch eq '{escaped_batch}'"
-            corpus_c_batch_total = _count_search_documents_total_by_filter(
-                search_client,
-                filter_expr=batch_filter,
-            )
-            if corpus_c_batch_total <= 0:
-                return JSONResponse(
-                    {
-                        "error": (
-                            "Compliance report is unavailable because the selected Corpus C "
-                            "upload batch has no indexed documents to assess."
-                        )
-                    },
-                    status_code=400,
-                )
-    except Exception as exc:
-        logger.exception("Failed compliance report preflight validation: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
-
-    job = _new_report_job("compliance")
-
-    def _progress(completed: int, total: int, requirement_id: str, message: str) -> None:
-        _update_report_job(
-            job.job_id,
-            state="running",
-            message=message,
-            total_controls=total,
-            completed_controls=completed,
-            current_requirement_id=requirement_id,
-        )
-
-    def _run() -> None:
-        _update_report_job(job.job_id, state="running", message="Starting compliance report")
-        try:
-            result = _generate_compliance_report_result(payload, progress_cb=_progress)
-            _update_report_job(
-                job.job_id,
-                state="completed",
-                message="Compliance report completed",
-                result=result,
-                completed_controls=max(0, int(result.get("controls_count") or 0)),
-                total_controls=max(0, int(result.get("controls_count") or 0)),
-            )
-        except Exception as exc:
-            logger.exception("Compliance report job failed: %s", exc)
-            _update_report_job(
-                job.job_id, state="failed", message="Compliance report failed", error=_INTERNAL_ERROR_MESSAGE
-            )
-
-    threading.Thread(target=_run, daemon=True).start()
-    return JSONResponse({"job_id": job.job_id, "mode": "compliance-report-job"})
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to compliance.register_compliance_endpoints.
@@ -6230,86 +5233,46 @@ def start_compliance_report(request: Request, payload: ComplianceReportRequest) 
 def start_azure_compliance_report(
     request: Request, payload: AzureComplianceReportRequest
 ) -> JSONResponse:
-    if not _is_authorised_request(payload.auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    job = _new_report_job("azure")
-
-    def _progress(completed: int, total: int, requirement_id: str, message: str) -> None:
-        _update_report_job(
-            job.job_id,
-            state="running",
-            message=message,
-            total_controls=total,
-            completed_controls=completed,
-            current_requirement_id=requirement_id,
-        )
-
-    def _run() -> None:
-        _update_report_job(job.job_id, state="running", message="Starting Azure compliance report")
-        try:
-            result = _generate_azure_compliance_report_result(payload, progress_cb=_progress)
-            _update_report_job(
-                job.job_id,
-                state="completed",
-                message="Azure compliance report completed",
-                result=result,
+    # Legacy duplicate retained intentionally; active route is registered in compliance.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by compliance.register_compliance_endpoints."
             )
-        except Exception as exc:
-            logger.exception("Azure compliance report job failed: %s", exc)
-            _update_report_job(
-                job.job_id, state="failed", message="Azure compliance report failed", error=_INTERNAL_ERROR_MESSAGE
-            )
-
-    threading.Thread(target=_run, daemon=True).start()
-    return JSONResponse({"job_id": job.job_id, "mode": "azure-compliance-report-job"})
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to compliance.register_compliance_endpoints.
 # @app.get("/api/compliance/report/jobs/{job_id}")
 def get_compliance_report_job(job_id: str, request: Request, auth_token: str = "") -> JSONResponse:
-    if not _is_authorised_request(auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    job = _get_report_job(job_id)
-    if not job:
-        return JSONResponse({"error": "Job not found"}, status_code=404)
-
+    # Legacy duplicate retained intentionally; active route is registered in compliance.py.
     return JSONResponse(
         {
-            "job_id": job.job_id,
-            "kind": job.kind,
-            "state": job.state,
-            "message": job.message,
-            "total_controls": job.total_controls,
-            "completed_controls": job.completed_controls,
-            "current_requirement_id": job.current_requirement_id,
-            "created_at": job.created_at,
-            "updated_at": job.updated_at,
-            "error": job.error,
-            "has_result": job.result is not None,
-            "result": job.result if job.state == "completed" else None,
-        }
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by compliance.register_compliance_endpoints."
+            )
+        },
+        status_code=410,
     )
 
 
 # Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
 # @app.get("/api/corpus-a/status")
 def corpus_a_status(request: Request, auth_token: str = "") -> JSONResponse:
-    if not _is_authorised_request(auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    try:
-        status = _controls_framework_ingestion_status()
-        return JSONResponse(
-            {
-                "mode": "corpus-a-status",
-                "frameworks": status,
-            }
-        )
-    except Exception as exc:
-        logger.exception("Failed /api/corpus-a/status request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+    # Legacy duplicate retained intentionally; active route is registered in corpus.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by corpus.register_corpus_endpoints."
+            )
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
@@ -6317,130 +5280,31 @@ def corpus_a_status(request: Request, auth_token: str = "") -> JSONResponse:
 def corpus_a_list(
     request: Request, auth_token: str = "", limit: int = 100, framework: str = ""
 ) -> JSONResponse:
-    if not _is_authorised_request(auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    try:
-        filter_expr = "framework ne ''"
-        selected = framework.strip()
-        if selected:
-            canonical = _canonical_framework_name(selected)
-            if canonical is None:
-                key = _normalise_corpus_a_framework_key(selected)
-                canonical = _CORPUS_A_FRAMEWORKS.get(key or "", "") if key else None
-            if canonical:
-                escaped = canonical.replace("'", "''")
-                filter_expr = f"framework eq '{escaped}'"
-
-        listing = _list_search_documents_by_filter(
-            controls_search_client,
-            filter_expr=filter_expr,
-            select_fields=[
-                "requirement_id",
-                "framework",
-                "framework_version",
-                "control_family",
-                "source_uri",
-                "ingestion_loaded_at",
-            ],
-            limit=limit,
-        )
-
-        return JSONResponse(
-            {
-                "mode": "corpus-a-list",
-                "framework_filter": selected or None,
-                **listing,
-            }
-        )
-    except Exception as exc:
-        logger.exception("Failed /api/corpus-a/list request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+    # Legacy duplicate retained intentionally; active route is registered in corpus.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by corpus.register_corpus_endpoints."
+            )
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
 # @app.get("/api/ingestion-job/diagnostics")
 def ingestion_job_diagnostics(request: Request, auth_token: str = "") -> JSONResponse:
-    """Fetch Container App Job execution history and logs for debugging."""
-    if not _is_authorised_request(auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    if not _is_ingestion_job_trigger_enabled():
-        return JSONResponse(
-            {
-                "configured": False,
-                "message": "Ingestion job trigger is not configured.",
-            }
-        )
-
-    try:
-        token = credential.get_token("https://management.azure.com/.default").token
-        url = (
-            f"https://management.azure.com/subscriptions/{config.ingestion_job_subscription_id}"
-            f"/resourceGroups/{config.ingestion_job_resource_group}"
-            f"/providers/Microsoft.App/jobs/{config.ingestion_job_name}/executions"
-            "?api-version=2024-03-01"
-        )
-        response = requests.get(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=30,
-        )
-
-        if response.status_code >= 400:
-            return JSONResponse(
-                {
-                    "configured": True,
-                    "error": f"Failed to fetch job executions: {response.status_code}",
-                    "details": response.text,
-                }
+    # Legacy duplicate retained intentionally; active route is registered in corpus.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by corpus.register_corpus_endpoints."
             )
-
-        executions_data = response.json()
-        executions = executions_data.get("value", [])
-
-        if not executions:
-            return JSONResponse(
-                {
-                    "configured": True,
-                    "executions": [],
-                    "message": "No job executions found. Check if the job has been triggered.",
-                }
-            )
-
-        recent_executions = []
-        for exec_item in sorted(
-            executions, key=lambda x: x.get("properties", {}).get("startTime", ""), reverse=True
-        )[:5]:
-            props = exec_item.get("properties", {})
-            recent_executions.append(
-                {
-                    "id": exec_item.get("id", ""),
-                    "status": props.get("status", "Unknown"),
-                    "startTime": props.get("startTime", ""),
-                    "endTime": props.get("endTime", ""),
-                    "detailedStatus": {
-                        "activeReplicaCount": props.get("detailedStatus", {}).get(
-                            "activeReplicaCount"
-                        ),
-                        "failedCount": props.get("detailedStatus", {}).get("failedCount"),
-                        "runningCount": props.get("detailedStatus", {}).get("runningCount"),
-                        "succeededCount": props.get("detailedStatus", {}).get("succeededCount"),
-                    },
-                }
-            )
-
-        return JSONResponse(
-            {
-                "configured": True,
-                "job_name": config.ingestion_job_name,
-                "recent_executions": recent_executions,
-                "note": "Check Azure Portal > Container Apps > Job > Execution History for detailed logs",
-            }
-        )
-    except Exception as exc:
-        logger.exception("Failed /api/ingestion-job/diagnostics request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
@@ -6448,51 +5312,16 @@ def ingestion_job_diagnostics(request: Request, auth_token: str = "") -> JSONRes
 def corpus_b_list(
     request: Request, auth_token: str = "", limit: int = 100, upload_batch: str = ""
 ) -> JSONResponse:
-    if not _is_authorised_request(auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    try:
-        base_filter_expr = "corpus eq 'b'"
-        filter_expr = base_filter_expr
-        batch = upload_batch.strip()
-        if batch:
-            escaped = batch.replace("'", "''")
-            filter_expr = f"{filter_expr} and upload_batch eq '{escaped}'"
-
-        listing = _list_search_documents_by_filter(
-            search_client,
-            filter_expr=filter_expr,
-            select_fields=[
-                "id",
-                "source_name",
-                "source_path",
-                "corpus",
-                "corpus_role",
-                "upload_batch",
-                "uploaded_at",
-                "original_filename",
-            ],
-            limit=limit,
-        )
-
-        overall_total_count: int | None = None
-        if batch:
-            overall_total_count = _count_search_documents_total_by_filter(
-                search_client,
-                filter_expr=base_filter_expr,
+    # Legacy duplicate retained intentionally; active route is registered in corpus.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by corpus.register_corpus_endpoints."
             )
-
-        return JSONResponse(
-            {
-                "mode": "corpus-b-list",
-                "upload_batch_filter": batch or None,
-                "overall_total_count": overall_total_count,
-                **listing,
-            }
-        )
-    except Exception as exc:
-        logger.exception("Failed /api/corpus-b/list request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
@@ -6500,72 +5329,31 @@ def corpus_b_list(
 def corpus_c_list(
     request: Request, auth_token: str = "", limit: int = 100, upload_batch: str = ""
 ) -> JSONResponse:
-    if not _is_authorised_request(auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    try:
-        base_filter_expr = "corpus eq 'c'"
-        filter_expr = base_filter_expr
-        batch = upload_batch.strip()
-        if batch:
-            escaped = batch.replace("'", "''")
-            filter_expr = f"{filter_expr} and upload_batch eq '{escaped}'"
-
-        listing = _list_search_documents_by_filter(
-            search_client,
-            filter_expr=filter_expr,
-            select_fields=[
-                "id",
-                "source_name",
-                "source_path",
-                "corpus",
-                "corpus_role",
-                "upload_batch",
-                "uploaded_at",
-                "original_filename",
-            ],
-            limit=limit,
-        )
-
-        overall_total_count: int | None = None
-        if batch:
-            overall_total_count = _count_search_documents_total_by_filter(
-                search_client,
-                filter_expr=base_filter_expr,
+    # Legacy duplicate retained intentionally; active route is registered in corpus.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by corpus.register_corpus_endpoints."
             )
-
-        return JSONResponse(
-            {
-                "mode": "corpus-c-list",
-                "upload_batch_filter": batch or None,
-                "overall_total_count": overall_total_count,
-                **listing,
-            }
-        )
-    except Exception as exc:
-        logger.exception("Failed /api/corpus-c/list request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
 # @app.get("/api/ingestion-job/latest")
 def get_latest_ingestion_job_status(request: Request, auth_token: str = "") -> JSONResponse:
-    if not _is_authorised_request(auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    try:
-        latest = _latest_ingestion_job_execution()
-        return JSONResponse(
-            {
-                "enabled": _is_ingestion_job_trigger_enabled(),
-                "resource_group": config.ingestion_job_resource_group,
-                "job_name": config.ingestion_job_name,
-                "latest": latest,
-            }
-        )
-    except Exception as exc:
-        logger.exception("Failed /api/ingestion-job/latest request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+    # Legacy duplicate retained intentionally; active route is registered in corpus.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by corpus.register_corpus_endpoints."
+            )
+        },
+        status_code=410,
+    )
 
 
 
@@ -6576,259 +5364,28 @@ def confluence_poll_status(
     since_hours: int = 24,
     auth_token: str = "",
 ) -> JSONResponse:
-    """Return the last Confluence poll status and assessed pages for the look-back window.
-
-    The poller runtime writes its state via the assessment orchestration worker; this
-    endpoint surfaces that state.  When the runtime is not connected it returns
-    ``configured: false`` so the UI can display a helpful message instead of an error.
-    """
-    if not _is_authorised_request(auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    try:
-        since_hours = max(1, min(since_hours, 720))
-        if confluence_poll_state_store is None:
-            return JSONResponse(
-                {
-                    "configured": False,
-                    "message": (
-                        "Confluence poll status store is unavailable because the orchestration "
-                        "Cosmos container is not configured for this query-web instance."
-                    ),
-                    "since_hours": since_hours,
-                    "last_poll": None,
-                    "assessed_pages": [],
-                }
+    # Legacy duplicate retained intentionally; active route is registered in corpus.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by corpus.register_corpus_endpoints."
             )
-
-        since_iso = (datetime.now(UTC) - timedelta(hours=since_hours)).isoformat()
-        store_errors: list[str] = []
-
-        latest_poll = None
-        try:
-            latest_poll = confluence_poll_state_store.get_latest_poll_run_summary("confluence")
-        except Exception as exc:
-            logger.exception("Failed reading latest Confluence poll summary: %s", exc)
-            store_errors.append("latest poll summary unavailable")
-
-        poll_state = None
-        if latest_poll is None:
-            try:
-                load_state = getattr(confluence_poll_state_store, "load_state", None)
-                if callable(load_state):
-                    poll_state = load_state("confluence")
-            except Exception as exc:
-                logger.exception("Failed reading Confluence poll state fallback: %s", exc)
-
-        assessed_pages: list[Any] = []
-        try:
-            assessed_pages = confluence_poll_state_store.list_recent_page_assessments(
-                "confluence",
-                since_iso=since_iso,
-                limit=200,
-            )
-        except Exception as exc:
-            logger.exception("Failed reading recent Confluence page assessments: %s", exc)
-            store_errors.append("recent page assessments unavailable")
-
-        recent_failures: list[Any] = []
-        try:
-            list_recent_failures = getattr(confluence_poll_state_store, "list_recent_failures", None)
-            if callable(list_recent_failures):
-                recent_failures = cast(
-                    list[Any],
-                    list_recent_failures(
-                        "confluence",
-                        since_iso=since_iso,
-                        limit=50,
-                    ),
-                )
-        except Exception as exc:
-            logger.exception("Failed reading recent Confluence poll failures: %s", exc)
-            store_errors.append("recent poll failures unavailable")
-
-        page_status_counts: dict[str, int] = {}
-        risk_counts: dict[str, int] = {}
-        for item in assessed_pages:
-            page_status_counts[item.status] = page_status_counts.get(item.status, 0) + 1
-            risk_label = _risk_label(item.overall_risk)
-            risk_counts[risk_label] = risk_counts.get(risk_label, 0) + 1
-
-        failure_status_counts: dict[str, int] = {}
-        for item in recent_failures:
-            failure_status_counts[item.status] = failure_status_counts.get(item.status, 0) + 1
-
-        return JSONResponse(
-            {
-                "configured": latest_poll is not None or poll_state is not None or bool(assessed_pages),
-                "message": (
-                    "No Confluence poll cycle has written status yet."
-                    if latest_poll is None and poll_state is None and not store_errors
-                    else "; ".join(store_errors)
-                    if store_errors
-                    else ""
-                ),
-                "since_hours": since_hours,
-                "summary": {
-                    "page_status_counts": page_status_counts,
-                    "risk_counts": risk_counts,
-                    "failure_status_counts": failure_status_counts,
-                },
-                "last_poll": (
-                    None
-                    if latest_poll is None and poll_state is None
-                    else {
-                        "polled_at": latest_poll.polled_at,
-                        "space_key": ", ".join(latest_poll.space_keys) if latest_poll.space_keys else "",
-                        "mentions_found": latest_poll.mentions_found,
-                        "jobs_queued": latest_poll.jobs_queued,
-                        "terminal_failures": latest_poll.terminal_failures,
-                        "error": latest_poll.error_message,
-                        "watermark": latest_poll.watermark,
-                        "since_iso": latest_poll.since_iso,
-                    }
-                    if latest_poll is not None
-                    else {
-                        "polled_at": getattr(poll_state, "last_success_at", ""),
-                        "space_key": "",
-                        "mentions_found": None,
-                        "jobs_queued": None,
-                        "terminal_failures": None,
-                        "error": (getattr(poll_state, "last_error", {}) or {}).get("error", ""),
-                        "watermark": getattr(poll_state, "watermark", ""),
-                        "since_iso": "",
-                        "last_processed_event_id": getattr(poll_state, "last_processed_event_id", ""),
-                        "poll_count": getattr(poll_state, "poll_count", 0),
-                    }
-                ),
-                "assessed_pages": [
-                    {
-                        "page_id": item.target_id,
-                        "title": item.title,
-                        "target_url": item.target_url,
-                        "space_key": item.space_key,
-                        "overall_risk": _risk_label(item.overall_risk),
-                        "assessed_at": item.assessed_at,
-                        "framework": item.framework_scope,
-                        "findings_count": item.findings_count,
-                        "status": item.status,
-                        "page_version": item.page_version,
-                    }
-                    for item in assessed_pages
-                ],
-                "recent_failures": [
-                    {
-                        "event_id": item.event_id,
-                        "status": item.status,
-                        "attempt_count": item.attempt_count,
-                        "last_error": item.last_error,
-                        "last_attempt_at": item.last_attempt_at,
-                        "run_id": item.run_id,
-                    }
-                    for item in recent_failures
-                ],
-            }
-        )
-    except Exception as exc:
-        logger.exception("Failed /api/confluence/poll-status request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+        },
+        status_code=410,
+    )
 
 
 # Duplicate endpoint registration moved to corpus.register_corpus_endpoints.
 # @app.post("/api/corpus-a/ingest")
 def corpus_a_ingest(request: Request, payload: CorpusAIngestRequest) -> JSONResponse:
-    if not _is_authorised_request(payload.auth_token, request):
-        return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
-
-    if not _is_ingestion_job_trigger_enabled():
-        return JSONResponse(
-            {
-                "error": (
-                    "Ingestion job trigger is not configured. "
-                    "Set INGESTION_JOB_SUBSCRIPTION_ID, INGESTION_JOB_RESOURCE_GROUP, and INGESTION_JOB_NAME."
-                )
-            },
-            status_code=500,
-        )
-
-    try:
-        selected = _selected_corpus_a_frameworks(payload.frameworks)
-        status = _controls_framework_ingestion_status()
-
-        already_ingested = [fw for fw in selected if status.get(fw, {}).get("ingested")]
-        pending = (
-            selected
-            if payload.replace_existing
-            else [fw for fw in selected if fw not in already_ingested]
-        )
-
-        triggered: list[dict[str, Any]] = []
-        skipped: list[dict[str, Any]] = []
-
-        for fw in selected:
-            if fw not in pending:
-                skipped.append(
-                    {
-                        "framework": fw,
-                        "reason": "already_ingested",
-                        "status": status.get(fw, {}),
-                    }
-                )
-
-        runnable_pending: list[str] = []
-        source_upload_required: list[str] = []
-        for fw in pending:
-            if fw in _CORPUS_A_SOURCE_UPLOAD_REQUIRED_FRAMEWORKS:
-                source_upload_required.append(fw)
-                skipped.append(
-                    {
-                        "framework": fw,
-                        "reason": "source_upload_required",
-                        "message": (
-                            "This framework requires source documents to be staged via "
-                            "POST /api/corpus-a/upload before ingestion can run."
-                        ),
-                    }
-                )
-                continue
-            runnable_pending.append(fw)
-
-        for fw in runnable_pending:
-            args_override = [
-                "--mode",
-                "controls",
-                "--controls-framework",
-                fw,
-            ]
-            if payload.replace_existing:
-                args_override.append("--replace-existing")
-            if payload.dry_run:
-                args_override.append("--dry-run")
-            if payload.no_guidance:
-                args_override.append("--no-guidance")
-
-            job_result = _trigger_ingestion_job_with_args(args_override)
-            triggered.append(
-                {
-                    "framework": fw,
-                    "job": job_result,
-                }
+    # Legacy duplicate retained intentionally; active route is registered in corpus.py.
+    return JSONResponse(
+        {
+            "error": (
+                "Legacy duplicate endpoint body is disabled in app.py. "
+                "Use the route registered by corpus.register_corpus_endpoints."
             )
-
-        return JSONResponse(
-            {
-                "mode": "corpus-a-ingest",
-                "selected_frameworks": selected,
-                "already_ingested_frameworks": already_ingested,
-                "source_upload_required_frameworks": source_upload_required,
-                "replace_existing": payload.replace_existing,
-                "dry_run": payload.dry_run,
-                "no_guidance": payload.no_guidance,
-                "triggered": triggered,
-                "skipped": skipped,
-                "framework_status": status,
-            }
-        )
-    except Exception as exc:
-        logger.exception("Failed /api/corpus-a/ingest request: %s", exc)
-        return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+        },
+        status_code=410,
+    )
