@@ -1,4 +1,5 @@
 """Unit tests for uncovered areas of query_web/compliance.py."""
+
 from __future__ import annotations
 
 import os
@@ -14,11 +15,12 @@ os.environ.setdefault("AZURE_COSMOS_ENDPOINT", "https://test.documents.azure.com
 os.environ.setdefault("AZURE_COSMOS_DATABASE_NAME", "rag-conversations")
 os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 
+from query_web.constants import COMPLIANCE_REPORT_SCHEMA_VERSION
 from query_web.endpoints.compliance import (
+    _REPORT_JOBS,
     ComplianceFinding,
     ComplianceReportRequest,
     ComplianceReportStructured,
-    _ReportJob,
     _build_compliance_scope_inputs,
     _clean_non_empty_string_list,
     _control_terms,
@@ -26,14 +28,12 @@ from query_web.endpoints.compliance import (
     _get_report_job,
     _new_report_job,
     _normalise_compliance_report_payload,
-    _REPORT_JOBS,
     _report_findings_to_csv,
+    _ReportJob,
     _select_chunks_for_control,
     _update_report_job,
     _validate_compliance_report_payload,
 )
-from query_web.constants import COMPLIANCE_REPORT_SCHEMA_VERSION
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -115,7 +115,9 @@ def test_update_report_job_sets_fields() -> None:
 def test_update_report_job_updates_updated_at() -> None:
     job = _new_report_job("compliance")
     original_ts = job.updated_at
-    import time; time.sleep(0.01)
+    import time
+
+    time.sleep(0.01)
     _update_report_job(job.job_id, state="completed")
     updated = _get_report_job(job.job_id)
     assert updated is not None
@@ -592,10 +594,11 @@ def test_report_findings_to_csv_contains_all_findings() -> None:
 # Endpoint tests (register_compliance_endpoints)
 # ---------------------------------------------------------------------------
 import time
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from query_web.endpoints.compliance import register_compliance_endpoints
 
+from query_web.endpoints.compliance import register_compliance_endpoints
 
 _VALID_REPORT_RESULT = {
     "mode": "compliance-report",
@@ -687,6 +690,7 @@ def _build_client(svc) -> TestClient:
 
 # POST /api/compliance/report
 
+
 def test_endpoint_report_unauthorised() -> None:
     client = _build_client(_make_endpoint_svc(authorised=False))
     resp = client.post("/api/compliance/report", json={"auth_token": "bad"})
@@ -744,6 +748,7 @@ def test_endpoint_report_generic_exception_returns_500() -> None:
 
 # POST /api/compliance/report/azure
 
+
 def test_endpoint_azure_report_unauthorised() -> None:
     client = _build_client(_make_endpoint_svc(authorised=False))
     resp = client.post(
@@ -789,6 +794,7 @@ def test_endpoint_azure_report_generic_exception_returns_500() -> None:
 
 # POST /api/compliance/report/start
 
+
 def test_endpoint_start_report_unauthorised() -> None:
     client = _build_client(_make_endpoint_svc(authorised=False))
     resp = client.post("/api/compliance/report/start", json={"auth_token": "bad"})
@@ -819,7 +825,9 @@ def test_endpoint_start_report_batch_no_docs_returns_400() -> None:
 
 def test_endpoint_start_report_preflight_exception_returns_500() -> None:
     svc = _make_endpoint_svc()
-    svc._count_search_documents_total_by_filter = lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("search down"))
+    svc._count_search_documents_total_by_filter = lambda *a, **kw: (_ for _ in ()).throw(
+        RuntimeError("search down")
+    )
     client = _build_client(svc)
     resp = client.post("/api/compliance/report/start", json={"auth_token": "tok"})
     assert resp.status_code == 500
@@ -861,6 +869,7 @@ def test_endpoint_start_report_job_records_failure() -> None:
 
 
 # POST /api/compliance/report/azure/start
+
 
 def test_endpoint_start_azure_report_unauthorised() -> None:
     client = _build_client(_make_endpoint_svc(authorised=False))
@@ -911,6 +920,7 @@ def test_endpoint_start_azure_report_job_records_failure() -> None:
 
 
 # GET /api/compliance/report/jobs/{job_id}
+
 
 def test_endpoint_get_job_unauthorised() -> None:
     client = _build_client(_make_endpoint_svc(authorised=False))
@@ -1040,7 +1050,10 @@ def test_build_fallback_compliance_report_payload_includes_evidence_sources() ->
 from query_web.endpoints.compliance import _assess_control_finding_with_llm
 
 
-def _make_llm_svc(*, llm_response: str = '{"finding_id":"f-1","requirement_id":"R-1","framework":"ISM","status":"compliant","severity":"low","rationale":"ok","evidence_sources":["doc.pdf"],"gaps":[],"recommendations":[]}') -> SimpleNamespace:
+def _make_llm_svc(
+    *,
+    llm_response: str = '{"finding_id":"f-1","requirement_id":"R-1","framework":"ISM","status":"compliant","severity":"low","rationale":"ok","evidence_sources":["doc.pdf"],"gaps":[],"recommendations":[]}',
+) -> SimpleNamespace:
     svc = SimpleNamespace(
         PROMPT_INJECTION_SYSTEM_PROMPT="be safe",
         sanitise_untrusted_text=lambda t: t,
@@ -1057,7 +1070,12 @@ def test_assess_control_finding_with_llm_success() -> None:
     result = _assess_control_finding_with_llm(
         svc=svc,
         question="test",
-        control={"requirement_id": "R-1", "framework": "ISM", "requirement_text": "Req text", "guidance_text": ""},
+        control={
+            "requirement_id": "R-1",
+            "framework": "ISM",
+            "requirement_text": "Req text",
+            "guidance_text": "",
+        },
         corpus_b_chunks=[],
         corpus_c_chunks=[],
         temperature=0.5,
@@ -1075,7 +1093,12 @@ def test_assess_control_finding_with_llm_llm_raises_uses_fallback() -> None:
     result = _assess_control_finding_with_llm(
         svc=svc,
         question="test",
-        control={"requirement_id": "R-99", "framework": "ISM", "requirement_text": "Req", "guidance_text": ""},
+        control={
+            "requirement_id": "R-99",
+            "framework": "ISM",
+            "requirement_text": "Req",
+            "guidance_text": "",
+        },
         corpus_b_chunks=[],
         corpus_c_chunks=[],
         temperature=0.5,
@@ -1097,7 +1120,12 @@ def test_assess_control_finding_with_llm_includes_corpus_context() -> None:
     _assess_control_finding_with_llm(
         svc=svc,
         question="test",
-        control={"requirement_id": "R-1", "framework": "ISM", "requirement_text": "Req", "guidance_text": "guidance"},
+        control={
+            "requirement_id": "R-1",
+            "framework": "ISM",
+            "requirement_text": "Req",
+            "guidance_text": "guidance",
+        },
         corpus_b_chunks=[{"content": "b guidance", "source_name": "b.pdf"}],
         corpus_c_chunks=[{"content": "c artifact", "source_name": "c.pdf"}],
         temperature=0.5,
@@ -1137,7 +1165,14 @@ def test_build_per_control_report_payload_calls_progress_cb() -> None:
     def _progress(completed, total, req_id, message):
         progress_calls.append((completed, total, req_id, message))
 
-    controls = [{"requirement_id": "C-1", "framework": "ISM", "requirement_text": "req", "guidance_text": ""}]
+    controls = [
+        {
+            "requirement_id": "C-1",
+            "framework": "ISM",
+            "requirement_text": "req",
+            "guidance_text": "",
+        }
+    ]
     _build_per_control_report_payload(
         svc=svc,
         question="test",
@@ -1154,7 +1189,14 @@ def test_build_per_control_report_payload_risk_high_on_non_compliant() -> None:
     llm_response = '{"finding_id":"f-1","requirement_id":"C-1","framework":"ISM","status":"non_compliant","severity":"high","rationale":"gaps found","evidence_sources":["doc.pdf"],"gaps":[],"recommendations":[]}'
     svc = _make_llm_svc(llm_response=llm_response)
     svc._chunk_reference_label = lambda c, fallback="": fallback
-    controls = [{"requirement_id": "C-1", "framework": "ISM", "requirement_text": "req", "guidance_text": ""}]
+    controls = [
+        {
+            "requirement_id": "C-1",
+            "framework": "ISM",
+            "requirement_text": "req",
+            "guidance_text": "",
+        }
+    ]
     result = _build_per_control_report_payload(
         svc=svc,
         question="test",
@@ -1170,7 +1212,14 @@ def test_build_per_control_report_payload_risk_medium_on_partial() -> None:
     llm_response = '{"finding_id":"f-1","requirement_id":"C-1","framework":"ISM","status":"partially_compliant","severity":"medium","rationale":"partial","evidence_sources":["doc.pdf"],"gaps":[],"recommendations":[]}'
     svc = _make_llm_svc(llm_response=llm_response)
     svc._chunk_reference_label = lambda c, fallback="": fallback
-    controls = [{"requirement_id": "C-1", "framework": "ISM", "requirement_text": "req", "guidance_text": ""}]
+    controls = [
+        {
+            "requirement_id": "C-1",
+            "framework": "ISM",
+            "requirement_text": "req",
+            "guidance_text": "",
+        }
+    ]
     result = _build_per_control_report_payload(
         svc=svc,
         question="test",
@@ -1268,7 +1317,10 @@ def _make_pipeline_svc(
         _build_evidence_corpus_filter=lambda corpora: None,
         _controls_search=lambda *a, **kw: (_controls, {}),
         _count_search_documents_total_by_filter=lambda client, *, filter_expr: 3,
-        _hybrid_search=lambda q, retrieve_k, evidence_filter: (_b_chunks if "eq 'b'" in (evidence_filter or "") else _c_chunks, {"search_s": 0.1}),
+        _hybrid_search=lambda q, retrieve_k, evidence_filter: (
+            _b_chunks if "eq 'b'" in (evidence_filter or "") else _c_chunks,
+            {"search_s": 0.1},
+        ),
         _chat_completion_with_empty_retry=_chat,
         _unwrap_answer=lambda t: t,
         _chunk_reference_label=lambda c, fallback="": c.get("source_name", fallback),
@@ -1312,7 +1364,12 @@ def test_generate_compliance_report_result_hard_validation_raises_on_bad_json() 
 
 def test_generate_compliance_report_result_per_control_strategy() -> None:
     controls = [
-        {"requirement_id": "C-1", "framework": "ISM", "requirement_text": "req", "guidance_text": ""}
+        {
+            "requirement_id": "C-1",
+            "framework": "ISM",
+            "requirement_text": "req",
+            "guidance_text": "",
+        }
     ]
     llm_response = '{"finding_id":"f-1","requirement_id":"C-1","framework":"ISM","status":"compliant","severity":"low","rationale":"ok","evidence_sources":["doc.pdf"],"gaps":[],"recommendations":[]}'
     svc = _make_pipeline_svc(controls=controls, model_response=llm_response)
@@ -1343,7 +1400,10 @@ def test_generate_compliance_report_result_with_batch_filters() -> None:
 # ---------------------------------------------------------------------------
 # generate_azure_compliance_report_result
 # ---------------------------------------------------------------------------
-from query_web.endpoints.compliance import generate_azure_compliance_report_result, AzureComplianceReportRequest
+from query_web.endpoints.compliance import (
+    AzureComplianceReportRequest,
+    generate_azure_compliance_report_result,
+)
 
 
 def _make_azure_pipeline_svc(*, assessment_payload: dict | None = None) -> SimpleNamespace:

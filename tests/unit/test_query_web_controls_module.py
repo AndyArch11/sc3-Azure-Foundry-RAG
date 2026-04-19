@@ -1,4 +1,5 @@
 """Unit tests for query_web/controls.py."""
+
 from __future__ import annotations
 
 import os
@@ -17,23 +18,22 @@ from query_web.pipeline.controls import (
     _build_evidence_corpus_filter,
     _controls_coverage_disclaimer,
     _controls_query_variants,
+    _framework_authority_rank,
     _is_cross_framework_comparison_intent,
     _merge_control_candidates,
     _normalise_controls_comparison_mode,
     _normalise_evidence_corpora,
     _normalise_evidence_corpus,
+    _normalise_framework_filter,
     _parse_evidence_corpora_csv,
-    _preferred_framework_for_question,
     _precedence_policy_summary,
+    _preferred_framework_for_question,
     _prepend_disclaimer,
     _question_focus_terms,
     _resolve_evidence_corpora,
     _select_diverse_controls,
     _summarise_controls_distribution,
-    _framework_authority_rank,
-    _normalise_framework_filter,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -598,7 +598,10 @@ def test_cross_framework_comparison_intent_which_frameworks() -> None:
 
 
 def test_cross_framework_comparison_intent_two_frameworks_mentioned() -> None:
-    assert _is_cross_framework_comparison_intent("What do PCI DSS and ISM say about encryption?") is True
+    assert (
+        _is_cross_framework_comparison_intent("What do PCI DSS and ISM say about encryption?")
+        is True
+    )
 
 
 def test_cross_framework_comparison_intent_single_framework_not_comparison() -> None:
@@ -627,7 +630,11 @@ def test_preferred_framework_for_question_rule_with_all_blank_keywords_skipped()
     """Keywords list has only blank strings → normalised_keywords is empty → continue (line 227)."""
     rules = [
         {"rule_id": "r1", "applies_when_keywords": ["", "  "], "preferred_framework": "ISM"},
-        {"rule_id": "r2", "applies_when_keywords": ["backup"], "preferred_framework": "Essential Eight"},
+        {
+            "rule_id": "r2",
+            "applies_when_keywords": ["backup"],
+            "preferred_framework": "Essential Eight",
+        },
     ]
     svc = _svc_with_policy(rules=rules)
     result = _preferred_framework_for_question("backup procedures", svc)
@@ -638,6 +645,7 @@ def test_preferred_framework_for_question_rule_with_all_blank_keywords_skipped()
 def test_question_focus_terms_short_token_not_in_keep_list_skipped() -> None:
     """Token with len < 3 not in _QUERY_SHORT_KEEP is filtered out (line 327)."""
     from query_web.pipeline.controls import _question_focus_terms
+
     # "xy" is 2 chars and unlikely to be in _QUERY_SHORT_KEEP
     result = _question_focus_terms("authentication xy policy")
     assert "xy" not in result
@@ -700,7 +708,11 @@ def test_framework_authority_rank_first_in_order() -> None:
 def test_preferred_framework_for_question_rule_with_empty_keywords_skipped() -> None:
     rules = [
         {"rule_id": "r1", "applies_when_keywords": [], "preferred_framework": "ISM"},
-        {"rule_id": "r2", "applies_when_keywords": ["backup"], "preferred_framework": "Essential Eight"},
+        {
+            "rule_id": "r2",
+            "applies_when_keywords": ["backup"],
+            "preferred_framework": "Essential Eight",
+        },
     ]
     svc = _svc_with_policy(rules=rules)
     # Empty keywords rule is skipped; backup rule fires
@@ -942,7 +954,9 @@ def test_apply_framework_authority_preference_concept_overlap_ranks_first() -> N
         },
     ]
     # Question focuses on "password" — R-1 should rank higher despite lower score
-    result = _apply_framework_authority_preference(items, top_k=2, question="password policy", svc=svc)
+    result = _apply_framework_authority_preference(
+        items, top_k=2, question="password policy", svc=svc
+    )
     assert result[0]["requirement_id"] == "R-1"
 
 
@@ -950,7 +964,11 @@ def test_apply_framework_authority_preference_preferred_rank_tiebreaker() -> Non
     """When overlap is equal, preferred framework wins."""
     svc = _svc_with_policy(order=["NIST CSF", "Essential Eight"])
     svc.precedence_policy.rules = [
-        {"rule_id": "r1", "applies_when_keywords": ["backup"], "preferred_framework": "Essential Eight"}
+        {
+            "rule_id": "r1",
+            "applies_when_keywords": ["backup"],
+            "preferred_framework": "Essential Eight",
+        }
     ]
     items = [
         {
@@ -970,7 +988,9 @@ def test_apply_framework_authority_preference_preferred_rank_tiebreaker() -> Non
             "score": 0.9,
         },
     ]
-    result = _apply_framework_authority_preference(items, top_k=2, question="backup procedures", svc=svc)
+    result = _apply_framework_authority_preference(
+        items, top_k=2, question="backup procedures", svc=svc
+    )
     # Both have same text overlap; preferred framework (Essential Eight) should rank first
     assert result[0]["framework"] == "Essential Eight"
 

@@ -171,6 +171,8 @@ def is_authorised_request(auth_token: str, request: Request | None, config: Any)
 
 
 def unauthorised_message(request: Request | None, config: Any) -> str:
+    """Return the appropriate auth failure message for the active auth mode."""
+
     if config.required_group_object_id:
         return _group_auth_failure_message(request)
     return "Unauthorised. Provide a valid access token."

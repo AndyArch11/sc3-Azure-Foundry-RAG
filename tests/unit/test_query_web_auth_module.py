@@ -1,4 +1,5 @@
 """Unit tests for query_web/auth.py."""
+
 from __future__ import annotations
 
 import base64
@@ -27,7 +28,6 @@ from query_web.security.auth import (
     is_authorised_request,
     unauthorised_message,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -137,12 +137,14 @@ def test_groups_from_header_extracts_groups_claim() -> None:
 
 
 def test_groups_from_header_handles_long_claim_type() -> None:
-    encoded = _encode_principal([
-        {
-            "typ": "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups",
-            "val": "GRP-001;GRP-002",
-        }
-    ])
+    encoded = _encode_principal(
+        [
+            {
+                "typ": "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups",
+                "val": "GRP-001;GRP-002",
+            }
+        ]
+    )
     groups = _groups_from_client_principal_header(encoded)
     assert "grp-001" in groups
     assert "grp-002" in groups
@@ -175,10 +177,12 @@ def test_groups_from_header_non_list_claims_returns_empty() -> None:
 
 
 def test_principal_has_group_overage_detects_hasgroups_claim() -> None:
-    encoded = _encode_principal([
-        {"typ": "hasgroups", "val": "true"},
-        {"typ": "name", "val": "alice"},
-    ])
+    encoded = _encode_principal(
+        [
+            {"typ": "hasgroups", "val": "true"},
+            {"typ": "name", "val": "alice"},
+        ]
+    )
     assert _principal_has_group_overage(encoded) is True
 
 
@@ -221,10 +225,12 @@ def test_request_groups_falls_back_to_flat_groups_header() -> None:
 
 def test_request_groups_prefers_principal_header_over_flat() -> None:
     encoded = _encode_principal([{"typ": "groups", "val": "FROM-PRINCIPAL"}])
-    request = _make_request({
-        "x-ms-client-principal": encoded,
-        "x-ms-client-principal-groups": "FROM-FLAT",
-    })
+    request = _make_request(
+        {
+            "x-ms-client-principal": encoded,
+            "x-ms-client-principal-groups": "FROM-FLAT",
+        }
+    )
     groups = _request_groups(request)
     assert "from-principal" in groups
 
@@ -240,10 +246,12 @@ def test_group_auth_failure_message_no_principal_headers() -> None:
 
 
 def test_group_auth_failure_message_overage() -> None:
-    encoded = _encode_principal([
-        {"typ": "http://schemas.microsoft.com/identity/claims/objectidentifier", "val": "x"},
-        {"typ": "hasgroups", "val": "true"},
-    ])
+    encoded = _encode_principal(
+        [
+            {"typ": "http://schemas.microsoft.com/identity/claims/objectidentifier", "val": "x"},
+            {"typ": "hasgroups", "val": "true"},
+        ]
+    )
     request = _make_request({"x-ms-client-principal": encoded})
     message = _group_auth_failure_message(request)
     assert "overage" in message.lower() or "group overage" in message.lower()
@@ -252,10 +260,12 @@ def test_group_auth_failure_message_overage() -> None:
 def test_group_auth_failure_message_authenticated_no_groups() -> None:
     # Principal present but has no group claims
     encoded = _encode_principal([{"typ": "name", "val": "alice"}])
-    request = _make_request({
-        "x-ms-client-principal": encoded,
-        "x-ms-client-principal-id": "some-id",
-    })
+    request = _make_request(
+        {
+            "x-ms-client-principal": encoded,
+            "x-ms-client-principal-id": "some-id",
+        }
+    )
     message = _group_auth_failure_message(request)
     assert "group claims" in message.lower() or "no group" in message.lower()
 

@@ -25,19 +25,14 @@ def _cfg() -> IngestionConfig:
         storage_container_name="grounding-data",
         storage_container_query=None,
         storage_resource_id="/subscriptions/x/resourceGroups/y/providers/Microsoft.Storage/storageAccounts/storacct",
-
         chunk_size=1000,
         chunk_overlap=100,
     )
 
 
-
-
 class _FakeCredential:
     def get_token(self, *scopes: str, **kwargs) -> AccessToken:
         return AccessToken("token", 9999999999)
-
-
 
 
 def test_delete_if_exists_swallows_not_found(monkeypatch) -> None:
@@ -258,16 +253,12 @@ def test_ensure_skillset_uses_preview_rest_with_explicit_null_identity(monkeypat
     )
     assert by_name["default-upload-source"]["inputs"][1]["source"] == "='legacy'"
 
-    projection_mappings = (
-        captured["body"]["indexProjections"]["selectors"][0]["mappings"]
-    )
+    projection_mappings = captured["body"]["indexProjections"]["selectors"][0]["mappings"]
     mapping_sources = {m["name"]: m["source"] for m in projection_mappings}
     assert mapping_sources["uploaded_by"] == "/document/uploaded_by_safe"
     assert mapping_sources["uploaded_at"] == "/document/uploaded_at_safe"
     assert mapping_sources["content_sha256"] == "/document/dedupe_hash_safe"
     assert mapping_sources["normalised_text_sha256"] == "/document/normalised_text_sha256_safe"
-
-
 
 
 def test_run_indexer_attaches_when_already_in_progress(monkeypatch) -> None:

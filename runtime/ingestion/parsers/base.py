@@ -151,6 +151,7 @@ class RequirementRecord:
     jurisdiction_or_scope: str  # e.g. "Australia"
 
     def to_dict(self) -> dict:
+        """Run to dict."""
         return asdict(self)
 
 

@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_pdf_text_ocr(path: Path) -> str:
+    """Run extract pdf text ocr."""
     try:
         import pypdfium2 as pdfium
         import pytesseract
@@ -33,6 +34,7 @@ def _extract_pdf_text_ocr(path: Path) -> str:
 
 
 def _extract_pdf_text(path: Path, *, enable_ocr: bool = False, min_text_chars: int = 80) -> str:
+    """Run extract pdf text."""
     try:
         from pypdf import PdfReader
     except ImportError as exc:
@@ -66,6 +68,7 @@ def _extract_pdf_text(path: Path, *, enable_ocr: bool = False, min_text_chars: i
 
 
 def _extract_excel_text(path: Path) -> str:
+    """Run extract excel text."""
     try:
         from openpyxl import load_workbook
     except ImportError as exc:
@@ -88,6 +91,7 @@ def extract_source_document(
     enable_ocr: bool = False,
     ocr_min_text_chars: int = 80,
 ) -> SourceDocument:
+    """Run extract source document."""
     suffix = path.suffix.lower()
     if suffix == ".pdf":
         text = _extract_pdf_text(
@@ -106,6 +110,7 @@ def extract_source_document(
 
 
 def discover_supported_files(input_dir: Path) -> list[Path]:
+    """Run discover supported files."""
     files = [
         p for p in input_dir.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
     ]

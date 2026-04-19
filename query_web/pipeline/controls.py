@@ -1,4 +1,5 @@
 """Controls search, framework normalisation, and evidence corpus filtering."""
+
 from __future__ import annotations
 
 import re
@@ -420,7 +421,9 @@ def _fetch_controls(
         search_kwargs["filter"] = f"framework eq '{escaped_framework}'"
     if use_semantic:
         search_kwargs["query_type"] = "semantic"
-        search_kwargs["semantic_configuration_name"] = svc.config.controls_semantic_configuration_name
+        search_kwargs["semantic_configuration_name"] = (
+            svc.config.controls_semantic_configuration_name
+        )
 
     items: list[dict[str, Any]] = []
     for r in svc.controls_search_client.search(**search_kwargs):

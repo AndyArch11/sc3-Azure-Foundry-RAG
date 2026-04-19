@@ -81,6 +81,7 @@ def create_chat_completion_fn(
             )
 
             def ollama_wrapper(messages: list[dict[str, str]]) -> str:
+                """Run ollama wrapper."""
                 return ollama_chat_completion(
                     messages,
                     model=ollama_model,
@@ -104,6 +105,7 @@ def create_chat_completion_fn(
         )
 
         def azure_wrapper(messages: list[dict[str, str]]) -> str:
+            """Run azure wrapper."""
             return assessment_runtime._chat_completion(
                 messages, config=config, credential=credential
             )
@@ -155,6 +157,7 @@ def create_embedding_fn(
             logger.info(f"Using Ollama embeddings: {ollama_model} @ {ollama_url}")
 
             def ollama_wrapper(text: str) -> list[float]:
+                """Run ollama wrapper."""
                 return ollama_embedding(
                     text,
                     model=ollama_model,
@@ -175,6 +178,7 @@ def create_embedding_fn(
         )
 
         def azure_wrapper(text: str) -> list[float]:
+            """Run azure wrapper."""
             return assessment_runtime._embed_query(text, config=config, credential=credential)
 
         return azure_wrapper

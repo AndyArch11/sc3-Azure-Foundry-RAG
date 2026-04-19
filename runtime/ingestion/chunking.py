@@ -7,10 +7,12 @@ from .models import ChunkRecord, SourceDocument
 
 
 def _normalise_whitespace(text: str) -> str:
+    """Run normalise whitespace."""
     return " ".join(text.split())
 
 
 def _deterministic_chunk_id(source_path: str, chunk_index: int, content: str) -> str:
+    """Run deterministic chunk id."""
     digest = hashlib.sha256(f"{source_path}:{chunk_index}:{content}".encode("utf-8")).hexdigest()
     return digest[:32]
 
@@ -20,6 +22,7 @@ def chunk_document(
     chunk_size: int = 1200,
     chunk_overlap: int = 200,
 ) -> list[ChunkRecord]:
+    """Run chunk document."""
     if chunk_size <= 0:
         raise ValueError("chunk_size must be greater than zero")
     if chunk_overlap < 0:
@@ -59,6 +62,7 @@ def chunk_documents(
     chunk_size: int = 1200,
     chunk_overlap: int = 200,
 ) -> list[ChunkRecord]:
+    """Run chunk documents."""
     all_chunks: list[ChunkRecord] = []
     for doc in docs:
         all_chunks.extend(chunk_document(doc, chunk_size=chunk_size, chunk_overlap=chunk_overlap))

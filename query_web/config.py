@@ -97,6 +97,8 @@ def _form_bool(value: str | None, default: bool = False) -> bool:
 
 @dataclass(frozen=True)
 class QueryConfig:
+    """Runtime configuration for query-web endpoints and helpers."""
+
     search_endpoint: str
     search_index_name: str
     controls_index_name: str
@@ -143,6 +145,8 @@ class QueryConfig:
 
 @dataclass(frozen=True)
 class PrecedencePolicy:
+    """Framework precedence policy used for control conflict resolution."""
+
     version: str
     default_framework_order: tuple[str, ...]
     rules: tuple[dict[str, Any], ...]
@@ -239,6 +243,8 @@ def _load_precedence_policy(
 
 
 def load_config() -> QueryConfig:
+    """Load and normalise application configuration from environment variables."""
+
     return QueryConfig(
         search_endpoint=_require_env("AZURE_SEARCH_ENDPOINT"),
         search_index_name=os.getenv("AZURE_SEARCH_INDEX_NAME", "grounding-index"),

@@ -1,4 +1,5 @@
 """Unit tests for query_web/ask.py."""
+
 from __future__ import annotations
 
 import os
@@ -83,9 +84,9 @@ def _make_svc() -> SimpleNamespace:
         ),
         _branding_ctx=lambda: {"brand": "x"},
         _get_user_id=lambda auth_token, session_id: f"user:{session_id or 'anon'}",
-        _form_bool=lambda v, default=False: str(v).strip().lower() in {"1", "true", "on", "yes"}
-        if str(v).strip()
-        else default,
+        _form_bool=lambda v, default=False: (
+            str(v).strip().lower() in {"1", "true", "on", "yes"} if str(v).strip() else default
+        ),
         _is_authorised_request=lambda auth_token, request: auth_token == "ok",
         _unauthorised_message=lambda request: "unauthorised",
         _normalise_controls_comparison_mode=lambda v: (v or "auto-detect").strip(),

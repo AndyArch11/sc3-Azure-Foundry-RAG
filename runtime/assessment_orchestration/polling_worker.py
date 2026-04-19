@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import time
@@ -21,27 +22,28 @@ from .runtime_wiring import (
 )
 from .state_store import CosmosPollingStateStore, PollingStateStore
 
-
-import logging
 logging.basicConfig(level=logging.WARN, format="%(asctime)s %(levelname)s %(message)s")
 
+from ._framework_patterns import ALL_FRAMEWORK_ORDER as _ALL_FRAMEWORK_ORDER
+from ._framework_patterns import DEFAULT_FRAMEWORK as _DEFAULT_FRAMEWORK_SCOPE
 from ._framework_patterns import (
-    ALL_FRAMEWORK_ORDER as _ALL_FRAMEWORK_ORDER,
     is_explicit_all_framework_request as _is_explicit_all_framework_request,
-    requested_frameworks_from_text as _requested_frameworks_from_text,
-    DEFAULT_FRAMEWORK as _DEFAULT_FRAMEWORK_SCOPE,
 )
+from ._framework_patterns import requested_frameworks_from_text as _requested_frameworks_from_text
 
 
 def _now_utc() -> datetime:
+    """Run now utc."""
     return datetime.now(UTC)
 
 
 def _iso(dt: datetime) -> str:
+    """Run iso."""
     return dt.isoformat()
 
 
 def _parse_iso(value: str) -> datetime:
+    """Run parse iso."""
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
@@ -65,6 +67,7 @@ def _initial_since_from_lookback(lookback: str) -> str:
 
 
 def _event_sort_key(event: dict[str, Any]) -> tuple[str, str, str]:
+    """Run event sort key."""
     occurred_at = str(event.get("occurred_at") or "")
     title = str(event.get("title") or "")
     event_id = str(event.get("event_id") or "")
@@ -75,6 +78,7 @@ CONFLUENCE_COMMENT_MAX_CHARS = 32_767
 
 
 def _render_finding_html(finding: dict[str, Any]) -> str:
+    """Run render finding html."""
     requirement_id = escape(str(finding.get("requirement_id") or "unknown"))
     framework = escape(str(finding.get("framework") or "Unknown"))
     status = escape(str(finding.get("status") or "unknown").replace("_", " "))
@@ -246,6 +250,7 @@ def _post_assessment_comments(
 
 
 def _render_no_change_comment(*, framework_scope: str, page_version: str) -> str:
+    """Run render no change comment."""
     label = framework_scope or _DEFAULT_FRAMEWORK_SCOPE
     safe_label = escape(label)
     safe_version = escape(page_version)
@@ -259,6 +264,7 @@ def _render_no_change_comment(*, framework_scope: str, page_version: str) -> str
 
 
 def _render_framework_clarification_comment() -> str:
+    """Run render framework clarification comment."""
     return (
         "<p><strong>Automated compliance review</strong></p>"
         "<p>Your request did not clearly specify a supported framework, so an assessment was not run.</p>"
@@ -279,11 +285,13 @@ def _render_framework_clarification_comment() -> str:
 
 
 def _content_hash(value: str) -> str:
+    """Run content hash."""
     normalised = value.strip().encode("utf-8")
     return hashlib.sha256(normalised).hexdigest()
 
 
 def _requested_frameworks_for_event(event: dict[str, Any]) -> tuple[str, ...]:
+    """Run requested frameworks for event."""
     trigger_text = str(event.get("trigger_text") or "")
     requested_from_trigger = _requested_frameworks_from_text(trigger_text)
     if requested_from_trigger:
@@ -300,14 +308,17 @@ def _requested_frameworks_from_discussion_context(
     triggering_comment_id: str = "",
     server: ConfluenceMCPServer | None = None,
 ) -> tuple[str, ...]:
+    """Run requested frameworks from discussion context."""
     mentioner = mentioner_account_id.strip()
     mention_markers = ("@compliance-agent", "@assessment-agent")
     triggering_id = triggering_comment_id.strip()
 
-
     if triggering_id:
         import logging
-        logging.info(f"[polling_worker] Entering framework extraction for triggering_id={triggering_id}")
+
+        logging.info(
+            f"[polling_worker] Entering framework extraction for triggering_id={triggering_id}"
+        )
         logging.info(f"[polling_worker] discussion_context: {repr(discussion_context)}")
         found_triggering_comment = False
         for item in discussion_context:
@@ -317,60 +328,90 @@ def _requested_frameworks_from_discussion_context(
             found_triggering_comment = True
             text = str(item.get("text") or "").strip()
             if text:
-                logging.info(f"[polling_worker] Found text in discussion_context for id {triggering_id}: {repr(text)}")
+                logging.info(
+                    f"[polling_worker] Found text in discussion_context for id {triggering_id}: {repr(text)}"
+                )
                 frameworks = _requested_frameworks_from_text(text)
                 if frameworks:
                     return frameworks
             # If text is missing, try to fetch it from Confluence API
-            logging.info(f"[polling_worker] No text in discussion_context for id {triggering_id}, attempting API fetch...")
+            logging.info(
+                f"[polling_worker] No text in discussion_context for id {triggering_id}, attempting API fetch..."
+            )
             try:
                 if server is not None and hasattr(server, "client") and server.client is not None:
                     comment = server.client.get_comment(triggering_id)
-                    logging.info(f"[polling_worker] Raw comment API response for id {triggering_id}: {repr(comment)}")
+                    logging.info(
+                        f"[polling_worker] Raw comment API response for id {triggering_id}: {repr(comment)}"
+                    )
                     body = comment.get("body") or {}
                     storage = body.get("storage") or {}
                     comment_text = storage.get("value") or comment.get("bodyText") or ""
-                    logging.info(f"[polling_worker] Extracted comment_text for id {triggering_id}: {repr(comment_text)}")
+                    logging.info(
+                        f"[polling_worker] Extracted comment_text for id {triggering_id}: {repr(comment_text)}"
+                    )
                     comment_text = comment_text.strip()
                     if comment_text:
-                        logging.info(f"[polling_worker] Fetched comment text from API for id {triggering_id}: {repr(comment_text)}")
+                        logging.info(
+                            f"[polling_worker] Fetched comment text from API for id {triggering_id}: {repr(comment_text)}"
+                        )
                         frameworks = _requested_frameworks_from_text(comment_text)
                         if frameworks:
                             return frameworks
                         # else fall through to aggregate candidate_texts
                     else:
-                        logging.warning(f"[polling_worker] Could not extract text from fetched comment for id {triggering_id}")
+                        logging.warning(
+                            f"[polling_worker] Could not extract text from fetched comment for id {triggering_id}"
+                        )
                 else:
-                    logging.warning("[polling_worker] No ConfluenceMCPServer instance or client available to fetch comment text.")
+                    logging.warning(
+                        "[polling_worker] No ConfluenceMCPServer instance or client available to fetch comment text."
+                    )
             except Exception as e:
-                logging.warning(f"[polling_worker] Exception fetching comment text for id {triggering_id}: {e}")
+                logging.warning(
+                    f"[polling_worker] Exception fetching comment text for id {triggering_id}: {e}"
+                )
             # If the triggering comment cannot be resolved, fall through to the
             # rest of the discussion context. This preserves the existing
             # mention-driven behavior for Confluence events that omit comment text.
         # If not found in discussion_context, attempt API fetch as fallback
         if not found_triggering_comment:
-            logging.info(f"[polling_worker] Triggering comment id {triggering_id} not found in discussion_context. Attempting API fetch...")
+            logging.info(
+                f"[polling_worker] Triggering comment id {triggering_id} not found in discussion_context. Attempting API fetch..."
+            )
             try:
                 if server is not None and hasattr(server, "client") and server.client is not None:
                     comment = server.client.get_comment(triggering_id)
-                    logging.info(f"[polling_worker] Raw comment API response for id {triggering_id}: {repr(comment)}")
+                    logging.info(
+                        f"[polling_worker] Raw comment API response for id {triggering_id}: {repr(comment)}"
+                    )
                     body = comment.get("body") or {}
                     storage = body.get("storage") or {}
                     comment_text = storage.get("value") or comment.get("bodyText") or ""
-                    logging.info(f"[polling_worker] Extracted comment_text for id {triggering_id}: {repr(comment_text)}")
+                    logging.info(
+                        f"[polling_worker] Extracted comment_text for id {triggering_id}: {repr(comment_text)}"
+                    )
                     comment_text = comment_text.strip()
                     if comment_text:
-                        logging.info(f"[polling_worker] Fetched comment text from API for id {triggering_id}: {repr(comment_text)}")
+                        logging.info(
+                            f"[polling_worker] Fetched comment text from API for id {triggering_id}: {repr(comment_text)}"
+                        )
                         frameworks = _requested_frameworks_from_text(comment_text)
                         if frameworks:
                             return frameworks
                         # else fall through to aggregate candidate_texts
                     else:
-                        logging.warning(f"[polling_worker] Could not extract text from fetched comment for id {triggering_id}")
+                        logging.warning(
+                            f"[polling_worker] Could not extract text from fetched comment for id {triggering_id}"
+                        )
                 else:
-                    logging.warning("[polling_worker] No ConfluenceMCPServer instance or client available to fetch comment text.")
+                    logging.warning(
+                        "[polling_worker] No ConfluenceMCPServer instance or client available to fetch comment text."
+                    )
             except Exception as e:
-                logging.warning(f"[polling_worker] Exception fetching comment text for id {triggering_id}: {e}")
+                logging.warning(
+                    f"[polling_worker] Exception fetching comment text for id {triggering_id}: {e}"
+                )
             # If the triggering comment cannot be resolved, fall through to the
             # rest of the discussion context. This preserves the existing
             # mention-driven behavior for Confluence events that omit comment text.
@@ -394,6 +435,8 @@ def _requested_frameworks_from_discussion_context(
 
 @dataclass(frozen=True)
 class PollerConfig:
+    """PollerConfig."""
+
     source: str = "confluence"
     poll_interval_seconds: int = 75
     lease_ttl_seconds: int = 300
@@ -406,6 +449,8 @@ class PollerConfig:
 
 @dataclass(frozen=True)
 class PollCycleResult:
+    """PollCycleResult."""
+
     acquired_lease: bool
     fetched_events: int
     processed_events: int
@@ -420,6 +465,7 @@ def _build_recent_mentions_query(
     window_end: datetime,
     space_keys: Iterable[str],
 ) -> list[dict[str, Any]]:
+    """Run build recent mentions query."""
     scope = {"space_keys": list(space_keys)} if list(space_keys) else None
     result = server.get_recent_mentions(since=since_iso, scope_filter=scope)
     mentions = list(result.get("mentions") or [])
@@ -453,6 +499,7 @@ def _process_assessment_event(
     dry_run: bool,
     assessment_strategy: str = "single_pass",
 ) -> None:
+    """Run process assessment event."""
     target_url = str(event.get("target_url") or "")
     target_id = str(event.get("target_id") or "")
     if not target_url or not target_id:
@@ -641,6 +688,7 @@ def run_poll_cycle(
     adapter: OrchestratorAdapter,
     process_event: Callable[[dict[str, Any]], None] | None = None,
 ) -> PollCycleResult:
+    """Run run poll cycle."""
     run_id = str(uuid.uuid4())
     cycle_started = _now_utc()
     since_iso = ""
@@ -780,6 +828,7 @@ def run_forever(
     server: ConfluenceMCPServer,
     adapter: OrchestratorAdapter,
 ) -> None:
+    """Run run forever."""
     while True:
         run_poll_cycle(config=config, state_store=state_store, server=server, adapter=adapter)
         time.sleep(max(1, config.poll_interval_seconds))
@@ -788,6 +837,7 @@ def run_forever(
 def create_cosmos_state_store_from_env(
     env: dict[str, str] | None = None,
 ) -> CosmosPollingStateStore:
+    """Run create cosmos state store from env."""
     values = dict(os.environ) if env is None else dict(env)
     endpoint = str(values.get("AZURE_COSMOS_ENDPOINT") or "").strip()
     database_name = str(values.get("AZURE_COSMOS_DATABASE_NAME") or "").strip()
@@ -807,6 +857,7 @@ def create_cosmos_state_store_from_env(
 
 
 def load_poller_config_from_env(env: dict[str, str] | None = None) -> PollerConfig:
+    """Run load poller config from env."""
     values = dict(os.environ) if env is None else dict(env)
     poll_interval_seconds = int(values.get("CONFLUENCE_POLL_INTERVAL_SECONDS") or "75")
     lease_ttl_seconds = int(values.get("CONFLUENCE_POLL_LEASE_TTL_SECONDS") or "300")
@@ -832,6 +883,7 @@ def load_poller_config_from_env(env: dict[str, str] | None = None) -> PollerConf
 
 
 def run_forever_from_env(env: dict[str, str] | None = None) -> None:
+    """Run run forever from env."""
     values = dict(os.environ) if env is None else dict(env)
     config = load_poller_config_from_env(values)
     state_store = create_cosmos_state_store_from_env(values)

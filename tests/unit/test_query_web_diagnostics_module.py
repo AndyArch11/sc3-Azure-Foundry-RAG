@@ -17,9 +17,7 @@ def _build_client(*, search_client=None, storage_enabled: bool = True) -> TestCl
         storage_account_name="stdev",
         storage_container_name="grounding-data",
     )
-    credential = SimpleNamespace(
-        get_token=lambda scope: SimpleNamespace(token="fake-token")
-    )
+    credential = SimpleNamespace(get_token=lambda scope: SimpleNamespace(token="fake-token"))
     register_diagnostics_endpoints(
         app,
         credential,
@@ -134,9 +132,7 @@ def test_index_samples_diagnostics_truncates_content_and_uses_selected_fields() 
             ]
 
     client = _build_client(search_client=_FakeSearchClient())
-    response = client.get(
-        "/api/diagnostics/search/index-samples?limit=2&include_all_fields=false"
-    )
+    response = client.get("/api/diagnostics/search/index-samples?limit=2&include_all_fields=false")
 
     body = response.json()
     assert response.status_code == 200
@@ -253,7 +249,11 @@ def test_datasource_connectivity_diagnostics_enumerates_blobs() -> None:
     with (
         patch("azure.search.documents.indexes.SearchIndexerClient", _FakeSearchIndexerClient),
         patch("azure.storage.blob.BlobServiceClient", _FakeBlobServiceClient),
-        patch.dict("os.environ", {"AZURE_SEARCH_DATASOURCE_NAME": "grounding-index-datasource"}, clear=False),
+        patch.dict(
+            "os.environ",
+            {"AZURE_SEARCH_DATASOURCE_NAME": "grounding-index-datasource"},
+            clear=False,
+        ),
     ):
         client = _build_client()
         response = client.get("/api/diagnostics/search/datasource-connectivity")
@@ -276,8 +276,12 @@ def test_field_mappings_diagnostics_reports_missing_target_fields() -> None:
             assert name == "grounding-index-indexer"
             return SimpleNamespace(
                 field_mappings=[
-                    SimpleNamespace(source_field_name="source_path", target_field_name="source_path"),
-                    SimpleNamespace(source_field_name="legacy_field", target_field_name="missing_field"),
+                    SimpleNamespace(
+                        source_field_name="source_path", target_field_name="source_path"
+                    ),
+                    SimpleNamespace(
+                        source_field_name="legacy_field", target_field_name="missing_field"
+                    ),
                 ]
             )
 
@@ -290,8 +294,12 @@ def test_field_mappings_diagnostics_reports_missing_target_fields() -> None:
             assert name == "grounding-index"
             return SimpleNamespace(
                 fields=[
-                    SimpleNamespace(name="source_path", type="Edm.String", searchable=True, filterable=False),
-                    SimpleNamespace(name="content", type="Edm.String", searchable=True, filterable=False),
+                    SimpleNamespace(
+                        name="source_path", type="Edm.String", searchable=True, filterable=False
+                    ),
+                    SimpleNamespace(
+                        name="content", type="Edm.String", searchable=True, filterable=False
+                    ),
                 ]
             )
 

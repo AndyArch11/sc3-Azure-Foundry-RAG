@@ -1,4 +1,5 @@
 """Ingestion and corpus upload helpers."""
+
 from __future__ import annotations
 
 import hashlib
@@ -44,12 +45,18 @@ class IngestionService:
         self.svc = svc
 
     def _svc_attr(self, name: str, default: Any) -> Any:
+        """Resolve an attribute from the injected service container with fallback."""
+
         return getattr(self.svc, name, default)
 
     def is_corpus_upload_enabled(self) -> bool:
+        """Return whether storage-backed corpus upload is configured."""
+
         return bool(self.svc.config.storage_account_name)
 
     def is_ingestion_job_trigger_enabled(self) -> bool:
+        """Return whether Azure Container Apps job trigger settings are configured."""
+
         return bool(
             self.svc.config.ingestion_job_subscription_id
             and self.svc.config.ingestion_job_resource_group
@@ -57,9 +64,13 @@ class IngestionService:
         )
 
     def trigger_ingestion_job(self) -> dict[str, Any]:
+        """Trigger the ingestion job with its default container arguments."""
+
         return self.trigger_ingestion_job_with_args(None)
 
     def is_indexer_running(self, status: Any) -> bool:
+        """Return True when an Azure Search indexer status indicates an active run."""
+
         try:
             last_result = getattr(status, "last_result", None)
             if last_result is not None:
@@ -71,6 +82,8 @@ class IngestionService:
         return False
 
     def wait_for_indexer_idle(self, indexer_name: str, timeout_seconds: int = 900) -> bool:
+        """Poll indexer status until it is idle or timeout is reached."""
+
         search_indexer_client_cls = self._svc_attr("SearchIndexerClient", SearchIndexerClient)
         client = search_indexer_client_cls(
             endpoint=self.svc.config.search_endpoint,
@@ -92,6 +105,8 @@ class IngestionService:
         return False
 
     def reset_grounding_indexer_state(self) -> str:
+        """Reset the configured grounding indexer, waiting if an active run blocks reset."""
+
         indexer_name = os.getenv(
             "AZURE_SEARCH_INDEXER_NAME",
             f"{self.svc.config.search_index_name}-indexer",
@@ -127,6 +142,8 @@ class IngestionService:
         return indexer_name
 
     def get_ingestion_job_template_container(self, token: str) -> dict[str, Any]:
+        """Fetch the configured ingestion job and return its first template container."""
+
         requests_module = self._svc_attr("requests", requests)
         get_url = (
             f"https://management.azure.com/subscriptions/{self.svc.config.ingestion_job_subscription_id}"
@@ -148,9 +165,9 @@ class IngestionService:
             raise RuntimeError("Ingestion job definition contains no containers.")
         return dict(containers[0])
 
-    def trigger_ingestion_job_with_args(
-        self, args_override: list[str] | None
-    ) -> dict[str, Any]:
+    def trigger_ingestion_job_with_args(self, args_override: list[str] | None) -> dict[str, Any]:
+        """Start the ingestion job, optionally overriding container args for one run."""
+
         if not self.is_ingestion_job_trigger_enabled():
             raise RuntimeError(
                 "Ingestion job trigger is not configured. "
@@ -207,9 +224,9 @@ class IngestionService:
             "args_override": args_override or [],
         }
 
-    def blob_has_required_ingestion_metadata(
-        self, metadata: dict[str, str] | None
-    ) -> bool:
+    def blob_has_required_ingestion_metadata(self, metadata: dict[str, str] | None) -> bool:
+        """Validate that a blob metadata dict contains all required ingestion fields."""
+
         if not metadata:
             return False
         for key in REQUIRED_INGESTION_METADATA_KEYS:
@@ -220,6 +237,8 @@ class IngestionService:
     def mark_dedupe_blobs_for_reindex(
         self, corpus: str, dedupe_hashes: list[str], *, user_id: str
     ) -> dict[str, Any]:
+        """Mark deduplicated blobs for reindex by stamping reindex metadata keys."""
+
         if not dedupe_hashes:
             return {"requested": 0, "touched": 0, "not_found": [], "failed": []}
 
@@ -263,6 +282,8 @@ class IngestionService:
         }
 
     def latest_ingestion_job_execution(self) -> dict[str, Any] | None:
+        """Return summary details for the latest ingestion job execution, if any."""
+
         if not self.is_ingestion_job_trigger_enabled():
             return None
 
@@ -309,6 +330,8 @@ class IngestionService:
         corpus: str,
         corpus_role: str,
     ) -> dict[str, Any]:
+        """Upload corpus files with dedupe metadata and repair stale dedupe artifacts."""
+
         if not self.is_corpus_upload_enabled():
             raise RuntimeError(
                 "Corpus upload is not configured. Set AZURE_STORAGE_ACCOUNT_NAME in query web configuration."
@@ -450,6 +473,8 @@ class IngestionService:
         }
 
     def upload_corpus_b_files(self, files: list[UploadFile], user_id: str) -> dict[str, Any]:
+        """Upload files into Corpus B (narrative guidance)."""
+
         return self.upload_corpus_files(
             files,
             user_id,
@@ -458,6 +483,8 @@ class IngestionService:
         )
 
     def upload_corpus_c_files(self, files: list[UploadFile], user_id: str) -> dict[str, Any]:
+        """Upload files into Corpus C (assessed artifacts)."""
+
         return self.upload_corpus_files(
             files,
             user_id,
@@ -472,12 +499,16 @@ class IngestionService:
         *,
         framework: str,
     ) -> dict[str, Any]:
+        """Upload framework reference source files for Corpus A ingestion."""
+
         if not self.is_corpus_upload_enabled():
             raise RuntimeError(
                 "Corpus upload is not configured. Set AZURE_STORAGE_ACCOUNT_NAME in query web configuration."
             )
 
-        framework_key, prepared_uploads = self.svc._prepare_corpus_a_reference_uploads(framework, files)
+        framework_key, prepared_uploads = self.svc._prepare_corpus_a_reference_uploads(
+            framework, files
+        )
 
         account_url = f"https://{self.svc.config.storage_account_name}.blob.core.windows.net"
         blob_service_client_cls = self._svc_attr("BlobServiceClient", BlobServiceClient)

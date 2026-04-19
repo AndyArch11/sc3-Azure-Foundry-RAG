@@ -8,6 +8,7 @@ from .azure_assessment import run_azure_assessment
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run main."""
     parser = argparse.ArgumentParser(description="Azure compliance assessment CLI")
     parser.add_argument("--subscription-id", required=True, help="Azure subscription identifier")
     parser.add_argument("--resource-group", default="", help="Azure resource group name")

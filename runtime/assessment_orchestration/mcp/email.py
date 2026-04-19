@@ -8,12 +8,15 @@ from ..models import DeliveryOutcome
 
 
 class EmailMCPServer:
+    """EmailMCPServer."""
+
     provider = "email"
 
     _URL_PATTERN = re.compile(r"https?://[^\s<>'\"]+", re.IGNORECASE)
 
     @staticmethod
     def _host_is_exact_or_subdomain(host: str, domain: str) -> bool:
+        """Run host is exact or subdomain."""
         host_l = host.strip().lower()
         domain_l = domain.strip().lower()
         return host_l == domain_l or host_l.endswith(f".{domain_l}")
@@ -26,9 +29,11 @@ class EmailMCPServer:
         folder: str = "Inbox",
         unread_only: bool = True,
     ) -> list[dict[str, Any]]:
+        """Run read inbox notifications."""
         raise NotImplementedError("Email inbox notification retrieval is not implemented yet")
 
     def parse_notification_target(self, message: dict[str, Any]) -> dict[str, Any]:
+        """Run parse notification target."""
         body = str(message.get("body") or "")
         subject = str(message.get("subject") or "")
         text = f"{subject}\n{body}"
@@ -58,6 +63,7 @@ class EmailMCPServer:
         }
 
     def resolve_recipients(self, recipient_candidates: list[str], *, policy: str = "") -> list[str]:
+        """Run resolve recipients."""
         seen: set[str] = set()
         resolved: list[str] = []
         for candidate in recipient_candidates:
@@ -81,11 +87,13 @@ class EmailMCPServer:
         body: str,
         idempotency_key: str,
     ) -> DeliveryOutcome:
+        """Run send email."""
         raise NotImplementedError("Email delivery is not implemented yet")
 
     def mark_notification_processed(
         self, message_id: str, *, processing_state: str
     ) -> dict[str, Any]:
+        """Run mark notification processed."""
         return {
             "success": True,
             "message_id": str(message_id).strip(),

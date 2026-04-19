@@ -1,10 +1,11 @@
 """Unit tests for query_web/ingestion.py."""
+
 from __future__ import annotations
 
 import io
 import os
-from typing import Any
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -15,8 +16,7 @@ os.environ.setdefault("AZURE_COSMOS_ENDPOINT", "https://test.documents.azure.com
 os.environ.setdefault("AZURE_COSMOS_DATABASE_NAME", "rag-conversations")
 os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 
-from query_web.endpoints.ingestion import IngestionService, REQUIRED_INGESTION_METADATA_KEYS
-
+from query_web.endpoints.ingestion import REQUIRED_INGESTION_METADATA_KEYS, IngestionService
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -56,7 +56,10 @@ def _make_svc(
     )
     svc._dedupe_blob_prefix = lambda corpus, h: f"corpus-{corpus}/by-dedupe/{h}"
     svc._sanitise_blob_name_component = lambda v: v.replace(" ", "_")
-    svc._compute_normalised_text_hash = lambda content, filename, content_type: (None, "content_sha256")
+    svc._compute_normalised_text_hash = lambda content, filename, content_type: (
+        None,
+        "content_sha256",
+    )
     return svc
 
 
@@ -191,11 +194,13 @@ def test_is_indexer_running_no_last_result() -> None:
 def test_is_indexer_running_exception_returns_false() -> None:
     svc = _make_svc()
     service = IngestionService(svc)
+
     # An object that raises when accessed
     class _Bad:
         @property
         def last_result(self):
             raise RuntimeError("oops")
+
     assert service.is_indexer_running(_Bad()) is False
 
 
@@ -256,9 +261,7 @@ def test_trigger_ingestion_job_with_args_override_fetches_container() -> None:
     get_response.status_code = 200
     get_response.json.return_value = {
         "properties": {
-            "template": {
-                "containers": [{"image": "myimage", "name": "ingest", "args": []}]
-            }
+            "template": {"containers": [{"image": "myimage", "name": "ingest", "args": []}]}
         }
     }
 
@@ -521,7 +524,9 @@ def test_upload_corpus_files_skips_disallowed_extension() -> None:
     svc.ContentSettings = Mock()
 
     file = _make_upload_file("malware.exe", b"evil")
-    result = service.upload_corpus_files([file], "user1", corpus="b", corpus_role="narrative_guidance")
+    result = service.upload_corpus_files(
+        [file], "user1", corpus="b", corpus_role="narrative_guidance"
+    )
     assert len(result["uploaded"]) == 0
     assert len(result["skipped"]) == 1
 
@@ -545,7 +550,9 @@ def test_upload_corpus_files_skips_duplicate_blob() -> None:
     svc.ContentSettings = Mock()
 
     file = _make_upload_file("doc.pdf", b"pdf content")
-    result = service.upload_corpus_files([file], "user1", corpus="b", corpus_role="narrative_guidance")
+    result = service.upload_corpus_files(
+        [file], "user1", corpus="b", corpus_role="narrative_guidance"
+    )
     assert len(result["uploaded"]) == 0
     assert len(result["skipped"]) == 1
 
@@ -563,6 +570,8 @@ def test_upload_corpus_files_empty_file_skipped() -> None:
     svc.ContentSettings = Mock()
 
     file = _make_upload_file("empty.pdf", b"")
-    result = service.upload_corpus_files([file], "user1", corpus="b", corpus_role="narrative_guidance")
+    result = service.upload_corpus_files(
+        [file], "user1", corpus="b", corpus_role="narrative_guidance"
+    )
     assert len(result["uploaded"]) == 0
     assert len(result["skipped"]) == 1

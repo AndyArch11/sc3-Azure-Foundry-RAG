@@ -163,12 +163,14 @@ _ROMAN_OR_PAGE_RE = re.compile(r"^(?:[ivxlcdm]+|\d+)$", re.IGNORECASE)
 
 
 def _flatten(text: str) -> str:
+    """Run flatten."""
     text = text.replace("-\n", "-")
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
 def _clean_page_text(text: str) -> str:
+    """Run clean page text."""
     cleaned: list[str] = []
     for raw_line in (text or "").replace("\xa0", " ").splitlines():
         line = re.sub(r"\s+", " ", raw_line).strip()
@@ -187,12 +189,14 @@ def _clean_page_text(text: str) -> str:
 
 
 def _download_pdf_bytes(url: str) -> bytes:
+    """Run download pdf bytes."""
     response = requests.get(url, timeout=60)
     response.raise_for_status()
     return response.content
 
 
 def _extract_full_text(pdf_bytes: bytes) -> str:
+    """Run extract full text."""
     if _PdfReader is None:
         raise RuntimeError(
             "pypdf is required for PSPF PDF parsing. Install with: pip install pypdf"
@@ -204,16 +208,19 @@ def _extract_full_text(pdf_bytes: bytes) -> str:
 
 
 def _heading_level(number: str) -> int:
+    """Run heading level."""
     return number.count(".")
 
 
 def _format_heading(number: str, title: str) -> str:
+    """Run format heading."""
     return f"{number} {title}".strip()
 
 
 def _build_source_section(
     domain_code: str, headings: dict[int, tuple[str, str]], requirement_number: str
 ) -> str:
+    """Run build source section."""
     parts = [domain_code]
     for level in sorted(headings):
         number, title = headings[level]
@@ -223,6 +230,7 @@ def _build_source_section(
 
 
 def _current_control_family(domain_code: str, headings: dict[int, tuple[str, str]]) -> str:
+    """Run current control family."""
     if headings:
         _, title = headings[max(headings)]
         return title
@@ -230,6 +238,7 @@ def _current_control_family(domain_code: str, headings: dict[int, tuple[str, str
 
 
 def _should_ignore_heading(number: str, title: str) -> bool:
+    """Run should ignore heading."""
     if title.startswith(("Including ", "This includes ")):
         return True
     if number.isdigit() and int(number) > 30:
@@ -238,6 +247,7 @@ def _should_ignore_heading(number: str, title: str) -> bool:
 
 
 def _should_skip_context_line(line: str) -> bool:
+    """Run should skip context line."""
     if line.startswith("Table ") or line.startswith("Figure "):
         return True
     if line.startswith("Req Number") or line.startswith("Status PSPF Reporting"):
@@ -252,6 +262,7 @@ def _should_skip_context_line(line: str) -> bool:
 
 
 def _should_stop_requirement_capture(line: str) -> bool:
+    """Run should stop requirement capture."""
     if _REQ_HEADER_RE.match(line) or _HEADING_RE.match(line):
         return True
     if line.startswith("Table "):
@@ -267,6 +278,7 @@ def _pspf_keywords(
     headings: dict[int, tuple[str, str]],
     requirement_text: str,
 ) -> list[str]:
+    """Run pspf keywords."""
     keywords: list[str] = []
     keywords.extend(_DOMAIN_KEYWORDS.get(domain_code, []))
 
@@ -294,6 +306,7 @@ def _pspf_keywords(
 
 
 def _parse_pspf_release_text(full_text: str) -> list[RequirementRecord]:
+    """Run parse pspf release text."""
     lines = [line.strip() for line in full_text.splitlines() if line.strip()]
     headings: dict[int, tuple[str, str]] = {}
     guidance_lines: list[str] = []
@@ -385,10 +398,14 @@ def _parse_pspf_release_text(full_text: str) -> list[RequirementRecord]:
 
 
 class PspfParser(BaseParser):
+    """PspfParser."""
+
     def __init__(self, release_pdf_url: str = SOURCE_URI, **_kwargs: Any) -> None:
+        """Run init."""
         self._release_pdf_url = release_pdf_url
 
     def parse(self) -> List[RequirementRecord]:
+        """Run parse."""
         pdf_bytes = _download_pdf_bytes(self._release_pdf_url)
         full_text = _extract_full_text(pdf_bytes)
         records = _parse_pspf_release_text(full_text)

@@ -17,16 +17,19 @@ _ALLOWED_IDENTITY_MODES = {"app_only", "delegated"}
 
 
 def _require_non_empty_string(name: str, value: object) -> str:
+    """Run require non empty string."""
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must be a non-empty string")
     return value.strip()
 
 
 def _optional_string(value: object) -> str:
+    """Run optional string."""
     return value.strip() if isinstance(value, str) else ""
 
 
 def validate_identity_mode(value: object) -> str:
+    """Run validate identity mode."""
     mode = _require_non_empty_string("identity_mode", value)
     if mode not in _ALLOWED_IDENTITY_MODES:
         raise ValueError(f"identity_mode must be one of {sorted(_ALLOWED_IDENTITY_MODES)}")
@@ -34,12 +37,14 @@ def validate_identity_mode(value: object) -> str:
 
 
 def _mapping_to_str_dict(value: object) -> dict[str, Any] | None:
+    """Run mapping to str dict."""
     if not isinstance(value, Mapping):
         return None
     return {str(key): val for key, val in value.items()}
 
 
 def validate_person_reference(payload: Mapping[str, Any]) -> PersonReference:
+    """Run validate person reference."""
     return PersonReference(
         principal_id=_require_non_empty_string("principal_id", payload.get("principal_id")),
         display_name=_require_non_empty_string("display_name", payload.get("display_name")),
@@ -48,6 +53,7 @@ def validate_person_reference(payload: Mapping[str, Any]) -> PersonReference:
 
 
 def validate_assessment_job(payload: Mapping[str, Any]) -> AssessmentJob:
+    """Run validate assessment job."""
     return AssessmentJob(
         job_id=_require_non_empty_string("job_id", payload.get("job_id")),
         source_type=_require_non_empty_string("source_type", payload.get("source_type")),
@@ -69,6 +75,7 @@ def validate_assessment_job(payload: Mapping[str, Any]) -> AssessmentJob:
 
 
 def validate_resolved_target(payload: Mapping[str, Any]) -> ResolvedTarget:
+    """Run validate resolved target."""
     return ResolvedTarget(
         provider=_require_non_empty_string("provider", payload.get("provider")),
         target_type=_require_non_empty_string("target_type", payload.get("target_type")),
@@ -82,6 +89,7 @@ def validate_resolved_target(payload: Mapping[str, Any]) -> ResolvedTarget:
 
 
 def validate_access_decision(payload: Mapping[str, Any]) -> AccessDecision:
+    """Run validate access decision."""
     granted = payload.get("granted")
     if not isinstance(granted, bool):
         raise ValueError("granted must be a boolean")
@@ -94,6 +102,7 @@ def validate_access_decision(payload: Mapping[str, Any]) -> AccessDecision:
 
 
 def validate_assessed_artifact_package(payload: Mapping[str, Any]) -> AssessedArtifactPackage:
+    """Run validate assessed artifact package."""
     owner_payload = payload.get("owner")
     editor_payload = payload.get("last_editor")
     return AssessedArtifactPackage(
@@ -116,6 +125,7 @@ def validate_assessed_artifact_package(payload: Mapping[str, Any]) -> AssessedAr
 
 
 def validate_corpus_grounding_package(payload: Mapping[str, Any]) -> CorpusGroundingPackage:
+    """Run validate corpus grounding package."""
     return CorpusGroundingPackage(
         corpus_a_results=list(payload.get("corpus_a_results") or []),
         corpus_b_results=list(payload.get("corpus_b_results") or []),
@@ -124,6 +134,7 @@ def validate_corpus_grounding_package(payload: Mapping[str, Any]) -> CorpusGroun
 
 
 def validate_delivery_plan(payload: Mapping[str, Any]) -> DeliveryPlan:
+    """Run validate delivery plan."""
     recipients = payload.get("email_recipients") or []
     if not isinstance(recipients, list):
         raise ValueError("email_recipients must be a list")
@@ -138,6 +149,7 @@ def validate_delivery_plan(payload: Mapping[str, Any]) -> DeliveryPlan:
 
 
 def validate_delivery_outcome(payload: Mapping[str, Any]) -> DeliveryOutcome:
+    """Run validate delivery outcome."""
     success = payload.get("success")
     if not isinstance(success, bool):
         raise ValueError("success must be a boolean")

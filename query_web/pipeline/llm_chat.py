@@ -1,11 +1,15 @@
 """LLM and validator helpers extracted from app.py."""
+
 from __future__ import annotations
 
 import json
 import re
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from query_web.security.prompt_injection_guard import BLOCKED_PROMPT_INJECTION_MESSAGE
+
+if TYPE_CHECKING:
+    from openai.types.chat import ChatCompletionMessageParam
 
 CYBER_PERSONA_PROMPT = (
     "You are a Cyber Security Assistant. Answer questions related to cyber safety, "
@@ -135,7 +139,7 @@ def _chat_completion(
         api_version="2024-08-01-preview",
         azure_endpoint=svc.config.openai_endpoint,
     )
-    typed_messages = cast("list[ChatCompletionMessageParam]", messages)
+    typed_messages = cast(list[ChatCompletionMessageParam], messages)
 
     safe_temperature = max(0.0, min(1.0, float(temperature)))
 

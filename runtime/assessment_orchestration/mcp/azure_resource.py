@@ -18,6 +18,7 @@ def build_azure_target_reference(
     resource_group: str,
     resource_ids: list[str] | None = None,
 ) -> str:
+    """Run build azure target reference."""
     encoded_sub = quote(subscription_id.strip(), safe="")
     encoded_rg = quote(resource_group.strip(), safe="")
     encoded_ids = ",".join(
@@ -27,6 +28,8 @@ def build_azure_target_reference(
 
 
 class AzureMCPServer:
+    """AzureMCPServer."""
+
     provider = "azure"
 
     def __init__(
@@ -37,6 +40,7 @@ class AzureMCPServer:
         max_resources: int = 100,
         http_get: Callable[..., requests.Response] | None = None,
     ) -> None:
+        """Run init."""
         self._credential = credential or DefaultAzureCredential()
         self._management_base_url = management_base_url.rstrip("/")
         self._resolved_scopes: dict[str, dict[str, Any]] = {}
@@ -46,6 +50,7 @@ class AzureMCPServer:
     def resolve_target(
         self, target_reference: str, *, requester_context: dict[str, Any] | None = None
     ) -> ResolvedTarget:
+        """Run resolve target."""
         scope = self._parse_target_reference(target_reference)
         canonical_scope = json.dumps(scope, sort_keys=True)
         target_id = hashlib.sha256(canonical_scope.encode("utf-8")).hexdigest()[:24]
@@ -70,6 +75,7 @@ class AzureMCPServer:
     def check_user_access(
         self, target_id: str, delegated_user_context: dict[str, Any]
     ) -> AccessDecision:
+        """Run check user access."""
         return AccessDecision(
             granted=True,
             identity_mode="delegated",
@@ -84,6 +90,7 @@ class AzureMCPServer:
         identity_mode: str,
         include_discussion_context: bool = False,
     ) -> AssessedArtifactPackage:
+        """Run get content by id."""
         if identity_mode not in {"app_only", "delegated"}:
             raise ValueError("identity_mode must be app_only or delegated")
 
@@ -122,17 +129,21 @@ class AzureMCPServer:
         identity_mode: str,
         trigger_context: dict[str, Any] | None = None,
     ) -> AssessedArtifactPackage:
+        """Run get flagged item context."""
         return self.get_content_by_id(
             target_id, identity_mode=identity_mode, include_discussion_context=False
         )
 
     def resolve_page_owner(self, target_id: str) -> dict[str, Any]:
+        """Run resolve page owner."""
         return {"principal_id": "", "display_name": "", "email": ""}
 
     def resolve_last_editor(self, target_id: str) -> dict[str, Any]:
+        """Run resolve last editor."""
         return {"principal_id": "", "display_name": "", "email": ""}
 
     def _parse_target_reference(self, target_reference: str) -> dict[str, Any]:
+        """Run parse target reference."""
         value = target_reference.strip()
         if value.startswith("/subscriptions/"):
             return self._scope_from_resource_ids([value])
@@ -168,6 +179,7 @@ class AzureMCPServer:
         resource_ids: list[str],
         fallback_subscription: str = "",
     ) -> dict[str, Any]:
+        """Run scope from resource ids."""
         normalised = [item.strip() for item in resource_ids if item.strip()]
         if not normalised:
             raise ValueError("At least one Azure resource ID is required")
@@ -206,6 +218,7 @@ class AzureMCPServer:
         }
 
     def _extract_configuration(self, scope: dict[str, Any]) -> dict[str, Any]:
+        """Run extract configuration."""
         subscription_id = str(scope["subscription_id"])
         resource_group = str(scope["resource_group"])
         requested_ids = list(scope.get("resource_ids") or [])
@@ -250,6 +263,7 @@ class AzureMCPServer:
         resource_group: str,
         resource_ids: list[str],
     ) -> dict[str, Any]:
+        """Run extract policy context."""
         scope_paths = [
             f"/subscriptions/{subscription_id}",
             f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}",
@@ -283,6 +297,7 @@ class AzureMCPServer:
         }
 
     def _list_policy_assignments(self, scope_path: str) -> list[dict[str, Any]]:
+        """Run list policy assignments."""
         next_url = f"{self._management_base_url}{scope_path}/providers/Microsoft.Authorization/policyAssignments"
         assignments: list[dict[str, Any]] = []
 
@@ -317,6 +332,7 @@ class AzureMCPServer:
         return assignments
 
     def _read_policy_definition(self, definition_id: str) -> dict[str, Any]:
+        """Run read policy definition."""
         payload = self._arm_get_json(definition_id, api_version="2023-04-01")
         raw_properties = payload.get("properties")
         properties: dict[str, Any] = raw_properties if isinstance(raw_properties, dict) else {}
@@ -352,6 +368,7 @@ class AzureMCPServer:
         return summary
 
     def _extract_policy_effect(self, policy_rule: dict[str, Any]) -> str:
+        """Run extract policy effect."""
         raw_then_clause = policy_rule.get("then")
         then_clause: dict[str, Any] = raw_then_clause if isinstance(raw_then_clause, dict) else {}
         effect = then_clause.get("effect")
@@ -362,6 +379,7 @@ class AzureMCPServer:
         return ""
 
     def _arm_get_json(self, path_or_url: str, api_version: str = "2021-04-01") -> dict[str, Any]:
+        """Run arm get json."""
         token = self._credential.get_token("https://management.azure.com/.default").token
         if path_or_url.startswith("http://") or path_or_url.startswith("https://"):
             separator = "&" if "?" in path_or_url else "?"
@@ -384,6 +402,7 @@ class AzureMCPServer:
         return payload
 
     def _read_resource_by_id(self, resource_id: str) -> dict[str, Any]:
+        """Run read resource by id."""
         payload = self._arm_get_json(resource_id, api_version="2021-04-01")
         return {
             "id": str(payload.get("id") or resource_id),
@@ -399,6 +418,7 @@ class AzureMCPServer:
     def _list_resources_in_group(
         self, subscription_id: str, resource_group: str
     ) -> list[dict[str, Any]]:
+        """Run list resources in group."""
         next_url = f"{self._management_base_url}/subscriptions/{subscription_id}/resourceGroups/{resource_group}/resources"
         resources: list[dict[str, Any]] = []
 

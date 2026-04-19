@@ -424,6 +424,7 @@ class ASDGuidanceParser:
     """
 
     def __init__(self, control_family: str, url: str) -> None:
+        """Run init."""
         self.control_family = control_family
         self.url = url
 
@@ -460,11 +461,13 @@ class EssentialEightParser(BaseParser):
         maturity_model_url: str = MATURITY_MODEL_URL,
         fetch_guidance: bool = True,
     ) -> None:
+        """Run init."""
         self.maturity_model_url = maturity_model_url
         self.fetch_guidance = fetch_guidance
 
     def parse(self) -> List[RequirementRecord]:
         # 1. Optionally build a guidance_text map keyed by control family.
+        """Run parse."""
         guidance_map: Dict[str, str] = {}
         if self.fetch_guidance:
             seen_urls: Dict[str, str] = {}  # url -> already-fetched guidance text

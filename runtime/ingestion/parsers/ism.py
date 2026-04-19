@@ -137,6 +137,7 @@ class IsmParser(BaseParser):
     """
 
     def __init__(self, catalog_url: str = _OSCAL_CATALOG_URL, **_kwargs) -> None:
+        """Run init."""
         self._catalog_url = catalog_url
 
     # ------------------------------------------------------------------
@@ -144,6 +145,7 @@ class IsmParser(BaseParser):
     # ------------------------------------------------------------------
 
     def parse(self) -> List[RequirementRecord]:
+        """Run parse."""
         logger.info("Fetching ISM OSCAL catalog from %s", self._catalog_url)
         catalog_data = self._fetch_catalog()
         return self._build_records(catalog_data)
@@ -153,6 +155,7 @@ class IsmParser(BaseParser):
     # ------------------------------------------------------------------
 
     def _fetch_catalog(self) -> dict:
+        """Run fetch catalog."""
         req = urllib.request.Request(
             self._catalog_url,
             headers={"User-Agent": "ism-parser/1.0 (controls ingestion)"},
@@ -162,6 +165,7 @@ class IsmParser(BaseParser):
         return json.loads(raw)
 
     def _build_records(self, data: dict) -> List[RequirementRecord]:
+        """Run build records."""
         catalog = data.get("catalog", data)
         meta = catalog.get("metadata", {})
 

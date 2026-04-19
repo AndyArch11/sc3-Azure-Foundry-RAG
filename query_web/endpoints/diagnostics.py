@@ -19,9 +19,7 @@ _INTERNAL_ERROR_MESSAGE = "Internal server error; check logs for details."
 def _target_env_name() -> str:
     # TARGET_ENV is the canonical flag in this repo; ENV is accepted as fallback.
     return (
-        os.getenv("TARGET_ENV", "").strip().lower()
-        or os.getenv("ENV", "").strip().lower()
-        or "dev"
+        os.getenv("TARGET_ENV", "").strip().lower() or os.getenv("ENV", "").strip().lower() or "dev"
     )
 
 
@@ -56,7 +54,11 @@ def register_diagnostics_endpoints(
         _is_authorised_request = _svc_attr("_is_authorised_request", None)
         _unauthorised_message = _svc_attr("_unauthorised_message", lambda req=None: "Unauthorised.")
         if _is_authorised_request is None or not _is_authorised_request(auth_token, request):
-            msg = _unauthorised_message(request) if callable(_unauthorised_message) else "Unauthorised."
+            msg = (
+                _unauthorised_message(request)
+                if callable(_unauthorised_message)
+                else "Unauthorised."
+            )
             return JSONResponse({"error": msg}, status_code=401)
         if not _diagnostics_enabled():
             return JSONResponse(
@@ -234,9 +236,10 @@ def register_diagnostics_endpoints(
                 "error": None,
             }
         except Exception as exc:
+            logger.exception("Indexer execution history fetch failed: %s", exc)
             return {
                 "execution_history": [],
-                "error": str(exc),
+                "error": _INTERNAL_ERROR_MESSAGE,
             }
 
     def _sample_index_documents(
@@ -284,10 +287,11 @@ def register_diagnostics_endpoints(
                 "error": None,
             }
         except Exception as exc:
+            logger.exception("Index document sampling failed: %s", exc)
             return {
                 "documents": [],
                 "document_count": 0,
-                "error": str(exc),
+                "error": _INTERNAL_ERROR_MESSAGE,
             }
 
     def _validate_blob_metadata_completeness(
@@ -354,18 +358,13 @@ def register_diagnostics_endpoints(
                     }
                     if include_values:
                         sample_entry["metadata_values"] = {
-                            key: str(metadata.get(key) or "")
-                            for key in sorted(metadata.keys())
+                            key: str(metadata.get(key) or "") for key in sorted(metadata.keys())
                         }
 
-                    sample_blobs.append(
-                        sample_entry
-                    )
+                    sample_blobs.append(sample_entry)
 
             completeness_pct = (
-                (blobs_with_complete_metadata / total_scanned * 100)
-                if total_scanned > 0
-                else 0.0
+                (blobs_with_complete_metadata / total_scanned * 100) if total_scanned > 0 else 0.0
             )
 
             return {
@@ -379,9 +378,10 @@ def register_diagnostics_endpoints(
                 "error": None,
             }
         except Exception as exc:
+            logger.exception("Blob metadata completeness validation failed: %s", exc)
             return {
                 "configured": True,
-                "error": str(exc),
+                "error": _INTERNAL_ERROR_MESSAGE,
             }
 
     def _test_datasource_connectivity(
@@ -393,10 +393,13 @@ def register_diagnostics_endpoints(
                 endpoint=config.search_endpoint, credential=credential
             )
 
-            ds_name = datasource_name.strip() or os.getenv(
-                "AZURE_SEARCH_DATASOURCE_NAME",
-                f"{config.search_index_name}-datasource",
-            ).strip()
+            ds_name = (
+                datasource_name.strip()
+                or os.getenv(
+                    "AZURE_SEARCH_DATASOURCE_NAME",
+                    f"{config.search_index_name}-datasource",
+                ).strip()
+            )
 
             if not ds_name:
                 return {
@@ -425,7 +428,7 @@ def register_diagnostics_endpoints(
                         except Exception:
                             pass
 
-            blob_enumeration_test = {
+            blob_enumeration_test: dict[str, Any] = {
                 "attempted": False,
                 "success": False,
                 "blob_count": 0,
@@ -435,9 +438,7 @@ def register_diagnostics_endpoints(
             if _is_corpus_upload_enabled() and query:
                 try:
                     blob_enumeration_test["attempted"] = True
-                    account_url = (
-                        f"https://{config.storage_account_name}.blob.core.windows.net"
-                    )
+                    account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
                     client = BlobServiceClient(account_url=account_url, credential=credential)
                     container = client.get_container_client(config.storage_container_name)
 
@@ -450,7 +451,8 @@ def register_diagnostics_endpoints(
                     blob_enumeration_test["success"] = True
                     blob_enumeration_test["blob_count"] = blob_count
                 except Exception as exc:
-                    blob_enumeration_test["error"] = str(exc)
+                    logger.exception("Blob enumeration test failed: %s", exc)
+                    blob_enumeration_test["error"] = _INTERNAL_ERROR_MESSAGE
 
             return {
                 "configured": True,
@@ -462,9 +464,10 @@ def register_diagnostics_endpoints(
                 "error": None,
             }
         except Exception as exc:
+            logger.exception("Data source connectivity test failed: %s", exc)
             return {
                 "configured": True,
-                "error": str(exc),
+                "error": _INTERNAL_ERROR_MESSAGE,
             }
 
     def _validate_indexer_field_mappings(
@@ -477,10 +480,13 @@ def register_diagnostics_endpoints(
                 endpoint=config.search_endpoint, credential=credential
             )
 
-            indexer_name_resolved = indexer_name.strip() or os.getenv(
-                "AZURE_SEARCH_INDEXER_NAME",
-                f"{config.search_index_name}-indexer",
-            ).strip()
+            indexer_name_resolved = (
+                indexer_name.strip()
+                or os.getenv(
+                    "AZURE_SEARCH_INDEXER_NAME",
+                    f"{config.search_index_name}-indexer",
+                ).strip()
+            )
 
             if not indexer_name_resolved:
                 return {
@@ -532,9 +538,10 @@ def register_diagnostics_endpoints(
                 "error": None,
             }
         except Exception as exc:
+            logger.exception("Indexer field mapping validation failed: %s", exc)
             return {
                 "configured": True,
-                "error": str(exc),
+                "error": _INTERNAL_ERROR_MESSAGE,
             }
 
     # Register endpoints
@@ -581,7 +588,8 @@ def register_diagnostics_endpoints(
             for index in index_client.list_indexes():
                 indexes.append({"name": str(getattr(index, "name", ""))})
         except Exception as exc:
-            errors["indexes"] = str(exc)
+            logger.exception("Failed to list search indexes: %s", exc)
+            errors["indexes"] = _INTERNAL_ERROR_MESSAGE
 
         try:
             get_data_source = getattr(indexer_client, "get_data_source_connection", None)
@@ -619,7 +627,8 @@ def register_diagnostics_endpoints(
                         }
                     )
         except Exception as exc:
-            errors["data_sources"] = str(exc)
+            logger.exception("Failed to retrieve data sources: %s", exc)
+            errors["data_sources"] = _INTERNAL_ERROR_MESSAGE
 
         try:
             get_skillset = getattr(indexer_client, "get_skillset", None)
@@ -645,7 +654,8 @@ def register_diagnostics_endpoints(
                         }
                     )
         except Exception as exc:
-            errors["skillsets"] = str(exc)
+            logger.exception("Failed to retrieve skillsets: %s", exc)
+            errors["skillsets"] = _INTERNAL_ERROR_MESSAGE
 
         try:
             get_indexer = getattr(indexer_client, "get_indexer", None)
@@ -676,7 +686,8 @@ def register_diagnostics_endpoints(
                             "error_message": getattr(run, "error_message", None),
                         }
                 except Exception as exc:
-                    status_summary["error_message"] = f"status unavailable: {exc}"
+                    logger.exception("Failed to get indexer status for %r: %s", indexer_name, exc)
+                    status_summary["error_message"] = _INTERNAL_ERROR_MESSAGE
 
                 indexers.append(
                     {
@@ -688,7 +699,8 @@ def register_diagnostics_endpoints(
                     }
                 )
         except Exception as exc:
-            errors["indexers"] = str(exc)
+            logger.exception("Failed to retrieve indexers: %s", exc)
+            errors["indexers"] = _INTERNAL_ERROR_MESSAGE
 
         payload: dict[str, Any] = {
             "mode": "search-resources-diagnostics",
@@ -738,7 +750,9 @@ def register_diagnostics_endpoints(
             prefix_value = prefix.strip()
 
             account_url = f"https://{resolved_config.storage_account_name}.blob.core.windows.net"
-            client = blob_service_client_cls(account_url=account_url, credential=resolved_credential)
+            client = blob_service_client_cls(
+                account_url=account_url, credential=resolved_credential
+            )
             container = client.get_container_client(resolved_config.storage_container_name)
 
             blob_items: list[dict[str, Any]] = []
@@ -870,7 +884,9 @@ def register_diagnostics_endpoints(
             if include_blob_samples and capped_sample_limit > 0:
                 per_prefix_limit = max(1, capped_sample_limit // max(1, len(prefixes)))
                 try:
-                    account_url = f"https://{resolved_config.storage_account_name}.blob.core.windows.net"
+                    account_url = (
+                        f"https://{resolved_config.storage_account_name}.blob.core.windows.net"
+                    )
                     blob_client = blob_service_client_cls(
                         account_url=account_url,
                         credential=resolved_credential,
@@ -951,9 +967,7 @@ def register_diagnostics_endpoints(
                     {
                         "status": str(exec_dict.get("status") or "unknown"),
                         "items_failed": int(
-                            exec_dict.get("failed_item_count")
-                            or exec_dict.get("items_failed")
-                            or 0
+                            exec_dict.get("failed_item_count") or exec_dict.get("items_failed") or 0
                         ),
                         "errors_count": len(errors_list),
                         "warnings_count": len(warnings_list),
@@ -974,8 +988,7 @@ def register_diagnostics_endpoints(
                     bool(entry.get("rate_limit_detected")) for entry in recent_entries
                 ),
                 "recent_warnings": any(
-                    int(entry.get("actionable_warnings_count", 0)) > 0
-                    for entry in recent_entries
+                    int(entry.get("actionable_warnings_count", 0)) > 0 for entry in recent_entries
                 ),
                 "recent_known_optional_warnings": any(
                     int(entry.get("known_optional_warnings_count", 0)) > 0
@@ -991,13 +1004,17 @@ def register_diagnostics_endpoints(
 
         quick_flags = {
             "storage_has_corpus_b_but_search_corpus_b_empty": bool(
-                storage_counts.get("corpus_b_dedupe", 0) > 0 and search_counts.get("corpus_b", 0) == 0
+                storage_counts.get("corpus_b_dedupe", 0) > 0
+                and search_counts.get("corpus_b", 0) == 0
             ),
             "storage_has_corpus_c_but_search_corpus_c_empty": bool(
-                storage_counts.get("corpus_c_dedupe", 0) > 0 and search_counts.get("corpus_c", 0) == 0
+                storage_counts.get("corpus_c_dedupe", 0) > 0
+                and search_counts.get("corpus_c", 0) == 0
             ),
             "legacy_docs_present": bool(search_counts.get("corpus_legacy", 0) > 0),
-            "recent_indexer_rate_limits": bool((indexer_history_summary or {}).get("recent_rate_limits")),
+            "recent_indexer_rate_limits": bool(
+                (indexer_history_summary or {}).get("recent_rate_limits")
+            ),
             "recent_indexer_warnings": bool((indexer_history_summary or {}).get("recent_warnings")),
             "recent_indexer_known_optional_warnings": bool(
                 (indexer_history_summary or {}).get("recent_known_optional_warnings")
@@ -1032,9 +1049,7 @@ def register_diagnostics_endpoints(
             corpus_c_count = storage_counts.get("corpus_c_dedupe", 0)
             if corpus_a_count > 0 and (corpus_b_count > 0 or corpus_c_count > 0):
                 risk_level = "high"
-                risk_reason = (
-                    "Data source query is empty while multiple corpus prefixes exist in the same container."
-                )
+                risk_reason = "Data source query is empty while multiple corpus prefixes exist in the same container."
             elif corpus_a_count > 0 or corpus_b_count > 0 or corpus_c_count > 0:
                 risk_level = "medium"
                 risk_reason = "Data source query is empty; full container scan is possible."
@@ -1046,7 +1061,9 @@ def register_diagnostics_endpoints(
             risk_reason = "Data source query is scoped to a corpus-specific dedupe prefix."
         else:
             risk_level = "medium"
-            risk_reason = "Data source query is set but not one of the expected corpus dedupe prefixes."
+            risk_reason = (
+                "Data source query is set but not one of the expected corpus dedupe prefixes."
+            )
 
         scope_query_diagnostics = {
             "configured_data_source_name": configured_datasource_name,
@@ -1168,8 +1185,12 @@ def register_diagnostics_endpoints(
                     "next_link": result.get("next_link"),
                     "quick_flags": {
                         "repository_empty": not bool(tags),
-                        "multiple_tags_share_digest": len(tags) > len(distinct_digests) if tags else False,
-                        "expected_tag_present": expected_tag_present if expected_tag_value else None,
+                        "multiple_tags_share_digest": (
+                            len(tags) > len(distinct_digests) if tags else False
+                        ),
+                        "expected_tag_present": (
+                            expected_tag_present if expected_tag_value else None
+                        ),
                     },
                 }
             )
@@ -1249,16 +1270,12 @@ def register_diagnostics_endpoints(
                                 for e in result.get("execution_history", [])[:5]
                             )
                         ),
-                        "execution_history_available": bool(
-                            result.get("execution_history")
-                        ),
+                        "execution_history_available": bool(result.get("execution_history")),
                     },
                 }
             )
         except Exception as exc:
-            logger.exception(
-                "Failed /api/diagnostics/search/indexer-history request: %s", exc
-            )
+            logger.exception("Failed /api/diagnostics/search/indexer-history request: %s", exc)
             return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.get("/api/diagnostics/search/index-samples")
@@ -1276,7 +1293,9 @@ def register_diagnostics_endpoints(
         capped_limit = max(1, min(limit, 50))
 
         try:
-            result = _sample_index_documents(limit=capped_limit, include_all_fields=include_all_fields)
+            result = _sample_index_documents(
+                limit=capped_limit, include_all_fields=include_all_fields
+            )
 
             return JSONResponse(
                 {
@@ -1332,9 +1351,7 @@ def register_diagnostics_endpoints(
                     "include_values": include_values,
                     "configured": result.get("configured", False),
                     "total_scanned": result.get("total_scanned", 0),
-                    "blobs_with_complete_metadata": result.get(
-                        "blobs_with_complete_metadata", 0
-                    ),
+                    "blobs_with_complete_metadata": result.get("blobs_with_complete_metadata", 0),
                     "completeness_percent": result.get("completeness_percent", 0.0),
                     "missing_metadata_distribution": result.get(
                         "missing_metadata_distribution", {}
@@ -1354,9 +1371,7 @@ def register_diagnostics_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception(
-                "Failed /api/diagnostics/storage/metadata-validation request: %s", exc
-            )
+            logger.exception("Failed /api/diagnostics/storage/metadata-validation request: %s", exc)
             return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.get("/api/diagnostics/search/datasource-connectivity")

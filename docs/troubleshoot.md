@@ -1,0 +1,480 @@
+# Troubleshooting Guide
+
+## Before You Start
+
+**Administrative actions** (Terraform, ACR, Key Vault management, role assignments) use your personal Azure identity via `az login`.
+
+**Network-secured actions** (Container App log streaming, blob access via private endpoint, internal service calls) must be performed from the jumpbox using `az login --identity`.
+
+Always set your target environment first:
+
+```bash
+export TARGET_ENV="dev"   # or prod, staging, etc.
+```
+
+Make sure you are in the project root and on the latest code:
+
+```bash
+cd sc3-Azure-Foundry-RAG
+git pull
+```
+
+Activate the Python virtual environment before running any Python commands:
+
+```bash
+source runtime/.venv/bin/activate
+```
+
+---
+
+## Solution Components
+
+The deployment consists of:
+
+- **GitHub** — source and CI/CD
+- **Terraform** — infrastructure provisioning
+- **Azure Container Registry (ACR)** — image storage
+- **Azure Container Apps** — query web app, ingestion job, Confluence poller
+- **Azure Key Vault** — secrets
+- **Azure Storage** — blob storage for corpus data and Terraform state
+- **Azure Cosmos DB** — conversation history and orchestration state
+- **Azure Foundry / Azure OpenAI** — LLM inference and embeddings
+- **Azure AI Search** — grounding index
+- **Private VNet + private endpoints** — network isolation
+
+Most runtime actions require both Azure identity and jumpbox network access.
+
+---
+
+## Common Quick Checks
+
+### Resolve deployment variables
+
+See `infra/terraform/outputs.tf` for list of Azure resources that can be obtained from Terraform and the string to use to obtain the resource name
+
+```bash
+TF_DIR="infra/terraform"
+RG="rg-ai-platform-${TARGET_ENV}"
+
+terraform -chdir="${TF_DIR}" init \
+  -backend-config="environments/${TARGET_ENV}/backend.hcl"
+
+QUERY_FQDN=$(terraform -chdir="${TF_DIR}" output -raw query_web_fqdn)
+COSMOS_ACCOUNT=$(az cosmosdb list -g "${RG}" --query "[0].name" -o tsv)
+SEARCH_ENDPOINT=$(terraform -chdir="${TF_DIR}" output -raw search_endpoint 2>/dev/null || true)
+```
+
+### Health check
+
+```bash
+curl "https://${QUERY_FQDN}/health"
+# Expected: {"status":"ok","service":"rag-query-web",...}
+```
+
+### Configuration check
+
+```bash
+curl "https://${QUERY_FQDN}/api/config"
+# Verify: default_temperature, evaluator_temperature, prompt_injection_validator_temperature
+```
+
+---
+
+## Docker (Jumpbox)
+
+### No space left on device during build
+
+```bash
+# 1. Check what is full
+sudo docker info --format '{{.DockerRootDir}}'
+sudo df -h /var/lib/docker
+sudo df -ih /var/lib/docker
+sudo docker system df -v
+
+# 2. Safe cleanup (stopped resources only)
+sudo docker builder prune -af
+sudo docker image prune -af
+sudo docker container prune -f
+sudo docker volume prune -f
+
+# 3. Full reclaim if still tight
+sudo docker system prune -af --volumes
+```
+
+---
+
+## Azure Container Registry
+
+```bash
+ACR="acrdevaue04"   # replace with your ACR name
+
+# List repositories
+az acr repository list --name "${ACR}" --output table
+
+# List image tags, newest first
+az acr repository show-tags --name "${ACR}" --repository rag-query-web \
+  --orderby time_desc --output table
+
+az acr repository show-tags --name "${ACR}" --repository rag-ingestion \
+  --orderby time_desc --output table
+
+az acr repository show-tags --name "${ACR}" --repository rag-confluence-poller \
+  --orderby time_desc --output table
+```
+
+---
+
+## Container Apps
+
+```bash
+RG="rg-ai-platform-${TARGET_ENV}"
+
+# --- Query web app ---
+APP="ca-query-web-${TARGET_ENV}-aue-XXXXXXXX"   # replace suffix
+
+# Show current environment variables
+az containerapp show -g "${RG}" -n "${APP}" \
+  --query "properties.template.containers[0].env" -o table
+
+# Filter to a specific variable pattern
+az containerapp show -g "${RG}" -n "${APP}" \
+  --query "properties.template.containers[0].env[?contains(name,'AZURE_COSMOS')]"
+
+# Set an environment variable
+az containerapp update -g "${RG}" -n "${APP}" \
+  --set-env-vars AZURE_COSMOS_ORCHESTRATION_CONTAINER_NAME=orchestration-state
+
+# Restart the app (to pick up env var changes)
+az containerapp revision restart -g "${RG}" -n "${APP}" --revision "$(
+  az containerapp show -g "${RG}" -n "${APP}" \
+    --query "properties.latestRevisionName" -o tsv
+)"
+
+# Stream live logs
+az containerapp logs show -g "${RG}" -n "${APP}" --follow --tail 100
+```
+
+### Container App Jobs (ingestion, Confluence poller)
+
+```bash
+JOB="caj-ingestion-${TARGET_ENV}-aue-XXXXXXXX"   # replace suffix
+
+# List recent executions
+az containerapp job execution list \
+  --resource-group "${RG}" \
+  --name "${JOB}" \
+  -o table
+
+# Get container name from the job template
+CONTAINER_NAME=$(az containerapp job show -g "${RG}" -n "${JOB}" \
+  --query "properties.template.containers[0].name" -o tsv)
+# Typical values: ingestion-runner, confluence-poller
+
+# Stream logs for the latest execution
+az containerapp job logs show \
+  -g "${RG}" -n "${JOB}" \
+  --container "${CONTAINER_NAME}" \
+  --follow --tail 200
+
+# Stream logs for a specific execution
+EXECUTION_NAME="caj-ingestion-${TARGET_ENV}-aue-XXXXXXXX-mrpi52v"
+
+az containerapp job logs show \
+  -g "${RG}" -n "${JOB}" \
+  --execution "${EXECUTION_NAME}" \
+  --container "${CONTAINER_NAME}" \
+  --tail 200
+
+# Kill a running job execution
+az containerapp job stop \
+  -g "${RG}" -n "${JOB}" \
+  --job-execution-name "${EXECUTION_NAME}"
+```
+
+### Log Analytics (KQL)
+
+Broad search across all Container App logs for a job:
+
+```kql
+union isfuzzy=true
+(
+  ContainerAppConsoleLogs_CL
+  | extend LogText = tostring(coalesce(
+      column_ifexists("Log_s",""),
+      column_ifexists("LogMessage_s",""),
+      column_ifexists("Message","")))
+),
+(
+  ContainerAppSystemLogs_CL
+  | extend LogText = tostring(coalesce(
+      column_ifexists("Log_s",""),
+      column_ifexists("Message",""),
+      column_ifexists("Reason_s","")))
+)
+| where TimeGenerated > ago(24h)
+| where LogText contains "caj-ingestion-dev-aue-20260408"
+| where LogText has_any (dynamic(["controls_source_prefix","source_files_downloaded","controls","ingestion"]))
+| project TimeGenerated, LogText
+| order by TimeGenerated desc
+```
+
+Logs for a specific execution:
+
+```kql
+let exec = "caj-ingestion-dev-aue-20260408-mrpi52v";
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(24h)
+| where ContainerGroupName_s startswith exec
+| extend Msg = coalesce(
+    column_ifexists("Log_s",""),
+    column_ifexists("LogMessage_s",""),
+    column_ifexists("Message",""),
+    tostring(RawData))
+| project TimeGenerated, ContainerGroupName_s, ContainerName_s, Msg
+| order by TimeGenerated asc
+```
+
+Query web app errors in the last hour:
+
+```kql
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(1h)
+| extend Msg = coalesce(column_ifexists("Log_s",""), column_ifexists("Message",""), tostring(RawData))
+| where Msg has_any (dynamic(["ERROR","Exception","Traceback","500","failed"]))
+| project TimeGenerated, ContainerName_s, Msg
+| order by TimeGenerated desc
+```
+
+---
+
+## Key Vault
+
+```bash
+KV="kv-${TARGET_ENV}-aue-XXXXXXXX"   # replace suffix
+
+# List secrets
+az keyvault secret list --vault-name "${KV}" -o table
+
+# Check a specific secret exists
+az keyvault secret show --vault-name "${KV}" --name "jumpbox-admin-ssh-public-key-${TARGET_ENV}" \
+  --query "attributes.enabled" -o tsv
+
+# Check who has access
+az keyvault show --name "${KV}" --query "properties.accessPolicies" -o table
+```
+
+**Note:** Terraform Key Vault-backed inputs fail plan early if the secret is missing. Ensure the bootstrap publish step has written the secret before running a root plan or apply.
+
+---
+
+## Azure Storage
+
+```bash
+ACCOUNT="stdevaue04or4t4u"   # replace with your storage account
+CONTAINER="grounding-data"
+
+# Show metadata for a specific blob
+az storage blob show \
+  --account-name "${ACCOUNT}" --container-name "${CONTAINER}" \
+  --name "corpus-b/by-dedupe/<blob-id>" \
+  --auth-mode login \
+  --query "{name:name,metadata:metadata,lastModified:properties.lastModified}" -o json
+
+# List all blobs in the container
+az storage blob list \
+  --account-name "${ACCOUNT}" --container-name "${CONTAINER}" \
+  --auth-mode login --query "[].name" -o tsv
+
+# List by corpus prefix
+az storage blob list --account-name "${ACCOUNT}" --container-name "${CONTAINER}" \
+  --prefix "corpus-a/source/" --auth-mode login --query "[].name" -o tsv
+
+az storage blob list --account-name "${ACCOUNT}" --container-name "${CONTAINER}" \
+  --prefix "corpus-b/by-dedupe/" --auth-mode login --query "[].name" -o tsv
+
+az storage blob list --account-name "${ACCOUNT}" --container-name "${CONTAINER}" \
+  --prefix "corpus-c/by-dedupe/" --auth-mode login --query "[].name" -o tsv
+
+# Count blobs in a prefix
+az storage blob list --account-name "${ACCOUNT}" --container-name "${CONTAINER}" \
+  --prefix "corpus-a/source/" --auth-mode login --query "length([])" -o tsv
+
+# Delete all blobs for a corpus (destructive — confirm before running)
+az storage blob delete-batch --account-name "${ACCOUNT}" --source "${CONTAINER}" \
+  --pattern "corpus-a/by-dedupe/*" --auth-mode login
+
+az storage blob delete-batch --account-name "${ACCOUNT}" --source "${CONTAINER}" \
+  --pattern "corpus-b/by-dedupe/*" --auth-mode login
+
+az storage blob delete-batch --account-name "${ACCOUNT}" --source "${CONTAINER}" \
+  --pattern "corpus-c/by-dedupe/*" --auth-mode login
+```
+
+---
+
+## Cosmos DB
+
+```bash
+RG="rg-ai-platform-${TARGET_ENV}"
+COSMOS_ACCOUNT=$(az cosmosdb list -g "${RG}" --query "[0].name" -o tsv)
+
+# Verify database and containers exist
+az cosmosdb sql database show \
+  -a "${COSMOS_ACCOUNT}" -g "${RG}" -n "rag-conversations"
+
+az cosmosdb sql container show \
+  -a "${COSMOS_ACCOUNT}" -g "${RG}" \
+  -d "rag-conversations" -n "conversations"
+
+az cosmosdb sql container show \
+  -a "${COSMOS_ACCOUNT}" -g "${RG}" \
+  -d "rag-conversations" -n "orchestration-state"
+
+# Check managed identity role assignment
+az role assignment list \
+  --scope "/subscriptions/<sub>/resourceGroups/${RG}/providers/Microsoft.DocumentDB/databaseAccounts/${COSMOS_ACCOUNT}" \
+  --query "[?roleDefinitionName=='Cosmos DB Built-in Data Contributor'].{principal:principalName,role:roleDefinitionName}" \
+  -o table
+
+# View Cosmos DB metrics (request units, throttling)
+az cosmosdb show -g "${RG}" -n "${COSMOS_ACCOUNT}" \
+  --query "documentEndpoint" -o tsv
+# Then check Azure Portal → Cosmos DB → Metrics for 429 throttle errors
+```
+
+### Common Cosmos DB Issues
+
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| `CosmosDB unavailable: ...` in app logs | Private endpoint not reachable or managed identity missing role | Verify private endpoint DNS, check `Cosmos DB Built-in Data Contributor` role assignment |
+| Conversations not persisting after restart | App fell back to in-memory mode | Check container app env vars — `AZURE_COSMOS_ENDPOINT`, `AZURE_COSMOS_DATABASE_NAME`, `AZURE_COSMOS_CONTAINER_NAME` must all be set |
+| `404` on conversation lookup | Wrong `user_id` partition key or container `orchestration-state` vs `conversations` mismatch | Verify `AZURE_COSMOS_ORCHESTRATION_CONTAINER_NAME` is set to `orchestration-state` (separate from conversation container) |
+| Cosmos DB throttling (429) | Insufficient RU/s | Increase container throughput: `az cosmosdb sql container throughput update -a <acct> -g <rg> -d rag-conversations -n conversations --throughput 1000` |
+
+---
+
+## Azure Foundry / Azure OpenAI
+
+```bash
+RG="rg-ai-platform-${TARGET_ENV}"
+
+# List Foundry accounts
+az cognitiveservices account list -g "${RG}" -o table
+
+# Get Foundry endpoint
+az cognitiveservices account show -g "${RG}" -n "<foundry-account-name>" \
+  --query "properties.endpoint" -o tsv
+
+# List model deployments
+az cognitiveservices account deployment list \
+  -g "${RG}" -n "<foundry-account-name>" \
+  --query "[].{name:name,model:properties.model.name,capacity:sku.capacity}" -o table
+
+# Verify managed identity has Cognitive Services User role
+az role assignment list \
+  --scope "/subscriptions/<sub>/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/<foundry-account-name>" \
+  --query "[?roleDefinitionName=='Cognitive Services User'].{principal:principalName}" \
+  -o table
+```
+
+### Common Foundry Issues
+
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| `401 Unauthorized` on Foundry API | Managed identity missing `Cognitive Services User` role | Add role assignment on the Foundry account |
+| `404` on model deployment | Deployment name mismatch | Check container app env vars `QUERY_DEPLOYMENT`, `EMBEDDING_DEPLOYMENT`; confirm against `az cognitiveservices account deployment list` |
+| Temperature errors in logs (`Model rejected temperature`) | Some Foundry model versions reject non-1.0 temperatures | App auto-retries at 1.0 — this is expected. Adjust `DEFAULT_TEMPERATURE` if needed. |
+| Slow responses / timeouts | Token quota or model capacity | Check Foundry metrics in portal; consider increasing deployment capacity |
+
+---
+
+## Azure AI Search
+
+```bash
+SEARCH_ENDPOINT="https://srch-${TARGET_ENV}-aue-XXXXXXXX.search.windows.net"
+
+# List indexes
+az search index list --service-name "srch-${TARGET_ENV}-aue-XXXXXXXX" \
+  --resource-group "${RG}" -o table
+
+# Check indexer status
+az search indexer status --service-name "srch-${TARGET_ENV}-aue-XXXXXXXX" \
+  --resource-group "${RG}" --name "grounding-index-indexer"
+```
+
+### Full Reset — remove blobs and index
+
+Run from within the project with venv activated, from a host with network access to the private endpoints:
+
+```bash
+AZURE_SEARCH_ENDPOINT="https://srch-${TARGET_ENV}-aue-XXXXXXXX.search.windows.net" \
+AI_SERVICES_ENDPOINT="https://foundry-${TARGET_ENV}-aue-XXXXXXXX.cognitiveservices.azure.com" \
+AZURE_OPENAI_ENDPOINT="https://foundry-${TARGET_ENV}-aue-XXXXXXXX.openai.azure.com" \
+AZURE_STORAGE_ACCOUNT_NAME="stdevaue04or4t4u" \
+AZURE_STORAGE_RESOURCE_ID="/subscriptions/<sub>/resourceGroups/${RG}/providers/Microsoft.Storage/storageAccounts/stdevaue04or4t4u" \
+python -m runtime.ingestion.runner --mode reset
+```
+
+---
+
+## Diagnostic Endpoints
+
+All diagnostic endpoints require `?auth_token=<QUERY_WEB_AUTH_TOKEN>` if auth is enabled and respond with JSON. They are **disabled when `TARGET_ENV=prod`**.
+
+```bash
+QUERY_FQDN="<your-query-web-fqdn>"
+TOKEN="<QUERY_WEB_AUTH_TOKEN>"   # omit if auth not configured
+```
+
+| Endpoint | What it shows |
+|----------|--------------|
+| `/api/diagnostics/ingestion/overview` | Ingestion job status, last run, blob/index counts |
+| `/api/diagnostics/search/resources` | All indexes, indexers, skillsets, data sources and their status |
+| `/api/diagnostics/search/indexer-history` | Indexer execution history with item counts and errors |
+| `/api/diagnostics/search/datasource-connectivity` | Data source config and blob enumeration test |
+| `/api/diagnostics/search/field-mappings` | Indexer → index field mapping validation |
+| `/api/diagnostics/search/index-samples` | Sample documents from the grounding index |
+| `/api/diagnostics/storage/blobs` | Blob inventory listing for the grounding-data container |
+| `/api/diagnostics/storage/metadata-validation` | Validates required ingestion metadata on blobs |
+| `/api/diagnostics/acr/images` | Lists images and tags from the connected ACR |
+
+```bash
+# Example calls
+curl "https://${QUERY_FQDN}/api/diagnostics/ingestion/overview?auth_token=${TOKEN}"
+curl "https://${QUERY_FQDN}/api/diagnostics/search/resources?auth_token=${TOKEN}"
+curl "https://${QUERY_FQDN}/api/diagnostics/search/indexer-history?auth_token=${TOKEN}"
+curl "https://${QUERY_FQDN}/api/diagnostics/storage/metadata-validation?prefix=corpus-b/by-dedupe/&auth_token=${TOKEN}"
+curl "https://${QUERY_FQDN}/api/diagnostics/storage/metadata-validation?prefix=corpus-b/by-dedupe/&sample_size=10&include_values=true&auth_token=${TOKEN}"
+curl "https://${QUERY_FQDN}/api/diagnostics/storage/metadata-validation?prefix=corpus-c/by-dedupe/&auth_token=${TOKEN}"
+```
+
+---
+
+## Common Error Patterns
+
+| Error message | Where seen | Cause | Fix |
+|--------------|-----------|-------|-----|
+| `Internal server error; check logs for details.` | API responses | Unhandled exception — details are in container app logs, not the response | Check Log Analytics / `az containerapp logs show` |
+| `CosmosDB unavailable: ...` | App startup log | Cosmos DB unreachable; app fell back to in-memory | Verify private endpoint, managed identity role, and env vars |
+| `RuntimeError: AZURE_COSMOS_ENDPOINT not set` | App startup | Missing env var | Add `AZURE_COSMOS_ENDPOINT` to Container App environment |
+| `openai package is required for Foundry API integration` | LLM calls | `openai` not installed in container image | Verify `query_web/requirements.txt` and rebuild image |
+| `Diagnostics endpoints are disabled when TARGET_ENV is 'prod'` | Diagnostic endpoints | `TARGET_ENV=prod` blocks diagnostic access | Use a non-prod environment or check logs directly |
+| `no space left on device` | Docker build on jumpbox | Docker data directory full | See Docker section above |
+| `401 Unauthorized` on `/ask` or `/api/ask` | Browser / API client | `QUERY_WEB_AUTH_TOKEN` mismatch or missing | Pass correct `auth_token` param; check container app env var |
+| Indexer showing `transientFailure` repeatedly | Azure AI Search | Blob metadata missing required fields | Run metadata-validation diagnostic; re-ingest with correct metadata |
+| `422 Unprocessable Entity` on conversation endpoints | API client | Missing required form fields (`user_id`, `role`, `content`) | See [foundry-conversations.md](foundry-conversations.md) for correct field names |
+
+---
+
+## Integration Tests
+
+```bash
+# Run against a deployed environment (from jumpbox with network access)
+QUERY_WEB_RUN_API_ASK=true \
+QUERY_WEB_REQUIRE_CONVERSATIONS=true \
+./ops/scripts/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
+
+# Run unit tests locally
+source runtime/.venv/bin/activate
+python3 -m pytest tests/unit/ -q
+```

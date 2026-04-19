@@ -1,4 +1,5 @@
 """Answer formatting and retrieval-grounded fallback helpers extracted from app.py."""
+
 from __future__ import annotations
 
 import json
@@ -6,8 +7,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from query_web.security.prompt_injection_guard import sanitise_untrusted_text
 import query_web.pipeline.controls as _controls_module
+from query_web.security.prompt_injection_guard import sanitise_untrusted_text
 
 
 def _unwrap_answer(text: str) -> str:
@@ -102,7 +103,9 @@ def _build_retrieval_based_fallback_answer(
         ]
         resolved_corpus_c_chunks = [c for c in chunks if c not in resolved_corpus_b_chunks]
 
-    frameworks = sorted({str(c.get("framework") or "").strip() for c in controls if c.get("framework")})
+    frameworks = sorted(
+        {str(c.get("framework") or "").strip() for c in controls if c.get("framework")}
+    )
     framework_text = ", ".join(frameworks) if frameworks else "none"
 
     def _guidance_snippet(control: dict[str, Any], limit: int = 220) -> str:

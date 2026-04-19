@@ -6,6 +6,7 @@ _groups_from_client_principal_header, _principal_has_group_overage,
 _request_groups, _group_auth_failure_message, _is_authorised_request,
 _unauthorised_message, _target_env_name, _diagnostics_enabled.
 """
+
 from __future__ import annotations
 
 import base64
@@ -22,10 +23,10 @@ os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 
 from query_web import app as app_module
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_request(headers: dict[str, str] | None = None) -> Mock:
     """Create a minimal mock request whose .headers.get() respects the dict."""
@@ -44,6 +45,7 @@ def _encode_principal(claims: list[dict[str, str]]) -> str:
 # ---------------------------------------------------------------------------
 # _is_allowed_filetype
 # ---------------------------------------------------------------------------
+
 
 def test_is_allowed_filetype_pdf_accepted() -> None:
     assert app_module._is_allowed_filetype("report.pdf") is True
@@ -65,6 +67,7 @@ def test_is_allowed_filetype_case_insensitive() -> None:
 # _extension_matches_mime
 # ---------------------------------------------------------------------------
 
+
 def test_extension_matches_mime_pdf_match() -> None:
     assert app_module._extension_matches_mime("file.pdf", "application/pdf") is True
 
@@ -85,6 +88,7 @@ def test_extension_matches_mime_strips_charset_parameter() -> None:
 # ---------------------------------------------------------------------------
 # _risk_label
 # ---------------------------------------------------------------------------
+
 
 def test_risk_label_low() -> None:
     assert app_module._risk_label("low") == "Low"
@@ -122,6 +126,7 @@ def test_risk_label_case_insensitive() -> None:
 # _normalise_object_id
 # ---------------------------------------------------------------------------
 
+
 def test_normalise_object_id_strips_and_lowercases() -> None:
     assert app_module._normalise_object_id("  ABC-123  ") == "abc-123"
 
@@ -133,6 +138,7 @@ def test_normalise_object_id_already_clean() -> None:
 # ---------------------------------------------------------------------------
 # _split_group_values
 # ---------------------------------------------------------------------------
+
 
 def test_split_group_values_comma_separated() -> None:
     result = app_module._split_group_values("a,b,c")
@@ -156,6 +162,7 @@ def test_split_group_values_empty_string() -> None:
 # ---------------------------------------------------------------------------
 # _decode_client_principal
 # ---------------------------------------------------------------------------
+
 
 def test_decode_client_principal_valid_payload() -> None:
     claims = [{"typ": "groups", "val": "group-id-1"}]
@@ -181,6 +188,7 @@ def test_decode_client_principal_non_dict_json_returns_none() -> None:
 # ---------------------------------------------------------------------------
 # _groups_from_client_principal_header
 # ---------------------------------------------------------------------------
+
 
 def test_groups_from_header_returns_group_ids() -> None:
     claims = [{"typ": "groups", "val": "group-a"}, {"typ": "groups", "val": "group-b"}]
@@ -232,6 +240,7 @@ def test_groups_from_header_non_list_claims_returns_empty() -> None:
 # _principal_has_group_overage
 # ---------------------------------------------------------------------------
 
+
 def test_principal_has_group_overage_false_when_no_overage_claims() -> None:
     claims = [{"typ": "groups", "val": "grp-a"}]
     encoded = _encode_principal(claims)
@@ -245,9 +254,7 @@ def test_principal_has_group_overage_true_on_hasgroups_claim() -> None:
 
 
 def test_principal_has_group_overage_true_on_groups_link() -> None:
-    claims = [
-        {"typ": "http://schemas.microsoft.com/claims/groups.link", "val": "https://graph..."}
-    ]
+    claims = [{"typ": "http://schemas.microsoft.com/claims/groups.link", "val": "https://graph..."}]
     encoded = _encode_principal(claims)
     assert app_module._principal_has_group_overage(encoded) is True
 
@@ -265,6 +272,7 @@ def test_principal_has_group_overage_non_list_claims_false() -> None:
 # ---------------------------------------------------------------------------
 # _request_groups
 # ---------------------------------------------------------------------------
+
 
 def test_request_groups_none_request_returns_empty() -> None:
     assert app_module._request_groups(None) == set()
@@ -296,6 +304,7 @@ def test_request_groups_no_headers_returns_empty() -> None:
 # _group_auth_failure_message
 # ---------------------------------------------------------------------------
 
+
 def test_group_auth_failure_message_none_request() -> None:
     msg = app_module._group_auth_failure_message(None)
     assert "unavailable" in msg.lower()
@@ -318,9 +327,7 @@ def test_group_auth_failure_message_overage() -> None:
 def test_group_auth_failure_message_no_group_claims() -> None:
     claims = [{"typ": "email", "val": "user@example.com"}]
     encoded = _encode_principal(claims)
-    req = _make_request(
-        {"x-ms-client-principal": encoded, "x-ms-client-principal-id": "user-id"}
-    )
+    req = _make_request({"x-ms-client-principal": encoded, "x-ms-client-principal-id": "user-id"})
     msg = app_module._group_auth_failure_message(req)
     assert "group" in msg.lower()
 
@@ -337,9 +344,11 @@ def test_group_auth_failure_message_has_groups_not_required() -> None:
 # _is_authorised_request  (no required group configured)
 # ---------------------------------------------------------------------------
 
+
 def _cfg(**overrides):  # type: ignore[no-untyped-def]
     """Return a copy of app_module.config with selected fields replaced."""
     import dataclasses
+
     return dataclasses.replace(app_module.config, **overrides)
 
 
@@ -375,6 +384,7 @@ def test_is_authorised_request_group_required_no_request_false() -> None:
 # _unauthorised_message
 # ---------------------------------------------------------------------------
 
+
 def test_unauthorised_message_no_group_required() -> None:
     cfg = _cfg(required_group_object_id="")
     with patch.object(app_module, "config", cfg):
@@ -392,6 +402,7 @@ def test_unauthorised_message_group_required_delegates() -> None:
 # ---------------------------------------------------------------------------
 # _target_env_name
 # ---------------------------------------------------------------------------
+
 
 def test_target_env_name_default_is_dev() -> None:
     with patch.dict(os.environ, {}, clear=False):
@@ -416,6 +427,7 @@ def test_target_env_name_falls_back_to_env() -> None:
 # _diagnostics_enabled
 # ---------------------------------------------------------------------------
 
+
 def test_diagnostics_enabled_in_dev() -> None:
     with patch.dict(os.environ, {"TARGET_ENV": "dev"}):
         assert app_module._diagnostics_enabled() is True
@@ -430,6 +442,7 @@ def test_diagnostics_disabled_in_prod() -> None:
 # _branding_ctx
 # ---------------------------------------------------------------------------
 
+
 def test_branding_ctx_contains_app_title_and_static_version() -> None:
     ctx = app_module._branding_ctx()
     assert "app_title" in ctx
@@ -439,6 +452,7 @@ def test_branding_ctx_contains_app_title_and_static_version() -> None:
 # ---------------------------------------------------------------------------
 # _is_authorised  (legacy shared-token helper)
 # ---------------------------------------------------------------------------
+
 
 def test_is_authorised_wrong_token_returns_false() -> None:
     cfg = _cfg(auth_token="secret", required_group_object_id="")
@@ -462,6 +476,7 @@ def test_is_authorised_group_required_returns_false() -> None:
 # _groups_from_client_principal_header — non-dict claim branch
 # ---------------------------------------------------------------------------
 
+
 def test_groups_from_header_skips_non_dict_claims() -> None:
     # Mixed list: non-dict items should be skipped via `continue`
     claims = ["not-a-dict", 42, {"typ": "groups", "val": "grp-abc"}]
@@ -474,6 +489,7 @@ def test_groups_from_header_skips_non_dict_claims() -> None:
 # _principal_has_group_overage — non-dict claim branch
 # ---------------------------------------------------------------------------
 
+
 def test_principal_has_group_overage_skips_non_dict_then_finds_overage() -> None:
     # Non-dict items skipped; overage claim detected afterwards
     claims = ["not-a-dict", {"typ": "hasgroups", "val": "true"}]
@@ -484,6 +500,7 @@ def test_principal_has_group_overage_skips_non_dict_then_finds_overage() -> None
 # ---------------------------------------------------------------------------
 # _check_diagnostics_access
 # ---------------------------------------------------------------------------
+
 
 def test_check_diagnostics_access_authorised_dev_returns_none() -> None:
     cfg = _cfg(required_group_object_id="", auth_token="")

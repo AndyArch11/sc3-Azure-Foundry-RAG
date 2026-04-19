@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -25,6 +25,8 @@ SUPPORTED_EXTENSIONS = {
 
 @dataclass
 class UploadSummary:
+    """UploadSummary."""
+
     uploaded: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     failed: list[str] = field(default_factory=list)
@@ -43,6 +45,7 @@ def upload_source_files(
     uploaded_by: str = "ingestion_job",
     upload_batch: str | None = None,
 ) -> UploadSummary:
+    """Run upload source files."""
     account_url = f"https://{storage_account_name}.blob.core.windows.net"
     client = BlobServiceClient(account_url=account_url, credential=credential)
     container_client = client.get_container_client(container_name)

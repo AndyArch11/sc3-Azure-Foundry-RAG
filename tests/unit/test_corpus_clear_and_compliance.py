@@ -621,7 +621,9 @@ def test_compliance_report_uses_corpus_b_upload_batch_filter() -> None:
     assert hybrid_mock.call_count == 2
     first_call_kwargs = hybrid_mock.call_args_list[0].kwargs
     assert first_call_kwargs["evidence_filter"] == "corpus eq 'b' and upload_batch eq 'batch-b-123'"
-    assert body["audit"]["corpus_b_filter_expr"] == "corpus eq 'b' and upload_batch eq 'batch-b-123'"
+    assert (
+        body["audit"]["corpus_b_filter_expr"] == "corpus eq 'b' and upload_batch eq 'batch-b-123'"
+    )
     assert body["audit"]["corpus_c_filter_expr"] == "corpus eq 'c'"
 
 

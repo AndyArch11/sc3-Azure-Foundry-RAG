@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import base64
@@ -13,12 +12,11 @@ import sys
 import threading
 import time
 import uuid
-from urllib.parse import quote
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, cast
-
+from urllib.parse import quote
 
 import requests  # type: ignore[import-untyped]
 from azure.core.exceptions import HttpResponseError
@@ -31,6 +29,67 @@ from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
+
+import query_web.endpoints.compliance as _compliance_module
+import query_web.pipeline.answer as _answer_module
+import query_web.pipeline.controls as controls
+import query_web.pipeline.llm_chat as llm_chat
+import query_web.pipeline.rag_pipeline as rag_pipeline
+import query_web.pipeline.search as _search_module
+from query_web.config import (
+    _CANONICAL_FRAMEWORKS,
+    _FRAMEWORK_ALIASES,
+    PrecedencePolicy,
+    QueryConfig,
+    _canonical_framework_name,
+    _env_bool,
+    _form_bool,
+    _load_precedence_policy,
+    _parse_framework_authority_order,
+    _require_env,
+    load_config,
+)
+from query_web.constants import (
+    ALLOWED_EXTENSIONS,
+    COMPLIANCE_REPORT_SCHEMA_VERSION,
+    MIME_TYPE_BY_EXTENSION,
+    QUERY_WEB_VERSION_SIGNATURE,
+)
+from query_web.endpoints.ask import register_ask_endpoints
+from query_web.endpoints.compliance import register_compliance_endpoints
+from query_web.endpoints.conversations import (
+    ConversationMessage,
+    ConversationSession,
+    ResponseRating,
+)
+from query_web.endpoints.conversations import (
+    _build_feedback_context as _conversations_build_feedback_context,
+)
+from query_web.endpoints.conversations import _get_user_id as _conversations_get_user_id
+from query_web.endpoints.conversations import _load_conversation as _conversations_load_conversation
+from query_web.endpoints.conversations import _save_conversation as _conversations_save_conversation
+from query_web.endpoints.corpus import register_corpus_endpoints
+from query_web.endpoints.diagnostics import register_diagnostics_endpoints
+from query_web.endpoints.home import register_home_endpoints
+from query_web.endpoints.status import register_status_endpoints
+from query_web.models import AskRequest, AskResponse
+from query_web.pipeline.answer import (
+    _build_retrieval_based_fallback_answer,
+    _chunk_reference_label,
+    _clean_markdown_whitespace,
+    _ensure_visible_answer,
+    _unwrap_answer,
+)
+from query_web.pipeline.controls import _CONTROLS_FRAMEWORK_FILTERS
+from query_web.pipeline.llm_chat import (
+    CYBER_PERSONA_PROMPT,
+    EVALUATOR_PROMPT,
+    _json_fallback_eval,
+    _parse_eval,
+    _parse_validator_response,
+    _prompt_injection_response,
+)
 from query_web.security.prompt_injection_guard import (
     BLOCKED_PROMPT_INJECTION_MESSAGE,
     PROMPT_INJECTION_SYSTEM_PROMPT,
@@ -40,61 +99,6 @@ from query_web.security.prompt_injection_guard import (
     sanitise_conversation_turn,
     sanitise_untrusted_text,
 )
-from pydantic import BaseModel, Field
-from runtime.assessment_orchestration.state_store import CosmosPollingStateStore
-from runtime.assessment_orchestration._framework_patterns import (
-    infer_single_framework as _infer_framework_filter,
-)
-
-from runtime.assessment_orchestration.azure_assessment import (
-    collect_azure_grounding,
-    run_azure_assessment,
-)
-
-from query_web.endpoints.compliance import register_compliance_endpoints
-import query_web.endpoints.compliance as _compliance_module
-from query_web.endpoints.corpus import register_corpus_endpoints
-from query_web.endpoints.diagnostics import register_diagnostics_endpoints
-from query_web.endpoints.status import register_status_endpoints
-from query_web.endpoints.ask import register_ask_endpoints
-from query_web.endpoints.home import register_home_endpoints
-import query_web.pipeline.controls as controls
-import query_web.pipeline.llm_chat as llm_chat
-import query_web.pipeline.answer as _answer_module
-import query_web.pipeline.search as _search_module
-import query_web.pipeline.rag_pipeline as rag_pipeline
-from query_web.pipeline.llm_chat import (
-    CYBER_PERSONA_PROMPT,
-    EVALUATOR_PROMPT,
-    _json_fallback_eval,
-    _parse_eval,
-    _parse_validator_response,
-    _prompt_injection_response,
-)
-from query_web.pipeline.answer import (
-    _unwrap_answer,
-    _clean_markdown_whitespace,
-    _ensure_visible_answer,
-    _chunk_reference_label,
-    _build_retrieval_based_fallback_answer,
-)
-from query_web.pipeline.controls import _CONTROLS_FRAMEWORK_FILTERS
-from query_web.models import AskRequest, AskResponse
-from query_web.endpoints.conversations import (
-    ConversationMessage,
-    ConversationSession,
-    ResponseRating,
-    _build_feedback_context as _conversations_build_feedback_context,
-    _get_user_id as _conversations_get_user_id,
-    _load_conversation as _conversations_load_conversation,
-    _save_conversation as _conversations_save_conversation,
-)
-from query_web.constants import (
-    ALLOWED_EXTENSIONS,
-    COMPLIANCE_REPORT_SCHEMA_VERSION,
-    MIME_TYPE_BY_EXTENSION,
-    QUERY_WEB_VERSION_SIGNATURE,
-)
 from query_web.utils import (
     _compute_normalised_text_hash,
     _dedupe_blob_prefix,
@@ -102,19 +106,14 @@ from query_web.utils import (
     _sanitise_blob_name_component,
     _utc_now_iso,
 )
-from query_web.config import (
-    QueryConfig,
-    PrecedencePolicy,
-    load_config,
-    _canonical_framework_name,
-    _env_bool,
-    _form_bool,
-    _require_env,
-    _FRAMEWORK_ALIASES,
-    _CANONICAL_FRAMEWORKS,
-    _parse_framework_authority_order,
-    _load_precedence_policy,
+from runtime.assessment_orchestration._framework_patterns import (
+    infer_single_framework as _infer_framework_filter,
 )
+from runtime.assessment_orchestration.azure_assessment import (
+    collect_azure_grounding,
+    run_azure_assessment,
+)
+from runtime.assessment_orchestration.state_store import CosmosPollingStateStore
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionMessageParam
@@ -147,9 +146,11 @@ def _count_blob_prefix(prefix: str) -> dict[str, int]:
         logger.warning(f"Failed to count blobs with prefix {prefix}: {exc}")
     return {"would_delete": count}
 
+
 def _is_allowed_filetype(filename: str) -> bool:
     ext = Path(filename).suffix.lower()
     return ext in ALLOWED_EXTENSIONS
+
 
 def _extension_matches_mime(filename: str, mime_type: str) -> bool:
     ext = Path(filename).suffix.lower()
@@ -158,6 +159,7 @@ def _extension_matches_mime(filename: str, mime_type: str) -> bool:
         return False
     # Some browsers may send additional parameters (e.g., charset) in content_type
     return mime_type.split(";")[0].strip() == expected_mime
+
 
 def _risk_label(value: str) -> str:
     normalised = str(value or "unknown").strip().replace("_", " ").lower()
@@ -607,9 +609,7 @@ def _unauthorised_message(request: Request | None = None) -> str:
 def _target_env_name() -> str:
     # TARGET_ENV is the canonical flag in this repo; ENV is accepted as fallback.
     return (
-        os.getenv("TARGET_ENV", "").strip().lower()
-        or os.getenv("ENV", "").strip().lower()
-        or "dev"
+        os.getenv("TARGET_ENV", "").strip().lower() or os.getenv("ENV", "").strip().lower() or "dev"
     )
 
 
@@ -1064,8 +1064,11 @@ def _fetch_controls(
     framework_filter: str | None = None,
 ) -> list[dict[str, Any]]:
     return controls._fetch_controls(
-        search_text, retrieve_k, use_semantic,
-        framework_filter=framework_filter, svc=sys.modules[__name__]
+        search_text,
+        retrieve_k,
+        use_semantic,
+        framework_filter=framework_filter,
+        svc=sys.modules[__name__],
     )
 
 

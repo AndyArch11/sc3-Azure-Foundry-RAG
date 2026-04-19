@@ -12,16 +12,19 @@ from .validators import validate_assessment_job
 
 
 def _utc_now_iso() -> str:
+    """Run utc now iso."""
     return datetime.now(UTC).isoformat()
 
 
 def _host_is_exact_or_subdomain(host: str, domain: str) -> bool:
+    """Run host is exact or subdomain."""
     host_l = host.strip().lower()
     domain_l = domain.strip().lower()
     return host_l == domain_l or host_l.endswith(f".{domain_l}")
 
 
 def _infer_provider_from_url(target_url: str) -> str:
+    """Run infer provider from url."""
     parsed = urlparse(target_url)
     host = (parsed.hostname or "").lower()
     path = parsed.path or ""
@@ -37,6 +40,7 @@ def _infer_provider_from_url(target_url: str) -> str:
 
 
 def _first_non_empty(payload: Mapping[str, Any], keys: list[str]) -> str:
+    """Run first non empty."""
     for key in keys:
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
@@ -45,6 +49,7 @@ def _first_non_empty(payload: Mapping[str, Any], keys: list[str]) -> str:
 
 
 def _stable_correlation(source_event_id: str, target_url: str) -> str:
+    """Run stable correlation."""
     base = f"{source_event_id}|{target_url}".encode("utf-8")
     return hashlib.sha256(base).hexdigest()[:32]
 
@@ -56,6 +61,7 @@ def build_assessment_job_from_provider_event(
     request_identity_mode: IdentityMode = "app_only",
     delivery_policy: str = "inline_else_email",
 ) -> AssessmentJob:
+    """Run build assessment job from provider event."""
     target_url = _first_non_empty(payload, ["target_url", "url", "canonical_url"])
     if not target_url:
         raise ValueError("Provider event payload must include target_url")
@@ -103,6 +109,7 @@ def build_assessment_job_from_email_notification(
     request_identity_mode: IdentityMode = "app_only",
     delivery_policy: str = "inline_else_email",
 ) -> AssessmentJob:
+    """Run build assessment job from email notification."""
     target_reference = _first_non_empty(
         parsed_email_notification, ["target_reference", "target_url", "url"]
     )
@@ -152,6 +159,7 @@ def build_queue_message(
     source_event_id: str = "",
     traceparent: str = "",
 ) -> QueueMessage:
+    """Run build queue message."""
     payload = {
         "queue_message_id": str(uuid.uuid4()),
         "message_type": message_type,

@@ -1,4 +1,9 @@
 """Ask endpoint registration."""
+
+# The endpoint layer intentionally delegates into `svc` helper methods that are
+# named with leading underscores in `query_web.app` for backward compatibility.
+# pylint: disable=protected-access,broad-exception-caught,too-many-positional-arguments
+
 from __future__ import annotations
 
 import logging

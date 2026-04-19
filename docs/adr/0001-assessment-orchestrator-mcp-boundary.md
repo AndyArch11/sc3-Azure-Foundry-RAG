@@ -41,10 +41,19 @@ Ownership is split as follows.
 
 ### Assessment Agent Owns
 
-- corpus retrieval against Corpus A and Corpus B
+- corpus retrieval against Corpus A, Corpus B, and Corpus C
+- precedence policy application from a static versioned policy file when standards conflict or diverge
 - compliance reasoning over the assessed artifact and grounding package
 - structured report generation
 - schema-aware findings generation
+
+### Corpus Role Definitions
+
+- **Corpus A**: normative requirements — one record per control, pre-parsed and normalised. Used as the authoritative source for control mapping, gap findings, and pass/partial/missing decisions.
+- **Corpus B**: narrative guidance — weakly structured authoritative material (handbooks, explanatory commentary, guidance packs). Used as interpretive context only, not obligation-bearing.
+- **Corpus C**: assessed artifacts — designs, policies, procedures, architecture descriptions, and enterprise evidence from Confluence, SharePoint, and Office documents. The target content being assessed.
+
+Note: A Corpus D (authority and precedence policy as an indexed retrieval corpus) is described in `docs/compliance-rag-recommended-approach.md` as a future capability. It is not yet implemented. Precedence policy is currently applied via a static `precedence_policy.json` file loaded at startup.
 
 ### MCP Servers Own
 

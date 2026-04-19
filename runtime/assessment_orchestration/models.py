@@ -8,6 +8,8 @@ IdentityMode = Literal["app_only", "delegated"]
 
 @dataclass(frozen=True)
 class PersonReference:
+    """PersonReference."""
+
     principal_id: str
     display_name: str
     email: str = ""
@@ -15,6 +17,8 @@ class PersonReference:
 
 @dataclass(frozen=True)
 class AssessmentJob:
+    """AssessmentJob."""
+
     job_id: str
     source_type: str
     provider: str
@@ -31,6 +35,8 @@ class AssessmentJob:
 
 @dataclass(frozen=True)
 class ResolvedTarget:
+    """ResolvedTarget."""
+
     provider: str
     target_type: str
     target_id: str
@@ -43,6 +49,8 @@ class ResolvedTarget:
 
 @dataclass(frozen=True)
 class AccessDecision:
+    """AccessDecision."""
+
     granted: bool
     identity_mode: IdentityMode
     reason: str
@@ -51,6 +59,8 @@ class AccessDecision:
 
 @dataclass(frozen=True)
 class AssessedArtifactPackage:
+    """AssessedArtifactPackage."""
+
     provider: str
     target_id: str
     canonical_url: str
@@ -64,6 +74,8 @@ class AssessedArtifactPackage:
 
 @dataclass(frozen=True)
 class CorpusGroundingPackage:
+    """CorpusGroundingPackage."""
+
     corpus_a_results: list[dict[str, Any]] = field(default_factory=list)
     corpus_b_results: list[dict[str, Any]] = field(default_factory=list)
     precedence_policy_version: str = ""
@@ -71,6 +83,8 @@ class CorpusGroundingPackage:
 
 @dataclass(frozen=True)
 class DeliveryPlan:
+    """DeliveryPlan."""
+
     delivery_policy: str
     email_recipients: tuple[str, ...] = ()
     inline_target: dict[str, Any] | None = None
@@ -79,6 +93,8 @@ class DeliveryPlan:
 
 @dataclass(frozen=True)
 class DeliveryOutcome:
+    """DeliveryOutcome."""
+
     success: bool
     attempted_channels: tuple[str, ...] = ()
     failures: tuple[str, ...] = ()

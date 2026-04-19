@@ -34,6 +34,7 @@ OPTIONAL_APPLICABILITY_FIELDS = {
 
 
 def load_controls_jsonl(path: Path) -> list[dict[str, Any]]:
+    """Run load controls jsonl."""
     records: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as f:
         for line_no, line in enumerate(f, start=1):
@@ -62,6 +63,7 @@ def load_controls_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def _batched(items: list[dict[str, Any]], batch_size: int) -> list[list[dict[str, Any]]]:
+    """Run batched."""
     return [items[i : i + batch_size] for i in range(0, len(items), batch_size)]
 
 
@@ -95,6 +97,7 @@ def _framework_version_state(
     framework: str,
     framework_version: str,
 ) -> tuple[list[str], set[str]]:
+    """Run framework version state."""
     escaped_framework = framework.replace("'", "''")
     escaped_version = framework_version.replace("'", "''")
     filter_expr = (
@@ -123,6 +126,7 @@ def _framework_version_state(
 def _delete_requirements(
     client: SearchClient, requirement_ids: list[str], batch_size: int = 500
 ) -> None:
+    """Run delete requirements."""
     if not requirement_ids:
         return
     for batch in [

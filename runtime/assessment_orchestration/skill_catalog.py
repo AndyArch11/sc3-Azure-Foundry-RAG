@@ -7,6 +7,8 @@ from typing import Mapping
 
 @dataclass(frozen=True)
 class SkillDefinition:
+    """SkillDefinition."""
+
     name: str
     description: str
     path: Path
@@ -28,16 +30,20 @@ class SkillCatalog:
     }
 
     def __init__(self, skills: Mapping[str, SkillDefinition]) -> None:
+        """Run init."""
         self._skills = dict(skills)
 
     @property
     def skills(self) -> dict[str, SkillDefinition]:
+        """Run skills."""
         return dict(self._skills)
 
     def has_skill(self, name: str) -> bool:
+        """Run has skill."""
         return name in self._skills
 
     def skill_for_stage(self, stage: str) -> str | None:
+        """Run skill for stage."""
         candidate = self._STAGE_TO_SKILL.get(stage)
         if not candidate:
             return None
@@ -45,6 +51,7 @@ class SkillCatalog:
 
 
 def _extract_frontmatter(skill_text: str) -> tuple[str, str]:
+    """Run extract frontmatter."""
     lines = skill_text.splitlines()
     if not lines or lines[0].strip() != "---":
         raise ValueError("SKILL.md must start with YAML frontmatter delimiter '---'")
@@ -80,6 +87,7 @@ def _extract_frontmatter(skill_text: str) -> tuple[str, str]:
 
 
 def load_skill_catalog(skills_root: Path) -> SkillCatalog:
+    """Run load skill catalog."""
     skill_files = sorted(skills_root.glob("*/SKILL.md"))
     discovered: dict[str, SkillDefinition] = {}
 

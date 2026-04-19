@@ -38,6 +38,7 @@ _DEFAULT_PDF_PATH = (
 
 
 def _slugify(text: str) -> str:
+    """Run slugify."""
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
 
 
@@ -50,6 +51,7 @@ def _maturity_level_from_igs(ig1: Any, ig2: Any, ig3: Any) -> int | None:
 
 
 def _normalise_pdf_text(text: str) -> str:
+    """Run normalise pdf text."""
     text = text.replace("\xa0", " ")
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -66,6 +68,7 @@ def _normalise_guidance_text(text: str) -> str:
 
 
 def _extract_section(text: str, start_label: str, end_labels: list[str]) -> str:
+    """Run extract section."""
     pattern = re.escape(start_label) + r"\s*(.*?)"
     if end_labels:
         pattern += r"(?=" + "|".join(re.escape(label) for label in end_labels) + r"|\Z)"
@@ -76,6 +79,7 @@ def _extract_section(text: str, start_label: str, end_labels: list[str]) -> str:
 
 
 def _build_control_guidance_map(pdf_path: Path) -> dict[str, str]:
+    """Run build control guidance map."""
     if _PdfReader is None:
         raise RuntimeError(
             "pypdf is required for CIS Controls PDF parsing. Install with: pip install pypdf"
@@ -121,16 +125,20 @@ def _build_control_guidance_map(pdf_path: Path) -> dict[str, str]:
 
 
 class CisControlsParser(BaseParser):
+    """CisControlsParser."""
+
     def __init__(
         self,
         workbook_path: str | Path = _DEFAULT_WORKBOOK_PATH,
         pdf_path: str | Path = _DEFAULT_PDF_PATH,
         **_kwargs: Any,
     ) -> None:
+        """Run init."""
         self._workbook_path = Path(workbook_path)
         self._pdf_path = Path(pdf_path)
 
     def parse(self) -> List[RequirementRecord]:
+        """Run parse."""
         try:
             import openpyxl  # noqa: PLC0415
         except ImportError as exc:

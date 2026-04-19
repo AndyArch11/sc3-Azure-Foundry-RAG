@@ -4,19 +4,19 @@ Single source of truth for all framework-matching heuristics.  Used by
 :mod:`polling_worker`, :mod:`assessment_runtime`, and :mod:`query_web.app`
 so that keyword changes, new aliases, and priority decisions are made once.
 """
+
 from __future__ import annotations
 
-
-import re
 import json
+import logging
 import os
+import re
 
 # Load precedence policy from JSON
 
-import logging
-
 
 def _resolve_policy_path() -> str:
+    """Run resolve policy path."""
     env_path = os.getenv("PRECEDENCE_POLICY_PATH", "").strip()
     if env_path:
         return env_path
@@ -41,14 +41,18 @@ except Exception as e:
     _POLICY = {}
 
 # Canonical multi-framework output order (used when "all frameworks" is requested).
-ALL_FRAMEWORK_ORDER: tuple[str, ...] = tuple(_POLICY["default_framework_order"]) if "default_framework_order" in _POLICY else (
-    "Essential Eight",
-    "ISM",
-    "AESCSF",
-    "NIST CSF",
-    "PSPF",
-    "PCI DSS",
-    "CIS Controls",
+ALL_FRAMEWORK_ORDER: tuple[str, ...] = (
+    tuple(_POLICY["default_framework_order"])
+    if "default_framework_order" in _POLICY
+    else (
+        "Essential Eight",
+        "ISM",
+        "AESCSF",
+        "NIST CSF",
+        "PSPF",
+        "PCI DSS",
+        "CIS Controls",
+    )
 )
 
 # Default framework for scope/clarification
@@ -97,7 +101,6 @@ FRAMEWORK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         ),
     ),
 )
-
 
 
 # Phrases that unambiguously request all frameworks at once.
@@ -160,6 +163,7 @@ def requested_frameworks_from_text(text: str) -> tuple[str, ...]:
     is detected.  Returns ``()`` when no framework can be resolved.
     """
     import logging
+
     value = text.strip()
     logging.info(f"[framework_patterns] Matching frameworks in text: {repr(value)}")
     if not value:

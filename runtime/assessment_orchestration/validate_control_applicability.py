@@ -27,6 +27,7 @@ _APPLICABILITY_REVIEW_PROMPT = (
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
+    """Run extract json object."""
     value = text.strip()
     try:
         parsed = json.loads(value)
@@ -50,6 +51,7 @@ def _review_control_with_llm(
     chat_completion,
     max_attempts: int = 2,
 ) -> dict[str, Any]:
+    """Run review control with llm."""
     base_messages = [
         {"role": "system", "content": _APPLICABILITY_REVIEW_PROMPT},
         {
@@ -119,6 +121,7 @@ def review_ambiguous_controls_with_llm(
     max_controls: int = 20,
     chat_completion=None,
 ) -> dict[str, Any]:
+    """Run review ambiguous controls with llm."""
     if chat_completion is None:
         chat_completion = create_chat_completion_fn()
 

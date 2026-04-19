@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import json
 import os
-import pytest
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from query_web.config import (
     _CANONICAL_FRAMEWORKS,
     _FRAMEWORK_ALIASES,
+    PrecedencePolicy,
+    QueryConfig,
     _canonical_framework_name,
     _env_bool,
     _form_bool,
@@ -18,10 +21,7 @@ from query_web.config import (
     _parse_framework_authority_order,
     _require_env,
     load_config,
-    PrecedencePolicy,
-    QueryConfig,
 )
-
 
 # ---------------------------------------------------------------------------
 # _canonical_framework_name

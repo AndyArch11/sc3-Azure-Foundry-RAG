@@ -1,4 +1,5 @@
 """Unit tests for query_web/rag_pipeline.py."""
+
 from __future__ import annotations
 
 import os
@@ -119,11 +120,18 @@ def test_run_rag_skips_controls_when_corpus_a_not_selected() -> None:
     svc._resolve_evidence_corpora = lambda include, exclude: ["b"]
     svc._build_evidence_corpus_filter = lambda selected: "corpus eq 'b'"
 
-    def _hybrid(question: str, retrieve_k: int, evidence_filter: str) -> tuple[list[dict[str, Any]], dict[str, float]]:
-        return ([{"corpus": "b", "content": "guidance", "source_name": "b1"}], {"embedding_s": 0.01, "search_s": 0.02})
+    def _hybrid(
+        question: str, retrieve_k: int, evidence_filter: str
+    ) -> tuple[list[dict[str, Any]], dict[str, float]]:
+        return (
+            [{"corpus": "b", "content": "guidance", "source_name": "b1"}],
+            {"embedding_s": 0.01, "search_s": 0.02},
+        )
 
     svc._hybrid_search = _hybrid
-    svc._controls_search = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should skip"))
+    svc._controls_search = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("should skip")
+    )
 
     result = _run_rag(
         "q",

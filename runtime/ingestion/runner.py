@@ -32,6 +32,7 @@ _CONTROLS_SOURCE_TARGET_FILENAMES = {
 
 
 def parse_args() -> argparse.Namespace:
+    """Run parse args."""
     parser = argparse.ArgumentParser(
         description="Ingest PDF and Excel documents",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -146,6 +147,7 @@ def _download_controls_source_files(
     source_prefix: str,
     credential: TokenCredential,
 ) -> list[str]:
+    """Run download controls source files."""
     prefix = str(source_prefix or "").strip().strip("/")
     if not prefix:
         return []
@@ -194,6 +196,7 @@ def _download_controls_source_files(
 
 
 def _run_local(args: argparse.Namespace) -> int:
+    """Run run local."""
     if args.input_dir is None:
         print("--input-dir is required for local mode", file=sys.stderr)
         return 2
@@ -266,6 +269,7 @@ def _run_local(args: argparse.Namespace) -> int:
 
 
 def _run_azure(args: argparse.Namespace) -> int:
+    """Run run azure."""
     from azure.identity import DefaultAzureCredential
 
     from .blob_uploader import upload_source_files
@@ -279,9 +283,9 @@ def _run_azure(args: argparse.Namespace) -> int:
     )
 
     # Allow per-run scoping without requiring long-lived env var changes on the job.
-    storage_container_query_override = (
-        str(getattr(args, "storage_container_query", "") or "").strip()
-    )
+    storage_container_query_override = str(
+        getattr(args, "storage_container_query", "") or ""
+    ).strip()
     if storage_container_query_override:
         os.environ["AZURE_STORAGE_CONTAINER_QUERY"] = storage_container_query_override
 
@@ -359,6 +363,7 @@ def _run_azure(args: argparse.Namespace) -> int:
     logger.info("Ensuring indexer…")
     # Brief pause to allow Azure Search to propagate the skillset update before the indexer runs.
     import time as _time
+
     _time.sleep(5)
     logger.warning("Skillset propagation pause complete; proceeding with indexer provisioning.")
 
@@ -412,6 +417,7 @@ def _run_azure(args: argparse.Namespace) -> int:
 
 
 def _run_reset(args: argparse.Namespace) -> int:
+    """Run run reset."""
     from azure.identity import DefaultAzureCredential
 
     from .config import IngestionConfig
@@ -444,6 +450,7 @@ def _run_reset(args: argparse.Namespace) -> int:
 
 
 def _run_controls(args: argparse.Namespace) -> int:
+    """Run run controls."""
     from azure.identity import DefaultAzureCredential
 
     from .controls_index import ControlsIndexConfig, ensure_controls_index
@@ -549,6 +556,7 @@ def _run_controls(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    """Run main."""
     logger.warning("Ingestion version signature: %s", INGESTION_VERSION_SIGNATURE)
     args = parse_args()
     if args.mode == "azure":

@@ -772,6 +772,7 @@ _CATEGORY_GUIDANCE_URLS: Dict[str, str] = {
 
 
 def _slugify(text: str) -> str:
+    """Run slugify."""
     slug = text.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     return slug.strip("-")
@@ -842,9 +843,11 @@ class NistCsfParser(BaseParser):
     """
 
     def __init__(self, fetch_guidance: bool = True) -> None:
+        """Run init."""
         self._fetch_guidance = fetch_guidance
 
     def parse(self) -> List[RequirementRecord]:
+        """Run parse."""
         logger.info("Parsing NIST CSF 2.0 core (fetch_guidance=%s)", self._fetch_guidance)
 
         guidance_map = _build_category_guidance_map(self._fetch_guidance)

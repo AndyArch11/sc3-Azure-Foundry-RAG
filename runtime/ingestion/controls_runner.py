@@ -15,11 +15,13 @@ logger = logging.getLogger(__name__)
 
 
 def _is_missing_source_error(exc: Exception) -> bool:
+    """Run is missing source error."""
     message = str(exc).lower()
     return "not found" in message or "no such file" in message
 
 
 def _build_parser_registry() -> dict[str, dict]:
+    """Run build parser registry."""
     from .parsers.aescsf import AescsfParser  # noqa: PLC0415
     from .parsers.cis_controls import CisControlsParser  # noqa: PLC0415
     from .parsers.essential_eight import EssentialEightParser  # noqa: PLC0415
@@ -65,12 +67,14 @@ def _build_parser_registry() -> dict[str, dict]:
 
 
 def _selected_frameworks(framework: str, registry: dict[str, dict]) -> list[str]:
+    """Run selected frameworks."""
     if framework == "all":
         return sorted(registry.keys())
     return [framework]
 
 
 def parse_args() -> argparse.Namespace:
+    """Run parse args."""
     parser = argparse.ArgumentParser(
         description="Parse controls JSONL and publish to dedicated Azure AI Search controls index"
     )
@@ -148,6 +152,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def _resolve_controls_index_config(args: argparse.Namespace) -> ControlsIndexConfig:
+    """Run resolve controls index config."""
     if args.search_endpoint:
         return ControlsIndexConfig(
             search_endpoint=str(args.search_endpoint).strip(),
@@ -168,6 +173,7 @@ def _resolve_controls_index_config(args: argparse.Namespace) -> ControlsIndexCon
 
 
 def _run_parse(framework: str, output_dir: Path, no_guidance: bool) -> dict[str, Path]:
+    """Run run parse."""
     outputs, _skipped = _run_parse_detailed(
         framework=framework,
         output_dir=output_dir,
@@ -181,6 +187,7 @@ def _run_parse_detailed(
     output_dir: Path,
     no_guidance: bool,
 ) -> tuple[dict[str, Path], list[dict[str, str]]]:
+    """Run run parse detailed."""
     registry = _build_parser_registry()
     frameworks = _selected_frameworks(framework, registry)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -231,6 +238,7 @@ def _run_publish(
     replace_existing: bool,
     dry_run: bool,
 ) -> dict:
+    """Run run publish."""
     credential = DefaultAzureCredential()
 
     ensure_controls_index(config, credential)
@@ -253,6 +261,7 @@ def _log_framework_all_summary(
     parsed_outputs: dict[str, Path],
     skipped_frameworks: list[dict[str, str]],
 ) -> None:
+    """Run log framework all summary."""
     parsed_names = sorted(parsed_outputs.keys())
     skipped_names = [entry.get("framework", "unknown") for entry in skipped_frameworks]
     logger.info(
@@ -266,6 +275,7 @@ def _log_framework_all_summary(
 
 
 def main() -> int:
+    """Run main."""
     args = parse_args()
     logging.getLogger().setLevel(args.log_level)
 

@@ -16,6 +16,8 @@ from .skill_catalog import SkillCatalog
 
 
 class MCPContentClient(Protocol):
+    """MCPContentClient."""
+
     def resolve_target(
         self, target_reference: str, *, requester_context: dict[str, Any] | None = None
     ) -> ResolvedTarget: ...
@@ -46,6 +48,8 @@ class MCPContentClient(Protocol):
 
 
 class AssessmentAgent(Protocol):
+    """AssessmentAgent."""
+
     def retrieve_corpus_grounding(
         self, artifact: AssessedArtifactPackage
     ) -> CorpusGroundingPackage: ...
@@ -68,6 +72,8 @@ class AssessmentAgent(Protocol):
 
 
 class DeliveryPublisher(Protocol):
+    """DeliveryPublisher."""
+
     def post_comment(
         self,
         target_id: str,
@@ -88,10 +94,14 @@ class DeliveryPublisher(Protocol):
 
 
 class AuditSink(Protocol):
+    """AuditSink."""
+
     def record_stage(self, job: AssessmentJob, stage: str, payload: dict[str, Any]) -> None: ...
 
 
 class OrchestratorAdapter:
+    """OrchestratorAdapter."""
+
     def __init__(
         self,
         *,
@@ -101,6 +111,7 @@ class OrchestratorAdapter:
         audit_sink: AuditSink,
         skill_catalog: SkillCatalog | None = None,
     ) -> None:
+        """Run init."""
         self._content_client = content_client
         self._assessment_agent = assessment_agent
         self._delivery_publisher = delivery_publisher
@@ -108,6 +119,7 @@ class OrchestratorAdapter:
         self._skill_catalog = skill_catalog
 
     def _stage_payload(self, stage: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Run stage payload."""
         enriched = dict(payload)
         if self._skill_catalog is not None:
             selected_skill = self._skill_catalog.skill_for_stage(stage)
@@ -118,6 +130,7 @@ class OrchestratorAdapter:
     def collect_grounding(
         self, job: AssessmentJob
     ) -> tuple[AssessedArtifactPackage, CorpusGroundingPackage]:
+        """Run collect grounding."""
         resolved = self._content_client.resolve_target(job.target_url)
         self._audit_sink.record_stage(
             job,
@@ -204,6 +217,7 @@ class OrchestratorAdapter:
         return artifact, grounding
 
     def run_assessment(self, job: AssessmentJob) -> dict[str, Any]:
+        """Run run assessment."""
         artifact, grounding = self.collect_grounding(job)
         assessment = self._assessment_agent.generate_assessment(artifact, grounding)
         self._audit_sink.record_stage(
@@ -240,6 +254,7 @@ class OrchestratorAdapter:
         return assessment
 
     def run_queue_message(self, message: QueueMessage) -> dict[str, Any]:
+        """Run run queue message."""
         self._audit_sink.record_stage(
             message.job,
             "queue_message_received",

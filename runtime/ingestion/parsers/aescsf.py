@@ -134,6 +134,7 @@ _PRACTICE_RE = re.compile(r"^[A-Z][A-Z0-9-]+-(?:AP\d+|\d+[A-Za-z])$")
 
 
 def _slugify(text: str) -> str:
+    """Run slugify."""
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
 
 
@@ -169,6 +170,7 @@ class AescsfParser(BaseParser):
         include_anti_patterns: bool = True,
         **_kwargs,
     ) -> None:
+        """Run init."""
         self._toolkit_url = toolkit_url
         self._include_anti_patterns = include_anti_patterns
 
@@ -177,6 +179,7 @@ class AescsfParser(BaseParser):
     # ------------------------------------------------------------------
 
     def parse(self) -> List[RequirementRecord]:
+        """Run parse."""
         logger.info("Fetching AESCSF core workbook from %s", self._toolkit_url)
         workbook_bytes = self._fetch_workbook()
         return self._build_records(workbook_bytes)
@@ -186,6 +189,7 @@ class AescsfParser(BaseParser):
     # ------------------------------------------------------------------
 
     def _fetch_workbook(self) -> bytes:
+        """Run fetch workbook."""
         req = urllib.request.Request(
             self._toolkit_url,
             headers={"User-Agent": "aescsf-parser/1.0 (controls ingestion)"},
@@ -194,6 +198,7 @@ class AescsfParser(BaseParser):
             return resp.read()
 
     def _build_records(self, workbook_bytes: bytes) -> List[RequirementRecord]:
+        """Run build records."""
         try:
             import openpyxl  # noqa: PLC0415
         except ImportError as exc:

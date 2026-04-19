@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 
 
 class AskRequest(BaseModel):
+    """Request payload for the `/api/ask` endpoint."""
+
     question: str
     retrieve_k: int = Field(default=5, ge=1, le=20)
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
@@ -21,6 +23,8 @@ class AskRequest(BaseModel):
 
 
 class AskResponse(BaseModel):
+    """Structured response returned by ask and RAG endpoints."""
+
     answer: str
     results: list[dict[str, Any]]
     controls_results: list[dict[str, Any]] = []

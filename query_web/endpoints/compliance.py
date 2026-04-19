@@ -1,4 +1,5 @@
 """Compliance report endpoints and job tracking."""
+
 from __future__ import annotations
 
 import csv
@@ -28,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 
 class ComplianceReportRequest(BaseModel):
+    """Request payload for corpus-based compliance report generation."""
+
     question: str = ""
     retrieve_k: int = Field(default=5, ge=1, le=20)
     controls_top_k: int = Field(default=4, ge=1, le=2000)
@@ -44,6 +47,8 @@ class ComplianceReportRequest(BaseModel):
 
 
 class AzureComplianceReportRequest(BaseModel):
+    """Request payload for Azure resource compliance assessment generation."""
+
     subscription_id: str
     resource_group: str
     resource_ids: list[str] = Field(default_factory=list)
@@ -56,6 +61,8 @@ class AzureComplianceReportRequest(BaseModel):
 
 
 class ComplianceFinding(BaseModel):
+    """Single normalised compliance finding in the structured report schema."""
+
     finding_id: str = Field(min_length=1, max_length=64)
     requirement_id: str = Field(min_length=1, max_length=128)
     framework: str = Field(min_length=1, max_length=64)
@@ -74,6 +81,8 @@ class ComplianceFinding(BaseModel):
 
 
 class ComplianceReportStructured(BaseModel):
+    """Structured compliance report payload returned to clients and exports."""
+
     schema_version: str = Field(min_length=1, max_length=32)
     executive_summary: str = Field(min_length=1, max_length=3000)
     scope_and_inputs: list[str] = Field(default_factory=list, min_length=1, max_length=40)
@@ -152,7 +161,7 @@ COMPLIANCE_REPORT_PROMPT = (
 COMPLIANCE_REPORT_JSON_SCHEMA_HINT = (
     "Required JSON shape:\n"
     "{\n"
-    '  "schema_version": string (must be \'v1.1\'),\n'
+    "  \"schema_version\": string (must be 'v1.1'),\n"
     '  "executive_summary": string,\n'
     '  "scope_and_inputs": string[],\n'
     '  "controls_assessed": string[],\n'
@@ -190,6 +199,7 @@ def _extract_json_object(text: str, svc: Any) -> dict[str, Any]:
 
     try:
         import json as _json
+
         parsed = _json.loads(cleaned)
         if isinstance(parsed, dict):
             return parsed
@@ -197,6 +207,7 @@ def _extract_json_object(text: str, svc: Any) -> dict[str, Any]:
         pass
 
     import json as _json
+
     first = cleaned.find("{")
     last = cleaned.rfind("}")
     if first == -1 or last == -1 or last <= first:
@@ -867,6 +878,8 @@ def generate_compliance_report_result(
     svc: Any,
     progress_cb: Callable[[int, int, str, str], None] | None = None,
 ) -> dict[str, Any]:
+    """Generate a compliance report using Corpus A/B/C retrieval and LLM synthesis."""
+
     question = payload.question.strip()
     effective_question = question
     if not effective_question:
@@ -1132,6 +1145,8 @@ def generate_azure_compliance_report_result(
     svc: Any,
     progress_cb: Callable[[int, int, str, str], None] | None = None,
 ) -> dict[str, Any]:
+    """Generate a compliance report for Azure scope evidence and selected framework."""
+
     subscription_id = payload.subscription_id.strip()
     resource_group = payload.resource_group.strip()
     resource_ids = [item.strip() for item in payload.resource_ids if item.strip()]
@@ -1280,9 +1295,7 @@ def register_compliance_endpoints(app: Any, svc: Any) -> None:
 
             if payload.corpus_c_upload_batch:
                 escaped_batch = payload.corpus_c_upload_batch.replace("'", "''")
-                batch_filter = (
-                    f"{corpus_c_base_filter} and upload_batch eq '{escaped_batch}'"
-                )
+                batch_filter = f"{corpus_c_base_filter} and upload_batch eq '{escaped_batch}'"
                 corpus_c_batch_total = svc._count_search_documents_total_by_filter(
                     svc.search_client,
                     filter_expr=batch_filter,
@@ -1331,9 +1344,7 @@ def register_compliance_endpoints(app: Any, svc: Any) -> None:
             return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.post("/api/compliance/report/start")
-    def start_compliance_report(
-        request: Request, payload: ComplianceReportRequest
-    ) -> JSONResponse:
+    def start_compliance_report(request: Request, payload: ComplianceReportRequest) -> JSONResponse:
         if not svc._is_authorised_request(payload.auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -1356,9 +1367,7 @@ def register_compliance_endpoints(app: Any, svc: Any) -> None:
 
             if payload.corpus_c_upload_batch:
                 escaped_batch = payload.corpus_c_upload_batch.replace("'", "''")
-                batch_filter = (
-                    f"{corpus_c_base_filter} and upload_batch eq '{escaped_batch}'"
-                )
+                batch_filter = f"{corpus_c_base_filter} and upload_batch eq '{escaped_batch}'"
                 corpus_c_batch_total = svc._count_search_documents_total_by_filter(
                     svc.search_client,
                     filter_expr=batch_filter,
@@ -1390,9 +1399,7 @@ def register_compliance_endpoints(app: Any, svc: Any) -> None:
             )
 
         def _run() -> None:
-            _update_report_job(
-                job.job_id, state="running", message="Starting compliance report"
-            )
+            _update_report_job(job.job_id, state="running", message="Starting compliance report")
             try:
                 result = svc._generate_compliance_report_result(payload, progress_cb=_progress)
                 _update_report_job(

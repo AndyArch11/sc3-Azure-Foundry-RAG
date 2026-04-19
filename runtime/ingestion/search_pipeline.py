@@ -148,6 +148,7 @@ def _create_or_update_skillset_via_preview_rest(
 
 
 def _delete_if_exists(delete_fn, resource_name: str, resource_kind: str) -> None:
+    """Run delete if exists."""
     try:
         delete_fn(resource_name)
         logger.warning("Deleted Search %s for schema reset: %s", resource_kind, resource_name)
@@ -159,6 +160,7 @@ def _reset_search_artifacts_for_schema_change(
     config: IngestionConfig,
     credential: TokenCredential,
 ) -> None:
+    """Run reset search artifacts for schema change."""
     indexer_client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
     index_client = SearchIndexClient(endpoint=config.search_endpoint, credential=credential)
 
@@ -378,8 +380,6 @@ def ensure_data_source(config: IngestionConfig, credential: TokenCredential) -> 
 # ---------------------------------------------------------------------------
 # Skillset
 # ---------------------------------------------------------------------------
-
-
 
 
 def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> None:
@@ -801,7 +801,6 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
         ),
     )
 
-
     # Use the search service's system-assigned managed identity to bill enrichment
     # against the attached AI Services account via RBAC (no key required).
     skillset = SearchIndexerSkillset(
@@ -982,7 +981,9 @@ def wait_for_indexer(
                 optional_conditional_warnings = [
                     warning
                     for warning in warnings
-                    if str(warning.get("name") or "").startswith("Enrichment.ConditionalSkill.default-")
+                    if str(warning.get("name") or "").startswith(
+                        "Enrichment.ConditionalSkill.default-"
+                    )
                     and "Optional skill input is missing or empty"
                     in str(warning.get("message") or "")
                 ]
@@ -1103,9 +1104,7 @@ def _detect_rate_limit_retry_after_seconds(result: dict[str, Any]) -> Optional[i
                 text_candidates.append(value)
 
     has_rate_limit_signal = any(
-        marker in candidate.lower()
-        for candidate in text_candidates
-        for marker in markers
+        marker in candidate.lower() for candidate in text_candidates for marker in markers
     )
     if not has_rate_limit_signal:
         return None
@@ -1149,9 +1148,7 @@ def run_indexer_with_rate_limit_backoff(
             previous_retry_after = _detect_rate_limit_retry_after_seconds(last_result)
             computed_delay = min(safe_base * (2 ** (attempt - 2)), safe_cap)
             delay_seconds = (
-                max(1, previous_retry_after)
-                if previous_retry_after is not None
-                else computed_delay
+                max(1, previous_retry_after) if previous_retry_after is not None else computed_delay
             )
             logger.warning(
                 "Retrying indexer after rate limit (attempt %d/%d) in %ds",

@@ -52,6 +52,7 @@ class ConversationMessage:
 | `AZURE_COSMOS_ENDPOINT` | Yes | CosmosDB account endpoint (e.g., `https://cosmos-xxx.documents.azure.com:443/`) |
 | `AZURE_COSMOS_DATABASE_NAME` | Yes | CosmosDB SQL database name for conversations (default: `rag-conversations`) |
 | `AZURE_COSMOS_CONTAINER_NAME` | Yes | CosmosDB SQL container name for conversations (default: `conversations`) |
+| `AZURE_COSMOS_ORCHESTRATION_CONTAINER_NAME` | No | CosmosDB container name for orchestration/polling state (default: `orchestration-state`) |
 | `AZURE_OPENAI_ENDPOINT` | Yes | Foundry API endpoint (e.g., `https://foundry-xxx.openai.azure.com/`) |
 
 ## API Endpoints
@@ -333,7 +334,7 @@ If CosmosDB is unavailable:
 - [ ] Managed identity has `Cosmos DB Built-in Data Contributor` on CosmosDB account
 - [ ] CosmosDB database `rag-conversations` and container `conversations` created (or auto-provisioned)
 - [ ] Service principal/Managed Identity has CosmosDB contributor role
-- [ ] `openai==1.51.0` and `azure-cosmos==4.7.0` in `requirements.txt`
+- [ ] `openai==1.51.0` and `azure-cosmos==4.8.0` in `requirements.txt`
 - [ ] Test conversation creation and history retrieval in `/api/ask` flow
 
 ---

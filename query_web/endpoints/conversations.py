@@ -1,5 +1,10 @@
 """Conversation management endpoints for storing and retrieving chat history."""
 
+# This module intentionally prioritises endpoint/schema compatibility over strict
+# lint conventions while wrappers and legacy payload contracts are maintained.
+# pylint: disable=too-many-instance-attributes,missing-function-docstring
+# pylint: disable=import-outside-toplevel,broad-exception-caught,too-many-positional-arguments
+
 import logging
 import uuid
 from dataclasses import dataclass, field

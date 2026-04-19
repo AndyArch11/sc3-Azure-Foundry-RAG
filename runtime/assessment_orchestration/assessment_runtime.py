@@ -13,8 +13,8 @@ from azure.identity import DefaultAzureCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
 
-from .models import AssessedArtifactPackage, CorpusGroundingPackage
 from ._framework_patterns import infer_single_framework as _infer_framework_filter
+from .models import AssessedArtifactPackage, CorpusGroundingPackage
 
 COMPLIANCE_REPORT_SCHEMA_VERSION = "v1.1"
 COMPLIANCE_REPORT_PROMPT = (
@@ -83,11 +83,15 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class SearchClientLike(Protocol):
+    """SearchClientLike."""
+
     def search(self, **kwargs: Any) -> Iterable[dict[str, Any]]: ...
 
 
 @dataclass(frozen=True)
 class AssessmentRuntimeConfig:
+    """AssessmentRuntimeConfig."""
+
     search_endpoint: str
     openai_endpoint: str
     search_index_name: str = "grounding-index"
@@ -117,6 +121,7 @@ class AssessmentRuntimeConfig:
 
 
 def _required(env: Mapping[str, str], key: str) -> str:
+    """Run required."""
     value = (env.get(key) or "").strip()
     if not value:
         raise ValueError(f"Missing required environment variable: {key}")
@@ -124,6 +129,7 @@ def _required(env: Mapping[str, str], key: str) -> str:
 
 
 def _env_bool(env: Mapping[str, str], key: str, default: bool = False) -> bool:
+    """Run env bool."""
     value = env.get(key)
     if value is None:
         return default
@@ -131,6 +137,7 @@ def _env_bool(env: Mapping[str, str], key: str, default: bool = False) -> bool:
 
 
 def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
+    """Run parse framework authority order."""
     default_order = (
         "Essential Eight",
         "ISM",
@@ -181,6 +188,7 @@ def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
 def load_assessment_runtime_config_from_env(
     env: Mapping[str, str] | None = None,
 ) -> AssessmentRuntimeConfig:
+    """Run load assessment runtime config from env."""
     values = dict(os.environ) if env is None else dict(env)
     return AssessmentRuntimeConfig(
         search_endpoint=_required(values, "AZURE_SEARCH_ENDPOINT"),
@@ -223,6 +231,7 @@ def load_assessment_runtime_config_from_env(
 
 
 def _unwrap_answer(text: str) -> str:
+    """Run unwrap answer."""
     stripped = text.strip()
     fence_match = re.search(r"```(?:json)?\s*(.+?)\s*```", stripped, re.DOTALL)
     if fence_match:
@@ -237,6 +246,7 @@ def _unwrap_answer(text: str) -> str:
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
+    """Run extract json object."""
     cleaned = _unwrap_answer(text).strip()
     if not cleaned:
         raise ValueError("Model returned empty response")
@@ -260,6 +270,7 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 
 
 def sanitise_untrusted_text(text: str) -> str:
+    """Run sanitise untrusted text."""
     lines: list[str] = []
     for raw_line in text.splitlines():
         cleaned = _ZERO_WIDTH_RE.sub("", raw_line)
@@ -272,6 +283,7 @@ def sanitise_untrusted_text(text: str) -> str:
 
 
 def _assessment_task_instruction(artifact: AssessedArtifactPackage) -> str:
+    """Run assessment task instruction."""
     if artifact.provider == "azure":
         return (
             "Assess the supplied Azure resource configuration and Azure Policy assignment extract for compliance against the requested framework. "
@@ -286,6 +298,7 @@ def _assessment_task_instruction(artifact: AssessedArtifactPackage) -> str:
 
 
 def _cognitive_token(credential: DefaultAzureCredential) -> str:
+    """Run cognitive token."""
     return credential.get_token("https://cognitiveservices.azure.com/.default").token
 
 
@@ -295,6 +308,7 @@ def _embed_query(
     config: AssessmentRuntimeConfig,
     credential: DefaultAzureCredential,
 ) -> list[float]:
+    """Run embed query."""
     token = _cognitive_token(credential)
     url = (
         f"{config.openai_endpoint}/openai/deployments/"
@@ -318,6 +332,7 @@ def _chat_completion(
     credential: DefaultAzureCredential,
     timeout: int = 45,
 ) -> str:
+    """Run chat completion."""
     try:
         from openai import AzureOpenAI
     except ImportError as exc:
@@ -364,6 +379,7 @@ def _chat_completion(
 
 
 def _framework_authority_rank(item: dict[str, Any], order: tuple[str, ...]) -> int:
+    """Run framework authority rank."""
     framework = str(item.get("framework") or "").strip().lower()
     for idx, configured in enumerate(order):
         if framework == configured.strip().lower():
@@ -378,6 +394,7 @@ def _fetch_controls(
     config: AssessmentRuntimeConfig,
     framework_filter: str | None,
 ) -> list[dict[str, Any]]:
+    """Run fetch controls."""
     select_fields = [
         "requirement_id",
         "framework",
@@ -407,6 +424,7 @@ def _fetch_controls(
     items: list[dict[str, Any]] = []
 
     def _is_missing_controls_index_error(exc: Exception) -> bool:
+        """Run is missing controls index error."""
         if isinstance(exc, ResourceNotFoundError):
             message = str(exc).lower()
             index_name = config.controls_index_name.lower()
@@ -473,6 +491,7 @@ def _fetch_controls(
 
 def _azure_control_is_likely_applicable(control: dict[str, Any]) -> bool:
     # If control has pre-computed applicability metadata, use it
+    """Run azure control is likely applicable."""
     scope = str(control.get("control_applicability_scope") or "").strip()
     confidence = float(control.get("applicability_confidence") or 0.0)
     uncertain = bool(control.get("applicability_uncertain", False))
@@ -506,6 +525,7 @@ def _filter_controls_for_artifact(
     artifact: AssessedArtifactPackage,
     controls: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    """Run filter controls for artifact."""
     if artifact.provider != "azure":
         return controls
 
@@ -529,7 +549,10 @@ def _hybrid_search(
     embed_query: Callable[[str], list[float]],
     evidence_filter: str | None = None,
 ) -> list[dict[str, Any]]:
+    """Run hybrid search."""
+
     def _is_missing_grounding_index_error(exc: Exception) -> bool:
+        """Run is missing grounding index error."""
         if isinstance(exc, ResourceNotFoundError):
             message = str(exc).lower()
             index_name = config.search_index_name.lower()
@@ -608,6 +631,7 @@ def _hybrid_search(
 
 
 def _ensure_string(value: Any, field_name: str) -> str:
+    """Run ensure string."""
     text = str(value or "").strip()
     if not text:
         raise ValueError(f"{field_name} must be a non-empty string")
@@ -615,6 +639,7 @@ def _ensure_string(value: Any, field_name: str) -> str:
 
 
 def _ensure_string_list(value: Any, field_name: str, *, min_items: int = 0) -> list[str]:
+    """Run ensure string list."""
     if not isinstance(value, list):
         raise ValueError(f"{field_name} must be a list")
     items = [str(item).strip() for item in value if str(item).strip()]
@@ -624,6 +649,7 @@ def _ensure_string_list(value: Any, field_name: str, *, min_items: int = 0) -> l
 
 
 def validate_compliance_report_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Run validate compliance report payload."""
     schema_version = _ensure_string(payload.get("schema_version"), "schema_version")
     if schema_version != COMPLIANCE_REPORT_SCHEMA_VERSION:
         raise ValueError(
@@ -712,6 +738,7 @@ def _fallback_report(
     guidance: list[dict[str, Any]],
     error: str,
 ) -> dict[str, Any]:
+    """Run fallback report."""
     first_control = controls[0] if controls else {}
     requirement_id = str(first_control.get("requirement_id") or "assessment-fallback")
     framework = str(first_control.get("framework") or "Unknown")
@@ -757,6 +784,7 @@ def _fallback_report(
 
 
 def _artifact_excerpt(artifact: AssessedArtifactPackage, limit: int) -> str:
+    """Run artifact excerpt."""
     content = sanitise_untrusted_text(artifact.content)
     return content[:limit].strip()
 
@@ -764,6 +792,7 @@ def _artifact_excerpt(artifact: AssessedArtifactPackage, limit: int) -> str:
 def _discussion_excerpt(
     artifact: AssessedArtifactPackage, *, comment_limit: int, char_limit: int
 ) -> str:
+    """Run discussion excerpt."""
     lines: list[str] = []
     for item in artifact.discussion_context[:comment_limit]:
         author = str(item.get("author") or item.get("display_name") or "unknown")
@@ -873,6 +902,7 @@ def _select_chunks_for_control_rt(
             tokens.add(t.lower())
 
     def _score(chunk: dict[str, Any]) -> float:
+        """Run score."""
         text = str(chunk.get("content") or "").lower()
         overlap = sum(1 for t in tokens if t in text)
         term_score = overlap / (len(tokens) + 1)
@@ -883,6 +913,8 @@ def _select_chunks_for_control_rt(
 
 
 class SearchBackedAssessmentAgent:
+    """SearchBackedAssessmentAgent."""
+
     def __init__(
         self,
         *,
@@ -893,6 +925,7 @@ class SearchBackedAssessmentAgent:
         embed_query: Callable[[str], list[float]] | None = None,
         chat_completion: Callable[[list[dict[str, str]]], str] | None = None,
     ) -> None:
+        """Run init."""
         self._config = config
         self._credential = credential or DefaultAzureCredential()
         self._evidence_search_client = evidence_search_client or SearchClient(
@@ -934,6 +967,7 @@ class SearchBackedAssessmentAgent:
     def retrieve_corpus_grounding(
         self, artifact: AssessedArtifactPackage
     ) -> CorpusGroundingPackage:
+        """Run retrieve corpus grounding."""
         query = self._build_assessment_query(artifact)
         framework_override = str(artifact.metadata.get("framework_filter_override") or "").strip()
         framework_filter = framework_override or _infer_framework_filter(
@@ -975,6 +1009,7 @@ class SearchBackedAssessmentAgent:
         *,
         validation_mode: str = "hard",
     ) -> dict[str, Any]:
+        """Run generate assessment."""
         controls_context = "\n\n".join(
             (
                 f"Requirement ID: {item['requirement_id']}\n"
@@ -1086,6 +1121,7 @@ class SearchBackedAssessmentAgent:
         return report
 
     def _build_assessment_query(self, artifact: AssessedArtifactPackage) -> str:
+        """Run build assessment query."""
         excerpts = [artifact.title.strip()]
         if artifact.metadata.get("version"):
             excerpts.append(f"Version: {artifact.metadata['version']}")
@@ -1212,6 +1248,7 @@ class SearchBackedAssessmentAgent:
         corpus_b_chunks: list[dict[str, Any]],
         corpus_c_chunks: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        """Run assess one control."""
         requirement_id = str(control.get("requirement_id") or "").strip() or "UNMAPPED"
         framework = str(control.get("framework") or "").strip() or "Unknown"
 
@@ -1282,5 +1319,6 @@ class SearchBackedAssessmentAgent:
 def create_search_backed_assessment_agent_from_env(
     env: Mapping[str, str] | None = None,
 ) -> SearchBackedAssessmentAgent:
+    """Run create search backed assessment agent from env."""
     config = load_assessment_runtime_config_from_env(env)
     return SearchBackedAssessmentAgent(config=config)

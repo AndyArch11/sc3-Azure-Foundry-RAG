@@ -1,0 +1,5 @@
+[MESSAGES CONTROL]
+# Duplicate-code checks are intentionally noisy in this repository because
+# `query_web.app` still hosts compatibility wrappers while equivalent logic
+# exists in extracted endpoint/security modules.
+disable=R0801

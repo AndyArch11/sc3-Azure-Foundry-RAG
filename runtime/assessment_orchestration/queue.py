@@ -13,6 +13,8 @@ _ALLOWED_MESSAGE_TYPES = {"assessment_requested", "assessment_retry_requested"}
 
 @dataclass(frozen=True)
 class QueueMessage:
+    """QueueMessage."""
+
     queue_message_id: str
     message_type: QueueMessageType
     enqueued_at: str
@@ -25,16 +27,20 @@ class QueueMessage:
 
 
 class JobRunner(Protocol):
+    """JobRunner."""
+
     def run(self, message: QueueMessage) -> dict[str, Any]: ...
 
 
 def _require_non_empty_string(name: str, value: object) -> str:
+    """Run require non empty string."""
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must be a non-empty string")
     return value.strip()
 
 
 def validate_queue_message(payload: Mapping[str, Any]) -> QueueMessage:
+    """Run validate queue message."""
     message_type = _require_non_empty_string("message_type", payload.get("message_type"))
     if message_type not in _ALLOWED_MESSAGE_TYPES:
         raise ValueError(f"message_type must be one of {sorted(_ALLOWED_MESSAGE_TYPES)}")
@@ -63,10 +69,12 @@ def validate_queue_message(payload: Mapping[str, Any]) -> QueueMessage:
 
 
 def serialise_queue_message(message: QueueMessage) -> str:
+    """Run serialise queue message."""
     return json.dumps(asdict(message), separators=(",", ":"), sort_keys=True)
 
 
 def deserialise_queue_message(raw_message: str) -> QueueMessage:
+    """Run deserialise queue message."""
     payload = json.loads(raw_message)
     if not isinstance(payload, dict):
         raise ValueError("queue message payload must be a JSON object")

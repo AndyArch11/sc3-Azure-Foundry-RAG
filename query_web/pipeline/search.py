@@ -1,4 +1,5 @@
 """Hybrid search and embedding helpers extracted from app.py."""
+
 from __future__ import annotations
 
 import time

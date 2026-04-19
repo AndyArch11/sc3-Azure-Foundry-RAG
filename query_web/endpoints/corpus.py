@@ -1,8 +1,18 @@
 """Corpus management and ingestion endpoints."""
+
+# This endpoint module is a compatibility/wiring layer that delegates into
+# `svc` helpers retained in `query_web.app`, which intentionally uses leading
+# underscore names. Error handling is intentionally broad to return stable API
+# envelopes rather than framework-default tracebacks.
+# pylint: disable=protected-access,broad-exception-caught,too-many-branches
+# pylint: disable=too-many-lines,missing-class-docstring,too-many-statements
+# pylint: disable=too-many-positional-arguments,too-many-return-statements
+
 from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -416,9 +426,7 @@ def register_corpus_endpoints(app: Any, svc: Any) -> None:
                     key_field="id",
                 )
 
-            blob_result = (
-                {"deleted": 0} if not payload.dry_run else {"would_delete": 0}
-            )
+            blob_result = {"deleted": 0} if not payload.dry_run else {"would_delete": 0}
             if payload.clear_blobs:
                 blob_result = (
                     svc._count_blob_prefix("corpus-c/by-dedupe/")
@@ -482,8 +490,7 @@ def register_corpus_endpoints(app: Any, svc: Any) -> None:
             raw_framework = (framework or "").strip().lower()
             auto_mode = raw_framework in {"", "auto", "both", "all"}
             if (not auto_mode) and (
-                not framework_key
-                or framework_key not in svc._CORPUS_A_REFERENCE_UPLOAD_TARGETS
+                not framework_key or framework_key not in svc._CORPUS_A_REFERENCE_UPLOAD_TARGETS
             ):
                 return JSONResponse(
                     {
@@ -934,7 +941,12 @@ def register_corpus_endpoints(app: Any, svc: Any) -> None:
                         since_iso=since_iso,
                         limit=50,
                     )
-                    recent_failures = list(raw_failures) if raw_failures is not None else []
+                    if raw_failures is None:
+                        recent_failures = []
+                    elif isinstance(raw_failures, Iterable):
+                        recent_failures = list(raw_failures)
+                    else:
+                        recent_failures = []
             except Exception as exc:
                 logger.exception("Failed reading recent Confluence poll failures: %s", exc)
                 store_errors.append("recent poll failures unavailable")
@@ -948,23 +960,17 @@ def register_corpus_endpoints(app: Any, svc: Any) -> None:
 
             failure_status_counts: dict[str, int] = {}
             for item in recent_failures:
-                failure_status_counts[item.status] = (
-                    failure_status_counts.get(item.status, 0) + 1
-                )
+                failure_status_counts[item.status] = failure_status_counts.get(item.status, 0) + 1
 
             return JSONResponse(
                 {
                     "configured": (
-                        latest_poll is not None
-                        or poll_state is not None
-                        or bool(assessed_pages)
+                        latest_poll is not None or poll_state is not None or bool(assessed_pages)
                     ),
                     "message": (
                         "No Confluence poll cycle has written status yet."
                         if latest_poll is None and poll_state is None and not store_errors
-                        else "; ".join(store_errors)
-                        if store_errors
-                        else ""
+                        else "; ".join(store_errors) if store_errors else ""
                     ),
                     "since_hours": since_hours,
                     "summary": {
@@ -975,37 +981,39 @@ def register_corpus_endpoints(app: Any, svc: Any) -> None:
                     "last_poll": (
                         None
                         if latest_poll is None and poll_state is None
-                        else {
-                            "polled_at": latest_poll.polled_at,
-                            "space_key": (
-                                ", ".join(latest_poll.space_keys)
-                                if latest_poll.space_keys
-                                else ""
-                            ),
-                            "mentions_found": latest_poll.mentions_found,
-                            "jobs_queued": latest_poll.jobs_queued,
-                            "terminal_failures": latest_poll.terminal_failures,
-                            "error": latest_poll.error_message,
-                            "watermark": latest_poll.watermark,
-                            "since_iso": latest_poll.since_iso,
-                        }
-                        if latest_poll is not None
-                        else {
-                            "polled_at": getattr(poll_state, "last_success_at", ""),
-                            "space_key": "",
-                            "mentions_found": None,
-                            "jobs_queued": None,
-                            "terminal_failures": None,
-                            "error": (
-                                getattr(poll_state, "last_error", {}) or {}
-                            ).get("error", ""),
-                            "watermark": getattr(poll_state, "watermark", ""),
-                            "since_iso": "",
-                            "last_processed_event_id": getattr(
-                                poll_state, "last_processed_event_id", ""
-                            ),
-                            "poll_count": getattr(poll_state, "poll_count", 0),
-                        }
+                        else (
+                            {
+                                "polled_at": latest_poll.polled_at,
+                                "space_key": (
+                                    ", ".join(latest_poll.space_keys)
+                                    if latest_poll.space_keys
+                                    else ""
+                                ),
+                                "mentions_found": latest_poll.mentions_found,
+                                "jobs_queued": latest_poll.jobs_queued,
+                                "terminal_failures": latest_poll.terminal_failures,
+                                "error": latest_poll.error_message,
+                                "watermark": latest_poll.watermark,
+                                "since_iso": latest_poll.since_iso,
+                            }
+                            if latest_poll is not None
+                            else {
+                                "polled_at": getattr(poll_state, "last_success_at", ""),
+                                "space_key": "",
+                                "mentions_found": None,
+                                "jobs_queued": None,
+                                "terminal_failures": None,
+                                "error": (getattr(poll_state, "last_error", {}) or {}).get(
+                                    "error", ""
+                                ),
+                                "watermark": getattr(poll_state, "watermark", ""),
+                                "since_iso": "",
+                                "last_processed_event_id": getattr(
+                                    poll_state, "last_processed_event_id", ""
+                                ),
+                                "poll_count": getattr(poll_state, "poll_count", 0),
+                            }
+                        )
                     ),
                     "assessed_pages": [
                         {

@@ -176,7 +176,9 @@ def test_controls_search_comparison_enables_diversity_and_expands_fetch_k() -> N
     )
 
 
-def test_controls_search_cross_framework_question_ignores_inferred_single_framework_filter() -> None:
+def test_controls_search_cross_framework_question_ignores_inferred_single_framework_filter() -> (
+    None
+):
     calls: list[tuple[str, int, bool, str | None]] = []
 
     def _fake_fetch(
@@ -566,7 +568,10 @@ def test_retrieval_based_fallback_answer_preserves_corpus_b_vs_c_attribution() -
     assert "Weekly Backups Procedure.pdf" in answer
     assert answer.count("Weekly Backups Procedure.pdf") == 1
     assert "c730dcc3ffbf59ac41d094aa92bb6bc42fb9e74c77b169075aaf844ce37751b7.pdf" not in answer
-    assert "Backups of data are performed and retained in line with business continuity needs." in answer
+    assert (
+        "Backups of data are performed and retained in line with business continuity needs."
+        in answer
+    )
     assert "Maintain isolated immutable backup copies and test restoration quarterly." in answer
     assert "## Corpus C Basis (Assessed Artifacts/Evidence)" in answer
     assert "No Corpus C chunks were retrieved." in answer
@@ -593,7 +598,10 @@ def test_retrieval_based_fallback_answer_cleans_corpus_b_fragment_noise() -> Non
     )
 
     assert "retrieved text snippets" in answer
-    assert "The solution implements a robust data backup strategy that supports recovery objectives" in answer
+    assert (
+        "The solution implements a robust data backup strategy that supports recovery objectives"
+        in answer
+    )
     assert "\t" not in answer
     assert "Protection of backup assets should include encryption and access controls." in answer
 
@@ -721,7 +729,9 @@ def test_controls_search_backfills_preferred_framework_when_missing() -> None:
 
     with (
         patch.object(app_module, "_fetch_controls", side_effect=_fake_fetch),
-        patch.object(app_module, "_preferred_framework_for_question", return_value="Essential Eight"),
+        patch.object(
+            app_module, "_preferred_framework_for_question", return_value="Essential Eight"
+        ),
         patch.object(
             app_module,
             "_apply_framework_authority_preference",

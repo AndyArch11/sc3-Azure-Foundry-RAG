@@ -6,6 +6,7 @@ from typing import Optional
 
 
 def _require(key: str) -> str:
+    """Run require."""
     v = os.environ.get(key)
     if not v:
         raise ValueError(f"Required environment variable not set: {key}")
@@ -15,6 +16,7 @@ def _require(key: str) -> str:
 @dataclass(frozen=True)
 class IngestionConfig:
     # Azure AI Search
+    """IngestionConfig."""
     search_endpoint: str
     search_index_name: str
     data_source_name: str
@@ -46,6 +48,7 @@ class IngestionConfig:
 
     @classmethod
     def from_env(cls) -> IngestionConfig:
+        """Run from env."""
         index_name = os.environ.get("AZURE_SEARCH_INDEX_NAME", "grounding-index")
         return cls(
             search_endpoint=_require("AZURE_SEARCH_ENDPOINT"),

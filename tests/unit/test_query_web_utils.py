@@ -74,7 +74,7 @@ def test_dedupe_blob_prefix_builds_expected_path() -> None:
 
 def test_sanitise_untrusted_text_delegates_to_guard(monkeypatch) -> None:
     fake_module = SimpleNamespace(sanitise_untrusted_text=lambda text: f"safe:{text}")
-    monkeypatch.setitem(sys.modules, "prompt_injection_guard", fake_module)
+    monkeypatch.setitem(sys.modules, "query_web.security.prompt_injection_guard", fake_module)
 
     assert utils.sanitise_untrusted_text("hello") == "safe:hello"
 
@@ -83,6 +83,6 @@ def test_sanitise_conversation_turn_delegates_to_guard(monkeypatch) -> None:
     fake_module = SimpleNamespace(
         sanitise_conversation_turn=lambda role, content: f"{role}:{content}:safe"
     )
-    monkeypatch.setitem(sys.modules, "prompt_injection_guard", fake_module)
+    monkeypatch.setitem(sys.modules, "query_web.security.prompt_injection_guard", fake_module)
 
     assert utils.sanitise_conversation_turn("user", "hi") == "user:hi:safe"

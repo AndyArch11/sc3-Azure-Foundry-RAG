@@ -50,10 +50,16 @@ class _FakeServer:
                 discussion = [dict(item) for item in self.discussion_entries]
             else:
                 discussion = [
-                    {"comment_id": f"comment-{idx + 1}", "text": text, "author_id": self.discussion_author_id}
+                    {
+                        "comment_id": f"comment-{idx + 1}",
+                        "text": text,
+                        "author_id": self.discussion_author_id,
+                    }
                     for idx, text in enumerate(self.discussion_comments)
                 ]
-        return _Artifact(content=self.page_content, version=self.page_version, discussion=discussion)
+        return _Artifact(
+            content=self.page_content, version=self.page_version, discussion=discussion
+        )
 
 
 class _FakeAdapter:
@@ -462,7 +468,9 @@ def test_process_assessment_event_posts_clarification_when_framework_is_unspecif
     assert recent[0].framework_scope == "Clarification Required"
 
 
-def test_process_assessment_event_uses_discussion_context_when_trigger_excerpt_is_ambiguous() -> None:
+def test_process_assessment_event_uses_discussion_context_when_trigger_excerpt_is_ambiguous() -> (
+    None
+):
     server = _PostingServer([])
     server.discussion_entries = [
         {

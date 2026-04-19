@@ -3,8 +3,8 @@ from __future__ import annotations
 import base64
 import json
 import os
-from types import SimpleNamespace
 from dataclasses import replace
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -353,7 +353,11 @@ def test_search_resources_diagnostics_returns_resource_summary_in_dev() -> None:
 
         def list_data_source_connections(self):
             container = SimpleNamespace(name="grounding-data", query="corpus-b/by-dedupe/")
-            return [SimpleNamespace(name="grounding-index-datasource", type="azureblob", container=container)]
+            return [
+                SimpleNamespace(
+                    name="grounding-index-datasource", type="azureblob", container=container
+                )
+            ]
 
         def list_skillsets(self):
             return [SimpleNamespace(name="grounding-index-skillset", skills=[object(), object()])]
@@ -443,7 +447,9 @@ def test_storage_blobs_diagnostics_returns_blob_inventory_in_dev() -> None:
             yield SimpleNamespace(
                 name="corpus-b/by-dedupe/hash2.docx",
                 size=2345,
-                content_settings=SimpleNamespace(content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+                content_settings=SimpleNamespace(
+                    content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                ),
                 last_modified="2026-04-17T09:01:00+00:00",
                 etag='"etag-2"',
                 metadata={"corpus": "b", "upload_batch": "batch-2"},
@@ -606,7 +612,10 @@ def test_ingestion_overview_diagnostics_returns_aggregate_snapshot_in_dev() -> N
     assert body["storage_counts"]["corpus_b_dedupe"] == 5
     assert body["latest_ingestion_job"]["status"] == "Succeeded"
     assert body["quick_flags"]["storage_has_corpus_b_but_search_corpus_b_empty"] is False
-    assert body["scope_query_diagnostics"]["configured_data_source_name"] == "grounding-index-datasource"
+    assert (
+        body["scope_query_diagnostics"]["configured_data_source_name"]
+        == "grounding-index-datasource"
+    )
     assert body["scope_query_diagnostics"]["active_data_source_query"] is None
     assert body["scope_query_diagnostics"]["scope_bleed_risk_level"] == "high"
 

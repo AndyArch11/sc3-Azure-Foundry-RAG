@@ -106,6 +106,8 @@ VALIDATOR_SYSTEM_PROMPT = (
 
 @dataclass(frozen=True)
 class GuardrailAssessment:
+    """Deterministic prompt-injection assessment result for a text payload."""
+
     flagged: bool
     blocked: bool
     score: int
@@ -170,6 +172,8 @@ def _decode_base64_candidate(token: str) -> str:
 def assess_prompt_injection(
     text: str, *, allow_academic_context: bool = True
 ) -> GuardrailAssessment:
+    """Score a text payload for prompt-injection patterns and blocking thresholds."""
+
     normalised = _normalise_text(text)
     lowered = normalised.lower()
     compact = _compact_text(normalised)
@@ -248,6 +252,8 @@ def assess_prompt_injection(
 
 
 def sanitise_untrusted_text(text: str) -> str:
+    """Remove or mask dangerous instruction-like lines from untrusted content."""
+
     sanitised_lines: list[str] = []
     for raw_line in text.splitlines():
         stripped = raw_line.strip()
@@ -264,6 +270,8 @@ def sanitise_untrusted_text(text: str) -> str:
 
 
 def sanitise_conversation_turn(role: str, content: str) -> str:
+    """Sanitise a prior conversation turn, applying stricter rules to user content."""
+
     if role != "user":
         return content.strip()
 

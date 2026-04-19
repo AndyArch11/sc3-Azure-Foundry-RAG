@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 # Registry of supported frameworks.
 # Each entry maps a CLI name → factory callable that accepts fetch_guidance kwarg.
 def _build_registry():
+    """Run build registry."""
     from .aescsf import AescsfParser  # noqa: PLC0415
     from .essential_eight import FRAMEWORK_VERSION, EssentialEightParser, _slugify  # noqa: PLC0415
     from .ism import IsmParser  # noqa: PLC0415
@@ -70,6 +71,7 @@ def _build_registry():
 
 
 def _parse_args(argv=None) -> argparse.Namespace:
+    """Run parse args."""
     parser = argparse.ArgumentParser(
         prog="python -m runtime.ingestion.parsers.runner",
         description="Pre-parse standards documents into JSONL RequirementRecord files.",
@@ -101,6 +103,7 @@ def _parse_args(argv=None) -> argparse.Namespace:
 
 
 def main(argv=None) -> int:
+    """Run main."""
     args = _parse_args(argv)
     logging.getLogger().setLevel(args.log_level)
 

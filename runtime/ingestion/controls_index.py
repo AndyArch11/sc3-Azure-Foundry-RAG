@@ -19,11 +19,14 @@ from azure.search.documents.indexes.models import (
 
 @dataclass(frozen=True)
 class ControlsIndexConfig:
+    """ControlsIndexConfig."""
+
     search_endpoint: str
     controls_index_name: str
 
     @classmethod
     def from_env(cls) -> "ControlsIndexConfig":
+        """Run from env."""
         search_endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
         if not search_endpoint:
             raise ValueError("Required environment variable not set: AZURE_SEARCH_ENDPOINT")

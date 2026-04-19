@@ -1,4 +1,5 @@
 """Unit tests for query_web/llm_chat.py — LLM helpers and JSON parsers."""
+
 from __future__ import annotations
 
 import os
@@ -12,19 +13,20 @@ os.environ.setdefault("AZURE_COSMOS_DATABASE_NAME", "rag-conversations")
 os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 
 from query_web.pipeline.llm_chat import (
+    _call_validator,
+    _chat_completion_with_empty_retry,
+    _evaluate,
+    _is_temperature_unsupported_error,
     _json_fallback_eval,
     _parse_eval,
     _parse_validator_response,
-    _is_temperature_unsupported_error,
     _prompt_injection_response,
-    _chat_completion_with_empty_retry,
-    _evaluate,
-    _call_validator,
 )
 
 # ---------------------------------------------------------------------------
 # _json_fallback_eval
 # ---------------------------------------------------------------------------
+
 
 def test_json_fallback_eval_returns_expected_structure() -> None:
     result = _json_fallback_eval()
@@ -36,6 +38,7 @@ def test_json_fallback_eval_returns_expected_structure() -> None:
 # ---------------------------------------------------------------------------
 # _prompt_injection_response
 # ---------------------------------------------------------------------------
+
 
 def test_prompt_injection_response_structure() -> None:
     result = _prompt_injection_response("Detected injection attempt")
@@ -52,6 +55,7 @@ def test_prompt_injection_response_structure() -> None:
 # ---------------------------------------------------------------------------
 # _parse_eval
 # ---------------------------------------------------------------------------
+
 
 def test_parse_eval_raw_valid_json() -> None:
     text = '{"acceptable": true, "score": 0.9, "reason": "Well grounded."}'
@@ -119,6 +123,7 @@ def test_parse_eval_only_score_key_is_sufficient() -> None:
 # _parse_validator_response
 # ---------------------------------------------------------------------------
 
+
 def test_parse_validator_response_raw_valid() -> None:
     text = '{"malicious": false, "confidence": 0.1, "categories": [], "reason": "Safe"}'
     result = _parse_validator_response(text)
@@ -166,7 +171,9 @@ def test_parse_validator_response_reason_truncated_to_200() -> None:
 
 
 def test_parse_validator_response_inline_in_prose() -> None:
-    text = 'Analysis: {"malicious": false, "confidence": 0.05, "categories": [], "reason": "ok"} done.'
+    text = (
+        'Analysis: {"malicious": false, "confidence": 0.05, "categories": [], "reason": "ok"} done.'
+    )
     result = _parse_validator_response(text)
     assert result["malicious"] is False
 
@@ -174,6 +181,7 @@ def test_parse_validator_response_inline_in_prose() -> None:
 # ---------------------------------------------------------------------------
 # _is_temperature_unsupported_error
 # ---------------------------------------------------------------------------
+
 
 def test_is_temperature_unsupported_error_must_be_1() -> None:
     assert _is_temperature_unsupported_error(Exception("temperature must be 1")) is True
@@ -184,7 +192,10 @@ def test_is_temperature_unsupported_error_only_supports() -> None:
 
 
 def test_is_temperature_unsupported_error_unsupported_keyword() -> None:
-    assert _is_temperature_unsupported_error(Exception("temperature unsupported for this model")) is True
+    assert (
+        _is_temperature_unsupported_error(Exception("temperature unsupported for this model"))
+        is True
+    )
 
 
 def test_is_temperature_unsupported_error_not_supported() -> None:
@@ -207,6 +218,7 @@ def test_is_temperature_unsupported_error_temperature_keyword_only() -> None:
 # ---------------------------------------------------------------------------
 # _chat_completion_with_empty_retry — retry path
 # ---------------------------------------------------------------------------
+
 
 def _make_completion_svc(responses: list[str]) -> SimpleNamespace:
     calls = iter(responses)
@@ -294,6 +306,7 @@ def test_chat_completion_with_empty_retry_at_1_retries_at_02() -> None:
 # _evaluate
 # ---------------------------------------------------------------------------
 
+
 def test_evaluate_calls_parse_eval_on_chat_response() -> None:
     svc = SimpleNamespace(
         EVALUATOR_PROMPT="eval prompt",
@@ -312,6 +325,7 @@ def test_evaluate_calls_parse_eval_on_chat_response() -> None:
 # ---------------------------------------------------------------------------
 # _call_validator
 # ---------------------------------------------------------------------------
+
 
 def test_call_validator_disabled_returns_empty_dict() -> None:
     svc = SimpleNamespace(

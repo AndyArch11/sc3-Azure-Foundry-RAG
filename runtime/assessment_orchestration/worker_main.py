@@ -9,6 +9,7 @@ from .worker import process_queue_message_json
 
 
 def _read_message(args: argparse.Namespace) -> str:
+    """Run read message."""
     if args.message_json:
         return args.message_json
     if args.message_file:
@@ -21,6 +22,7 @@ def _read_message(args: argparse.Namespace) -> str:
 
 
 def main() -> int:
+    """Run main."""
     parser = argparse.ArgumentParser(description="Assessment orchestrator worker entrypoint")
     parser.add_argument("--message-json", default="", help="Raw queue message JSON payload")
     parser.add_argument(

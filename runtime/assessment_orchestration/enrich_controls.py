@@ -68,6 +68,7 @@ def enrich_controls_file(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run main."""
     parser = argparse.ArgumentParser(
         description="Enrich control documents with applicability metadata."
     )

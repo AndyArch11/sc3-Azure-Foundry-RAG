@@ -25,9 +25,11 @@ class BearerTokenAuth(AuthBase):
     """Http Bearer token authentication."""
 
     def __init__(self, token: str) -> None:
+        """Run init."""
         self.token = token
 
     def __call__(self, r):
+        """Run call."""
         r.headers["Authorization"] = f"Bearer {self.token}"
         return r
 
@@ -83,6 +85,7 @@ def _parse_sharepoint_url(url: str) -> tuple[str | None, str | None, str | None]
 
 
 def _url_fallback_id(url: str) -> str:
+    """Run url fallback id."""
     return hashlib.sha256(url.encode()).hexdigest()[:24]
 
 
@@ -102,6 +105,7 @@ class SharePointClient:
         graph_token: str,
         base_url: str = "https://graph.microsoft.com/v1.0",
     ) -> None:
+        """Run init."""
         self._tenant = tenant
         self._site_id = site_id
         self._base_url = base_url.rstrip("/")
@@ -110,22 +114,26 @@ class SharePointClient:
         self._session.headers.update({"Accept": "application/json"})
 
     def _get(self, path: str, **params: Any) -> Any:
+        """Run get."""
         url = f"{self._base_url}{path}"
         resp = self._session.get(url, params=params)
         resp.raise_for_status()
         return resp.json()
 
     def _post(self, path: str, body: dict[str, Any]) -> Any:
+        """Run post."""
         url = f"{self._base_url}{path}"
         resp = self._session.post(url, json=body)
         resp.raise_for_status()
         return resp.json()
 
     def get_site(self) -> dict[str, Any]:
+        """Run get site."""
         result = self._get(f"/sites/{self._site_id}")
         return result  # type: ignore[return-value]
 
     def get_item(self, item_id: str) -> dict[str, Any]:
+        """Run get item."""
         result = self._get(f"/sites/{self._site_id}/drive/items/{item_id}")
         return result  # type: ignore[return-value]
 
@@ -141,10 +149,12 @@ class SharePointClient:
         return content
 
     def get_user(self, user_id: str) -> dict[str, Any]:
+        """Run get user."""
         result = self._get(f"/users/{user_id}")
         return result  # type: ignore[return-value]
 
     def get_drive_items_by_parent(self, parent_id: str) -> list[dict[str, Any]]:
+        """Run get drive items by parent."""
         result = self._get(f"/sites/{self._site_id}/drive/items/{parent_id}/children")
         return result.get("value", [])  # type: ignore[return-value]
 
@@ -175,16 +185,21 @@ def _strip_html(html: str) -> str:
     from html.parser import HTMLParser
 
     class HTMLTextExtractor(HTMLParser):
+        """HTMLTextExtractor."""
+
         def __init__(self) -> None:
+            """Run init."""
             super().__init__()
             self._parts: list[str] = []
 
         def handle_data(self, data: str) -> None:
+            """Run handle data."""
             text = data.strip()
             if text:
                 self._parts.append(text)
 
         def get_text(self) -> str:
+            """Run get text."""
             return "\n".join(self._parts)
 
     extractor = HTMLTextExtractor()
@@ -198,6 +213,8 @@ def _strip_html(html: str) -> str:
 
 
 class SharePointMCPServer:
+    """SharePointMCPServer."""
+
     provider = "sharepoint"
 
     def __init__(
@@ -208,6 +225,7 @@ class SharePointMCPServer:
         graph_token: str | None = None,
         client: SharePointClient | None = None,
     ) -> None:
+        """Run init."""
         if client is not None:
             self._client: SharePointClient | None = client
         elif tenant and site_id and graph_token:
@@ -222,6 +240,7 @@ class SharePointMCPServer:
     def resolve_target(
         self, target_reference: str, *, requester_context: dict[str, Any] | None = None
     ) -> ResolvedTarget:
+        """Run resolve target."""
         parsed = urlparse(target_reference.strip())
         if not parsed.scheme or not parsed.netloc:
             raise ValueError("target_reference must be a valid absolute URL")
@@ -262,6 +281,7 @@ class SharePointMCPServer:
     def check_user_access(
         self, target_id: str, delegated_user_context: dict[str, Any]
     ) -> AccessDecision:
+        """Run check user access."""
         principal = str(delegated_user_context.get("principal_id") or "").strip()
         email = str(delegated_user_context.get("email") or "").strip()
         if not (principal or email):
@@ -303,6 +323,7 @@ class SharePointMCPServer:
         identity_mode: str,
         include_discussion_context: bool = False,
     ) -> AssessedArtifactPackage:
+        """Run get content by id."""
         if identity_mode not in {"app_only", "delegated"}:
             raise ValueError("identity_mode must be app_only or delegated")
 
@@ -353,6 +374,7 @@ class SharePointMCPServer:
     def get_recent_mentions(
         self, *, lookback_window: str, scope_filter: dict[str, Any] | None = None
     ) -> dict[str, Any]:
+        """Run get recent mentions."""
         if self._client is None:
             return {"mentions": []}
         # SharePoint doesn't have direct mention indexing; would need to search comments
@@ -366,6 +388,7 @@ class SharePointMCPServer:
         identity_mode: str,
         trigger_context: dict[str, Any] | None = None,
     ) -> AssessedArtifactPackage:
+        """Run get flagged item context."""
         artifact = self.get_content_by_id(
             target_id,
             identity_mode=identity_mode,
@@ -385,6 +408,7 @@ class SharePointMCPServer:
         )
 
     def resolve_page_owner(self, target_id: str) -> dict[str, Any]:
+        """Run resolve page owner."""
         if self._client is None:
             return {"principal_id": f"owner-{target_id}", "display_name": "Stub Owner", "email": ""}
         item = self._client.get_item(target_id)
@@ -399,6 +423,7 @@ class SharePointMCPServer:
         }
 
     def resolve_last_editor(self, target_id: str) -> dict[str, Any]:
+        """Run resolve last editor."""
         if self._client is None:
             return {
                 "principal_id": f"editor-{target_id}",
@@ -432,6 +457,7 @@ class SharePointMCPServer:
         identity_mode: str,
         idempotency_key: str,
     ) -> DeliveryOutcome:
+        """Run post comment."""
         if self._client is None:
             raise NotImplementedError(
                 "SharePoint comment publication requires a live SharePointClient"
@@ -461,6 +487,7 @@ class SharePointMCPServer:
     # ------------------------------------------------------------------ #
 
     def _resolve_person(self, user_id: str | None) -> PersonReference | None:
+        """Run resolve person."""
         if not user_id or self._client is None:
             return None
         try:
@@ -479,6 +506,7 @@ class SharePointMCPServer:
         identity_mode: str,
         include_discussion_context: bool,
     ) -> AssessedArtifactPackage:
+        """Run offline content stub."""
         content = (
             "This is stub SharePoint content for orchestration wiring. "
             f"Target ID: {target_id}. Identity mode: {identity_mode}."
@@ -503,6 +531,7 @@ class SharePointMCPServer:
 
 
 def _normalise_comments(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Run normalise comments."""
     result = []
     for comment in raw:
         text = comment.get("body", {}).get("content") or ""

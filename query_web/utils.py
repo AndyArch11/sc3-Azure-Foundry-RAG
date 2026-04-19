@@ -37,7 +37,7 @@ def _compute_normalised_text_hash(
     content_type: str,
 ) -> tuple[str | None, str]:
     """Compute hash of normalized text content for deduplication.
-    
+
     Returns (hash_hex, hash_method) or (None, "binary") for non-text.
     """
     text_exts = {
@@ -90,19 +90,21 @@ def _dedupe_blob_prefix(corpus: str, dedupe_hash: str) -> str:
 
 def sanitise_untrusted_text(text: str) -> str:
     """Sanitize untrusted text to prevent injection attacks.
-    
+
     Delegates to the prompt_injection_guard module.
     """
-    from prompt_injection_guard import sanitise_untrusted_text as guard_sanitise
+    from query_web.security.prompt_injection_guard import sanitise_untrusted_text as guard_sanitise
 
     return guard_sanitise(text)
 
 
 def sanitise_conversation_turn(role: str, content: str) -> str:
     """Sanitize conversation history entries.
-    
+
     Delegates to the prompt_injection_guard module.
     """
-    from prompt_injection_guard import sanitise_conversation_turn as guard_sanitise
+    from query_web.security.prompt_injection_guard import (
+        sanitise_conversation_turn as guard_sanitise,
+    )
 
     return guard_sanitise(role, content)

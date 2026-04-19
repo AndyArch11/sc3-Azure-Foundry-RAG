@@ -256,14 +256,18 @@ def _build_requirement_and_guidance_maps(
 
 
 class PciDssParser(BaseParser):
+    """PciDssParser."""
+
     def __init__(
         self,
         pdf_path: str | Path = _DEFAULT_PDF_PATH,
         **_kwargs: Any,
     ) -> None:
+        """Run init."""
         self._pdf_path = Path(pdf_path)
 
     def parse(self) -> List[RequirementRecord]:
+        """Run parse."""
         if not self._pdf_path.exists():
             raise RuntimeError(
                 f"PCI DSS PDF not found: {self._pdf_path}\n"

@@ -193,9 +193,11 @@ conversation_id = session["conversation_id"]
 user_id = session["user_id"]
 print(f"Created conversation: {conversation_id}")
 
-# 2. Ask through the conversation message endpoint
+# 2. Add a message to the conversation
 message_data = {
-    "message": "What are the AESCSF controls?",
+    "user_id": user_id,
+    "role": "user",
+    "content": "What are the AESCSF controls?",
     "auth_token": AUTH_TOKEN,
 }
 

@@ -5,11 +5,11 @@ import json
 import sys
 
 from .polling_worker import (
+    _process_assessment_event,
     create_cosmos_state_store_from_env,
     load_poller_config_from_env,
     run_forever,
     run_poll_cycle,
-    _process_assessment_event,  
 )
 from .runtime_wiring import (
     create_confluence_mcp_server_from_env,
@@ -18,12 +18,14 @@ from .runtime_wiring import (
 
 
 def main() -> int:
+    """Run main."""
     parser = argparse.ArgumentParser(description="Confluence polling worker entrypoint")
     parser.add_argument("--once", action="store_true", help="Run exactly one poll cycle and exit")
     args = parser.parse_args()
 
     try:
         import logging
+
         logging.info("[polling_worker_main] Starting poll cycle/main loop")
         config = load_poller_config_from_env()
         state_store = create_cosmos_state_store_from_env()
@@ -31,7 +33,10 @@ def main() -> int:
         adapter = create_orchestrator_adapter_from_env()
 
         def debug_event_handler(event):
-            logging.info(f"[polling_worker_main] Processing event: {json.dumps(event, sort_keys=True)}")
+            """Run debug event handler."""
+            logging.info(
+                f"[polling_worker_main] Processing event: {json.dumps(event, sort_keys=True)}"
+            )
             triggering_comment_id = str(event.get("content_id") or "")
             logging.info(f"[polling_worker_main] triggering_comment_id: {triggering_comment_id}")
             # Call the normal handler
@@ -47,7 +52,11 @@ def main() -> int:
 
         if args.once:
             result = run_poll_cycle(
-                config=config, state_store=state_store, server=server, adapter=adapter, process_event=debug_event_handler
+                config=config,
+                state_store=state_store,
+                server=server,
+                adapter=adapter,
+                process_event=debug_event_handler,
             )
             print(json.dumps({"ok": True, "result": result.__dict__}, sort_keys=True))
             return 0

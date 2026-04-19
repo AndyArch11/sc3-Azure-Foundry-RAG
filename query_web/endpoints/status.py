@@ -113,9 +113,7 @@ def register_status_endpoints(
                 "ingestion_job_name": config.ingestion_job_name,
                 "corpus_a_frameworks_supported": sorted(_CORPUS_A_FRAMEWORKS.keys()),
                 "prompt_injection_guard_enabled": True,
-                "prompt_injection_validator_enabled": (
-                    config.prompt_injection_validator_enabled
-                ),
+                "prompt_injection_validator_enabled": (config.prompt_injection_validator_enabled),
                 "prompt_injection_validator_mode": config.prompt_injection_validator_mode,
                 "prompt_injection_validator_threshold": (
                     config.prompt_injection_validator_threshold

@@ -23,6 +23,7 @@ def run_azure_assessment(
     env: Mapping[str, str] | None = None,
     credential: DefaultAzureCredential | None = None,
 ) -> dict[str, Any]:
+    """Run run azure assessment."""
     subscription_value = subscription_id.strip()
     resource_group_value = resource_group.strip()
     resource_id_values = [item.strip() for item in (resource_ids or []) if item.strip()]
