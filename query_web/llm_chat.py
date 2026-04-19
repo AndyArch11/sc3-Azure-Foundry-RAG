@@ -1,7 +1,108 @@
 """LLM and validator helpers extracted from app.py."""
 from __future__ import annotations
 
+import json
+import re
 from typing import Any, cast
+
+from prompt_injection_guard import BLOCKED_PROMPT_INJECTION_MESSAGE
+
+CYBER_PERSONA_PROMPT = (
+    "You are a Cyber Security Assistant. Answer questions related to cyber safety, "
+    "secure-by-design controls, and operational risk using only retrieved context. "
+    "Do not fabricate controls, standards, or facts not present in the context. "
+    "If evidence is insufficient, state what is missing. Be concise and actionable."
+)
+
+EVALUATOR_PROMPT = (
+    "You are a strict evaluator for a cyber-security RAG assistant. Evaluate if the answer is grounded and useful. "
+    "Return JSON only with keys: acceptable (bool), score (0..1), reason (string). "
+    "Accept only when factual claims are supported by context and response addresses the question."
+)
+
+
+def _prompt_injection_response(reason: str) -> dict[str, Any]:
+    return {
+        "answer": BLOCKED_PROMPT_INJECTION_MESSAGE,
+        "results": [],
+        "controls_results": [],
+        "evaluation": {"acceptable": False, "score": 0.0, "reason": reason},
+        "iterations": 1,
+        "metrics": {
+            "guardrail_blocked": 1.0,
+            "rag_retrieval_s": 0.0,
+            "embedding_s": 0.0,
+            "search_s": 0.0,
+            "llm_reply_s": 0.0,
+            "evaluator_s": 0.0,
+            "llm_retry_s": 0.0,
+            "llm_total_s": 0.0,
+            "total_s": 0.0,
+        },
+    }
+
+
+def _json_fallback_eval() -> dict[str, Any]:
+    return {"acceptable": False, "score": 0.0, "reason": "Evaluator did not return valid JSON."}
+
+
+def _parse_eval(text: str) -> dict[str, Any]:
+    """Extract and validate the evaluation JSON from the model response."""
+    candidates: list[str] = []
+    candidates.append(text.strip())
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fence_match:
+        candidates.append(fence_match.group(1))
+    for m in re.finditer(r"\{[^{}]*\}", text, re.DOTALL):
+        candidates.append(m.group(0))
+
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+            if not isinstance(data, dict):
+                continue
+            if "acceptable" not in data and "score" not in data:
+                continue
+            acceptable = bool(data.get("acceptable", False))
+            score = max(0.0, min(1.0, float(data.get("score", 0.0))))
+            reason = str(data.get("reason", "No reason provided.")).strip()
+            return {"acceptable": acceptable, "score": score, "reason": reason}
+        except Exception:
+            continue
+
+    return _json_fallback_eval()
+
+
+def _parse_validator_response(text: str) -> dict[str, Any]:
+    """Extract and validate validator JSON from the model response."""
+    candidates: list[str] = []
+    candidates.append(text.strip())
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fence_match:
+        candidates.append(fence_match.group(1))
+    for match in re.finditer(r"\{[^{}]*\}", text, re.DOTALL):
+        candidates.append(match.group(0))
+
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+            if not isinstance(data, dict):
+                continue
+            if "malicious" not in data and "confidence" not in data:
+                continue
+            categories = data.get("categories", [])
+            if not isinstance(categories, list):
+                categories = []
+            return {
+                "malicious": bool(data.get("malicious", False)),
+                "confidence": float(max(0.0, min(1.0, data.get("confidence", 0.0)))),
+                "categories": [str(category) for category in categories],
+                "reason": str(data.get("reason", ""))[:200],
+            }
+        except Exception:
+            continue
+
+    return {}
 
 
 def _is_temperature_unsupported_error(exc: Exception) -> bool:
