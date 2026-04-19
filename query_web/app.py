@@ -68,6 +68,12 @@ from conversations import (
     _load_conversation as _conversations_load_conversation,
     _save_conversation as _conversations_save_conversation,
 )
+from constants import (
+    ALLOWED_EXTENSIONS,
+    COMPLIANCE_REPORT_SCHEMA_VERSION,
+    MIME_TYPE_BY_EXTENSION,
+    QUERY_WEB_VERSION_SIGNATURE,
+)
 from utils import (
     _compute_normalised_text_hash,
     _dedupe_blob_prefix,
@@ -86,47 +92,6 @@ except Exception:
 
 CosmosResourceNotFoundError: type[Exception] = _CosmosResourceNotFoundError
 
-QUERY_WEB_VERSION_SIGNATURE = "query-web-meta-safe-v2-20260417"
-
-ALLOWED_EXTENSIONS = {
-    ".pdf",
-    ".xlsx",
-    ".xlsm",
-    ".xltx",
-    ".xltm",
-    ".docx",
-    ".doc",
-    ".pptx",
-    ".ppt",
-    ".html",
-}
-
-MIME_TYPE_BY_EXTENSION = {
-    ".pdf": "application/pdf",
-    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
-    ".xltx": "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
-    ".xltm": "application/vnd.ms-excel.template.macroEnabled.12",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ".doc": "application/msword",
-    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    ".ppt": "application/vnd.ms-powerpoint",
-    ".html": "text/html",
-}
-
-
-MIME_TYPE_BY_EXTENSION = {
-    ".pdf": "application/pdf",
-    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
-    ".xltx": "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
-    ".xltm": "application/vnd.ms-excel.template.macroEnabled.12",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ".doc": "application/msword",
-    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    ".ppt": "application/vnd.ms-powerpoint",
-    ".html": "text/html",
-}
 
 # Helper to count blobs with a given prefix (for dry_run in clear endpoints)
 def _count_blob_prefix(prefix: str) -> dict[str, int]:
@@ -159,10 +124,6 @@ def _extension_matches_mime(filename: str, mime_type: str) -> bool:
         return False
     # Some browsers may send additional parameters (e.g., charset) in content_type
     return mime_type.split(";")[0].strip() == expected_mime
-
-def _utc_now_iso() -> str:
-    return datetime.now(UTC).isoformat()
-
 
 def _risk_label(value: str) -> str:
     normalised = str(value or "unknown").strip().replace("_", " ").lower()
@@ -1057,8 +1018,6 @@ COMPLIANCE_REPORT_PROMPT = (
     "Do not invent requirements or evidence. If evidence is missing, state it explicitly. "
     "Return JSON only. No markdown, no prose outside JSON, and no code fences."
 )
-
-COMPLIANCE_REPORT_SCHEMA_VERSION = "v1.1"
 
 COMPLIANCE_REPORT_JSON_SCHEMA_HINT = (
     "Required JSON shape:\n"
@@ -3717,44 +3676,6 @@ def _run_rag(
 # Blob name sanitization moved to utils.py module
 
 
-def _compute_normalised_text_hash(
-    content: bytes,
-    *,
-    filename: str,
-    content_type: str,
-) -> tuple[str | None, str]:
-    text_exts = {
-        ".txt",
-        ".md",
-        ".markdown",
-        ".html",
-        ".htm",
-        ".csv",
-        ".json",
-        ".xml",
-        ".yaml",
-        ".yml",
-        ".log",
-    }
-    ext = Path(filename).suffix.lower()
-    ctype = (content_type or "").lower()
-    is_text_like = (
-        ext in text_exts
-        or ctype.startswith("text/")
-        or "json" in ctype
-        or "xml" in ctype
-        or "yaml" in ctype
-    )
-    if not is_text_like:
-        return None, "binary"
-
-    decoded = content.decode("utf-8", errors="ignore")
-    normalised = re.sub(r"\s+", " ", decoded).strip().lower()
-    if not normalised:
-        return None, "binary"
-    return hashlib.sha256(normalised.encode("utf-8")).hexdigest(), "normalised_text"
-
-
 def _is_corpus_upload_enabled() -> bool:
     return bool(config.storage_account_name)
 
@@ -3920,19 +3841,6 @@ def _trigger_ingestion_job_with_args(args_override: list[str] | None) -> dict[st
         "execution_name": execution_name,
         "args_override": args_override or [],
     }
-
-
-def _extract_dedupe_hashes(skipped: list[str]) -> list[str]:
-    hashes: list[str] = []
-    pattern = re.compile(r"duplicate-[^:]+:([0-9a-f]{64})$", re.IGNORECASE)
-    for item in skipped:
-        match = pattern.search(str(item))
-        if match:
-            hashes.append(match.group(1).lower())
-    return list(dict.fromkeys(hashes))
-
-
-# Dedupe blob prefix moved to utils.py module
 
 
 _REQUIRED_INGESTION_METADATA_KEYS = {
