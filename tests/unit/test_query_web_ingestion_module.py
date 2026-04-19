@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import os
+from typing import Any
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
@@ -31,7 +32,7 @@ def _make_svc(
     search_endpoint: str = "https://test.search.windows.net",
     storage_container: str = "test-container",
     index_name: str = "test-index",
-    credential: object | None = None,
+    credential: Any | None = None,
     allowed_extensions: frozenset | None = None,
 ) -> SimpleNamespace:
     config = SimpleNamespace(
