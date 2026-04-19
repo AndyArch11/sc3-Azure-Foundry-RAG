@@ -64,6 +64,8 @@ COSMOS_ACCOUNT=$(az cosmosdb list -g "${RG}" --query "[0].name" -o tsv)
 SEARCH_ENDPOINT=$(terraform -chdir="${TF_DIR}" output -raw search_endpoint 2>/dev/null || true)
 ```
 
+If docker image has not deployed after running `rollout-agent-hosting.sh` even though the image has been created and deployed to ACR using `build-push-<container>.sh`, make sure that `infra/terraform/environments/<env>/<env>.tfvars` has been updated with the corresponding immutable `<container>-image-tag` value.
+
 ### Health check
 
 ```bash
