@@ -199,8 +199,6 @@ def _normalise_controls_comparison_mode(raw_value: str | None) -> str:
         "force_cross_framework",
     }:
         return "force_cross_framework_comparison"
-    if value in _CONTROLS_COMPARISON_MODES:
-        return value
     return "auto-detect"
 
 

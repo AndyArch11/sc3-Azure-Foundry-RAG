@@ -739,3 +739,57 @@ def test_controls_search_backfills_preferred_framework_when_missing() -> None:
     assert "Essential Eight" in frameworks
     assert timings["controls_preferred_framework"] == 1.0
     assert timings["controls_preferred_framework_backfill_used"] == 1.0
+
+
+def test_controls_search_preferred_framework_backfill_both_fetches_raise() -> None:
+    """Backfill fetch raising should be silently swallowed (lines 726-728)."""
+    base_items = [
+        {
+            "requirement_id": "AES-1",
+            "framework": "AESCSF",
+            "framework_version": "v2",
+            "control_family": "Incident Response",
+            "maturity_level": "ML1",
+            "requirement_text": "Data backups are tested.",
+            "guidance_text": "",
+            "source_uri": "controls://aes-1",
+            "score": 0.8,
+        }
+    ]
+
+    call_count = {"n": 0}
+
+    def _fake_fetch(
+        search_text: str,
+        retrieve_k: int,
+        use_semantic: bool,
+        framework_filter: str | None = None,
+    ):
+        call_count["n"] += 1
+        # Primary fetch (no filter) succeeds; backfill fetch raises
+        if framework_filter == "Essential Eight":
+            raise RuntimeError("search unavailable")
+        return base_items
+
+    with (
+        patch.object(app_module, "_fetch_controls", side_effect=_fake_fetch),
+        patch.object(
+            app_module, "_preferred_framework_for_question", return_value="Essential Eight"
+        ),
+        patch.object(
+            app_module,
+            "_apply_framework_authority_preference",
+            side_effect=lambda items, top_k, question: items,
+        ),
+    ):
+        controls, timings = app_module._controls_search(
+            "What should be considered for backups?",
+            retrieve_k=4,
+            use_semantic=False,
+            framework_filter_override=None,
+        )
+
+    # Should complete without raising, returning the base items
+    assert len(controls) > 0
+    # Backfill was attempted (flag is always set when backfill block entered)
+    assert timings["controls_preferred_framework_backfill_used"] == 1.0

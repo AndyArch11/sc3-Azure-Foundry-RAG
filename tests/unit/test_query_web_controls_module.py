@@ -611,3 +611,420 @@ def test_cross_framework_comparison_intent_empty_string() -> None:
 
 def test_cross_framework_comparison_intent_versus_keyword() -> None:
     assert _is_cross_framework_comparison_intent("NIST CSF vs AESCSF for backup controls") is True
+
+
+# ---------------------------------------------------------------------------
+# _normalise_controls_comparison_mode — literal pass-through branch (line 203)
+# ---------------------------------------------------------------------------
+
+
+def test_normalise_controls_comparison_mode_unknown_value_returns_auto_detect() -> None:
+    # Unrecognised values fall through to the default "auto-detect" return
+    assert _normalise_controls_comparison_mode("unknown-mode") == "auto-detect"
+
+
+def test_preferred_framework_for_question_rule_with_all_blank_keywords_skipped() -> None:
+    """Keywords list has only blank strings → normalised_keywords is empty → continue (line 227)."""
+    rules = [
+        {"rule_id": "r1", "applies_when_keywords": ["", "  "], "preferred_framework": "ISM"},
+        {"rule_id": "r2", "applies_when_keywords": ["backup"], "preferred_framework": "Essential Eight"},
+    ]
+    svc = _svc_with_policy(rules=rules)
+    result = _preferred_framework_for_question("backup procedures", svc)
+    # r1 skipped (blank keywords); r2 fires
+    assert result == "Essential Eight"
+
+
+def test_question_focus_terms_short_token_not_in_keep_list_skipped() -> None:
+    """Token with len < 3 not in _QUERY_SHORT_KEEP is filtered out (line 327)."""
+    from query_web.controls import _question_focus_terms
+    # "xy" is 2 chars and unlikely to be in _QUERY_SHORT_KEEP
+    result = _question_focus_terms("authentication xy policy")
+    assert "xy" not in result
+    assert "authentication" in result
+
+
+def test_select_diverse_controls_skips_duplicate_keys() -> None:
+    """Duplicate items (same requirement_id + framework) trigger the key-already-seen branch (line 525)."""
+    dup_item = _make_control("R-1", "NIST CSF", control_family="ID.AM")
+    items = [dup_item, dup_item, _make_control("R-2", "ISM", control_family="AC")]
+    result = _select_diverse_controls(items, top_k=3)
+    # Duplicate should not appear twice
+    ids = [r["requirement_id"] for r in result]
+    assert ids.count("R-1") == 1
+    assert "R-2" in ids
+
+
+def test_apply_framework_authority_preference_no_focus_terms_returns_zero() -> None:
+    """Empty question produces no focus terms → _concept_overlap returns 0 (line 621)."""
+    svc = _svc_with_policy(order=["NIST CSF"])
+    items = [
+        {
+            "requirement_id": "R-1",
+            "framework": "NIST CSF",
+            "control_family": "ID.AM",
+            "requirement_text": "asset inventory",
+            "guidance_text": "",
+            "score": 0.9,
+        },
+    ]
+    # Empty question → no focus terms → all concept overlaps = 0
+    result = _apply_framework_authority_preference(items, top_k=1, question="", svc=svc)
+    assert len(result) == 1
+    assert result[0]["requirement_id"] == "R-1"
+
+
+# ---------------------------------------------------------------------------
+# _framework_authority_rank — match found inside loop (lines 223-227)
+# ---------------------------------------------------------------------------
+
+
+def test_framework_authority_rank_matched_in_order() -> None:
+    svc = _svc_with_policy(order=["NIST CSF", "Essential Eight", "ISM"])
+    # "ism" should match index 2 rather than falling off the end
+    rank = _framework_authority_rank("ISM", svc)
+    assert rank == 2
+
+
+def test_framework_authority_rank_first_in_order() -> None:
+    svc = _svc_with_policy(order=["NIST CSF", "Essential Eight", "ISM"])
+    rank = _framework_authority_rank("NIST CSF", svc)
+    assert rank == 0
+
+
+# ---------------------------------------------------------------------------
+# _preferred_framework_for_question — empty-keywords guard (line 258)
+# ---------------------------------------------------------------------------
+
+
+def test_preferred_framework_for_question_rule_with_empty_keywords_skipped() -> None:
+    rules = [
+        {"rule_id": "r1", "applies_when_keywords": [], "preferred_framework": "ISM"},
+        {"rule_id": "r2", "applies_when_keywords": ["backup"], "preferred_framework": "Essential Eight"},
+    ]
+    svc = _svc_with_policy(rules=rules)
+    # Empty keywords rule is skipped; backup rule fires
+    result = _preferred_framework_for_question("review backup procedures", svc)
+    assert result == "Essential Eight"
+
+
+def test_preferred_framework_for_question_rule_with_non_list_keywords_skipped() -> None:
+    rules = [
+        {"rule_id": "r1", "applies_when_keywords": None, "preferred_framework": "ISM"},
+    ]
+    svc = _svc_with_policy(rules=rules)
+    # None keywords → rule skipped → heuristic fallback applies
+    result = _preferred_framework_for_question("backup recovery restore", svc)
+    assert result == "Essential Eight"
+
+
+# ---------------------------------------------------------------------------
+# _precedence_policy_summary — rule without description (line 327)
+# ---------------------------------------------------------------------------
+
+
+def test_precedence_policy_summary_rule_without_description() -> None:
+    rules = [
+        {"rule_id": "r1", "preferred_framework": "ISM"},  # no description key
+    ]
+    svc = _svc_with_policy(rules=rules)
+    summary = _precedence_policy_summary(svc)
+    # Should include rule_id and preferred framework but no semicolon separator
+    assert "r1" in summary
+    assert "ISM" in summary
+    assert "; " not in summary
+
+
+def test_precedence_policy_summary_rule_with_description() -> None:
+    rules = [
+        {"rule_id": "r1", "preferred_framework": "ISM", "description": "For ISM queries"},
+    ]
+    svc = _svc_with_policy(rules=rules)
+    summary = _precedence_policy_summary(svc)
+    assert "For ISM queries" in summary
+
+
+# ---------------------------------------------------------------------------
+# _controls_coverage_disclaimer — single-framework path (line 354)
+# ---------------------------------------------------------------------------
+
+
+def test_controls_coverage_disclaimer_single_framework_returns_note() -> None:
+    debug = {
+        "distinct_frameworks": 1,
+        "framework_counts": [{"name": "NIST CSF", "count": 5}],
+    }
+    result = _controls_coverage_disclaimer(
+        controls_debug=debug, comparison_detected=True, comparison_mode="auto-detect"
+    )
+    assert result is not None
+    assert "NIST CSF" in result
+
+
+def test_controls_coverage_disclaimer_multiple_frameworks_returns_none() -> None:
+    debug = {"distinct_frameworks": 2, "framework_counts": []}
+    result = _controls_coverage_disclaimer(
+        controls_debug=debug, comparison_detected=True, comparison_mode="auto-detect"
+    )
+    assert result is None
+
+
+def test_controls_coverage_disclaimer_empty_framework_counts_shows_none_name() -> None:
+    debug = {"distinct_frameworks": 1, "framework_counts": []}
+    result = _controls_coverage_disclaimer(
+        controls_debug=debug, comparison_detected=True, comparison_mode="auto-detect"
+    )
+    assert result is not None
+    assert "(none)" in result
+
+
+# ---------------------------------------------------------------------------
+# _fetch_controls — semantic + full iteration (lines 405-446)
+# ---------------------------------------------------------------------------
+
+from query_web.controls import _fetch_controls
+
+
+def _make_search_result(
+    requirement_id: str = "R-1",
+    framework: str = "ISM",
+    requirement_text: str = "Requirement text",
+    score: float = 0.9,
+) -> dict:
+    return {
+        "requirement_id": requirement_id,
+        "framework": framework,
+        "framework_version": "v1",
+        "control_family": "General",
+        "maturity_level": "ML1",
+        "requirement_text": requirement_text,
+        "guidance_text": "Some guidance",
+        "source_uri": f"controls://{requirement_id.lower()}",
+        "@search.score": score,
+    }
+
+
+def test_fetch_controls_returns_hydrated_items() -> None:
+    mock_client = Mock()
+    mock_client.search.return_value = [_make_search_result()]
+    svc = SimpleNamespace(
+        config=SimpleNamespace(controls_semantic_configuration_name="default"),
+        controls_search_client=mock_client,
+    )
+    results = _fetch_controls("MFA requirement", 5, use_semantic=False, svc=svc)
+    assert len(results) == 1
+    assert results[0]["requirement_id"] == "R-1"
+    assert results[0]["framework"] == "ISM"
+    assert results[0]["score"] == pytest.approx(0.9)
+
+
+def test_fetch_controls_skips_empty_requirement_text() -> None:
+    mock_client = Mock()
+    mock_client.search.return_value = [
+        _make_search_result(requirement_text=""),
+        _make_search_result(requirement_id="R-2", requirement_text="Valid requirement"),
+    ]
+    svc = SimpleNamespace(
+        config=SimpleNamespace(controls_semantic_configuration_name="default"),
+        controls_search_client=mock_client,
+    )
+    results = _fetch_controls("query", 5, use_semantic=False, svc=svc)
+    assert len(results) == 1
+    assert results[0]["requirement_id"] == "R-2"
+
+
+def test_fetch_controls_sets_semantic_config_when_enabled() -> None:
+    mock_client = Mock()
+    mock_client.search.return_value = []
+    svc = SimpleNamespace(
+        config=SimpleNamespace(controls_semantic_configuration_name="my-semantic-config"),
+        controls_search_client=mock_client,
+    )
+    _fetch_controls("query", 5, use_semantic=True, svc=svc)
+    call_kwargs = mock_client.search.call_args[1]
+    assert call_kwargs.get("query_type") == "semantic"
+    assert call_kwargs.get("semantic_configuration_name") == "my-semantic-config"
+
+
+def test_fetch_controls_applies_framework_filter() -> None:
+    mock_client = Mock()
+    mock_client.search.return_value = []
+    svc = SimpleNamespace(
+        config=SimpleNamespace(controls_semantic_configuration_name="default"),
+        controls_search_client=mock_client,
+    )
+    _fetch_controls("query", 5, use_semantic=False, framework_filter="NIST CSF", svc=svc)
+    call_kwargs = mock_client.search.call_args[1]
+    assert "filter" in call_kwargs
+    assert "NIST CSF" in call_kwargs["filter"]
+
+
+def test_fetch_controls_score_none_defaults_to_zero() -> None:
+    result = _make_search_result()
+    result["@search.score"] = None
+    mock_client = Mock()
+    mock_client.search.return_value = [result]
+    svc = SimpleNamespace(
+        config=SimpleNamespace(controls_semantic_configuration_name="default"),
+        controls_search_client=mock_client,
+    )
+    items = _fetch_controls("query", 5, use_semantic=False, svc=svc)
+    assert items[0]["score"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# _select_diverse_controls — family cap branches (lines 525, 531)
+# ---------------------------------------------------------------------------
+
+
+def test_select_diverse_controls_family_cap_limits_same_family() -> None:
+    # top_k=2 → max_per_family = max(1, (2+1)//2) = 1
+    # All items share the same family, so only 1 per family is selected in first pass
+    items = [
+        _make_control("R-1", "NIST CSF", control_family="General", score=0.9),
+        _make_control("R-2", "ISM", control_family="General", score=0.8),
+        _make_control("R-3", "Essential Eight", control_family="General", score=0.7),
+    ]
+    result = _select_diverse_controls(items, top_k=2)
+    # First pass limited by family cap; backfill fills remaining
+    assert len(result) == 2
+
+
+def test_select_diverse_controls_framework_cap_then_backfill() -> None:
+    # top_k=2 → max_per_framework = 1
+    # 3 NIST items: first pass picks only 1, backfill adds from remaining
+    items = [
+        _make_control("R-1", "NIST CSF", control_family="ID.AM", score=0.9),
+        _make_control("R-2", "NIST CSF", control_family="ID.AM", score=0.8),
+        _make_control("R-3", "NIST CSF", control_family="ID.AM", score=0.7),
+    ]
+    result = _select_diverse_controls(items, top_k=2)
+    assert len(result) == 2
+
+
+def test_select_diverse_controls_top_k_reached_in_first_pass_returns_early() -> None:
+    # top_k=1 → first pass fills immediately; no backfill needed
+    items = [
+        _make_control("R-1", "NIST CSF", control_family="ID.AM"),
+        _make_control("R-2", "ISM", control_family="AC"),
+    ]
+    result = _select_diverse_controls(items, top_k=1)
+    assert len(result) == 1
+    assert result[0]["requirement_id"] == "R-1"
+
+
+# ---------------------------------------------------------------------------
+# _apply_framework_authority_preference — concept overlap scoring (lines 621, 634-635)
+# ---------------------------------------------------------------------------
+
+from query_web.controls import _apply_framework_authority_preference
+
+
+def test_apply_framework_authority_preference_concept_overlap_ranks_first() -> None:
+    """Item with matching focus terms should rank above higher-score item without them."""
+    svc = _svc_with_policy(order=["NIST CSF", "Essential Eight", "ISM"])
+    items = [
+        {
+            "requirement_id": "R-1",
+            "framework": "ISM",
+            "control_family": "General",
+            "requirement_text": "password policy and rotation",
+            "guidance_text": "",
+            "score": 0.5,
+        },
+        {
+            "requirement_id": "R-2",
+            "framework": "NIST CSF",
+            "control_family": "General",
+            "requirement_text": "asset inventory management",
+            "guidance_text": "",
+            "score": 0.9,
+        },
+    ]
+    # Question focuses on "password" — R-1 should rank higher despite lower score
+    result = _apply_framework_authority_preference(items, top_k=2, question="password policy", svc=svc)
+    assert result[0]["requirement_id"] == "R-1"
+
+
+def test_apply_framework_authority_preference_preferred_rank_tiebreaker() -> None:
+    """When overlap is equal, preferred framework wins."""
+    svc = _svc_with_policy(order=["NIST CSF", "Essential Eight"])
+    svc.precedence_policy.rules = [
+        {"rule_id": "r1", "applies_when_keywords": ["backup"], "preferred_framework": "Essential Eight"}
+    ]
+    items = [
+        {
+            "requirement_id": "N-1",
+            "framework": "NIST CSF",
+            "control_family": "Recovery",
+            "requirement_text": "backup and restore",
+            "guidance_text": "",
+            "score": 0.9,
+        },
+        {
+            "requirement_id": "E-1",
+            "framework": "Essential Eight",
+            "control_family": "Regular backups",
+            "requirement_text": "backup and restore",
+            "guidance_text": "",
+            "score": 0.9,
+        },
+    ]
+    result = _apply_framework_authority_preference(items, top_k=2, question="backup procedures", svc=svc)
+    # Both have same text overlap; preferred framework (Essential Eight) should rank first
+    assert result[0]["framework"] == "Essential Eight"
+
+
+# ---------------------------------------------------------------------------
+# _fetch_controls_with_fallback exception paths (lines 726-727) via controls_search
+# ---------------------------------------------------------------------------
+
+from query_web.controls import controls_search as _controls_search_fn
+
+
+def _make_failing_svc(*, use_semantic_fallback_also_fails: bool = False) -> SimpleNamespace:
+    """Build a svc where controls_search_client.search always raises."""
+
+    def _always_raise(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("index unavailable")
+
+    mock_client = Mock()
+    mock_client.search.side_effect = _always_raise
+    svc = SimpleNamespace(
+        config=SimpleNamespace(
+            controls_semantic_configuration_name="default",
+        ),
+        controls_search_client=mock_client,
+        precedence_policy=SimpleNamespace(rules=[], framework_authority_order=[]),
+    )
+    # Provide pass-through so controls_search doesn't call with svc=None
+    svc._apply_framework_authority_preference = lambda items, top_k, question: items
+    return svc
+
+
+def test_controls_search_fetch_raises_non_semantic_returns_empty() -> None:
+    """When _fetch_controls raises and use_semantic=False → _fetch_controls_with_fallback hits return [] (line 727)."""
+    svc = _make_failing_svc()
+    items, timings = _controls_search_fn(
+        "MFA policy requirements",
+        5,
+        use_semantic=False,
+        framework_filter_override=None,
+        comparison_mode="auto-detect",
+        svc=svc,
+    )
+    assert items == []
+
+
+def test_controls_search_fetch_raises_semantic_fallback_also_fails_returns_empty() -> None:
+    """When both semantic and keyword fetches raise → hits return [] inside except Exception (line 726)."""
+    svc = _make_failing_svc(use_semantic_fallback_also_fails=True)
+    items, timings = _controls_search_fn(
+        "MFA policy requirements",
+        5,
+        use_semantic=True,
+        framework_filter_override=None,
+        comparison_mode="auto-detect",
+        svc=svc,
+    )
+    assert items == []
