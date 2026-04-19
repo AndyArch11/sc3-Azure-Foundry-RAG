@@ -27,8 +27,8 @@ from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
 from azure.search.documents.models import VectorizedQuery
 from azure.storage.blob import BlobServiceClient, ContentSettings
-from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, File, Request, UploadFile
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from prompt_injection_guard import (
@@ -55,6 +55,8 @@ from compliance import register_compliance_endpoints
 from corpus import register_corpus_endpoints
 from diagnostics import register_diagnostics_endpoints
 from status import register_status_endpoints
+from ask import register_ask_endpoints
+from home import register_home_endpoints
 from conversations import (
     ConversationMessage,
     ConversationSession,
@@ -4714,6 +4716,13 @@ register_status_endpoints(
 # Register extracted compliance and corpus endpoints.
 register_compliance_endpoints(app, svc=sys.modules[__name__])
 register_corpus_endpoints(app, svc=sys.modules[__name__])
+register_home_endpoints(app, svc=sys.modules[__name__])
+register_ask_endpoints(
+    app,
+    svc=sys.modules[__name__],
+    ask_request_model=AskRequest,
+    ask_response_model=AskResponse,
+)
 
 # Register conversations endpoints
 from conversations import register_conversations_endpoints
@@ -4724,259 +4733,3 @@ register_conversations_endpoints(
     _is_authorised_request,
     _unauthorised_message,
 )
-
-
-
-@app.get("/", response_class=HTMLResponse)
-def home(request: Request) -> HTMLResponse:
-    if not _is_authorised_request("", request):
-        return HTMLResponse(content=_unauthorised_message(request), status_code=401)
-
-    return templates.TemplateResponse(
-        request,
-        "index.html",
-        {
-            **_branding_ctx(),
-            "question": "",
-            "answer": "",
-            "results": [],
-            "controls_results": [],
-            "controls_debug": None,
-            "error": "",
-            "evaluation": None,
-            "metrics": None,
-            "iterations": None,
-            "retrieve_k": config.search_top_k,
-            "temperature": config.default_temperature,
-            "controls_semantic": config.controls_semantic_default,
-            "controls_framework": "",
-            "controls_comparison_mode": "auto-detect",
-            "evidence_corpora_include": [],
-            "advanced_mode": False,
-            "auth_token": "",
-            "index_name": config.search_index_name,
-            "embedding_deployment": config.embedding_deployment,
-            "query_deployment": config.query_deployment,
-            "evaluation_threshold": config.evaluation_threshold,
-            "auth_enabled": bool(config.auth_token),
-            "user_id": "",
-            "session_id": "",
-            "conversation_id": "",
-        },
-    )
-
-
-@app.post("/ask", response_class=HTMLResponse)
-def ask(
-    request: Request,
-    question: str = Form(...),
-    retrieve_k: int = Form(...),
-    temperature: float = Form(...),
-    controls_semantic: str = Form(""),
-    controls_framework: str = Form(""),
-    controls_comparison_mode: str = Form("auto-detect"),
-    evidence_corpora_include: list[str] = Form(default=[]),
-    advanced_mode: str = Form(""),
-    auth_token: str = Form(""),
-    session_id: str = Form(default=""),
-    conversation_id: str = Form(default=""),
-) -> HTMLResponse:
-    user_id = _get_user_id(auth_token, session_id)
-    session = None
-    advanced_mode_enabled = _form_bool(advanced_mode, default=False)
-
-    if not _is_authorised_request(auth_token, request):
-        return templates.TemplateResponse(
-            request,
-            "index.html",
-            {
-                **_branding_ctx(),
-                "question": question,
-                "answer": "",
-                "results": [],
-                "controls_results": [],
-                "controls_debug": None,
-                "error": _unauthorised_message(request),
-                "evaluation": None,
-                "metrics": None,
-                "iterations": None,
-                "retrieve_k": retrieve_k,
-                "temperature": temperature,
-                "controls_semantic": _form_bool(
-                    controls_semantic, default=config.controls_semantic_default
-                ),
-                "controls_framework": (controls_framework or "").strip().lower(),
-                "controls_comparison_mode": _normalise_controls_comparison_mode(
-                    controls_comparison_mode
-                ),
-                "evidence_corpora_include": evidence_corpora_include,
-                "advanced_mode": advanced_mode_enabled,
-                "auth_token": "",
-                "index_name": config.search_index_name,
-                "embedding_deployment": config.embedding_deployment,
-                "query_deployment": config.query_deployment,
-                "evaluation_threshold": config.evaluation_threshold,
-                "auth_enabled": bool(config.auth_token),
-                "user_id": user_id,
-                "session_id": session_id,
-                "conversation_id": conversation_id,
-            },
-            status_code=401,
-        )
-
-    if session_id and conversation_id:
-        session = _load_conversation(user_id, conversation_id)
-
-    retrieve_k = max(1, min(20, retrieve_k))
-    temperature = max(0, min(1.0, temperature))
-    controls_semantic_enabled = _form_bool(
-        controls_semantic, default=config.controls_semantic_default
-    )
-    controls_framework_value = (controls_framework or "").strip().lower()
-    controls_framework_filter = _normalise_framework_filter(controls_framework_value)
-    controls_comparison_mode_value = _normalise_controls_comparison_mode(controls_comparison_mode)
-    evidence_corpora_include_filter = _normalise_evidence_corpora(evidence_corpora_include) if evidence_corpora_include else None
-    evidence_corpora_exclude_filter: list[str] | None = None
-
-    try:
-        conversation_history = session.messages if session else []
-        feedback_context = _build_feedback_context(session) if session else ""
-
-        result = _run_rag(
-            question=question,
-            retrieve_k=retrieve_k,
-            temperature=temperature,
-            controls_semantic=controls_semantic_enabled,
-            controls_framework=controls_framework_filter,
-            controls_comparison_mode=controls_comparison_mode_value,
-            evidence_corpora_include=evidence_corpora_include_filter,
-            evidence_corpora_exclude=evidence_corpora_exclude_filter,
-            conversation_history=conversation_history,
-            feedback_context=feedback_context,
-        )
-
-        # Add user and assistant messages to conversation history
-        if session:
-            session.messages.append(ConversationMessage(role="user", content=question))
-            session.messages.append(ConversationMessage(role="assistant", content=result["answer"]))
-            session.updated_at = _utc_now_iso()
-            _save_conversation(session)
-
-        error = ""
-    except Exception as exc:
-        logger.exception("Failed to process /ask request: %s", exc)
-        result = {
-            "answer": "",
-            "results": [],
-            "controls_results": [],
-            "controls_debug": None,
-            "evaluation": None,
-            "metrics": None,
-            "iterations": None,
-        }
-        error = _INTERNAL_ERROR_MESSAGE
-
-    return templates.TemplateResponse(
-        request,
-        "index.html",
-        {
-            **_branding_ctx(),
-            "question": question,
-            "answer": result["answer"],
-            "results": result["results"],
-            "controls_results": result.get("controls_results", []),
-            "controls_debug": result.get("controls_debug"),
-            "error": error,
-            "evaluation": result["evaluation"],
-            "metrics": result["metrics"],
-            "iterations": result["iterations"],
-            "retrieve_k": retrieve_k,
-            "temperature": temperature,
-            "controls_semantic": controls_semantic_enabled,
-            "controls_framework": controls_framework_value,
-            "controls_comparison_mode": controls_comparison_mode_value,
-            "evidence_corpora_include": evidence_corpora_include,
-            "advanced_mode": advanced_mode_enabled,
-            "auth_token": auth_token,
-            "index_name": config.search_index_name,
-            "embedding_deployment": config.embedding_deployment,
-            "query_deployment": config.query_deployment,
-            "evaluation_threshold": config.evaluation_threshold,
-            "auth_enabled": bool(config.auth_token),
-            "user_id": user_id,
-            "session_id": session_id,
-            "conversation_id": conversation_id,
-        },
-    )
-
-
-@app.post("/api/ask", response_model=AskResponse)
-def ask_api(request: Request, payload: AskRequest) -> AskResponse:
-    question = payload.question.strip()
-    if not question:
-        return AskResponse(
-            answer="",
-            results=[],
-            controls_results=[],
-            controls_debug=None,
-            evaluation=None,
-            iterations=None,
-            metrics=None,
-            audit=None,
-            error="Question must not be empty.",
-        )
-
-    if not _is_authorised_request(payload.auth_token, request):
-        return AskResponse(
-            answer="",
-            results=[],
-            controls_results=[],
-            controls_debug=None,
-            evaluation=None,
-            iterations=None,
-            metrics=None,
-            audit=None,
-            error=_unauthorised_message(request),
-        )
-
-    try:
-        result = _run_rag(
-            question=question,
-            retrieve_k=payload.retrieve_k,
-            temperature=payload.temperature,
-            controls_semantic=(
-                payload.controls_semantic
-                if payload.controls_semantic is not None
-                else config.controls_semantic_default
-            ),
-            controls_framework=_normalise_framework_filter(payload.controls_framework),
-            controls_comparison_mode=_normalise_controls_comparison_mode(
-                payload.controls_comparison_mode
-            ),
-            evidence_corpora_include=_normalise_evidence_corpora(payload.evidence_corpora_include),
-            evidence_corpora_exclude=_normalise_evidence_corpora(payload.evidence_corpora_exclude),
-        )
-        return AskResponse(
-            answer=result["answer"],
-            results=result["results"],
-            controls_results=result.get("controls_results", []),
-            controls_debug=result.get("controls_debug"),
-            evaluation=result["evaluation"],
-            iterations=result["iterations"],
-            metrics=result["metrics"],
-            audit=result.get("audit"),
-            error="",
-        )
-    except Exception as exc:
-        logger.exception("Failed to process /api/ask request: %s", exc)
-        return AskResponse(
-            answer="",
-            results=[],
-            controls_results=[],
-            controls_debug=None,
-            evaluation=None,
-            iterations=None,
-            metrics=None,
-            audit=None,
-            error=_INTERNAL_ERROR_MESSAGE,
-        )
