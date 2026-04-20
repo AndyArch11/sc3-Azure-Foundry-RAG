@@ -12,19 +12,24 @@ from query_web.security.prompt_injection_guard import sanitise_untrusted_text
 
 
 def _unwrap_answer(text: str) -> str:
-    """Extract plain answer text from responses that are mistakenly wrapped in JSON.
+    """Extract plain answer text from wrapped responses.
 
     Handles patterns like:
       {"answer": "..."}
       ```json\n{"answer": "..."}\n```
-    Returns the original text unchanged when no known wrapping is detected.
+      ```markdown\n# Heading\n...\n```
+
+    If the entire response is wrapped in a code fence, return the fence body even when
+    it is not JSON.
     """
     stripped = text.strip()
+    had_code_fence = False
 
     # Strip markdown code fences first.
-    fence_match = re.search(r"```(?:json)?\s*(.+?)\s*```", stripped, re.DOTALL)
+    fence_match = re.search(r"```(?:[a-zA-Z0-9_-]+)?\s*(.+?)\s*```", stripped, re.DOTALL)
     if fence_match:
         stripped = fence_match.group(1).strip()
+        had_code_fence = True
 
     # Try to parse as JSON and pull an "answer" key.
     try:
@@ -34,6 +39,8 @@ def _unwrap_answer(text: str) -> str:
     except Exception:
         pass
 
+    if had_code_fence:
+        return stripped
     return text.strip()
 
 

@@ -168,6 +168,76 @@
     return String(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
+  function mdFallbackRender(text) {
+    const raw = String(text || '');
+    const lines = raw.split(/\r?\n/);
+    const html = [];
+    let listType = '';
+    let paragraph = [];
+
+    function flushParagraph() {
+      if (!paragraph.length) return;
+      html.push('<p>' + paragraph.map(escHtml).join('<br/>') + '</p>');
+      paragraph = [];
+    }
+
+    function closeList() {
+      if (!listType) return;
+      html.push('</' + listType + '>');
+      listType = '';
+    }
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      if (!trimmed) {
+        flushParagraph();
+        closeList();
+        continue;
+      }
+
+      const heading = trimmed.match(/^(#{1,6})\s+(.*)$/);
+      if (heading) {
+        flushParagraph();
+        closeList();
+        const level = Math.min(6, heading[1].length);
+        html.push('<h' + level + '>' + escHtml(heading[2]) + '</h' + level + '>');
+        continue;
+      }
+
+      const ul = trimmed.match(/^[-*]\s+(.*)$/);
+      if (ul) {
+        flushParagraph();
+        if (listType !== 'ul') {
+          closeList();
+          listType = 'ul';
+          html.push('<ul>');
+        }
+        html.push('<li>' + escHtml(ul[1]) + '</li>');
+        continue;
+      }
+
+      const ol = trimmed.match(/^\d+[.)]\s+(.*)$/);
+      if (ol) {
+        flushParagraph();
+        if (listType !== 'ol') {
+          closeList();
+          listType = 'ol';
+          html.push('<ol>');
+        }
+        html.push('<li>' + escHtml(ol[1]) + '</li>');
+        continue;
+      }
+
+      closeList();
+      paragraph.push(line);
+    }
+
+    flushParagraph();
+    closeList();
+    return html.join('') || '<p></p>';
+  }
+
   function loadSession() {
     try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); }
     catch { return null; }
@@ -191,7 +261,7 @@
 
   function mdRender(text) {
     if (typeof marked !== 'undefined') return marked.parse(text || '', { breaks: true, gfm: true });
-    return '<pre style="white-space:pre-wrap">' + escHtml(text) + '</pre>';
+    return mdFallbackRender(text);
   }
 
   function setRating(btn, turnIdx, stars) {

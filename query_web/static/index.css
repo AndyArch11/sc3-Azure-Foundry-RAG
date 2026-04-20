@@ -86,6 +86,9 @@
     .answer {
       line-height: 1.55;
       margin-top: 6px;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .answer p { margin: 0 0 0.6em; }
     .answer ul, .answer ol { margin: 0 0 0.6em 1.4em; padding: 0; }
