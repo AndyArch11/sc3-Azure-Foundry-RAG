@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
 import requests  # type: ignore[import-untyped]
+from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
+
+logger = logging.getLogger(__name__)
 
 
 def _embed_query(question: str, *, svc: Any) -> list[float]:
@@ -147,3 +151,103 @@ def _hybrid_search(
 
     timings["search_s"] = round(time.perf_counter() - t1, 3)
     return items, timings
+
+
+# ---------------------------------------------------------------------------
+# Search index document helpers (moved from app.py)
+# ---------------------------------------------------------------------------
+
+
+def _delete_search_documents_by_filter(
+    client: SearchClient,
+    *,
+    filter_expr: str,
+    key_field: str,
+    page_size: int = 500,
+    max_rounds: int = 50,
+) -> dict[str, int]:
+    deleted = 0
+    rounds = 0
+    while rounds < max_rounds:
+        rounds += 1
+        pager = client.search(
+            search_text="*",
+            filter=filter_expr,
+            top=page_size,
+            select=[key_field],
+        )
+        keys: list[str] = []
+        for item in pager:
+            value = str(item.get(key_field, "")).strip()
+            if value:
+                keys.append(value)
+        if not keys:
+            break
+        client.delete_documents(documents=[{key_field: key} for key in keys])
+        deleted += len(keys)
+        if len(keys) < page_size:
+            break
+    return {"deleted": deleted, "rounds": rounds}
+
+
+def _count_search_documents_by_filter(
+    client: SearchClient,
+    *,
+    filter_expr: str,
+) -> dict[str, int]:
+    pager = client.search(
+        search_text="*",
+        filter=filter_expr,
+        top=1,
+        include_total_count=True,
+    )
+    for _ in pager:
+        break
+    count = pager.get_count() or 0
+    return {"would_delete": int(count)}
+
+
+def _list_search_documents_by_filter(
+    client: SearchClient,
+    *,
+    filter_expr: str,
+    select_fields: list[str],
+    limit: int,
+) -> dict[str, Any]:
+    capped_limit = max(1, min(limit, 200))
+    pager = client.search(
+        search_text="*",
+        filter=filter_expr,
+        top=capped_limit,
+        include_total_count=True,
+        select=select_fields,
+    )
+    items: list[dict[str, Any]] = []
+    for item in pager:
+        row: dict[str, Any] = {}
+        for field in select_fields:
+            row[field] = item.get(field)
+        items.append(row)
+    count = pager.get_count() or len(items)
+    return {
+        "total_count": int(count),
+        "returned_count": len(items),
+        "items": items,
+    }
+
+
+def _count_search_documents_total_by_filter(client: SearchClient, *, filter_expr: str) -> int:
+    try:
+        pager = client.search(
+            search_text="*",
+            filter=filter_expr,
+            top=1,
+            include_total_count=True,
+            select=["id"],
+        )
+        for _ in pager:
+            break
+        return int(pager.get_count() or 0)
+    except Exception as exc:
+        logger.warning("Failed to count search documents for filter %s: %s", filter_expr, exc)
+        return 0

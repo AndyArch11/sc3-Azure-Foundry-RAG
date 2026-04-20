@@ -15,6 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from query_web.constants import ALLOWED_EXTENSIONS, MIME_TYPE_BY_EXTENSION
+
 logger = logging.getLogger(__name__)
 
 
@@ -89,13 +91,45 @@ def _dedupe_blob_prefix(corpus: str, dedupe_hash: str) -> str:
 
 
 def sanitise_untrusted_text(text: str) -> str:
-    """Sanitize untrusted text to prevent injection attacks.
+    """Sanitise untrusted text to prevent injection attacks.
 
     Delegates to the prompt_injection_guard module.
     """
     from query_web.security.prompt_injection_guard import sanitise_untrusted_text as guard_sanitise
 
     return guard_sanitise(text)
+
+
+# ---------------------------------------------------------------------------
+# Upload validation helpers
+# ---------------------------------------------------------------------------
+
+
+def _is_allowed_filetype(filename: str) -> bool:
+    ext = Path(filename).suffix.lower()
+    return ext in ALLOWED_EXTENSIONS
+
+
+def _extension_matches_mime(filename: str, mime_type: str) -> bool:
+    ext = Path(filename).suffix.lower()
+    expected_mime = MIME_TYPE_BY_EXTENSION.get(ext)
+    if not expected_mime:
+        return False
+    # Some browsers may send additional parameters (e.g., charset) in content_type
+    return mime_type.split(";")[0].strip() == expected_mime
+
+
+def _risk_label(value: str) -> str:
+    normalised = str(value or "unknown").strip().replace("_", " ").lower()
+    if normalised == "low":
+        return "Low"
+    if normalised == "medium":
+        return "Medium"
+    if normalised == "high":
+        return "High"
+    if normalised == "critical":
+        return "Critical"
+    return "Unknown"
 
 
 def sanitise_conversation_turn(role: str, content: str) -> str:

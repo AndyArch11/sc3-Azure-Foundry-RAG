@@ -800,3 +800,50 @@ def controls_search(
 
     timings["controls_search_s"] = round(time.perf_counter() - t0, 3)
     return items, timings
+
+
+# ---------------------------------------------------------------------------
+# Corpus A framework ingestion status (moved from app.py)
+# ---------------------------------------------------------------------------
+
+
+def _controls_framework_ingestion_status(*, svc: Any) -> dict[str, Any]:
+    """Return per-framework ingestion status by querying the controls search index."""
+    status: dict[str, Any] = {}
+
+    for key, framework_name in _CONTROLS_FRAMEWORK_FILTERS.items():
+        escaped_framework = framework_name.replace("'", "''")
+        filter_expr = f"framework eq '{escaped_framework}'"
+
+        pager = svc.controls_search_client.search(
+            search_text="*",
+            filter=filter_expr,
+            top=100,
+            include_total_count=True,
+            select=["framework_version", "ingestion_manifest_hash", "ingestion_loaded_at"],
+        )
+        versions: set[str] = set()
+        manifests: set[str] = set()
+        loaded_at_values: list[str] = []
+        for item in pager:
+            version = str(item.get("framework_version", "")).strip()
+            if version:
+                versions.add(version)
+            manifest = str(item.get("ingestion_manifest_hash", "")).strip()
+            if manifest:
+                manifests.add(manifest)
+            loaded_at = str(item.get("ingestion_loaded_at", "")).strip()
+            if loaded_at:
+                loaded_at_values.append(loaded_at)
+
+        total = pager.get_count() or 0
+        status[key] = {
+            "framework": framework_name,
+            "ingested": total > 0,
+            "document_count": total,
+            "framework_versions": sorted(versions),
+            "manifest_hashes": sorted(manifests),
+            "latest_loaded_at": max(loaded_at_values) if loaded_at_values else None,
+        }
+
+    return status

@@ -958,3 +958,126 @@ class CosmosPollingStateStore:
             )
         records.sort(key=lambda item: item.last_attempt_at, reverse=True)
         return records[: max(1, limit)]
+
+
+
+class LocalFilePollingStateStore(InMemoryPollingStateStore):
+    """JSON-file-backed state store for development and offline testing.
+
+    Persists all state to a single JSON file so it survives process restarts
+    while retaining the same semantics as ``InMemoryPollingStateStore``.
+    """
+
+    def __init__(self, path: str | None = None) -> None:
+        """Run init."""
+        import json
+        import os
+        from pathlib import Path
+
+        super().__init__()
+        self._path = Path(
+            path or os.getenv("LOCAL_STATE_STORE_PATH", "/tmp/local_polling_state.json")
+        )
+        self._json = json
+        self._load()
+
+    def _load(self) -> None:
+        """Populate in-memory dicts from the JSON file (if it exists)."""
+        if not self._path.exists():
+            return
+        try:
+            raw = self._json.loads(self._path.read_text(encoding="utf-8"))
+            self._state = {k: v for k, v in raw.get("state", {}).items()}
+            self._lease = {k: v for k, v in raw.get("lease", {}).items()}
+            self._processed = {
+                tuple(k.split("\x00", 1)): v  # type: ignore[misc]
+                for k, v in raw.get("processed", {}).items()
+            }
+            self._failures = {
+                tuple(k.split("\x00", 1)): v  # type: ignore[misc]
+                for k, v in raw.get("failures", {}).items()
+            }
+            self._assessment_snapshots = {
+                tuple(k.split("\x00", 2)): v  # type: ignore[misc]
+                for k, v in raw.get("assessment_snapshots", {}).items()
+            }
+            self._poll_runs = {k: v for k, v in raw.get("poll_runs", {}).items()}
+            self._page_assessments = {
+                tuple(k.split("\x00", 2)): v  # type: ignore[misc]
+                for k, v in raw.get("page_assessments", {}).items()
+            }
+        except Exception:
+            pass
+
+    def _flush(self) -> None:
+        """Write in-memory state to the JSON file."""
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        raw = {
+            "state": self._state,
+            "lease": self._lease,
+            "processed": {"\x00".join(k): v for k, v in self._processed.items()},
+            "failures": {"\x00".join(k): v for k, v in self._failures.items()},
+            "assessment_snapshots": {
+                "\x00".join(k): v for k, v in self._assessment_snapshots.items()
+            },
+            "poll_runs": self._poll_runs,
+            "page_assessments": {"\x00".join(k): v for k, v in self._page_assessments.items()},
+        }
+        self._path.write_text(self._json.dumps(raw, indent=2), encoding="utf-8")
+
+    def commit_state(self, source: str, **kwargs: Any) -> PollingState:
+        """Run commit state."""
+        result = super().commit_state(source, **kwargs)
+        self._flush()
+        return result
+
+    def try_acquire_lease(self, source: str, **kwargs: Any) -> bool:
+        """Run try acquire lease."""
+        result = super().try_acquire_lease(source, **kwargs)
+        self._flush()
+        return result
+
+    def renew_lease(self, source: str, **kwargs: Any) -> bool:
+        """Run renew lease."""
+        result = super().renew_lease(source, **kwargs)
+        self._flush()
+        return result
+
+    def release_lease(self, source: str, **kwargs: Any) -> None:
+        """Run release lease."""
+        super().release_lease(source, **kwargs)
+        self._flush()
+
+    def mark_processed_event(self, source: str, **kwargs: Any) -> None:
+        """Run mark processed event."""
+        super().mark_processed_event(source, **kwargs)
+        self._flush()
+
+    def increment_failure_count(self, source: str, **kwargs: Any) -> int:
+        """Run increment failure count."""
+        result = super().increment_failure_count(source, **kwargs)
+        self._flush()
+        return result
+
+    def mark_terminal_failure(self, source: str, **kwargs: Any) -> None:
+        """Run mark terminal failure."""
+        super().mark_terminal_failure(source, **kwargs)
+        self._flush()
+
+    def upsert_assessment_snapshot(self, source: str, **kwargs: Any) -> AssessmentSnapshot:
+        """Run upsert assessment snapshot."""
+        result = super().upsert_assessment_snapshot(source, **kwargs)
+        self._flush()
+        return result
+
+    def upsert_poll_run_summary(self, source: str, **kwargs: Any) -> PollRunSummary:
+        """Run upsert poll run summary."""
+        result = super().upsert_poll_run_summary(source, **kwargs)
+        self._flush()
+        return result
+
+    def upsert_page_assessment(self, source: str, **kwargs: Any) -> PageAssessmentRecord:
+        """Run upsert page assessment."""
+        result = super().upsert_page_assessment(source, **kwargs)
+        self._flush()
+        return result

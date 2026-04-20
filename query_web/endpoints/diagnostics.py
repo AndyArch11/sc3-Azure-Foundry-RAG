@@ -27,6 +27,111 @@ def _diagnostics_enabled() -> bool:
     return _target_env_name() != "prod"
 
 
+def check_diagnostics_access(
+    request: Request,
+    auth_token: str,
+    *,
+    is_authorised_request: Any,
+    unauthorised_message: Any,
+) -> JSONResponse | None:
+    if is_authorised_request is None or not is_authorised_request(auth_token, request):
+        msg = unauthorised_message(request) if callable(unauthorised_message) else "Unauthorised."
+        return JSONResponse({"error": msg}, status_code=401)
+    if not _diagnostics_enabled():
+        return JSONResponse(
+            {
+                "error": "Diagnostics endpoints are disabled when TARGET_ENV is 'prod'.",
+                "target_env": _target_env_name(),
+            },
+            status_code=403,
+        )
+    return None
+
+
+def resolve_acr_registry_name(explicit_registry_name: str = "") -> str:
+    """Resolve ACR registry name from environment or explicit param."""
+    candidates = [
+        explicit_registry_name,
+        os.getenv("ACR_NAME", ""),
+        os.getenv("AZURE_CONTAINER_REGISTRY_NAME", ""),
+        os.getenv("CONTAINER_REGISTRY_NAME", ""),
+    ]
+
+    login_server_candidates = [
+        os.getenv("ACR_LOGIN_SERVER", ""),
+        os.getenv("AZURE_CONTAINER_REGISTRY_LOGIN_SERVER", ""),
+        os.getenv("CONTAINER_REGISTRY_LOGIN_SERVER", ""),
+    ]
+    for login_server in login_server_candidates:
+        value = (login_server or "").strip().lower()
+        if value.endswith(".azurecr.io"):
+            candidates.append(value.split(".", 1)[0])
+
+    for candidate in candidates:
+        value = (candidate or "").strip()
+        if value:
+            return value
+
+    return ""
+
+
+def list_acr_tags_via_management_api(
+    *,
+    credential: Any,
+    requests_module: Any,
+    subscription_id: str,
+    resource_group: str,
+    registry_name: str,
+    repository: str,
+    limit: int,
+) -> dict[str, Any]:
+    """Fetch ACR repository tags via Management API."""
+    token = credential.get_token("https://management.azure.com/.default").token
+    encoded_repo = quote(repository, safe="")
+    base_url = (
+        f"https://management.azure.com/subscriptions/{subscription_id}"
+        f"/resourceGroups/{resource_group}"
+        f"/providers/Microsoft.ContainerRegistry/registries/{registry_name}"
+        f"/repositories/{encoded_repo}/tags"
+    )
+    url = f"{base_url}?api-version=2023-07-01&orderby=time_desc&n={limit}"
+
+    response = requests_module.get(
+        url,
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+
+    if response.status_code >= 400:
+        raise RuntimeError(
+            "Failed to list ACR tags "
+            f"for repository '{repository}': {response.status_code} {response.text}"
+        )
+
+    payload = response.json()
+    values = payload.get("value", [])
+    tags: list[dict[str, Any]] = []
+    if isinstance(values, list):
+        for item in values:
+            if not isinstance(item, dict):
+                continue
+            digest = str(item.get("digest") or "").strip() or None
+            tags.append(
+                {
+                    "name": str(item.get("name") or "").strip(),
+                    "digest": digest,
+                    "created_time": item.get("createdTime"),
+                    "last_update_time": item.get("lastUpdateTime"),
+                }
+            )
+
+    return {
+        "tags": tags,
+        "raw_count": len(values) if isinstance(values, list) else 0,
+        "next_link": payload.get("nextLink"),
+    }
+
+
 def register_diagnostics_endpoints(
     app,
     credential,
@@ -51,50 +156,15 @@ def register_diagnostics_endpoints(
         return getattr(svc, name, default)
 
     def _check_diagnostics_access(request: Request, auth_token: str) -> JSONResponse | None:
-        _is_authorised_request = _svc_attr("_is_authorised_request", None)
-        _unauthorised_message = _svc_attr("_unauthorised_message", lambda req=None: "Unauthorised.")
-        if _is_authorised_request is None or not _is_authorised_request(auth_token, request):
-            msg = (
-                _unauthorised_message(request)
-                if callable(_unauthorised_message)
-                else "Unauthorised."
-            )
-            return JSONResponse({"error": msg}, status_code=401)
-        if not _diagnostics_enabled():
-            return JSONResponse(
-                {
-                    "error": "Diagnostics endpoints are disabled when TARGET_ENV is 'prod'.",
-                    "target_env": _target_env_name(),
-                },
-                status_code=403,
-            )
-        return None
+        return check_diagnostics_access(
+            request,
+            auth_token,
+            is_authorised_request=_svc_attr("_is_authorised_request", None),
+            unauthorised_message=_svc_attr("_unauthorised_message", lambda req=None: "Unauthorised."),
+        )
 
     def _resolve_acr_registry_name(explicit_registry_name: str = "") -> str:
-        """Resolve ACR registry name from environment or explicit param."""
-        candidates = [
-            explicit_registry_name,
-            os.getenv("ACR_NAME", ""),
-            os.getenv("AZURE_CONTAINER_REGISTRY_NAME", ""),
-            os.getenv("CONTAINER_REGISTRY_NAME", ""),
-        ]
-
-        login_server_candidates = [
-            os.getenv("ACR_LOGIN_SERVER", ""),
-            os.getenv("AZURE_CONTAINER_REGISTRY_LOGIN_SERVER", ""),
-            os.getenv("CONTAINER_REGISTRY_LOGIN_SERVER", ""),
-        ]
-        for login_server in login_server_candidates:
-            value = (login_server or "").strip().lower()
-            if value.endswith(".azurecr.io"):
-                candidates.append(value.split(".", 1)[0])
-
-        for candidate in candidates:
-            value = (candidate or "").strip()
-            if value:
-                return value
-
-        return ""
+        return resolve_acr_registry_name(explicit_registry_name)
 
     def _list_acr_tags_via_management_api(
         *,
@@ -104,54 +174,15 @@ def register_diagnostics_endpoints(
         repository: str,
         limit: int,
     ) -> dict[str, Any]:
-        """Fetch ACR repository tags via Management API."""
-        resolved_credential = _svc_attr("credential", credential)
-        requests_module = _svc_attr("requests", requests)
-
-        token = resolved_credential.get_token("https://management.azure.com/.default").token
-        encoded_repo = quote(repository, safe="")
-        base_url = (
-            f"https://management.azure.com/subscriptions/{subscription_id}"
-            f"/resourceGroups/{resource_group}"
-            f"/providers/Microsoft.ContainerRegistry/registries/{registry_name}"
-            f"/repositories/{encoded_repo}/tags"
+        return list_acr_tags_via_management_api(
+            credential=_svc_attr("credential", credential),
+            requests_module=_svc_attr("requests", requests),
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+            registry_name=registry_name,
+            repository=repository,
+            limit=limit,
         )
-        url = f"{base_url}?api-version=2023-07-01&orderby=time_desc&n={limit}"
-
-        response = requests_module.get(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=30,
-        )
-
-        if response.status_code >= 400:
-            raise RuntimeError(
-                "Failed to list ACR tags "
-                f"for repository '{repository}': {response.status_code} {response.text}"
-            )
-
-        payload = response.json()
-        values = payload.get("value", [])
-        tags: list[dict[str, Any]] = []
-        if isinstance(values, list):
-            for item in values:
-                if not isinstance(item, dict):
-                    continue
-                digest = str(item.get("digest") or "").strip() or None
-                tags.append(
-                    {
-                        "name": str(item.get("name") or "").strip(),
-                        "digest": digest,
-                        "created_time": item.get("createdTime"),
-                        "last_update_time": item.get("lastUpdateTime"),
-                    }
-                )
-
-        return {
-            "tags": tags,
-            "raw_count": len(values) if isinstance(values, list) else 0,
-            "next_link": payload.get("nextLink"),
-        }
 
     def _list_indexer_execution_history(
         indexer_name: str,

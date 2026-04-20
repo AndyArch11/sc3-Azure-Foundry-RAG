@@ -9,10 +9,10 @@ from typing import Any, Callable, Iterable, Mapping, Protocol, cast
 
 import requests  # type: ignore[import-untyped]
 from azure.core.exceptions import ResourceNotFoundError
-from azure.identity import DefaultAzureCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
 
+from ..credentials import get_credential_provider
 from ._framework_patterns import infer_single_framework as _infer_framework_filter
 from .models import AssessedArtifactPackage, CorpusGroundingPackage
 
@@ -297,7 +297,7 @@ def _assessment_task_instruction(artifact: AssessedArtifactPackage) -> str:
     return "Assess the supplied Confluence page for cyber-security compliance against the most relevant controls."
 
 
-def _cognitive_token(credential: DefaultAzureCredential) -> str:
+def _cognitive_token(credential: Any) -> str:
     """Run cognitive token."""
     return credential.get_token("https://cognitiveservices.azure.com/.default").token
 
@@ -306,7 +306,7 @@ def _embed_query(
     question: str,
     *,
     config: AssessmentRuntimeConfig,
-    credential: DefaultAzureCredential,
+    credential: Any,
 ) -> list[float]:
     """Run embed query."""
     token = _cognitive_token(credential)
@@ -329,7 +329,7 @@ def _chat_completion(
     messages: list[dict[str, str]],
     *,
     config: AssessmentRuntimeConfig,
-    credential: DefaultAzureCredential,
+    credential: Any,
     timeout: int = 45,
 ) -> str:
     """Run chat completion."""
@@ -917,7 +917,7 @@ class SearchBackedAssessmentAgent:
         self,
         *,
         config: AssessmentRuntimeConfig,
-        credential: DefaultAzureCredential | None = None,
+        credential: Any | None = None,
         evidence_search_client: SearchClientLike | None = None,
         controls_search_client: SearchClientLike | None = None,
         embed_query: Callable[[str], list[float]] | None = None,
@@ -925,7 +925,11 @@ class SearchBackedAssessmentAgent:
     ) -> None:
         """Run init."""
         self._config = config
-        self._credential = credential or DefaultAzureCredential()
+        if credential is None:
+            provider = get_credential_provider()
+            self._credential = provider.get_sdk_credential()
+        else:
+            self._credential = credential
         self._evidence_search_client = evidence_search_client or SearchClient(
             endpoint=config.search_endpoint,
             index_name=config.search_index_name,

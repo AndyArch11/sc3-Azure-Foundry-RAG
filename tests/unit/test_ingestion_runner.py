@@ -467,3 +467,136 @@ def test_run_controls_continues_when_one_parser_fails(
     results = {item["framework"]: item for item in payload["results"]}
     assert "Parser failed" in results["cis_controls"]["error"]
     assert results["nist_csf"]["records_uploaded"] == 1
+
+
+def test_run_reset_aws(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("CLOUD_PROVIDER", "aws")
+
+    class _AwsCfg:
+        @classmethod
+        def from_env(cls):
+            return type("C", (), {})()
+
+    class _Provider:
+        def get_sdk_credential(self):
+            return object()
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.credentials",
+        type("CRED", (), {"get_credential_provider": lambda cloud_provider=None: _Provider()}),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.storage",
+        type("STO", (), {"get_storage_client": lambda **kwargs: object()}),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.ingestion.reset_aws",
+        type(
+            "RAW",
+            (),
+            {
+                "AWSResetConfig": _AwsCfg,
+                "reset_loaded_data_aws": (
+                    lambda config, session, storage_client, purge_objects=False: {
+                        "deleted_index_documents": 4,
+                        "deleted_source_objects": 2,
+                    }
+                ),
+            },
+        ),
+    )
+
+    code = runner._run_reset(argparse.Namespace(purge_blobs=True))
+    payload = json.loads(capsys.readouterr().out.strip())
+
+    assert code == 0
+    assert payload["mode"] == "reset"
+    assert payload["cloud_provider"] == "aws"
+    assert payload["deleted_index_documents"] == 4
+
+
+def test_run_controls_aws(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("CLOUD_PROVIDER", "aws")
+
+    class _AwsCfg:
+        @classmethod
+        def from_env(cls):
+            return type("C", (), {})()
+
+    class _Provider:
+        def get_sdk_credential(self):
+            return object()
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.credentials",
+        type("CRED", (), {"get_credential_provider": lambda cloud_provider=None: _Provider()}),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.ingestion.controls_index_aws",
+        type(
+            "CIA",
+            (),
+            {
+                "AWSControlsIndexConfig": _AwsCfg,
+                "ensure_controls_index_aws": lambda config, session: None,
+            },
+        ),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.ingestion.controls_runner",
+        type(
+            "CR",
+            (),
+            {
+                "_build_parser_registry": lambda: {
+                    "aescsf": {
+                        "factory": lambda fetch_guidance: type(
+                            "P",
+                            (),
+                            {
+                                "parse": lambda self: [{"id": 1}],
+                                "to_jsonl": lambda self, recs: '{"id":1}\n',
+                            },
+                        )(),
+                    }
+                },
+                "_selected_frameworks": lambda framework, registry: ["aescsf"],
+            },
+        ),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.ingestion.publish_controls_aws",
+        type(
+            "PCA",
+            (),
+            {
+                "upload_controls_records_aws": lambda *args, **kwargs: {
+                    "records_failed": 0,
+                    "records_uploaded": 1,
+                }
+            },
+        ),
+    )
+
+    controls_args = argparse.Namespace(
+        controls_framework="all",
+        controls_source_prefix="",
+        replace_existing=False,
+        dry_run=False,
+        no_guidance=False,
+    )
+
+    code = runner._run_controls(controls_args)
+    payload = json.loads(capsys.readouterr().out.strip())
+
+    assert code == 0
+    assert payload["mode"] == "controls"
+    assert payload["cloud_provider"] == "aws"
+    assert payload["results"][0]["records_uploaded"] == 1
