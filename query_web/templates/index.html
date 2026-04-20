@@ -79,6 +79,14 @@
               <input id="temperature" name="temperature" type="number" min="0" max="1" step="0.05" value="{{ temperature }}" title="Model sampling temperature for answer generation; higher values are more variable." />
             </div>
             <div class="field">
+              <label for="max_completion_tokens">Query max tokens</label>
+              <input id="max_completion_tokens" name="max_completion_tokens" type="number" min="256" max="8192" step="1" value="{{ max_completion_tokens }}" title="Maximum completion tokens for answer generation in this request only." />
+            </div>
+            <div class="field">
+              <label for="evaluator_max_completion_tokens">Evaluator max tokens</label>
+              <input id="evaluator_max_completion_tokens" name="evaluator_max_completion_tokens" type="number" min="128" max="4096" step="1" value="{{ evaluator_max_completion_tokens }}" title="Maximum completion tokens for evaluator scoring in this request only." />
+            </div>
+            <div class="field">
               <label for="controls_semantic">Controls ranking</label>
               <select id="controls_semantic" name="controls_semantic" title="Choose semantic or keyword ranking when retrieving control guidance.">
                 <option value="0" {% if not controls_semantic %}selected{% endif %}>Keyword ranking</option>
@@ -152,6 +160,8 @@
             <div class="metric"><div class="k">Controls search</div><div class="v">{{ '%.3f'|format(metrics.controls_search_s|default(0.0)) }} s</div></div>
             <div class="metric"><div class="k">Controls mode</div><div class="v">{% if metrics.controls_semantic_enabled|default(0.0) >= 0.5 %}semantic{% else %}keyword{% endif %}</div></div>
             <div class="metric"><div class="k">Evaluator</div><div class="v">{{ '%.3f'|format(metrics.evaluator_s) }} s</div></div>
+            <div class="metric"><div class="k">Query token cap</div><div class="v">{{ metrics.max_completion_tokens_used|default('—') }}</div></div>
+            <div class="metric"><div class="k">Evaluator token cap</div><div class="v">{{ metrics.evaluator_max_completion_tokens_used|default('—') }}</div></div>
           </div>
         </div>
         {% endif %}

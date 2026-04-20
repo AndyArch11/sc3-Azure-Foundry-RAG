@@ -597,7 +597,11 @@ def _is_temperature_unsupported_error(exc: Exception) -> bool:
 
 
 def _chat_completion(
-    messages: list[dict[str, str]], deployment: str, temperature: float, timeout: int = 45
+    messages: list[dict[str, str]],
+    deployment: str,
+    temperature: float,
+    timeout: int = 45,
+    max_completion_tokens: int | None = None,
 ) -> str:
     return llm_chat._chat_completion(
         messages,
@@ -605,6 +609,7 @@ def _chat_completion(
         temperature,
         svc=_svc,
         timeout=timeout,
+        max_completion_tokens=max_completion_tokens,
     )
 
 
@@ -614,6 +619,7 @@ def _chat_completion_with_empty_retry(
     deployment: str,
     temperature: float,
     timeout: int = 45,
+    max_completion_tokens: int | None = None,
 ) -> str:
     return llm_chat._chat_completion_with_empty_retry(
         messages,
@@ -621,11 +627,23 @@ def _chat_completion_with_empty_retry(
         temperature=temperature,
         svc=_svc,
         timeout=timeout,
+        max_completion_tokens=max_completion_tokens,
     )
 
 
-def _evaluate(question: str, context: str, answer: str) -> dict[str, Any]:
-    return llm_chat._evaluate(question, context, answer, svc=_svc)
+def _evaluate(
+    question: str,
+    context: str,
+    answer: str,
+    evaluator_max_completion_tokens: int | None = None,
+) -> dict[str, Any]:
+    return llm_chat._evaluate(
+        question,
+        context,
+        answer,
+        svc=_svc,
+        evaluator_max_completion_tokens=evaluator_max_completion_tokens,
+    )
 
 
 def _call_validator(text: str, timeout_s: int = 15) -> dict[str, Any]:
@@ -637,6 +655,8 @@ def _run_rag(
     retrieve_k: int,
     temperature: float,
     controls_semantic: bool,
+    max_completion_tokens: int | None = None,
+    evaluator_max_completion_tokens: int | None = None,
     controls_framework: str | None = None,
     controls_comparison_mode: str = "auto-detect",
     evidence_corpora_include: list[str] | None = None,
@@ -645,10 +665,10 @@ def _run_rag(
     feedback_context: str = "",
 ) -> dict[str, Any]:
     return rag_pipeline._run_rag(
-        question,
-        retrieve_k,
-        temperature,
-        controls_semantic,
+        question=question,
+        retrieve_k=retrieve_k,
+        temperature=temperature,
+        controls_semantic=controls_semantic,
         svc=_svc,
         controls_framework=controls_framework,
         controls_comparison_mode=controls_comparison_mode,
@@ -656,6 +676,8 @@ def _run_rag(
         evidence_corpora_exclude=evidence_corpora_exclude,
         conversation_history=conversation_history,
         feedback_context=feedback_context,
+        max_completion_tokens=max_completion_tokens,
+        evaluator_max_completion_tokens=evaluator_max_completion_tokens,
     )
 
 

@@ -1295,6 +1295,22 @@
       askAdvancedToggle.addEventListener('change', refreshAdvancedVisibility);
       refreshAdvancedVisibility();
     }
+
+    // Persist per-request token override fields across page loads
+    ['max_completion_tokens', 'evaluator_max_completion_tokens'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const stored = localStorage.getItem('rag_' + id);
+      if (stored !== null && stored !== '') {
+        const parsed = parseInt(stored, 10);
+        const lo = parseInt(el.getAttribute('min') || '0', 10);
+        const hi = parseInt(el.getAttribute('max') || '99999', 10);
+        if (!isNaN(parsed) && parsed >= lo && parsed <= hi) el.value = String(parsed);
+      }
+      el.addEventListener('change', function () {
+        try { localStorage.setItem('rag_' + id, el.value); } catch (_) {}
+      });
+    });
     if (askForm && askBtn) {
       askForm.addEventListener('submit', function () {
         const questionField = document.getElementById('question');

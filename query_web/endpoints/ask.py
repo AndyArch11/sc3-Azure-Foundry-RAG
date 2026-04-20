@@ -54,6 +54,8 @@ def register_ask_endpoints(
         question: str = Form(...),
         retrieve_k: int = Form(...),
         temperature: float = Form(...),
+        max_completion_tokens: str = Form(""),
+        evaluator_max_completion_tokens: str = Form(""),
         controls_semantic: str = Form(""),
         controls_framework: str = Form(""),
         controls_comparison_mode: str = Form("auto-detect"),
@@ -110,6 +112,20 @@ def register_ask_endpoints(
         user_id = resolved_get_user_id(auth_token, session_id)
         session = None
         advanced_mode_enabled = resolved_form_bool(advanced_mode, default=False)
+        max_tokens_value = (max_completion_tokens or "").strip()
+        evaluator_tokens_value = (evaluator_max_completion_tokens or "").strip()
+        try:
+            max_completion_tokens_int = (
+                max(256, min(8192, int(max_tokens_value))) if max_tokens_value else None
+            )
+        except ValueError:
+            max_completion_tokens_int = None
+        try:
+            evaluator_max_completion_tokens_int = (
+                max(128, min(4096, int(evaluator_tokens_value))) if evaluator_tokens_value else None
+            )
+        except ValueError:
+            evaluator_max_completion_tokens_int = None
 
         if not resolved_is_authorised_request(auth_token, request):
             return resolved_templates.TemplateResponse(
@@ -128,6 +144,16 @@ def register_ask_endpoints(
                     "iterations": None,
                     "retrieve_k": retrieve_k,
                     "temperature": temperature,
+                    "max_completion_tokens": (
+                        max_completion_tokens_int
+                        if max_completion_tokens_int is not None
+                        else getattr(resolved_config, "max_completion_tokens", 1400)
+                    ),
+                    "evaluator_max_completion_tokens": (
+                        evaluator_max_completion_tokens_int
+                        if evaluator_max_completion_tokens_int is not None
+                        else getattr(resolved_config, "evaluator_max_completion_tokens", 800)
+                    ),
                     "controls_semantic": resolved_form_bool(
                         controls_semantic, default=resolved_config.controls_semantic_default
                     ),
@@ -182,6 +208,8 @@ def register_ask_endpoints(
                 question=question,
                 retrieve_k=retrieve_k,
                 temperature=temperature,
+                max_completion_tokens=max_completion_tokens_int,
+                evaluator_max_completion_tokens=evaluator_max_completion_tokens_int,
                 controls_semantic=controls_semantic_enabled,
                 controls_framework=controls_framework_filter,
                 controls_comparison_mode=controls_comparison_mode_value,
@@ -233,6 +261,16 @@ def register_ask_endpoints(
                 "iterations": result["iterations"],
                 "retrieve_k": retrieve_k,
                 "temperature": temperature,
+                "max_completion_tokens": (
+                    max_completion_tokens_int
+                    if max_completion_tokens_int is not None
+                    else getattr(resolved_config, "max_completion_tokens", 1400)
+                ),
+                "evaluator_max_completion_tokens": (
+                    evaluator_max_completion_tokens_int
+                    if evaluator_max_completion_tokens_int is not None
+                    else getattr(resolved_config, "evaluator_max_completion_tokens", 800)
+                ),
                 "controls_semantic": controls_semantic_enabled,
                 "controls_framework": controls_framework_value,
                 "controls_comparison_mode": controls_comparison_mode_value,
@@ -326,6 +364,10 @@ def register_ask_endpoints(
                 question=question,
                 retrieve_k=parsed_payload.retrieve_k,
                 temperature=parsed_payload.temperature,
+                max_completion_tokens=getattr(parsed_payload, "max_completion_tokens", None),
+                evaluator_max_completion_tokens=getattr(
+                    parsed_payload, "evaluator_max_completion_tokens", None
+                ),
                 controls_semantic=(
                     parsed_payload.controls_semantic
                     if parsed_payload.controls_semantic is not None

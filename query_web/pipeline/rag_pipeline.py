@@ -6,6 +6,21 @@ import json
 import time
 from typing import Any
 
+# Soft budget for grounding context characters (~15 k tokens at 4 chars/token).
+# Per-chunk limits are proportionally reduced when the total would exceed this.
+_EVIDENCE_CONTEXT_BUDGET_CHARS: int = 60_000
+_CONTROLS_CONTEXT_BUDGET_CHARS: int = 24_000
+_CHUNK_MIN_CHARS: int = 200
+_CONTROL_REQ_MIN_CHARS: int = 200
+_CONTROL_GUID_MIN_CHARS: int = 100
+
+
+def _proportional_limit(n_items: int, per_item_max: int, total_budget: int, min_chars: int) -> int:
+    """Return per-item char limit that keeps n_items * limit within total_budget."""
+    if n_items <= 0:
+        return per_item_max
+    return min(per_item_max, max(min_chars, total_budget // n_items))
+
 
 def _run_rag(
     question: str,
@@ -20,6 +35,8 @@ def _run_rag(
     evidence_corpora_exclude: list[str] | None = None,
     conversation_history: list[Any] | None = None,
     feedback_context: str = "",
+    max_completion_tokens: int | None = None,
+    evaluator_max_completion_tokens: int | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
 
@@ -122,6 +139,8 @@ def _run_rag(
                 "llm_retry_s": 0.0,
                 "llm_total_s": 0.0,
                 "total_s": round(time.perf_counter() - started, 3),
+                "max_completion_tokens_used": 0,
+                "evaluator_max_completion_tokens_used": 0,
             },
         }
 
@@ -130,10 +149,22 @@ def _run_rag(
     ]
     corpus_c_chunks = [c for c in chunks if c not in corpus_b_chunks]
 
+    # Proportionally cap per-chunk chars to stay within context budget.
+    _total_evidence_chunks = len(corpus_b_chunks) + len(corpus_c_chunks)
+    _chunk_limit = _proportional_limit(
+        _total_evidence_chunks, 1500, _EVIDENCE_CONTEXT_BUDGET_CHARS, _CHUNK_MIN_CHARS
+    )
+    _req_limit = _proportional_limit(
+        len(controls), 1200, _CONTROLS_CONTEXT_BUDGET_CHARS, _CONTROL_REQ_MIN_CHARS
+    )
+    _guid_limit = _proportional_limit(
+        len(controls), 800, _CONTROLS_CONTEXT_BUDGET_CHARS // 2, _CONTROL_GUID_MIN_CHARS
+    )
+
     corpus_b_context = "\n\n".join(
         (
             f"Source: {svc._chunk_reference_label(c)}\n"
-            f"Excerpt: {svc.sanitise_untrusted_text(c['content'][:1500])}"
+            f"Excerpt: {svc.sanitise_untrusted_text(c['content'][:_chunk_limit])}"
         )
         for c in corpus_b_chunks
     )
@@ -141,7 +172,7 @@ def _run_rag(
     evidence_context = "\n\n".join(
         (
             f"Source: {svc._chunk_reference_label(c)}\n"
-            f"Excerpt: {svc.sanitise_untrusted_text(c['content'][:1500])}"
+            f"Excerpt: {svc.sanitise_untrusted_text(c['content'][:_chunk_limit])}"
         )
         for c in corpus_c_chunks
     )
@@ -152,8 +183,8 @@ def _run_rag(
             f"Framework: {c['framework']} {c['framework_version']}\n"
             f"Control Family: {c['control_family']}\n"
             f"Maturity Level: {c['maturity_level']}\n"
-            f"Requirement: {svc.sanitise_untrusted_text(c['requirement_text'][:1200])}\n"
-            f"Guidance: {svc.sanitise_untrusted_text(c['guidance_text'][:800]) or 'No supplementary guidance is available for this control; assess solely against the requirement text above.'}"
+            f"Requirement: {svc.sanitise_untrusted_text(c['requirement_text'][:_req_limit])}\n"
+            f"Guidance: {svc.sanitise_untrusted_text(c['guidance_text'][:_guid_limit]) or 'No supplementary guidance is available for this control; assess solely against the requirement text above.'}"
         )
         for c in controls
     )
@@ -230,11 +261,15 @@ def _run_rag(
     )
 
     t_llm = time.perf_counter()
+    completion_kwargs: dict[str, Any] = {}
+    if max_completion_tokens is not None:
+        completion_kwargs["max_completion_tokens"] = max_completion_tokens
     answer = svc._clean_markdown_whitespace(
         svc._chat_completion_with_empty_retry(
             messages,
             deployment=svc.config.query_deployment,
             temperature=temperature,
+            **completion_kwargs,
         )
     )
     answer = svc._ensure_visible_answer(answer)
@@ -250,7 +285,10 @@ def _run_rag(
     llm_reply_s = round(time.perf_counter() - t_llm, 3)
 
     t_eval = time.perf_counter()
-    evaluation = svc._evaluate(question, context, answer)
+    evaluator_kwargs: dict[str, Any] = {}
+    if evaluator_max_completion_tokens is not None:
+        evaluator_kwargs["evaluator_max_completion_tokens"] = evaluator_max_completion_tokens
+    evaluation = svc._evaluate(question, context, answer, **evaluator_kwargs)
     evaluator_s = round(time.perf_counter() - t_eval, 3)
 
     llm_retry_s = 0.0
@@ -280,6 +318,7 @@ def _run_rag(
                 messages,
                 deployment=svc.config.query_deployment,
                 temperature=temperature,
+                **completion_kwargs,
             )
         )
         answer = svc._ensure_visible_answer(answer)
@@ -295,7 +334,7 @@ def _run_rag(
         llm_retry_s = round(time.perf_counter() - t_retry, 3)
 
         t_eval2 = time.perf_counter()
-        evaluation = svc._evaluate(question, context, answer)
+        evaluation = svc._evaluate(question, context, answer, **evaluator_kwargs)
         evaluator_s = round(evaluator_s + (time.perf_counter() - t_eval2), 3)
         evaluation["retry_reason"] = retry_reason
         iterations = 3
@@ -305,6 +344,16 @@ def _run_rag(
     )
     llm_total_s = round(llm_reply_s + llm_retry_s, 3)
 
+    _eff_max_tokens = (
+        max_completion_tokens
+        if max_completion_tokens is not None
+        else getattr(svc.config, "max_completion_tokens", 1400)
+    )
+    _eff_eval_tokens = (
+        evaluator_max_completion_tokens
+        if evaluator_max_completion_tokens is not None
+        else getattr(svc.config, "evaluator_max_completion_tokens", 800)
+    )
     metrics = {
         **retrieval_timings,
         **controls_timings,
@@ -314,6 +363,8 @@ def _run_rag(
         "llm_retry_s": llm_retry_s,
         "llm_total_s": llm_total_s,
         "total_s": round(time.perf_counter() - started, 3),
+        "max_completion_tokens_used": _eff_max_tokens,
+        "evaluator_max_completion_tokens_used": _eff_eval_tokens,
     }
     if svc.config.guardrail_metrics_in_response and guardrail_decision.metrics:
         metrics.update(guardrail_decision.metrics)

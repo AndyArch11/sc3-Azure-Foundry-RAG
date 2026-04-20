@@ -61,6 +61,12 @@ def register_home_endpoints(
                 "iterations": None,
                 "retrieve_k": resolved_config.search_top_k,
                 "temperature": resolved_config.default_temperature,
+                "max_completion_tokens": getattr(resolved_config, "max_completion_tokens", 1400),
+                "evaluator_max_completion_tokens": getattr(
+                    resolved_config,
+                    "evaluator_max_completion_tokens",
+                    800,
+                ),
                 "controls_semantic": resolved_config.controls_semantic_default,
                 "controls_framework": "",
                 "controls_comparison_mode": "auto-detect",

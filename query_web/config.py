@@ -123,6 +123,8 @@ class QueryConfig:
     default_temperature: float
     evaluator_temperature: float
     evaluation_threshold: float
+    max_completion_tokens: int
+    evaluator_max_completion_tokens: int
     auth_token: str
     required_group_object_id: str
 
@@ -273,6 +275,11 @@ def load_config() -> QueryConfig:
         default_temperature=float(os.getenv("DEFAULT_TEMPERATURE", "1")),
         evaluator_temperature=float(os.getenv("EVALUATOR_TEMPERATURE", "1.0")),
         evaluation_threshold=float(os.getenv("ACCEPTABLE_SCORE_THRESHOLD", "0.72")),
+        max_completion_tokens=max(256, int(os.getenv("MAX_COMPLETION_TOKENS", "1400"))),
+        evaluator_max_completion_tokens=max(
+            128,
+            int(os.getenv("EVALUATOR_MAX_COMPLETION_TOKENS", "800")),
+        ),
         auth_token=os.getenv("QUERY_WEB_AUTH_TOKEN", "").strip(),
         required_group_object_id=os.getenv("QUERY_WEB_REQUIRED_GROUP_OBJECT_ID", "").strip(),
         cosmos_endpoint=_require_env("AZURE_COSMOS_ENDPOINT"),

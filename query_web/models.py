@@ -19,6 +19,8 @@ class AskRequest(BaseModel):
     controls_comparison_mode: str = "auto-detect"
     evidence_corpora_include: list[str] | None = None
     evidence_corpora_exclude: list[str] | None = None
+    max_completion_tokens: int | None = Field(default=None, ge=256, le=8192)
+    evaluator_max_completion_tokens: int | None = Field(default=None, ge=128, le=4096)
     advanced_mode: bool = False
 
 

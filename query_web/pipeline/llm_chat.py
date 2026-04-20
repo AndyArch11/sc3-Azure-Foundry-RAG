@@ -131,6 +131,7 @@ def _chat_completion(
     *,
     svc: Any,
     timeout: int = 45,
+    max_completion_tokens: int | None = None,
 ) -> str:
     """Call Azure Foundry chat completion API using the OpenAI Python SDK."""
     try:
@@ -146,12 +147,13 @@ def _chat_completion(
     typed_messages = cast(list[ChatCompletionMessageParam], messages)
 
     safe_temperature = max(0.0, min(1.0, float(temperature)))
+    token_cap = int(max_completion_tokens or svc.config.max_completion_tokens)
 
     try:
         response = client.chat.completions.create(
             model=deployment,
             messages=typed_messages,
-            max_completion_tokens=600,
+            max_completion_tokens=token_cap,
             temperature=safe_temperature,
             timeout=timeout,
         )
@@ -165,7 +167,7 @@ def _chat_completion(
             response = client.chat.completions.create(
                 model=deployment,
                 messages=typed_messages,
-                max_completion_tokens=600,
+                max_completion_tokens=token_cap,
                 temperature=1.0,
                 timeout=timeout,
             )
@@ -181,13 +183,19 @@ def _chat_completion_with_empty_retry(
     temperature: float,
     svc: Any,
     timeout: int = 45,
+    max_completion_tokens: int | None = None,
 ) -> str:
+    completion_kwargs: dict[str, Any] = {}
+    if max_completion_tokens is not None:
+        completion_kwargs["max_completion_tokens"] = max_completion_tokens
+
     response = svc._unwrap_answer(
         svc._chat_completion(
             messages,
             deployment=deployment,
             temperature=temperature,
             timeout=timeout,
+            **completion_kwargs,
         )
     ).strip()
     if response:
@@ -204,11 +212,23 @@ def _chat_completion_with_empty_retry(
             deployment=deployment,
             temperature=retry_temperature,
             timeout=timeout,
+            **completion_kwargs,
         )
     ).strip()
 
 
-def _evaluate(question: str, context: str, answer: str, *, svc: Any) -> dict[str, Any]:
+def _evaluate(
+    question: str,
+    context: str,
+    answer: str,
+    *,
+    svc: Any,
+    evaluator_max_completion_tokens: int | None = None,
+) -> dict[str, Any]:
+    evaluator_tokens = int(
+        evaluator_max_completion_tokens
+        or getattr(svc.config, "evaluator_max_completion_tokens", 800)
+    )
     eval_messages = [
         {"role": "system", "content": svc.EVALUATOR_PROMPT},
         {
@@ -226,6 +246,7 @@ def _evaluate(question: str, context: str, answer: str, *, svc: Any) -> dict[str
         deployment=svc.config.evaluator_deployment,
         temperature=svc.config.evaluator_temperature,
         timeout=40,
+        max_completion_tokens=evaluator_tokens,
     )
     return svc._parse_eval(raw)
 
