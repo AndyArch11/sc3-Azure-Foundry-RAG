@@ -145,12 +145,17 @@ def register_diagnostics_endpoints(
     _utc_now_iso,
     _REQUIRED_INGESTION_METADATA_KEYS,
     svc=None,
+    *,
+    deps: dict | None = None,
 ) -> None:
     """Register all diagnostics endpoints with the FastAPI app."""
     from azure.search.documents.indexes import SearchIndexerClient
     from azure.storage.blob import BlobServiceClient
 
     def _svc_attr(name: str, default: Any) -> Any:
+        if isinstance(deps, dict) and name in deps:
+            candidate = deps[name]
+            return candidate() if callable(candidate) else candidate
         if svc is None:
             return default
         return getattr(svc, name, default)

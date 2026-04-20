@@ -1,7 +1,6 @@
 from __future__ import annotations
 import logging
 import os
-import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +31,7 @@ from query_web.config import (
     load_config,
 )
 from query_web.constants import (
+    ALLOWED_EXTENSIONS,
     COMPLIANCE_REPORT_SCHEMA_VERSION,
     QUERY_WEB_VERSION_SIGNATURE,
 )
@@ -284,7 +284,62 @@ if cosmos_client is not None and cosmos_db is not None:
 
 # Ingestion service — wraps all ingestion/upload helpers extracted to endpoints/ingestion.py.
 # Must be created after config, credential, search_client are ready.
-_ingestion_svc = _IngestionService(sys.modules[__name__])
+
+
+class _IngestionServiceDeps:
+    """Explicit dependency container for IngestionService.
+
+    Properties are intentionally late-bound to module globals so existing
+    patch.object(app_module, ...) tests continue to work while avoiding
+    injecting the whole module object.
+    """
+
+    @property
+    def config(self):
+        return config
+
+    @property
+    def credential(self):
+        return credential
+
+    @property
+    def requests(self):
+        return requests
+
+    @property
+    def SearchIndexerClient(self):
+        return SearchIndexerClient
+
+    @property
+    def BlobServiceClient(self):
+        return BlobServiceClient
+
+    @property
+    def ALLOWED_EXTENSIONS(self):
+        return ALLOWED_EXTENSIONS
+
+    @property
+    def _compute_normalised_text_hash(self):
+        return _compute_normalised_text_hash
+
+    @property
+    def _dedupe_blob_prefix(self):
+        return _dedupe_blob_prefix
+
+    @property
+    def _sanitise_blob_name_component(self):
+        return _sanitise_blob_name_component
+
+    @property
+    def _prepare_corpus_a_reference_uploads(self):
+        return _prepare_corpus_a_reference_uploads
+
+    @property
+    def _CORPUS_A_FRAMEWORKS(self):
+        return _CORPUS_A_FRAMEWORKS
+
+
+_ingestion_svc = _IngestionService(_IngestionServiceDeps())
 
 
 def _get_user_id(auth_token: str, session_id: str) -> str:
@@ -691,11 +746,21 @@ def _upload_corpus_a_reference_files(
 
 
 # ---------------------------------------------------------------------------
-# Named alias for the module — used as the svc context object for all
-# endpoint and pipeline registrations below.  This removes the implicit
-# sys.modules[__name__] pattern and makes the dependency explicit.
+# Explicit service proxy used as the svc context object for endpoint and
+# pipeline registrations. It resolves attributes from module globals at access
+# time so patched app_module symbols in tests remain observable.
 # ---------------------------------------------------------------------------
-_svc = sys.modules[__name__]
+
+
+class _AppServices:
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return globals()[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+
+_svc = _AppServices()
 
 # Register diagnostics endpoints
 register_diagnostics_endpoints(
@@ -710,7 +775,23 @@ register_diagnostics_endpoints(
     _count_search_documents_total_by_filter,
     _utc_now_iso,
     _REQUIRED_INGESTION_METADATA_KEYS,
-    svc=_svc,
+    deps={
+        "config": lambda: config,
+        "credential": lambda: credential,
+        "requests": lambda: requests,
+        "SearchIndexClient": lambda: SearchIndexClient,
+        "SearchIndexerClient": lambda: SearchIndexerClient,
+        "BlobServiceClient": lambda: BlobServiceClient,
+        "search_client": lambda: search_client,
+        "_is_corpus_upload_enabled": lambda: _is_corpus_upload_enabled,
+        "_is_ingestion_job_trigger_enabled": lambda: _is_ingestion_job_trigger_enabled,
+        "_latest_ingestion_job_execution": lambda: _latest_ingestion_job_execution,
+        "_count_blob_prefix": lambda: _count_blob_prefix,
+        "_count_search_documents_total_by_filter": lambda: _count_search_documents_total_by_filter,
+        "_utc_now_iso": lambda: _utc_now_iso,
+        "_is_authorised_request": lambda: _is_authorised_request,
+        "_unauthorised_message": lambda: _unauthorised_message,
+    },
 )
 
 
@@ -730,14 +811,88 @@ register_status_endpoints(
 )
 
 # Register extracted compliance and corpus endpoints.
-register_compliance_endpoints(app, svc=_svc)
-register_corpus_endpoints(app, svc=_svc)
-register_home_endpoints(app, svc=_svc)
+register_compliance_endpoints(
+    app,
+    deps={
+        "_count_search_documents_total_by_filter": lambda: _count_search_documents_total_by_filter,
+        "_generate_azure_compliance_report_result": lambda: _generate_azure_compliance_report_result,
+        "_generate_compliance_report_result": lambda: _generate_compliance_report_result,
+        "_INTERNAL_ERROR_MESSAGE": lambda: _INTERNAL_ERROR_MESSAGE,
+        "_is_authorised_request": lambda: _is_authorised_request,
+        "search_client": lambda: search_client,
+        "_unauthorised_message": lambda: _unauthorised_message,
+    },
+)
+register_corpus_endpoints(
+    app,
+    deps={
+        "ALLOWED_EXTENSIONS": lambda: ALLOWED_EXTENSIONS,
+        "_canonical_framework_name": lambda: _canonical_framework_name,
+        "_classify_corpus_a_auto_uploads": lambda: _classify_corpus_a_auto_uploads,
+        "config": lambda: config,
+        "confluence_poll_state_store": lambda: confluence_poll_state_store,
+        "_controls_framework_ingestion_status": lambda: _controls_framework_ingestion_status,
+        "controls_search_client": lambda: controls_search_client,
+        "_CORPUS_A_FRAMEWORKS": lambda: _CORPUS_A_FRAMEWORKS,
+        "_CORPUS_A_REFERENCE_UPLOAD_TARGETS": lambda: _CORPUS_A_REFERENCE_UPLOAD_TARGETS,
+        "_CORPUS_A_SOURCE_UPLOAD_REQUIRED_FRAMEWORKS": lambda: _CORPUS_A_SOURCE_UPLOAD_REQUIRED_FRAMEWORKS,
+        "_count_blob_prefix": lambda: _count_blob_prefix,
+        "_count_search_documents_by_filter": lambda: _count_search_documents_by_filter,
+        "_count_search_documents_total_by_filter": lambda: _count_search_documents_total_by_filter,
+        "credential": lambda: credential,
+        "_delete_blob_prefix": lambda: _delete_blob_prefix,
+        "_delete_search_documents_by_filter": lambda: _delete_search_documents_by_filter,
+        "_extension_matches_mime": lambda: _extension_matches_mime,
+        "_extract_dedupe_hashes": lambda: _extract_dedupe_hashes,
+        "_get_user_id": lambda: _get_user_id,
+        "_INTERNAL_ERROR_MESSAGE": lambda: _INTERNAL_ERROR_MESSAGE,
+        "_is_allowed_filetype": lambda: _is_allowed_filetype,
+        "_is_authorised_request": lambda: _is_authorised_request,
+        "_is_ingestion_job_trigger_enabled": lambda: _is_ingestion_job_trigger_enabled,
+        "_latest_ingestion_job_execution": lambda: _latest_ingestion_job_execution,
+        "_list_search_documents_by_filter": lambda: _list_search_documents_by_filter,
+        "_mark_dedupe_blobs_for_reindex": lambda: _mark_dedupe_blobs_for_reindex,
+        "_normalise_corpus_a_framework_key": lambda: _normalise_corpus_a_framework_key,
+        "_risk_label": lambda: _risk_label,
+        "search_client": lambda: search_client,
+        "_selected_corpus_a_frameworks": lambda: _selected_corpus_a_frameworks,
+        "_trigger_ingestion_job": lambda: _trigger_ingestion_job,
+        "_trigger_ingestion_job_with_args": lambda: _trigger_ingestion_job_with_args,
+        "_unauthorised_message": lambda: _unauthorised_message,
+        "_upload_corpus_a_reference_files": lambda: _upload_corpus_a_reference_files,
+        "_upload_corpus_b_files": lambda: _upload_corpus_b_files,
+        "_upload_corpus_c_files": lambda: _upload_corpus_c_files,
+    },
+)
+register_home_endpoints(
+    app,
+    templates=templates,
+    config=config,
+    is_authorised_request=_is_authorised_request,
+    unauthorised_message=_unauthorised_message,
+    branding_ctx=_branding_ctx,
+)
 register_ask_endpoints(
     app,
-    svc=_svc,
     ask_request_model=AskRequest,
     ask_response_model=AskResponse,
+    templates=templates,
+    config=config,
+    conversation_message_cls=ConversationMessage,
+    get_user_id=_get_user_id,
+    form_bool=_form_bool,
+    is_authorised_request=_is_authorised_request,
+    unauthorised_message=_unauthorised_message,
+    normalise_controls_comparison_mode=_normalise_controls_comparison_mode,
+    normalise_framework_filter=_normalise_framework_filter,
+    normalise_evidence_corpora=_normalise_evidence_corpora,
+    load_conversation=_load_conversation,
+    build_feedback_context=_build_feedback_context,
+    run_rag=lambda **kwargs: _run_rag(**kwargs),
+    save_conversation=_save_conversation,
+    utc_now_iso=_utc_now_iso,
+    branding_ctx=_branding_ctx,
+    internal_error_message=_INTERNAL_ERROR_MESSAGE,
 )
 
 # Register conversations endpoints

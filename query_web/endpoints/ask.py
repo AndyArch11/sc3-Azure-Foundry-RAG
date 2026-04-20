@@ -17,12 +17,36 @@ logger = logging.getLogger(__name__)
 
 def register_ask_endpoints(
     app: Any,
-    svc: Any,
+    svc: Any | None = None,
     *,
     ask_request_model: Any,
     ask_response_model: Any,
+    templates: Any | None = None,
+    config: Any | None = None,
+    conversation_message_cls: Any | None = None,
+    get_user_id: Any | None = None,
+    form_bool: Any | None = None,
+    is_authorised_request: Any | None = None,
+    unauthorised_message: Any | None = None,
+    normalise_controls_comparison_mode: Any | None = None,
+    normalise_framework_filter: Any | None = None,
+    normalise_evidence_corpora: Any | None = None,
+    load_conversation: Any | None = None,
+    build_feedback_context: Any | None = None,
+    run_rag: Any | None = None,
+    save_conversation: Any | None = None,
+    utc_now_iso: Any | None = None,
+    branding_ctx: Any | None = None,
+    internal_error_message: str | None = None,
 ) -> None:
     """Register ask form and API endpoints."""
+
+    def _dep(name: str, value: Any) -> Any:
+        if value is not None:
+            return value
+        if svc is None:
+            return None
+        return getattr(svc, name, None)
 
     @app.post("/ask", response_class=HTMLResponse)
     def ask(
@@ -39,42 +63,86 @@ def register_ask_endpoints(
         session_id: str = Form(default=""),
         conversation_id: str = Form(default=""),
     ) -> HTMLResponse:
-        user_id = svc._get_user_id(auth_token, session_id)
-        session = None
-        advanced_mode_enabled = svc._form_bool(advanced_mode, default=False)
+        resolved_templates = _dep("templates", templates)
+        resolved_config = _dep("config", config)
+        resolved_conversation_message_cls = _dep("ConversationMessage", conversation_message_cls)
+        resolved_get_user_id = _dep("_get_user_id", get_user_id)
+        resolved_form_bool = _dep("_form_bool", form_bool)
+        resolved_is_authorised_request = _dep("_is_authorised_request", is_authorised_request)
+        resolved_unauthorised_message = _dep("_unauthorised_message", unauthorised_message)
+        resolved_normalise_controls_comparison_mode = _dep(
+            "_normalise_controls_comparison_mode", normalise_controls_comparison_mode
+        )
+        resolved_normalise_framework_filter = _dep(
+            "_normalise_framework_filter", normalise_framework_filter
+        )
+        resolved_normalise_evidence_corpora = _dep(
+            "_normalise_evidence_corpora", normalise_evidence_corpora
+        )
+        resolved_load_conversation = _dep("_load_conversation", load_conversation)
+        resolved_build_feedback_context = _dep("_build_feedback_context", build_feedback_context)
+        resolved_run_rag = _dep("_run_rag", run_rag)
+        resolved_save_conversation = _dep("_save_conversation", save_conversation)
+        resolved_utc_now_iso = _dep("_utc_now_iso", utc_now_iso)
+        resolved_branding_ctx = _dep("_branding_ctx", branding_ctx)
+        resolved_internal_error_message = (
+            internal_error_message
+            if internal_error_message is not None
+            else _dep("_INTERNAL_ERROR_MESSAGE", None)
+        )
 
-        if not svc._is_authorised_request(auth_token, request):
-            return svc.templates.TemplateResponse(
+        if (
+            resolved_get_user_id is None
+            or resolved_form_bool is None
+            or resolved_is_authorised_request is None
+            or resolved_unauthorised_message is None
+            or resolved_normalise_controls_comparison_mode is None
+            or resolved_normalise_framework_filter is None
+            or resolved_normalise_evidence_corpora is None
+            or resolved_run_rag is None
+            or resolved_branding_ctx is None
+            or resolved_templates is None
+            or resolved_config is None
+            or resolved_internal_error_message is None
+        ):
+            return HTMLResponse(content="Ask endpoint misconfigured.", status_code=500)
+
+        user_id = resolved_get_user_id(auth_token, session_id)
+        session = None
+        advanced_mode_enabled = resolved_form_bool(advanced_mode, default=False)
+
+        if not resolved_is_authorised_request(auth_token, request):
+            return resolved_templates.TemplateResponse(
                 request,
                 "index.html",
                 {
-                    **svc._branding_ctx(),
+                    **resolved_branding_ctx(),
                     "question": question,
                     "answer": "",
                     "results": [],
                     "controls_results": [],
                     "controls_debug": None,
-                    "error": svc._unauthorised_message(request),
+                    "error": resolved_unauthorised_message(request),
                     "evaluation": None,
                     "metrics": None,
                     "iterations": None,
                     "retrieve_k": retrieve_k,
                     "temperature": temperature,
-                    "controls_semantic": svc._form_bool(
-                        controls_semantic, default=svc.config.controls_semantic_default
+                    "controls_semantic": resolved_form_bool(
+                        controls_semantic, default=resolved_config.controls_semantic_default
                     ),
                     "controls_framework": (controls_framework or "").strip().lower(),
-                    "controls_comparison_mode": svc._normalise_controls_comparison_mode(
+                    "controls_comparison_mode": resolved_normalise_controls_comparison_mode(
                         controls_comparison_mode
                     ),
                     "evidence_corpora_include": evidence_corpora_include,
                     "advanced_mode": advanced_mode_enabled,
                     "auth_token": "",
-                    "index_name": svc.config.search_index_name,
-                    "embedding_deployment": svc.config.embedding_deployment,
-                    "query_deployment": svc.config.query_deployment,
-                    "evaluation_threshold": svc.config.evaluation_threshold,
-                    "auth_enabled": bool(svc.config.auth_token),
+                    "index_name": resolved_config.search_index_name,
+                    "embedding_deployment": resolved_config.embedding_deployment,
+                    "query_deployment": resolved_config.query_deployment,
+                    "evaluation_threshold": resolved_config.evaluation_threshold,
+                    "auth_enabled": bool(resolved_config.auth_token),
                     "user_id": user_id,
                     "session_id": session_id,
                     "conversation_id": conversation_id,
@@ -82,21 +150,21 @@ def register_ask_endpoints(
                 status_code=401,
             )
 
-        if session_id and conversation_id:
-            session = svc._load_conversation(user_id, conversation_id)
+        if session_id and conversation_id and resolved_load_conversation is not None:
+            session = resolved_load_conversation(user_id, conversation_id)
 
         retrieve_k = max(1, min(20, retrieve_k))
         temperature = max(0, min(1.0, temperature))
-        controls_semantic_enabled = svc._form_bool(
-            controls_semantic, default=svc.config.controls_semantic_default
+        controls_semantic_enabled = resolved_form_bool(
+            controls_semantic, default=resolved_config.controls_semantic_default
         )
         controls_framework_value = (controls_framework or "").strip().lower()
-        controls_framework_filter = svc._normalise_framework_filter(controls_framework_value)
-        controls_comparison_mode_value = svc._normalise_controls_comparison_mode(
+        controls_framework_filter = resolved_normalise_framework_filter(controls_framework_value)
+        controls_comparison_mode_value = resolved_normalise_controls_comparison_mode(
             controls_comparison_mode
         )
         evidence_corpora_include_filter = (
-            svc._normalise_evidence_corpora(evidence_corpora_include)
+            resolved_normalise_evidence_corpora(evidence_corpora_include)
             if evidence_corpora_include
             else None
         )
@@ -104,9 +172,13 @@ def register_ask_endpoints(
 
         try:
             conversation_history = session.messages if session else []
-            feedback_context = svc._build_feedback_context(session) if session else ""
+            feedback_context = (
+                resolved_build_feedback_context(session)
+                if session and resolved_build_feedback_context is not None
+                else ""
+            )
 
-            result = svc._run_rag(
+            result = resolved_run_rag(
                 question=question,
                 retrieve_k=retrieve_k,
                 temperature=temperature,
@@ -120,12 +192,16 @@ def register_ask_endpoints(
             )
 
             if session:
-                session.messages.append(svc.ConversationMessage(role="user", content=question))
+                if resolved_conversation_message_cls is None:
+                    raise RuntimeError("ConversationMessage dependency is missing.")
+                session.messages.append(resolved_conversation_message_cls(role="user", content=question))
                 session.messages.append(
-                    svc.ConversationMessage(role="assistant", content=result["answer"])
+                    resolved_conversation_message_cls(role="assistant", content=result["answer"])
                 )
-                session.updated_at = svc._utc_now_iso()
-                svc._save_conversation(session)
+                if resolved_utc_now_iso is not None:
+                    session.updated_at = resolved_utc_now_iso()
+                if resolved_save_conversation is not None:
+                    resolved_save_conversation(session)
 
             error = ""
         except Exception as exc:
@@ -139,13 +215,13 @@ def register_ask_endpoints(
                 "metrics": None,
                 "iterations": None,
             }
-            error = svc._INTERNAL_ERROR_MESSAGE
+            error = resolved_internal_error_message
 
-        return svc.templates.TemplateResponse(
+        return resolved_templates.TemplateResponse(
             request,
             "index.html",
             {
-                **svc._branding_ctx(),
+                **resolved_branding_ctx(),
                 "question": question,
                 "answer": result["answer"],
                 "results": result["results"],
@@ -163,11 +239,11 @@ def register_ask_endpoints(
                 "evidence_corpora_include": evidence_corpora_include,
                 "advanced_mode": advanced_mode_enabled,
                 "auth_token": auth_token,
-                "index_name": svc.config.search_index_name,
-                "embedding_deployment": svc.config.embedding_deployment,
-                "query_deployment": svc.config.query_deployment,
-                "evaluation_threshold": svc.config.evaluation_threshold,
-                "auth_enabled": bool(svc.config.auth_token),
+                "index_name": resolved_config.search_index_name,
+                "embedding_deployment": resolved_config.embedding_deployment,
+                "query_deployment": resolved_config.query_deployment,
+                "evaluation_threshold": resolved_config.evaluation_threshold,
+                "auth_enabled": bool(resolved_config.auth_token),
                 "user_id": user_id,
                 "session_id": session_id,
                 "conversation_id": conversation_id,
@@ -176,6 +252,25 @@ def register_ask_endpoints(
 
     @app.post("/api/ask", response_model=ask_response_model)
     def ask_api(request: Request, payload: dict[str, Any]) -> Any:
+        resolved_config = _dep("config", config)
+        resolved_is_authorised_request = _dep("_is_authorised_request", is_authorised_request)
+        resolved_unauthorised_message = _dep("_unauthorised_message", unauthorised_message)
+        resolved_normalise_controls_comparison_mode = _dep(
+            "_normalise_controls_comparison_mode", normalise_controls_comparison_mode
+        )
+        resolved_normalise_framework_filter = _dep(
+            "_normalise_framework_filter", normalise_framework_filter
+        )
+        resolved_normalise_evidence_corpora = _dep(
+            "_normalise_evidence_corpora", normalise_evidence_corpora
+        )
+        resolved_run_rag = _dep("_run_rag", run_rag)
+        resolved_internal_error_message = (
+            internal_error_message
+            if internal_error_message is not None
+            else _dep("_INTERNAL_ERROR_MESSAGE", None)
+        )
+
         parsed_payload = ask_request_model.model_validate(payload)
         question = parsed_payload.question.strip()
         if not question:
@@ -191,7 +286,16 @@ def register_ask_endpoints(
                 error="Question must not be empty.",
             )
 
-        if not svc._is_authorised_request(parsed_payload.auth_token, request):
+        if (
+            resolved_is_authorised_request is None
+            or resolved_unauthorised_message is None
+            or resolved_run_rag is None
+            or resolved_config is None
+            or resolved_normalise_framework_filter is None
+            or resolved_normalise_controls_comparison_mode is None
+            or resolved_normalise_evidence_corpora is None
+            or resolved_internal_error_message is None
+        ):
             return ask_response_model(
                 answer="",
                 results=[],
@@ -201,29 +305,42 @@ def register_ask_endpoints(
                 iterations=None,
                 metrics=None,
                 audit=None,
-                error=svc._unauthorised_message(request),
+                error="Ask API endpoint misconfigured.",
+            )
+
+        if not resolved_is_authorised_request(parsed_payload.auth_token, request):
+            return ask_response_model(
+                answer="",
+                results=[],
+                controls_results=[],
+                controls_debug=None,
+                evaluation=None,
+                iterations=None,
+                metrics=None,
+                audit=None,
+                error=resolved_unauthorised_message(request),
             )
 
         try:
-            result = svc._run_rag(
+            result = resolved_run_rag(
                 question=question,
                 retrieve_k=parsed_payload.retrieve_k,
                 temperature=parsed_payload.temperature,
                 controls_semantic=(
                     parsed_payload.controls_semantic
                     if parsed_payload.controls_semantic is not None
-                    else svc.config.controls_semantic_default
+                    else resolved_config.controls_semantic_default
                 ),
-                controls_framework=svc._normalise_framework_filter(
+                controls_framework=resolved_normalise_framework_filter(
                     parsed_payload.controls_framework
                 ),
-                controls_comparison_mode=svc._normalise_controls_comparison_mode(
+                controls_comparison_mode=resolved_normalise_controls_comparison_mode(
                     parsed_payload.controls_comparison_mode
                 ),
-                evidence_corpora_include=svc._normalise_evidence_corpora(
+                evidence_corpora_include=resolved_normalise_evidence_corpora(
                     parsed_payload.evidence_corpora_include
                 ),
-                evidence_corpora_exclude=svc._normalise_evidence_corpora(
+                evidence_corpora_exclude=resolved_normalise_evidence_corpora(
                     parsed_payload.evidence_corpora_exclude
                 ),
             )
@@ -249,5 +366,5 @@ def register_ask_endpoints(
                 iterations=None,
                 metrics=None,
                 audit=None,
-                error=svc._INTERNAL_ERROR_MESSAGE,
+                error=resolved_internal_error_message,
             )

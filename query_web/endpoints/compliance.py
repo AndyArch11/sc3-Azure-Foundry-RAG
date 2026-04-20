@@ -1256,18 +1256,38 @@ def generate_azure_compliance_report_result(
 # ---------------------------------------------------------------------------
 
 
-def register_compliance_endpoints(app: Any, svc: Any) -> None:
+def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | None = None) -> None:
     """Register compliance report endpoints.
 
     Parameters
     ----------
     app : FastAPI
         The application instance.
-    svc : module
-        Service container (the app module at runtime).  All helpers are accessed
-        via ``svc.attribute`` at *call time* so that ``patch.object(svc, ...)``
-        patches work correctly in tests.
+    svc : module, optional
+        Legacy service container (the app module at runtime).  All helpers are
+        accessed via ``svc.attribute`` at *call time* so that
+        ``patch.object(svc, ...)`` patches work correctly in tests.
+    deps : dict, optional
+        Explicit dependency providers dict.  Each value may be a zero-arg
+        callable (resolved lazily at access time) or a plain value.  Takes
+        precedence over *svc* when provided.
     """
+
+    class _SvcAdapter:
+        """Resolves deps in order: deps dict → svc fallback."""
+
+        def __getattr__(self, name: str) -> Any:
+            if isinstance(_deps, dict) and name in _deps:
+                candidate = _deps[name]
+                return candidate() if callable(candidate) else candidate
+            if _orig_svc is not None:
+                return getattr(_orig_svc, name)
+            raise AttributeError(name)
+
+    _orig_svc = svc
+    _deps = deps
+    svc = _SvcAdapter()
+
 
     @app.post("/api/compliance/report")
     def generate_compliance_report(

@@ -36,31 +36,31 @@ REQUIRED_INGESTION_METADATA_KEYS = {
 class IngestionService:
     """Encapsulate ingestion-job and corpus upload helpers.
 
-    The service receives the app module as a dependency container so helper
-    lookups happen at runtime and existing patch.object(app_module, ...) tests
-    keep working through the thin wrappers left in app.py.
+    The service receives an explicit dependency container so helper
+    lookups happen at runtime while preserving existing patch.object
+    test behavior through thin wrappers in app.py.
     """
 
-    def __init__(self, svc: Any) -> None:
-        self.svc = svc
+    def __init__(self, deps: Any) -> None:
+        self.deps = deps
 
-    def _svc_attr(self, name: str, default: Any) -> Any:
-        """Resolve an attribute from the injected service container with fallback."""
+    def _dep_attr(self, name: str, default: Any) -> Any:
+        """Resolve an attribute from the injected dependency container with fallback."""
 
-        return getattr(self.svc, name, default)
+        return getattr(self.deps, name, default)
 
     def is_corpus_upload_enabled(self) -> bool:
         """Return whether storage-backed corpus upload is configured."""
 
-        return bool(self.svc.config.storage_account_name)
+        return bool(self.deps.config.storage_account_name)
 
     def is_ingestion_job_trigger_enabled(self) -> bool:
         """Return whether Azure Container Apps job trigger settings are configured."""
 
         return bool(
-            self.svc.config.ingestion_job_subscription_id
-            and self.svc.config.ingestion_job_resource_group
-            and self.svc.config.ingestion_job_name
+            self.deps.config.ingestion_job_subscription_id
+            and self.deps.config.ingestion_job_resource_group
+            and self.deps.config.ingestion_job_name
         )
 
     def trigger_ingestion_job(self) -> dict[str, Any]:
@@ -84,10 +84,10 @@ class IngestionService:
     def wait_for_indexer_idle(self, indexer_name: str, timeout_seconds: int = 900) -> bool:
         """Poll indexer status until it is idle or timeout is reached."""
 
-        search_indexer_client_cls = self._svc_attr("SearchIndexerClient", SearchIndexerClient)
+        search_indexer_client_cls = self._dep_attr("SearchIndexerClient", SearchIndexerClient)
         client = search_indexer_client_cls(
-            endpoint=self.svc.config.search_endpoint,
-            credential=self.svc.credential,
+            endpoint=self.deps.config.search_endpoint,
+            credential=self.deps.credential,
         )
         deadline = time.monotonic() + timeout_seconds
 
@@ -109,15 +109,15 @@ class IngestionService:
 
         indexer_name = os.getenv(
             "AZURE_SEARCH_INDEXER_NAME",
-            f"{self.svc.config.search_index_name}-indexer",
+            f"{self.deps.config.search_index_name}-indexer",
         ).strip()
         if not indexer_name:
             raise RuntimeError("AZURE_SEARCH_INDEXER_NAME is empty.")
 
-        search_indexer_client_cls = self._svc_attr("SearchIndexerClient", SearchIndexerClient)
+        search_indexer_client_cls = self._dep_attr("SearchIndexerClient", SearchIndexerClient)
         client = search_indexer_client_cls(
-            endpoint=self.svc.config.search_endpoint,
-            credential=self.svc.credential,
+            endpoint=self.deps.config.search_endpoint,
+            credential=self.deps.credential,
         )
         try:
             client.reset_indexer(indexer_name)
@@ -144,11 +144,11 @@ class IngestionService:
     def get_ingestion_job_template_container(self, token: str) -> dict[str, Any]:
         """Fetch the configured ingestion job and return its first template container."""
 
-        requests_module = self._svc_attr("requests", requests)
+        requests_module = self._dep_attr("requests", requests)
         get_url = (
-            f"https://management.azure.com/subscriptions/{self.svc.config.ingestion_job_subscription_id}"
-            f"/resourceGroups/{self.svc.config.ingestion_job_resource_group}"
-            f"/providers/Microsoft.App/jobs/{self.svc.config.ingestion_job_name}"
+            f"https://management.azure.com/subscriptions/{self.deps.config.ingestion_job_subscription_id}"
+            f"/resourceGroups/{self.deps.config.ingestion_job_resource_group}"
+            f"/providers/Microsoft.App/jobs/{self.deps.config.ingestion_job_name}"
             "?api-version=2024-03-01"
         )
         resp = requests_module.get(
@@ -174,12 +174,12 @@ class IngestionService:
                 "Set INGESTION_JOB_SUBSCRIPTION_ID, INGESTION_JOB_RESOURCE_GROUP, and INGESTION_JOB_NAME."
             )
 
-        token = self.svc.credential.get_token("https://management.azure.com/.default").token
-        requests_module = self._svc_attr("requests", requests)
+        token = self.deps.credential.get_token("https://management.azure.com/.default").token
+        requests_module = self._dep_attr("requests", requests)
         url = (
-            f"https://management.azure.com/subscriptions/{self.svc.config.ingestion_job_subscription_id}"
-            f"/resourceGroups/{self.svc.config.ingestion_job_resource_group}"
-            f"/providers/Microsoft.App/jobs/{self.svc.config.ingestion_job_name}/start"
+            f"https://management.azure.com/subscriptions/{self.deps.config.ingestion_job_subscription_id}"
+            f"/resourceGroups/{self.deps.config.ingestion_job_resource_group}"
+            f"/providers/Microsoft.App/jobs/{self.deps.config.ingestion_job_name}/start"
             "?api-version=2024-03-01"
         )
 
@@ -218,8 +218,8 @@ class IngestionService:
 
         return {
             "status_code": response.status_code,
-            "resource_group": self.svc.config.ingestion_job_resource_group,
-            "job_name": self.svc.config.ingestion_job_name,
+            "resource_group": self.deps.config.ingestion_job_resource_group,
+            "job_name": self.deps.config.ingestion_job_name,
             "execution_name": execution_name,
             "args_override": args_override or [],
         }
@@ -242,17 +242,17 @@ class IngestionService:
         if not dedupe_hashes:
             return {"requested": 0, "touched": 0, "not_found": [], "failed": []}
 
-        account_url = f"https://{self.svc.config.storage_account_name}.blob.core.windows.net"
-        blob_service_client_cls = self._svc_attr("BlobServiceClient", BlobServiceClient)
-        client = blob_service_client_cls(account_url=account_url, credential=self.svc.credential)
-        container = client.get_container_client(self.svc.config.storage_container_name)
+        account_url = f"https://{self.deps.config.storage_account_name}.blob.core.windows.net"
+        blob_service_client_cls = self._dep_attr("BlobServiceClient", BlobServiceClient)
+        client = blob_service_client_cls(account_url=account_url, credential=self.deps.credential)
+        container = client.get_container_client(self.deps.config.storage_container_name)
 
         touched = 0
         not_found: list[str] = []
         failed: list[str] = []
 
         for dedupe_hash in dedupe_hashes:
-            dedupe_prefix = self.svc._dedupe_blob_prefix(corpus, dedupe_hash)
+            dedupe_prefix = self.deps._dedupe_blob_prefix(corpus, dedupe_hash)
             matching_blob_names = [
                 blob.name for blob in container.list_blobs(name_starts_with=dedupe_prefix)
             ]
@@ -266,7 +266,7 @@ class IngestionService:
                     props = blob.get_blob_properties()
                     metadata = dict(props.metadata or {})
                     metadata["reindex_requested_at"] = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-                    metadata["reindex_requested_by"] = self.svc._sanitise_blob_name_component(
+                    metadata["reindex_requested_by"] = self.deps._sanitise_blob_name_component(
                         user_id or "anonymous"
                     )
                     blob.set_blob_metadata(metadata=metadata)
@@ -287,14 +287,14 @@ class IngestionService:
         if not self.is_ingestion_job_trigger_enabled():
             return None
 
-        token = self.svc.credential.get_token("https://management.azure.com/.default").token
+        token = self.deps.credential.get_token("https://management.azure.com/.default").token
         url = (
-            f"https://management.azure.com/subscriptions/{self.svc.config.ingestion_job_subscription_id}"
-            f"/resourceGroups/{self.svc.config.ingestion_job_resource_group}"
-            f"/providers/Microsoft.App/jobs/{self.svc.config.ingestion_job_name}/executions"
+            f"https://management.azure.com/subscriptions/{self.deps.config.ingestion_job_subscription_id}"
+            f"/resourceGroups/{self.deps.config.ingestion_job_resource_group}"
+            f"/providers/Microsoft.App/jobs/{self.deps.config.ingestion_job_name}/executions"
             "?api-version=2024-03-01"
         )
-        requests_module = self._svc_attr("requests", requests)
+        requests_module = self._dep_attr("requests", requests)
         response = requests_module.get(
             url,
             headers={"Authorization": f"Bearer {token}"},
@@ -337,11 +337,11 @@ class IngestionService:
                 "Corpus upload is not configured. Set AZURE_STORAGE_ACCOUNT_NAME in query web configuration."
             )
 
-        account_url = f"https://{self.svc.config.storage_account_name}.blob.core.windows.net"
-        blob_service_client_cls = self._svc_attr("BlobServiceClient", BlobServiceClient)
-        content_settings_cls = self._svc_attr("ContentSettings", ContentSettings)
-        client = blob_service_client_cls(account_url=account_url, credential=self.svc.credential)
-        container = client.get_container_client(self.svc.config.storage_container_name)
+        account_url = f"https://{self.deps.config.storage_account_name}.blob.core.windows.net"
+        blob_service_client_cls = self._dep_attr("BlobServiceClient", BlobServiceClient)
+        content_settings_cls = self._dep_attr("ContentSettings", ContentSettings)
+        client = blob_service_client_cls(account_url=account_url, credential=self.deps.credential)
+        container = client.get_container_client(self.deps.config.storage_container_name)
 
         uploaded: list[dict[str, Any]] = []
         skipped: list[str] = []
@@ -353,7 +353,7 @@ class IngestionService:
         for file in files:
             original_name = file.filename or "uploaded.bin"
             ext = Path(original_name).suffix.lower()
-            if ext not in self.svc.ALLOWED_EXTENSIONS:
+            if ext not in self.deps.ALLOWED_EXTENSIONS:
                 skipped.append(f"{original_name}: disallowed filetype {ext}")
                 try:
                     file.file.close()
@@ -368,7 +368,7 @@ class IngestionService:
                     continue
 
                 content_sha256 = hashlib.sha256(content).hexdigest()
-                normalised_text_sha256, hash_method = self.svc._compute_normalised_text_hash(
+                normalised_text_sha256, hash_method = self.deps._compute_normalised_text_hash(
                     content,
                     filename=original_name,
                     content_type=file.content_type or "",
@@ -377,7 +377,7 @@ class IngestionService:
                 dedupe_method = (
                     "normalised_text_sha256" if normalised_text_sha256 else "content_sha256"
                 )
-                hash_blob_prefix = self.svc._dedupe_blob_prefix(corpus, dedupe_hash)
+                hash_blob_prefix = self.deps._dedupe_blob_prefix(corpus, dedupe_hash)
                 hash_blob_name = f"{hash_blob_prefix}{ext}"
                 existing_blob_names = [
                     blob.name for blob in container.list_blobs(name_starts_with=hash_blob_prefix)
@@ -390,10 +390,10 @@ class IngestionService:
                     "corpus": corpus,
                     "corpus_role": corpus_role,
                     "upload_source": "query_web",
-                    "uploaded_by": self.svc._sanitise_blob_name_component(user_id or "anonymous"),
+                    "uploaded_by": self.deps._sanitise_blob_name_component(user_id or "anonymous"),
                     "upload_batch": upload_batch_id,
                     "uploaded_at": ts,
-                    "original_filename": self.svc._sanitise_blob_name_component(original_name),
+                    "original_filename": self.deps._sanitise_blob_name_component(original_name),
                     "content_sha256": content_sha256,
                     "normalised_text_sha256": normalised_text_sha256 or "",
                     "dedupe_hash": dedupe_hash,
@@ -506,15 +506,15 @@ class IngestionService:
                 "Corpus upload is not configured. Set AZURE_STORAGE_ACCOUNT_NAME in query web configuration."
             )
 
-        framework_key, prepared_uploads = self.svc._prepare_corpus_a_reference_uploads(
+        framework_key, prepared_uploads = self.deps._prepare_corpus_a_reference_uploads(
             framework, files
         )
 
-        account_url = f"https://{self.svc.config.storage_account_name}.blob.core.windows.net"
-        blob_service_client_cls = self._svc_attr("BlobServiceClient", BlobServiceClient)
-        content_settings_cls = self._svc_attr("ContentSettings", ContentSettings)
-        client = blob_service_client_cls(account_url=account_url, credential=self.svc.credential)
-        container = client.get_container_client(self.svc.config.storage_container_name)
+        account_url = f"https://{self.deps.config.storage_account_name}.blob.core.windows.net"
+        blob_service_client_cls = self._dep_attr("BlobServiceClient", BlobServiceClient)
+        content_settings_cls = self._dep_attr("ContentSettings", ContentSettings)
+        client = blob_service_client_cls(account_url=account_url, credential=self.deps.credential)
+        container = client.get_container_client(self.deps.config.storage_container_name)
 
         uploaded: list[dict[str, Any]] = []
         failed: list[str] = []
@@ -534,10 +534,10 @@ class IngestionService:
                     "corpus": "a",
                     "framework": framework_key,
                     "upload_source": "query_web",
-                    "uploaded_by": self.svc._sanitise_blob_name_component(user_id or "anonymous"),
+                    "uploaded_by": self.deps._sanitise_blob_name_component(user_id or "anonymous"),
                     "upload_batch": upload_batch_id,
                     "uploaded_at": ts,
-                    "original_filename": self.svc._sanitise_blob_name_component(original_name),
+                    "original_filename": self.deps._sanitise_blob_name_component(original_name),
                     "target_filename": target_name,
                 }
                 container.upload_blob(
@@ -570,7 +570,7 @@ class IngestionService:
 
         return {
             "framework": framework_key,
-            "framework_name": self.svc._CORPUS_A_FRAMEWORKS[framework_key],
+            "framework_name": self.deps._CORPUS_A_FRAMEWORKS[framework_key],
             "upload_batch_id": upload_batch_id,
             "source_prefix": source_prefix,
             "uploaded": uploaded,

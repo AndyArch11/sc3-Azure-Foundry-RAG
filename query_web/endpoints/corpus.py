@@ -54,18 +54,43 @@ class CorpusAClearRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def register_corpus_endpoints(app: Any, svc: Any) -> None:
+def register_corpus_endpoints(
+    app: Any,
+    svc: Any | None = None,
+    *,
+    deps: dict[str, Any] | None = None,
+) -> None:
     """Register corpus management, ingestion, and Confluence poll-status endpoints.
 
     Parameters
     ----------
     app : FastAPI
         The application instance.
-    svc : module
-        Service container (the app module at runtime).  All helpers are accessed
-        via ``svc.attribute`` at *call time* so that ``patch.object(svc, ...)``
-        patches work correctly in tests.
+    svc : module | None
+        Optional service container for backward compatibility.
+    deps : dict[str, Any] | None
+        Optional explicit dependency providers/values keyed by attribute name.
+        When provided, these are resolved at call time before falling back to
+        ``svc``. Provider callables should be zero-arg and return the current
+        value (enables late binding for test patching).
     """
+
+    if svc is None:
+        svc = {}
+
+    class _SvcAdapter:
+        def __getattr__(self, name: str) -> Any:
+            if isinstance(deps, dict) and name in deps:
+                candidate = deps[name]
+                return candidate() if callable(candidate) else candidate
+            if isinstance(svc, dict):
+                if name in svc:
+                    candidate = svc[name]
+                    return candidate() if callable(candidate) else candidate
+                raise AttributeError(name)
+            return getattr(svc, name)
+
+    svc = _SvcAdapter()
 
     @app.post("/api/corpus-b/ingest")
     async def upload_corpus_b_and_trigger(
