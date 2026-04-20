@@ -8,6 +8,17 @@ from azure.search.documents import SearchClient as _AzureSDKSearchClient
 from azure.search.documents.models import VectorizedQuery
 
 
+class _SearchResults(list[dict[str, Any]]):
+    """List-like search results with optional total count metadata."""
+
+    def __init__(self, items: list[dict[str, Any]], total_count: int | None = None) -> None:
+        super().__init__(items)
+        self._total_count = total_count
+
+    def get_count(self) -> int | None:
+        return self._total_count
+
+
 class AzureSearchClient:
     """SearchClient backed by Azure AI Search."""
 
@@ -36,13 +47,27 @@ class AzureSearchClient:
     def search(
         self,
         *,
-        query_text: str,
+        query_text: str | None = None,
         top: int,
         vector_query: list[float] | None = None,
         filters: str | None = None,
         select: list[str] | None = None,
         **extra_kwargs: Any,
     ) -> list[dict[str, Any]]:
+        # Backward compatibility with older call sites that pass Azure SDK kwargs
+        # directly (search_text/filter) instead of provider-neutral names.
+        if query_text is None:
+            legacy_query = extra_kwargs.pop("search_text", None)
+            if legacy_query is None:
+                raise TypeError(
+                    "AzureSearchClient.search() missing required keyword argument: "
+                    "'query_text' (or legacy 'search_text')"
+                )
+            query_text = str(legacy_query)
+
+        if filters is None and "filter" in extra_kwargs:
+            filters = extra_kwargs.pop("filter")
+
         kwargs: dict[str, Any] = {
             "search_text": query_text,
             "top": top,
@@ -65,4 +90,6 @@ class AzureSearchClient:
         kwargs.update(extra_kwargs)
 
         results = self._client.search(**kwargs)
-        return [dict(r) for r in results]
+        total_count = results.get_count() if hasattr(results, "get_count") else None
+        items = [dict(r) for r in results]
+        return _SearchResults(items=items, total_count=total_count)
