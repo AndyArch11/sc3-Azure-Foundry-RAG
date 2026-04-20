@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING, Any, Iterable
 
 import requests  # type: ignore[import-untyped]
 from runtime.credentials import get_credential_provider
-from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
 from azure.storage.blob import BlobServiceClient
+from runtime.search import get_search_client
 from fastapi import FastAPI, Request, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -239,13 +239,13 @@ precedence_policy = _load_precedence_policy(
     config.precedence_policy_path,
     config.controls_framework_authority_order,
 )
-search_client = SearchClient(
+search_client = get_search_client(
     endpoint=config.search_endpoint,
     index_name=config.search_index_name,
     credential=credential,
 )
 
-controls_search_client = SearchClient(
+controls_search_client = get_search_client(
     endpoint=config.search_endpoint,
     index_name=config.controls_index_name,
     credential=credential,

@@ -4,6 +4,38 @@
 
 Infrastructure provisioning and lifecycle management via Terraform.
 
+## Working Directories
+
+- `infra/terraform/azure/`: canonical Azure stack
+- `infra/terraform/aws/`: AWS stack
+- `infra/terraform/`: compatibility entrypoint for the legacy Azure path
+
+## Guidance
+
+Prefer the cloud-specific stack directories for new work. Keep the legacy Azure root entrypoint working until scripts and documentation are fully migrated.
+
+## Validation Before Apply
+
+Azure:
+
+```bash
+terraform -chdir=infra/terraform/azure fmt modules/* main.tf
+terraform -chdir=infra/terraform/azure validate
+terraform -chdir=infra/terraform/azure plan -var-file=environments/dev/bootstrap.generated.tfvars -var-file=environments/dev/dev.tfvars
+```
+
+AWS:
+
+```bash
+terraform -chdir=infra/terraform/aws validate
+terraform -chdir=infra/terraform/aws plan -var-file=environments/dev/dev.tfvars
+```
+# AGENT.md — Terraform
+
+## Scope
+
+Infrastructure provisioning and lifecycle management via Terraform.
+
 ## Working Directory
 
 infra/terraform/

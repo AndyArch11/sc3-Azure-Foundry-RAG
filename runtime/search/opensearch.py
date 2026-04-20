@@ -139,6 +139,7 @@ class AWSOpenSearchClient:
         vector_query: list[float] | None = None,
         filters: str | None = None,
         select: list[str] | None = None,
+        **extra_kwargs: Any,  # noqa: ARG002 – provider hints ignored by OpenSearch
     ) -> list[dict[str, Any]]:
         body_payload = self._build_query_body(
             query_text=query_text,

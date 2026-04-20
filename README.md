@@ -52,7 +52,9 @@ This repository provisions and operates a privately networked Azure AI Foundry s
 ## Repository Layout
 
 - `docs/` architecture, plans, and runbooks
-- `infra/terraform/` bootstrap, environments, and reusable modules
+- `infra/terraform/azure/` canonical Azure Terraform stack
+- `infra/terraform/aws/` AWS Terraform stack
+- `infra/terraform/` multi-cloud container with legacy Azure compatibility entrypoint
 - `ops/containers/terraform-runner/` Terraform execution container
 - `ops/scripts/` shell scripts to bootstrap Terraform build environment, create Azure resources, and deploy and test containers.
 - `query_web/` Docker container config for query UI running in an Azure Container App
@@ -80,7 +82,7 @@ This repository provisions and operates a privately networked Azure AI Foundry s
 
 ## Operator Checklist
 
-1. Set `TARGET_ENV` and update `infra/terraform/environments/<env>/<env>.tfvars`.
+1. Set `TARGET_ENV` and update `infra/terraform/azure/environments/<env>/<env>.tfvars`.
 2. Run `./ops/scripts/phase1-bootstrap.sh <env>`, `./ops/scripts/phase2-network-dns.sh <env> apply`, and `./ops/scripts/phase3-data-ai.sh <env> apply`.
 3. Build and push immutable ingestion and query image tags from a private-network-connected host.
 4. Roll out those image tags through Terraform against `module.agent_hosting`.

@@ -135,7 +135,7 @@ def test_search_backed_assessment_agent_retrieves_grounding() -> None:
     assert len(grounding.corpus_b_results) == 1
     assert grounding.corpus_b_results[0]["source_name"] == "Essential Eight Guidance"
     assert controls_client.calls[0]["top"] >= 2
-    assert evidence_client.calls[0]["filter"] == "corpus eq 'b'"
+    assert evidence_client.calls[0]["filters"] == "corpus eq 'b'"
 
 
 def test_search_backed_assessment_agent_handles_missing_controls_index() -> None:

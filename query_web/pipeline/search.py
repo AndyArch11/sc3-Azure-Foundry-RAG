@@ -7,8 +7,6 @@ import time
 from typing import Any
 
 import requests  # type: ignore[import-untyped]
-from azure.search.documents import SearchClient
-from azure.search.documents.models import VectorizedQuery
 
 logger = logging.getLogger(__name__)
 
@@ -92,19 +90,13 @@ def _hybrid_search(
 
     timings["embedding_s"] = round(time.perf_counter() - t0, 3)
 
-    vector_query = VectorizedQuery(
-        vector=vector,
-        k=retrieve_k,
-        fields="content_vector",
-    )
-
     t1 = time.perf_counter()
     try:
         results = svc.search_client.search(
-            search_text=question,
-            vector_queries=[vector_query],
+            query_text=question,
             top=retrieve_k,
-            filter=evidence_filter,
+            vector_query=vector,
+            filters=evidence_filter,
             select=[
                 "content",
                 "source_name",
@@ -159,7 +151,7 @@ def _hybrid_search(
 
 
 def _delete_search_documents_by_filter(
-    client: SearchClient,
+    client: Any,
     *,
     filter_expr: str,
     key_field: str,
@@ -191,7 +183,7 @@ def _delete_search_documents_by_filter(
 
 
 def _count_search_documents_by_filter(
-    client: SearchClient,
+    client: Any,
     *,
     filter_expr: str,
 ) -> dict[str, int]:
@@ -208,7 +200,7 @@ def _count_search_documents_by_filter(
 
 
 def _list_search_documents_by_filter(
-    client: SearchClient,
+    client: Any,
     *,
     filter_expr: str,
     select_fields: list[str],
@@ -236,7 +228,7 @@ def _list_search_documents_by_filter(
     }
 
 
-def _count_search_documents_total_by_filter(client: SearchClient, *, filter_expr: str) -> int:
+def _count_search_documents_total_by_filter(client: Any, *, filter_expr: str) -> int:
     try:
         pager = client.search(
             search_text="*",

@@ -41,7 +41,7 @@ Exit criteria:
 - Endpoint modules are independently testable.
 
 ### Phase 3 (Weeks 7-9): AWS Provider Support
-- Add AWS Terraform stack under infra/terraform/aws.
+- Keep Azure Terraform under infra/terraform/azure and add AWS Terraform under infra/terraform/aws.
 - Implement AWS-backed search, state store, and LLM runtime adapters.
 - Add parity smoke tests for ingest, query, and assessment flows.
 

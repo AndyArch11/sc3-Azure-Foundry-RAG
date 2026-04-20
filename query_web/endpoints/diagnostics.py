@@ -6,8 +6,8 @@ from typing import Any, cast
 from urllib.parse import quote
 
 import requests
-from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
+from runtime.search import SearchClient
 from azure.search.documents.indexes.models import IndexerStatus
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -297,7 +297,7 @@ def register_diagnostics_endpoints(
 
             results: list[dict[str, Any]] = []
             pager = search_client.search(
-                search_text="*",
+                query_text="*",
                 top=limit,
                 select=select_fields,
             )

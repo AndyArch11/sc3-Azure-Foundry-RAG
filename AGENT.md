@@ -17,7 +17,9 @@ The agent should optimise for secure-by-default changes, deterministic infrastru
 ## Repository Orientation
 
 - docs/: implementation, phases, observability, and testing strategy.
-- infra/terraform/: root stack, environments, and reusable modules.
+- infra/terraform/azure/: canonical Azure Terraform stack.
+- infra/terraform/aws/: AWS Terraform stack.
+- infra/terraform/: legacy Azure compatibility entrypoint during migration.
 - ops/scripts/: operational scripts for phased applies and image workflows.
 - query_web/: FastAPI query web app (Foundry chat + Cosmos conversation persistence).
 - runtime/: ingestion runtime and shared Python logic.

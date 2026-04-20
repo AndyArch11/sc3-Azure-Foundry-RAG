@@ -20,5 +20,25 @@ class SearchClient(Protocol):
         vector_query: list[float] | None = None,
         filters: str | None = None,
         select: list[str] | None = None,
+        **extra_kwargs: Any,
     ) -> list[dict[str, Any]]:
-        """Execute search and return normalized documents."""
+        """Execute search and return normalized documents.
+
+        Parameters
+        ----------
+        query_text:
+            Full-text query string.
+        top:
+            Maximum number of results to return.
+        vector_query:
+            Pre-computed embedding vector for k-NN / hybrid search.
+        filters:
+            Provider filter expression (OData for Azure, Lucene for OpenSearch).
+        select:
+            Field names to include in results.  ``None`` returns all fields.
+        **extra_kwargs:
+            Provider-specific hints forwarded transparently to the underlying
+            client.  Unknown kwargs are silently ignored by non-Azure backends.
+            Example: ``query_type="semantic"``,
+            ``semantic_configuration_name="controls-semantic"``.
+        """

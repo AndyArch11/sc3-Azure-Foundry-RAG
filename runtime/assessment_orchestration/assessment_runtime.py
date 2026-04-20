@@ -5,14 +5,12 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Mapping, Protocol, cast
+from typing import Any, Callable, Iterable, Mapping, cast
 
 import requests  # type: ignore[import-untyped]
-from azure.core.exceptions import ResourceNotFoundError
-from azure.search.documents import SearchClient
-from azure.search.documents.models import VectorizedQuery
 
 from ..credentials import get_credential_provider
+from ..search import SearchClient, get_search_client
 from ._framework_patterns import infer_single_framework as _infer_framework_filter
 from .models import AssessedArtifactPackage, CorpusGroundingPackage
 
@@ -80,12 +78,6 @@ _AZURE_PROCESS_CONTROL_RE = re.compile(
 )
 _AZURE_GOVERNANCE_ID_RE = re.compile(r"^(GV(?:\.|-)|ID\.GV\b|AT-\d+|PM-\d+)", re.IGNORECASE)
 _LOGGER = logging.getLogger(__name__)
-
-
-class SearchClientLike(Protocol):
-    """SearchClientLike."""
-
-    def search(self, **kwargs: Any) -> Iterable[dict[str, Any]]: ...
 
 
 @dataclass(frozen=True)
@@ -388,7 +380,7 @@ def _framework_authority_rank(item: dict[str, Any], order: tuple[str, ...]) -> i
 
 
 def _fetch_controls(
-    client: SearchClientLike,
+    client: SearchClient,
     *,
     question: str,
     config: AssessmentRuntimeConfig,
@@ -405,39 +397,51 @@ def _fetch_controls(
         "guidance_text",
         "source_uri",
     ]
-    search_kwargs: dict[str, Any] = {
-        "search_text": question,
-        "top": (
-            config.controls_top_k
-            if framework_filter
-            else max(config.controls_top_k, config.controls_top_k * 3)
-        ),
-        "select": select_fields,
-    }
+    top = (
+        config.controls_top_k
+        if framework_filter
+        else max(config.controls_top_k, config.controls_top_k * 3)
+    )
+    filters: str | None = None
     if framework_filter:
         escaped = framework_filter.replace("'", "''")
-        search_kwargs["filter"] = f"framework eq '{escaped}'"
+        filters = f"framework eq '{escaped}'"
+    semantic_kwargs: dict[str, Any] = {}
     if config.controls_semantic_default:
-        search_kwargs["query_type"] = "semantic"
-        search_kwargs["semantic_configuration_name"] = config.controls_semantic_configuration_name
+        semantic_kwargs["query_type"] = "semantic"
+        semantic_kwargs["semantic_configuration_name"] = config.controls_semantic_configuration_name
 
     items: list[dict[str, Any]] = []
 
     def _is_missing_controls_index_error(exc: Exception) -> bool:
-        """Run is missing controls index error."""
-        if isinstance(exc, ResourceNotFoundError):
-            message = str(exc).lower()
-            index_name = config.controls_index_name.lower()
-            return "index" in message and index_name in message and "not found" in message
+        """Return True if *exc* indicates the controls index does not exist."""
+        # Azure: ResourceNotFoundError; other providers use different types.
+        try:
+            from azure.core.exceptions import ResourceNotFoundError as _AzureNotFound
+            if isinstance(exc, _AzureNotFound):
+                message = str(exc).lower()
+                index_name = config.controls_index_name.lower()
+                return "index" in message and index_name in message and "not found" in message
+        except ImportError:
+            pass
         return False
 
     try:
-        results = client.search(**search_kwargs)
+        results = client.search(
+            query_text=question,
+            top=top,
+            filters=filters,
+            select=select_fields,
+            **semantic_kwargs,
+        )
     except Exception as exc:
         if config.controls_semantic_default and "SemanticQueriesNotAvailable" in str(exc):
-            search_kwargs.pop("query_type", None)
-            search_kwargs.pop("semantic_configuration_name", None)
-            results = client.search(**search_kwargs)
+            results = client.search(
+                query_text=question,
+                top=top,
+                filters=filters,
+                select=select_fields,
+            )
         elif _is_missing_controls_index_error(exc):
             _LOGGER.warning(
                 "Controls index '%s' was not found in search service '%s'; continuing review without Corpus A controls. "
@@ -541,7 +545,7 @@ def _filter_controls_for_artifact(
 
 
 def _hybrid_search(
-    client: SearchClientLike,
+    client: SearchClient,
     *,
     question: str,
     config: AssessmentRuntimeConfig,
@@ -552,21 +556,24 @@ def _hybrid_search(
     """Run hybrid search."""
 
     def _is_missing_grounding_index_error(exc: Exception) -> bool:
-        """Run is missing grounding index error."""
-        if isinstance(exc, ResourceNotFoundError):
-            message = str(exc).lower()
-            index_name = config.search_index_name.lower()
-            return "index" in message and index_name in message and "not found" in message
+        """Return True if *exc* indicates the grounding index does not exist."""
+        try:
+            from azure.core.exceptions import ResourceNotFoundError as _AzureNotFound
+            if isinstance(exc, _AzureNotFound):
+                message = str(exc).lower()
+                index_name = config.search_index_name.lower()
+                return "index" in message and index_name in message and "not found" in message
+        except ImportError:
+            pass
         return False
 
     vector = embed_query(question)
-    vector_query = VectorizedQuery(vector=vector, k=retrieve_k, fields="content_vector")
     try:
         results = client.search(
-            search_text=question,
-            vector_queries=[vector_query],
+            query_text=question,
             top=retrieve_k,
-            filter=evidence_filter,
+            vector_query=vector,
+            filters=evidence_filter,
             select=[
                 "content",
                 "source_name",
@@ -918,8 +925,8 @@ class SearchBackedAssessmentAgent:
         *,
         config: AssessmentRuntimeConfig,
         credential: Any | None = None,
-        evidence_search_client: SearchClientLike | None = None,
-        controls_search_client: SearchClientLike | None = None,
+        evidence_search_client: SearchClient | None = None,
+        controls_search_client: SearchClient | None = None,
         embed_query: Callable[[str], list[float]] | None = None,
         chat_completion: Callable[[list[dict[str, str]]], str] | None = None,
     ) -> None:
@@ -930,12 +937,12 @@ class SearchBackedAssessmentAgent:
             self._credential = provider.get_sdk_credential()
         else:
             self._credential = credential
-        self._evidence_search_client = evidence_search_client or SearchClient(
+        self._evidence_search_client = evidence_search_client or get_search_client(
             endpoint=config.search_endpoint,
             index_name=config.search_index_name,
             credential=self._credential,
         )
-        self._controls_search_client = controls_search_client or SearchClient(
+        self._controls_search_client = controls_search_client or get_search_client(
             endpoint=config.search_endpoint,
             index_name=config.controls_index_name,
             credential=self._credential,

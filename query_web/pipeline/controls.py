@@ -411,22 +411,23 @@ def _fetch_controls(
         "guidance_text",
         "source_uri",
     ]
-    search_kwargs: dict[str, Any] = {
-        "search_text": search_text,
-        "top": retrieve_k,
-        "select": _SELECT,
-    }
+    neutral_kwargs: dict[str, Any] = {}
     if framework_filter:
         escaped_framework = framework_filter.replace("'", "''")
-        search_kwargs["filter"] = f"framework eq '{escaped_framework}'"
+        neutral_kwargs["filters"] = f"framework eq '{escaped_framework}'"
     if use_semantic:
-        search_kwargs["query_type"] = "semantic"
-        search_kwargs["semantic_configuration_name"] = (
+        neutral_kwargs["query_type"] = "semantic"
+        neutral_kwargs["semantic_configuration_name"] = (
             svc.config.controls_semantic_configuration_name
         )
 
     items: list[dict[str, Any]] = []
-    for r in svc.controls_search_client.search(**search_kwargs):
+    for r in svc.controls_search_client.search(
+        query_text=search_text,
+        top=retrieve_k,
+        select=_SELECT,
+        **neutral_kwargs,
+    ):
         requirement_text = (r.get("requirement_text") or "").strip()
         if not requirement_text:
             continue

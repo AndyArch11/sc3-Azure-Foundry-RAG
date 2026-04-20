@@ -3,8 +3,8 @@
 import logging
 from typing import Any
 
-from azure.search.documents import SearchClient
 from fastapi import FastAPI
+from runtime.search import SearchClient
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
@@ -59,13 +59,9 @@ def register_status_endpoints(
 
         def _probe(client: SearchClient, index_name: str) -> dict[str, Any]:
             try:
-                pager = client.search(search_text="*", top=1, include_total_count=True)
-                results = list(pager)
-                # get_count() is on the pager object, available after first iteration
-                count = (
-                    pager.get_count() if hasattr(pager, "get_count") else ("1+" if results else 0)
-                )
-                return {"reachable": True, "document_count": count}
+                results = client.search(query_text="*", top=1)
+                count = len(results)
+                return {"reachable": True, "document_count": f"{count}+"}
             except Exception as exc:
                 logger.exception("Index probe failed for %s: %s", index_name, exc)
                 return {"reachable": False, "error": "index probe failed"}

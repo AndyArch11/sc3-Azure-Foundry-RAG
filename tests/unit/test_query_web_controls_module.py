@@ -867,8 +867,8 @@ def test_fetch_controls_applies_framework_filter() -> None:
     )
     _fetch_controls("query", 5, use_semantic=False, framework_filter="NIST CSF", svc=svc)
     call_kwargs = mock_client.search.call_args[1]
-    assert "filter" in call_kwargs
-    assert "NIST CSF" in call_kwargs["filter"]
+    assert "filters" in call_kwargs
+    assert "NIST CSF" in call_kwargs["filters"]
 
 
 def test_fetch_controls_score_none_defaults_to_zero() -> None:

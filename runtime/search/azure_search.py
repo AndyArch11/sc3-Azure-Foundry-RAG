@@ -41,6 +41,7 @@ class AzureSearchClient:
         vector_query: list[float] | None = None,
         filters: str | None = None,
         select: list[str] | None = None,
+        **extra_kwargs: Any,
     ) -> list[dict[str, Any]]:
         kwargs: dict[str, Any] = {
             "search_text": query_text,
@@ -59,6 +60,9 @@ class AzureSearchClient:
                     fields="content_vector",
                 )
             ]
+
+        # Forward provider-specific hints (e.g. query_type, semantic_configuration_name).
+        kwargs.update(extra_kwargs)
 
         results = self._client.search(**kwargs)
         return [dict(r) for r in results]

@@ -1,0 +1,211 @@
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
+
+# ── ECS Task Execution Role ────────────────────────────────────────────────────
+# Used by the ECS control plane to pull images from ECR and write logs.
+
+resource "aws_iam_role" "task_execution" {
+  name = "role-ecs-exec-${var.naming_suffix}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "task_execution_managed" {
+  role       = aws_iam_role.task_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# Secrets Manager — allow the ECS agent to inject secrets into task containers at startup.
+# The execution role (not the task role) is used for this operation.
+resource "aws_iam_role_policy" "task_execution_secrets" {
+  count = var.app_secret_arn != "" ? 1 : 0
+  name  = "secrets-manager-inject"
+  role  = aws_iam_role.task_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+      Resource = var.app_secret_arn
+    }]
+  })
+}
+
+# Allow pulling from private ECR repositories.
+resource "aws_iam_role_policy" "task_execution_ecr" {
+  name = "ecr-pull"
+  role = aws_iam_role.task_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+        ]
+        Resource = concat(var.ecr_repository_arns, ["*"])
+      }
+    ]
+  })
+}
+
+# ── ECS Task Role ─────────────────────────────────────────────────────────────
+# Used by application code running inside the container.
+
+resource "aws_iam_role" "task" {
+  name = "role-ecs-task-${var.naming_suffix}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+      Condition = {
+        ArnLike = {
+          "aws:SourceArn" = "arn:aws:ecs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*"
+        }
+      }
+    }]
+  })
+}
+
+# S3 — read/write grounding data bucket.
+resource "aws_iam_role_policy" "task_s3" {
+  name = "s3-grounding"
+  role = aws_iam_role.task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:ListBucket",
+        ]
+        Resource = [
+          var.s3_bucket_arn,
+          "${var.s3_bucket_arn}/*",
+        ]
+      }
+    ]
+  })
+}
+
+# OpenSearch — HTTP access to the domain.
+resource "aws_iam_role_policy" "task_opensearch" {
+  name = "opensearch-access"
+  role = aws_iam_role.task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["es:ESHttp*"]
+        Resource = "${var.opensearch_domain_arn}/*"
+      }
+    ]
+  })
+}
+
+# DynamoDB — state store operations.
+resource "aws_iam_role_policy" "task_dynamodb" {
+  name = "dynamodb-state"
+  role = aws_iam_role.task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:Query",
+          "dynamodb:Scan",
+          "dynamodb:DescribeTable",
+        ]
+        Resource = [
+          var.dynamodb_table_arn,
+          "${var.dynamodb_table_arn}/index/*",
+        ]
+      }
+    ]
+  })
+}
+
+# Bedrock — invoke models for completions and embeddings.
+resource "aws_iam_role_policy" "task_bedrock" {
+  name = "bedrock-invoke"
+  role = aws_iam_role.task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+        Resource = [
+          "arn:aws:bedrock:${data.aws_region.current.name}::foundation-model/${var.bedrock_model_id}",
+          "arn:aws:bedrock:${data.aws_region.current.name}::foundation-model/${var.bedrock_embedding_model}",
+        ]
+      }
+    ]
+  })
+}
+
+# Secrets Manager — read application runtime secrets.
+resource "aws_iam_role_policy" "task_secrets" {
+  count = var.app_secret_arn != "" ? 1 : 0
+  name  = "secrets-manager-read"
+  role  = aws_iam_role.task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+        Resource = var.app_secret_arn
+      }
+    ]
+  })
+}
+
+# CloudWatch — write structured logs.
+resource "aws_iam_role_policy" "task_logs" {
+  name = "cloudwatch-logs"
+  role = aws_iam_role.task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+        ]
+        Resource = [for arn in var.log_group_arns : "${arn}:*"]
+      }
+    ]
+  })
+}

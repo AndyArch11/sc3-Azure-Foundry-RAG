@@ -1,3 +1,1 @@
-terraform {
-  backend "azurerm" {}
-}
+azure/backend.tf

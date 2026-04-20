@@ -32,6 +32,7 @@ class LocalInMemorySearchClient:
         vector_query: list[float] | None = None,  # noqa: ARG002 – unused in local impl
         filters: str | None = None,  # noqa: ARG002 – not applied in local impl
         select: list[str] | None = None,
+        **extra_kwargs: Any,  # noqa: ARG002 – provider hints ignored locally
     ) -> list[dict[str, Any]]:
         """Naive substring search across all string fields."""
         query_lower = query_text.lower()
