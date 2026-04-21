@@ -177,3 +177,7 @@ class AWSOpenSearchClient:
             results.append(doc)
 
         return results
+
+    def load_documents(self, docs: list[dict[str, Any]]) -> None:
+        """Unsupported for cloud backends; retained for protocol compatibility."""
+        raise NotImplementedError("AWSOpenSearchClient does not support load_documents")

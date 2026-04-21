@@ -35,14 +35,20 @@ def register_home_endpoints(
         resolved_unauthorised_message = _dep("_unauthorised_message", unauthorised_message)
         resolved_branding_ctx = _dep("_branding_ctx", branding_ctx)
 
-        if resolved_is_authorised_request is None or not resolved_is_authorised_request("", request):
+        if resolved_is_authorised_request is None or not resolved_is_authorised_request(
+            "", request
+        ):
             if callable(resolved_unauthorised_message):
                 message = resolved_unauthorised_message(request)
             else:
                 message = "Unauthorised."
             return HTMLResponse(content=message, status_code=401)
 
-        if resolved_templates is None or resolved_config is None or not callable(resolved_branding_ctx):
+        if (
+            resolved_templates is None
+            or resolved_config is None
+            or not callable(resolved_branding_ctx)
+        ):
             return HTMLResponse(content="Home endpoint misconfigured.", status_code=500)
 
         return resolved_templates.TemplateResponse(

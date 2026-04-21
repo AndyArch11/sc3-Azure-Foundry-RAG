@@ -2,4 +2,8 @@
 # Duplicate-code checks are intentionally noisy in this repository because
 # `query_web.app` still hosts compatibility wrappers while equivalent logic
 # exists in extracted endpoint/security modules.
-disable=R0801
+# Protected member access is used intentionally across compatibility wrappers
+# and orchestrator-style modules where shared helpers are imported/reused.
+# Broad exception handling is also intentional around external service calls
+# to keep query-web endpoints resilient when providers are unavailable.
+disable=R0801,W0212,W0718

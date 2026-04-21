@@ -16,7 +16,6 @@ import pytest
 from runtime.assessment_orchestration.dynamo_state_store import DynamoDBPollingStateStore
 from runtime.state_store import get_state_store
 
-
 # ---------------------------------------------------------------------------
 # Fake DynamoDB table
 # ---------------------------------------------------------------------------
@@ -344,9 +343,7 @@ class TestDynamoDBFailureTracking:
     def test_mark_terminal_failure_sets_status(self) -> None:
         table = _FakeTable()
         store = _make_store(table)
-        store.mark_terminal_failure(
-            "src", event_id="e1", error_message="fatal", run_id="r1"
-        )
+        store.mark_terminal_failure("src", event_id="e1", error_message="fatal", run_id="r1")
         item = table.get_item(Key={"source": "src", "doc_key": "failure:e1"})["Item"]
         assert item["status"] == "failed_terminal"
 
@@ -544,7 +541,9 @@ class TestDynamoDBPageAssessments:
                 assessed_at=f"2025-0{i+1}-01T00:00:00Z",
                 page_version="v1",
             )
-        records = store.list_recent_page_assessments("src", since_iso="2024-01-01T00:00:00Z", limit=3)
+        records = store.list_recent_page_assessments(
+            "src", since_iso="2024-01-01T00:00:00Z", limit=3
+        )
         assert len(records) <= 3
 
 
@@ -561,9 +560,7 @@ class TestStateStoreFactory:
         with pytest.raises(ValueError, match="cosmos_container"):
             get_state_store()
 
-    def test_azure_provider_returns_cosmos_store(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_azure_provider_returns_cosmos_store(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("CLOUD_PROVIDER", "azure")
         from runtime.assessment_orchestration.state_store import CosmosPollingStateStore
 
@@ -594,9 +591,7 @@ class TestStateStoreFactory:
         store = get_state_store(table_name="my-table", dynamo_session=fake_session)
         assert isinstance(store, DynamoDBPollingStateStore)
 
-    def test_cloud_provider_argument_overrides_env(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_cloud_provider_argument_overrides_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("CLOUD_PROVIDER", "azure")
         from runtime.assessment_orchestration.state_store import InMemoryPollingStateStore
 

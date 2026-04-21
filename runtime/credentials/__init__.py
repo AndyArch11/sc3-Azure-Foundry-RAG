@@ -13,7 +13,8 @@ from .local_cred import LocalCredentialProvider
 def get_credential_provider(cloud_provider: str | None = None) -> CredentialProvider:
     """Return provider adapter for the requested cloud."""
 
-    provider = (cloud_provider or os.getenv("CLOUD_PROVIDER", "azure")).strip().lower()
+    provider_raw = cloud_provider if cloud_provider is not None else os.getenv("CLOUD_PROVIDER")
+    provider = (provider_raw or "azure").strip().lower()
 
     if provider == "azure":
         return AzureCredentialProvider()

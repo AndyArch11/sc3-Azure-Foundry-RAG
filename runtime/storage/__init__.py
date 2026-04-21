@@ -19,7 +19,8 @@ def get_storage_client(
 ) -> StorageClient:
     """Return a provider-appropriate StorageClient."""
 
-    provider = (cloud_provider or os.getenv("CLOUD_PROVIDER", "azure")).strip().lower()
+    provider_raw = cloud_provider if cloud_provider is not None else os.getenv("CLOUD_PROVIDER")
+    provider = (provider_raw or "azure").strip().lower()
 
     if provider == "azure":
         from .azure_blob import AzureBlobStorageClient

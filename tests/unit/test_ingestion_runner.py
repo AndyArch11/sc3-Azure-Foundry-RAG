@@ -518,7 +518,9 @@ def test_run_reset_aws(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFi
     assert payload["deleted_index_documents"] == 4
 
 
-def test_run_controls_aws(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_run_controls_aws(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setenv("CLOUD_PROVIDER", "aws")
 
     class _AwsCfg:

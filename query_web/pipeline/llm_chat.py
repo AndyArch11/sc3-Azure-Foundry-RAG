@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import TYPE_CHECKING, Any, cast
 
 from openai.types.chat import ChatCompletionMessageParam
 
 from query_web.security.prompt_injection_guard import BLOCKED_PROMPT_INJECTION_MESSAGE
+from runtime.llm import get_llm_client
 
 if TYPE_CHECKING:
     pass
@@ -134,6 +136,16 @@ def _chat_completion(
     max_completion_tokens: int | None = None,
 ) -> str:
     """Call Azure Foundry chat completion API using the OpenAI Python SDK."""
+    provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower()
+
+    if provider in {"local", "dev"}:
+        llm = get_llm_client(
+            cloud_provider=provider,
+            ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+            ollama_model=os.getenv("OLLAMA_MODEL", "llama3.2"),
+        )
+        return llm.chat_complete(messages).strip()
+
     try:
         from openai import AzureOpenAI
     except ImportError as exc:
@@ -225,10 +237,15 @@ def _evaluate(
     svc: Any,
     evaluator_max_completion_tokens: int | None = None,
 ) -> dict[str, Any]:
-    evaluator_tokens = int(
+    raw_evaluator_tokens = (
         evaluator_max_completion_tokens
-        or getattr(svc.config, "evaluator_max_completion_tokens", 800)
+        if evaluator_max_completion_tokens is not None
+        else getattr(svc.config, "evaluator_max_completion_tokens", 800)
     )
+    try:
+        evaluator_tokens = int(raw_evaluator_tokens)
+    except (TypeError, ValueError):
+        evaluator_tokens = 800
     eval_messages = [
         {"role": "system", "content": svc.EVALUATOR_PROMPT},
         {

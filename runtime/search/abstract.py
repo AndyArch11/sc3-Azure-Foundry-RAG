@@ -42,3 +42,15 @@ class SearchClient(Protocol):
             Example: ``query_type="semantic"``,
             ``semantic_configuration_name="controls-semantic"``.
         """
+
+    def load_documents(self, docs: list[dict[str, Any]]) -> None:
+        """Load documents into the search index (for local backends only).
+
+        This method is only implemented by local search clients (in-memory and Qdrant).
+        Azure and AWS search clients do not support this operation.
+
+        Parameters
+        ----------
+        docs : list[dict[str, Any]]
+            Documents to load into the index.
+        """

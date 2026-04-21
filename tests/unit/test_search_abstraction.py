@@ -10,7 +10,6 @@ import pytest
 from runtime.search import get_search_client
 from runtime.search.local_inmemory import LocalInMemorySearchClient
 
-
 # ---------------------------------------------------------------------------
 # Factory dispatch
 # ---------------------------------------------------------------------------

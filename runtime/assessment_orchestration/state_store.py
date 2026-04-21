@@ -960,7 +960,6 @@ class CosmosPollingStateStore:
         return records[: max(1, limit)]
 
 
-
 class LocalFilePollingStateStore(InMemoryPollingStateStore):
     """JSON-file-backed state store for development and offline testing.
 
@@ -975,9 +974,8 @@ class LocalFilePollingStateStore(InMemoryPollingStateStore):
         from pathlib import Path
 
         super().__init__()
-        self._path = Path(
-            path or os.getenv("LOCAL_STATE_STORE_PATH", "/tmp/local_polling_state.json")
-        )
+        resolved_path = path if path is not None else os.getenv("LOCAL_STATE_STORE_PATH")
+        self._path = Path(resolved_path or "/tmp/local_polling_state.json")
         self._json = json
         self._load()
 

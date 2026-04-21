@@ -247,11 +247,22 @@ def _load_precedence_policy(
 def load_config() -> QueryConfig:
     """Load and normalise application configuration from environment variables."""
 
+    provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower()
+    is_local = provider in {"local", "dev"}
+
     return QueryConfig(
-        search_endpoint=_require_env("AZURE_SEARCH_ENDPOINT"),
+        search_endpoint=(
+            os.getenv("AZURE_SEARCH_ENDPOINT", "http://local-search")
+            if is_local
+            else _require_env("AZURE_SEARCH_ENDPOINT")
+        ),
         search_index_name=os.getenv("AZURE_SEARCH_INDEX_NAME", "grounding-index"),
         controls_index_name=os.getenv("AZURE_SEARCH_CONTROLS_INDEX_NAME", "controls-index"),
-        openai_endpoint=_require_env("AZURE_OPENAI_ENDPOINT"),
+        openai_endpoint=(
+            os.getenv("AZURE_OPENAI_ENDPOINT", "http://local-llm")
+            if is_local
+            else _require_env("AZURE_OPENAI_ENDPOINT")
+        ),
         embedding_deployment=os.getenv("EMBEDDING_DEPLOYMENT_NAME", "text-embedding-ada-002"),
         query_deployment=os.getenv("QUERY_DEPLOYMENT_NAME", "gpt-5.1-chat"),
         evaluator_deployment=os.getenv("EVALUATOR_DEPLOYMENT_NAME", "gpt-4.1-mini"),
@@ -282,9 +293,21 @@ def load_config() -> QueryConfig:
         ),
         auth_token=os.getenv("QUERY_WEB_AUTH_TOKEN", "").strip(),
         required_group_object_id=os.getenv("QUERY_WEB_REQUIRED_GROUP_OBJECT_ID", "").strip(),
-        cosmos_endpoint=_require_env("AZURE_COSMOS_ENDPOINT"),
-        cosmos_database_name=_require_env("AZURE_COSMOS_DATABASE_NAME"),
-        cosmos_container_name=_require_env("AZURE_COSMOS_CONTAINER_NAME"),
+        cosmos_endpoint=(
+            os.getenv("AZURE_COSMOS_ENDPOINT", "")
+            if is_local
+            else _require_env("AZURE_COSMOS_ENDPOINT")
+        ),
+        cosmos_database_name=(
+            os.getenv("AZURE_COSMOS_DATABASE_NAME", "local-db")
+            if is_local
+            else _require_env("AZURE_COSMOS_DATABASE_NAME")
+        ),
+        cosmos_container_name=(
+            os.getenv("AZURE_COSMOS_CONTAINER_NAME", "local-conversations")
+            if is_local
+            else _require_env("AZURE_COSMOS_CONTAINER_NAME")
+        ),
         cosmos_orchestration_container_name=os.getenv(
             "AZURE_COSMOS_ORCHESTRATION_CONTAINER_NAME",
             os.getenv("AZURE_COSMOS_CONTAINER_NAME", "orchestration-state"),

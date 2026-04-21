@@ -33,8 +33,10 @@ class OllamaLLMClient:
         *,
         model: str | None = None,
     ) -> None:
-        self._base_url = base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self._model = model or os.getenv("OLLAMA_MODEL", "llama3")
+        env_base_url = os.getenv("OLLAMA_BASE_URL")
+        env_model = os.getenv("OLLAMA_MODEL")
+        self._base_url = (base_url or env_base_url or "http://localhost:11434").strip()
+        self._model = (model or env_model or "llama3").strip()
 
     def chat_complete(self, messages: list[dict[str, str]]) -> str:
         """Run chat completion via Ollama or return an echo stub."""

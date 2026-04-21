@@ -20,7 +20,7 @@ class AWSResetConfig:
     @classmethod
     def from_env(cls) -> "AWSResetConfig":
         """Build AWS reset configuration from environment variables."""
-        endpoint = (os.getenv("OPENSEARCH_ENDPOINT", "").strip() or "")
+        endpoint = os.getenv("OPENSEARCH_ENDPOINT", "").strip() or ""
         index_name = (
             os.getenv("OPENSEARCH_INDEX", "").strip()
             or os.getenv("OPENSEARCH_INDEX_NAME", "").strip()
@@ -36,7 +36,7 @@ class AWSResetConfig:
         if not bucket_name:
             raise ValueError("Required environment variable not set: AWS_S3_BUCKET_NAME")
 
-        prefix = (os.getenv("AWS_S3_PREFIX", "").strip() or None)
+        prefix = os.getenv("AWS_S3_PREFIX", "").strip() or None
         return cls(
             opensearch_endpoint=endpoint,
             opensearch_index_name=index_name,

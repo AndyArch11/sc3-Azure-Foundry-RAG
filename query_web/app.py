@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import logging
 import os
 import time
@@ -7,10 +8,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
 
 import requests  # type: ignore[import-untyped]
-from runtime.credentials import get_credential_provider
 from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
 from azure.storage.blob import BlobServiceClient
-from runtime.search import get_search_client
 from fastapi import FastAPI, Request, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,8 +21,6 @@ import query_web.pipeline.llm_chat as llm_chat
 import query_web.pipeline.rag_pipeline as rag_pipeline
 import query_web.pipeline.search as _search_module
 import query_web.pipeline.storage as _storage_module
-from query_web.endpoints.ingestion import IngestionService as _IngestionService
-from query_web.security import auth as _auth
 from query_web.config import (
     _canonical_framework_name,
     _form_bool,
@@ -34,6 +31,15 @@ from query_web.constants import (
     ALLOWED_EXTENSIONS,
     COMPLIANCE_REPORT_SCHEMA_VERSION,
     QUERY_WEB_VERSION_SIGNATURE,
+)
+from query_web.corpus_a import (
+    _CORPUS_A_FRAMEWORKS,
+    _CORPUS_A_REFERENCE_UPLOAD_TARGETS,
+    _CORPUS_A_SOURCE_UPLOAD_REQUIRED_FRAMEWORKS,
+    _classify_corpus_a_auto_uploads,
+    _normalise_corpus_a_framework_key,
+    _prepare_corpus_a_reference_uploads,
+    _selected_corpus_a_frameworks,
 )
 from query_web.endpoints.ask import register_ask_endpoints
 from query_web.endpoints.compliance import register_compliance_endpoints
@@ -51,12 +57,20 @@ from query_web.endpoints.conversations import _save_conversation as _conversatio
 from query_web.endpoints.corpus import register_corpus_endpoints
 from query_web.endpoints.diagnostics import (
     check_diagnostics_access as _diagnostics_check_diagnostics_access,
+)
+from query_web.endpoints.diagnostics import (
     list_acr_tags_via_management_api as _diagnostics_list_acr_tags_via_management_api,
+)
+from query_web.endpoints.diagnostics import (
     register_diagnostics_endpoints,
+)
+from query_web.endpoints.diagnostics import (
     resolve_acr_registry_name as _diagnostics_resolve_acr_registry_name,
 )
 from query_web.endpoints.home import register_home_endpoints
+from query_web.endpoints.ingestion import IngestionService as _IngestionService
 from query_web.endpoints.status import register_status_endpoints
+from query_web.local_startup import load_local_documents_if_needed
 from query_web.models import AskRequest, AskResponse
 from query_web.pipeline.answer import (
     _build_retrieval_based_fallback_answer,
@@ -74,6 +88,13 @@ from query_web.pipeline.llm_chat import (
     _parse_validator_response,
     _prompt_injection_response,
 )
+from query_web.pipeline.search import (
+    _count_search_documents_by_filter,
+    _count_search_documents_total_by_filter,
+    _delete_search_documents_by_filter,
+    _list_search_documents_by_filter,
+)
+from query_web.security import auth as _auth
 from query_web.security.prompt_injection_guard import (
     BLOCKED_PROMPT_INJECTION_MESSAGE,
     PROMPT_INJECTION_SYSTEM_PROMPT,
@@ -83,39 +104,30 @@ from query_web.security.prompt_injection_guard import (
     sanitise_conversation_turn,
     sanitise_untrusted_text,
 )
-from query_web.corpus_a import (
-    _CORPUS_A_FRAMEWORKS,
-    _CORPUS_A_REFERENCE_UPLOAD_TARGETS,
-    _CORPUS_A_SOURCE_UPLOAD_REQUIRED_FRAMEWORKS,
-    _classify_corpus_a_auto_uploads,
-    _normalise_corpus_a_framework_key,
-    _prepare_corpus_a_reference_uploads,
-    _selected_corpus_a_frameworks,
-)
-from query_web.pipeline.search import (
-    _count_search_documents_by_filter,
-    _count_search_documents_total_by_filter,
-    _delete_search_documents_by_filter,
-    _list_search_documents_by_filter,
-)
 from query_web.utils import (
     _compute_normalised_text_hash,
     _dedupe_blob_prefix,
-    _extension_matches_mime as _utils_extension_matches_mime,
+)
+from query_web.utils import _extension_matches_mime as _utils_extension_matches_mime
+from query_web.utils import (
     _extract_dedupe_hashes,
-    _is_allowed_filetype as _utils_is_allowed_filetype,
-    _risk_label as _utils_risk_label,
+)
+from query_web.utils import _is_allowed_filetype as _utils_is_allowed_filetype
+from query_web.utils import _risk_label as _utils_risk_label
+from query_web.utils import (
     _sanitise_blob_name_component,
     _utc_now_iso,
+)
+from runtime.assessment_orchestration._framework_patterns import (
+    infer_single_framework as _infer_framework_filter,
 )
 from runtime.assessment_orchestration.azure_assessment import (
     collect_azure_grounding,
     run_azure_assessment,
 )
-from runtime.assessment_orchestration._framework_patterns import (
-    infer_single_framework as _infer_framework_filter,
-)
 from runtime.assessment_orchestration.state_store import CosmosPollingStateStore
+from runtime.credentials import get_credential_provider
+from runtime.search import get_search_client
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionMessageParam
@@ -239,6 +251,7 @@ precedence_policy = _load_precedence_policy(
     config.precedence_policy_path,
     config.controls_framework_authority_order,
 )
+
 search_client = get_search_client(
     endpoint=config.search_endpoint,
     index_name=config.search_index_name,
@@ -250,6 +263,9 @@ controls_search_client = get_search_client(
     index_name=config.controls_index_name,
     credential=credential,
 )
+
+# Load local JSONL documents if running in local/dev mode
+load_local_documents_if_needed(search_client, controls_search_client)
 
 # Initialise CosmosDB client
 cosmos_db = None
@@ -437,9 +453,7 @@ def _hybrid_search(
     retrieve_k: int,
     evidence_filter: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, float]]:
-    return _search_module._hybrid_search(
-        question, retrieve_k, evidence_filter, svc=_svc
-    )
+    return _search_module._hybrid_search(question, retrieve_k, evidence_filter, svc=_svc)
 
 
 def _controls_framework_ingestion_status() -> dict[str, Any]:
@@ -520,9 +534,7 @@ def _apply_framework_authority_preference(
     top_k: int,
     question: str,
 ) -> list[dict[str, Any]]:
-    return controls._apply_framework_authority_preference(
-        items, top_k, question, svc=_svc
-    )
+    return controls._apply_framework_authority_preference(items, top_k, question, svc=_svc)
 
 
 def _is_cross_framework_comparison_intent(question: str) -> bool:
@@ -723,7 +735,9 @@ def _trigger_ingestion_job_with_args(args_override: list[str] | None) -> dict[st
 
 
 # Re-export the constant so diagnostics registration and other callers keep working.
-from query_web.endpoints.ingestion import REQUIRED_INGESTION_METADATA_KEYS as _REQUIRED_INGESTION_METADATA_KEYS  # noqa: E402
+from query_web.endpoints.ingestion import (  # noqa: E402
+    REQUIRED_INGESTION_METADATA_KEYS as _REQUIRED_INGESTION_METADATA_KEYS,
+)
 
 
 def _blob_has_required_ingestion_metadata(metadata: dict[str, str] | None) -> bool:
@@ -747,7 +761,9 @@ def _upload_corpus_files(
     corpus: str,
     corpus_role: str,
 ) -> dict[str, Any]:
-    return _ingestion_svc.upload_corpus_files(files, user_id, corpus=corpus, corpus_role=corpus_role)
+    return _ingestion_svc.upload_corpus_files(
+        files, user_id, corpus=corpus, corpus_role=corpus_role
+    )
 
 
 def _upload_corpus_b_files(files: list[UploadFile], user_id: str) -> dict[str, Any]:

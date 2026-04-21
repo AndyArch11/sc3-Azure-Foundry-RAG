@@ -17,6 +17,9 @@ azure-cosmos==4.8.0  # Updated from 4.7.0 to resolve azure-core compatibility wi
 # AWS SDK (used when CLOUD_PROVIDER=aws)
 boto3==1.40.58
 
+# Local development (CLOUD_PROVIDER=local with LOCAL_VECTOR_BACKEND=qdrant)
+qdrant-client==1.12.1
+
 openai==1.51.0
 # openai 1.51.0 is not compatible with httpx 0.28+ (proxies kwarg removed).
 httpx==0.27.2

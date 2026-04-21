@@ -42,8 +42,10 @@ class AzureOpenAILLMClient:
         temperature: float = 0.0,
         timeout: int = 45,
     ) -> None:
-        self._endpoint = endpoint or os.getenv("AZURE_OPENAI_ENDPOINT", "")
-        self._deployment = deployment or os.getenv("AZURE_OPENAI_DEPLOYMENT", "")
+        env_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        env_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        self._endpoint = (endpoint or env_endpoint or "").strip()
+        self._deployment = (deployment or env_deployment or "").strip()
         self._credential = credential
         self._temperature = max(0.0, min(1.0, float(temperature)))
         self._timeout = max(1, int(timeout))
@@ -80,6 +82,11 @@ class AzureOpenAILLMClient:
             ) from exc
 
         from typing import cast
+
+        if not self._endpoint:
+            raise RuntimeError("AZURE_OPENAI_ENDPOINT is not configured")
+        if not self._deployment:
+            raise RuntimeError("AZURE_OPENAI_DEPLOYMENT is not configured")
 
         client = AzureOpenAI(
             api_key=self._get_token(),

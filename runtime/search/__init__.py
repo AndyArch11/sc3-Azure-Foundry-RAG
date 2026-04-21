@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, cast
 
 from .abstract import SearchClient
 
@@ -19,27 +19,47 @@ def get_search_client(
 ) -> SearchClient:
     """Return a provider-appropriate SearchClient."""
 
-    provider = (cloud_provider or os.getenv("CLOUD_PROVIDER", "azure")).strip().lower()
+    provider_raw = cloud_provider if cloud_provider is not None else os.getenv("CLOUD_PROVIDER")
+    provider = (provider_raw or "azure").strip().lower()
 
     if provider == "azure":
         from .azure_search import AzureSearchClient
 
-        ep = endpoint or os.getenv("AZURE_SEARCH_ENDPOINT", "")
-        idx = index_name or os.getenv("AZURE_SEARCH_INDEX", "")
+        ep = endpoint if endpoint is not None else os.getenv("AZURE_SEARCH_ENDPOINT")
+        idx = index_name if index_name is not None else os.getenv("AZURE_SEARCH_INDEX")
         if not ep:
             raise ValueError("endpoint or AZURE_SEARCH_ENDPOINT must be set for Azure search")
         if not idx:
             raise ValueError("index_name or AZURE_SEARCH_INDEX must be set for Azure search")
-        return AzureSearchClient(endpoint=ep, index=idx, credential=credential)
+        return cast(SearchClient, AzureSearchClient(endpoint=ep, index=idx, credential=credential))
 
     if provider == "aws":
         from .opensearch import AWSOpenSearchClient
 
-        ep = endpoint or os.getenv("OPENSEARCH_ENDPOINT", "")
-        idx = index_name or os.getenv("OPENSEARCH_INDEX", "")
-        return AWSOpenSearchClient(endpoint=ep, index=idx, region_name=region_name)
+        ep = endpoint if endpoint is not None else os.getenv("OPENSEARCH_ENDPOINT")
+        idx = index_name if index_name is not None else os.getenv("OPENSEARCH_INDEX")
+        if not ep:
+            raise ValueError("endpoint or OPENSEARCH_ENDPOINT must be set for AWS search")
+        if not idx:
+            raise ValueError("index_name or OPENSEARCH_INDEX must be set for AWS search")
+        return cast(
+            SearchClient,
+            AWSOpenSearchClient(endpoint=ep, index=idx, region_name=region_name),
+        )
 
     if provider in {"local", "dev"}:
+        backend = os.getenv("LOCAL_VECTOR_BACKEND", "inmemory").strip().lower()
+        if backend == "qdrant":
+            try:
+                from .local_qdrant import LocalQdrantSearchClient
+
+                idx = index_name or "local-index"
+                return LocalQdrantSearchClient(index=idx)
+            except ImportError:
+                # Keep local profile usable even when optional qdrant dependency
+                # is not yet installed in the active Python environment.
+                pass
+
         from .local_inmemory import LocalInMemorySearchClient
 
         idx = index_name or "local-index"

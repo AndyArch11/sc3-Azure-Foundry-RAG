@@ -4,8 +4,9 @@ import logging
 from typing import Any
 
 from fastapi import FastAPI
-from runtime.search import SearchClient
 from fastapi.responses import JSONResponse
+
+from runtime.search import SearchClient
 
 logger = logging.getLogger(__name__)
 _INTERNAL_ERROR_MESSAGE = "Internal server error; check logs for details."

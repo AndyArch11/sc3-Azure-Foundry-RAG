@@ -113,6 +113,107 @@ This repository provisions and operates a privately networked Azure AI Foundry s
 - Foundry setup and deployment prerequisites: `docs/foundry-setup-guide.md`
 - Conversation persistence and feedback flow: `docs/foundry-conversations.md`
 
+## Local Development
+
+The query web application runs fully offline against local JSONL data, Ollama, and Qdrant — no Azure subscription required.
+
+### Prerequisites
+
+- [Ollama](https://ollama.com) installed and running (`ollama serve`)
+- Python virtual environment with `requirements-dev.txt` installed
+- (Optional) Qdrant for vector search — otherwise in-memory search is used
+
+### Generating evidence data
+
+`runtime/out/` is not committed to the repository. It is created on demand by the ingestion runner. Run this once from the `runtime/` directory to generate `runtime/out/chunks.jsonl` before starting the local stack:
+
+```bash
+cd runtime
+source .venv/bin/activate
+python -m ingestion.runner --mode local --input-dir ./samples --output-jsonl ./out/chunks.jsonl
+cd ..
+```
+
+If no evidence files are available yet, the app and seeder will start with an empty evidence index and log a warning — queries will simply return no grounding documents until the index is populated.
+
+Control data (`parsed-controls/`) is already present in the repository and does not require a generation step.
+
+### Option A — In-memory search (fastest, IDE-friendly)
+
+No Qdrant or seeding step needed. JSONL files load directly into memory at app startup.
+
+```bash
+# Install dependencies
+sudo python3 -m venv runtime/.venv
+source runtime/.venv/bin/activate
+python3 -m pip install -r requirements-dev.txt
+
+# Pull Ollama models once
+ollama pull nomic-embed-text
+ollama pull llama3.2
+
+# Set environment and start the app
+CLOUD_PROVIDER=local \
+LOCAL_VECTOR_BACKEND=inmemory \
+LOCAL_EVIDENCE_JSONL_PATH=./runtime/out/chunks.jsonl \
+LOCAL_CONTROLS_JSONL_PATH=./parsed-controls \
+OLLAMA_BASE_URL=http://localhost:11434 \
+QUERY_WEB_AUTH_TOKEN='' \
+uvicorn query_web.app:app --port 8080 --reload
+```
+
+Open [http://localhost:8080](http://localhost:8080).
+
+### Option B — Qdrant vector search (higher-fidelity local retrieval)
+
+Requires Qdrant running and a one-time seeding step to embed and index documents.
+
+```bash
+# Start Qdrant
+docker run -d -p 6333:6333 --name rag-qdrant qdrant/qdrant
+
+# Seed indexes (embed JSONL via Ollama and upsert into Qdrant)
+CLOUD_PROVIDER=local \
+LOCAL_EVIDENCE_JSONL_PATH=./runtime/out/chunks.jsonl \
+LOCAL_CONTROLS_JSONL_PATH=./parsed-controls \
+QDRANT_URL=http://localhost:6333 \
+OLLAMA_BASE_URL=http://localhost:11434 \
+python ops/scripts/seed_local.py
+
+# Check indexed counts
+python ops/scripts/seed_local.py --check
+
+# Start the app
+CLOUD_PROVIDER=local \
+LOCAL_VECTOR_BACKEND=qdrant \
+QDRANT_URL=http://localhost:6333 \
+OLLAMA_BASE_URL=http://localhost:11434 \
+QUERY_WEB_AUTH_TOKEN='' \
+uvicorn query_web.app:app --port 8080 --reload
+```
+
+Seeder options: `--force` (re-seed even if populated), `--evidence-only`, `--controls-only`.
+
+### Option C — Self-contained Docker Compose stack
+
+Runs Ollama, Qdrant, the seeder, and query-web together with correct startup ordering.
+
+```bash
+# Copy and customise environment
+cp .env.local.example .env.local
+
+# Build and start (model pull + seeding run automatically before query-web starts)
+docker compose -f docker-compose.local.yml --env-file .env.local up --build
+```
+
+Model names (`OLLAMA_MODEL`, `OLLAMA_EMBEDDING_MODEL`) are read from `.env.local` and used consistently by the model-puller, seeder, and query-web services. Change them in one place only.
+
+Open [http://localhost:8080](http://localhost:8080).
+
+> **Guidance on backends:**  
+> Use `inmemory` for fast iteration on code (no seeding step, instant startup).  
+> Use `qdrant` when testing query quality or debugging retrieval behaviour.
+
 ## Current State
 
 This repository contains deployable Terraform modules, a working ingestion runtime, a query web application with Foundry-backed conversations, and private-network integration tests. Delivery continues in phased increments, with private networking and security controls treated as non-negotiable constraints.

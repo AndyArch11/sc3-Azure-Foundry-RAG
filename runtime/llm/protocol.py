@@ -6,7 +6,7 @@ to a specific provider.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Callable, Protocol, TypeAlias, runtime_checkable
 
 
 @runtime_checkable
@@ -45,4 +45,4 @@ class LLMClient(Protocol):
 
 
 # Type alias kept here for convenient import by call sites.
-ChatCompletionCallable = "Callable[[list[dict[str, str]]], str]"
+ChatCompletionCallable: TypeAlias = Callable[[list[dict[str, str]]], str]

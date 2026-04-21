@@ -7,10 +7,11 @@ from urllib.parse import quote
 
 import requests
 from azure.search.documents.indexes import SearchIndexClient
-from runtime.search import SearchClient
 from azure.search.documents.indexes.models import IndexerStatus
 from fastapi import Request
 from fastapi.responses import JSONResponse
+
+from runtime.search import SearchClient
 
 logger = logging.getLogger(__name__)
 _INTERNAL_ERROR_MESSAGE = "Internal server error; check logs for details."
@@ -165,7 +166,9 @@ def register_diagnostics_endpoints(
             request,
             auth_token,
             is_authorised_request=_svc_attr("_is_authorised_request", None),
-            unauthorised_message=_svc_attr("_unauthorised_message", lambda req=None: "Unauthorised."),
+            unauthorised_message=_svc_attr(
+                "_unauthorised_message", lambda req=None: "Unauthorised."
+            ),
         )
 
     def _resolve_acr_registry_name(explicit_registry_name: str = "") -> str:

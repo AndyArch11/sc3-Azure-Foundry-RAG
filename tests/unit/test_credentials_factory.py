@@ -75,9 +75,7 @@ class TestAzureCredentialProvider:
 
     def test_get_sdk_credential_returns_azure_credential(self) -> None:
         mock_cred = MagicMock()
-        with patch(
-            "runtime.credentials.azure_cred.DefaultAzureCredential", return_value=mock_cred
-        ):
+        with patch("runtime.credentials.azure_cred.DefaultAzureCredential", return_value=mock_cred):
             provider = AzureCredentialProvider()
         assert provider.get_sdk_credential() is mock_cred
 

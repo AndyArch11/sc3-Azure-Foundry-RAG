@@ -1288,7 +1288,6 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
     _deps = deps
     svc = _SvcAdapter()
 
-
     @app.post("/api/compliance/report")
     def generate_compliance_report(
         request: Request, payload: ComplianceReportRequest

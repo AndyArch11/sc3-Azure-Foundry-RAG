@@ -15,6 +15,11 @@ from fastapi.responses import HTMLResponse
 logger = logging.getLogger(__name__)
 
 
+def _has_missing_dependencies(values: list[Any]) -> bool:
+    """Return True when at least one required dependency is missing."""
+    return any(value is None for value in values)
+
+
 def register_ask_endpoints(
     app: Any,
     svc: Any | None = None,
@@ -40,6 +45,7 @@ def register_ask_endpoints(
     internal_error_message: str | None = None,
 ) -> None:
     """Register ask form and API endpoints."""
+    # pylint: disable=too-many-statements
 
     def _dep(name: str, value: Any) -> Any:
         if value is not None:
@@ -65,6 +71,7 @@ def register_ask_endpoints(
         session_id: str = Form(default=""),
         conversation_id: str = Form(default=""),
     ) -> HTMLResponse:
+        # pylint: disable=too-many-statements
         resolved_templates = _dep("templates", templates)
         resolved_config = _dep("config", config)
         resolved_conversation_message_cls = _dep("ConversationMessage", conversation_message_cls)
@@ -93,20 +100,21 @@ def register_ask_endpoints(
             else _dep("_INTERNAL_ERROR_MESSAGE", None)
         )
 
-        if (
-            resolved_get_user_id is None
-            or resolved_form_bool is None
-            or resolved_is_authorised_request is None
-            or resolved_unauthorised_message is None
-            or resolved_normalise_controls_comparison_mode is None
-            or resolved_normalise_framework_filter is None
-            or resolved_normalise_evidence_corpora is None
-            or resolved_run_rag is None
-            or resolved_branding_ctx is None
-            or resolved_templates is None
-            or resolved_config is None
-            or resolved_internal_error_message is None
-        ):
+        required_dependencies = [
+            resolved_get_user_id,
+            resolved_form_bool,
+            resolved_is_authorised_request,
+            resolved_unauthorised_message,
+            resolved_normalise_controls_comparison_mode,
+            resolved_normalise_framework_filter,
+            resolved_normalise_evidence_corpora,
+            resolved_run_rag,
+            resolved_branding_ctx,
+            resolved_templates,
+            resolved_config,
+            resolved_internal_error_message,
+        ]
+        if _has_missing_dependencies(required_dependencies):
             return HTMLResponse(content="Ask endpoint misconfigured.", status_code=500)
 
         user_id = resolved_get_user_id(auth_token, session_id)
@@ -222,7 +230,9 @@ def register_ask_endpoints(
             if session:
                 if resolved_conversation_message_cls is None:
                     raise RuntimeError("ConversationMessage dependency is missing.")
-                session.messages.append(resolved_conversation_message_cls(role="user", content=question))
+                session.messages.append(
+                    resolved_conversation_message_cls(role="user", content=question)
+                )
                 session.messages.append(
                     resolved_conversation_message_cls(role="assistant", content=result["answer"])
                 )
@@ -324,16 +334,17 @@ def register_ask_endpoints(
                 error="Question must not be empty.",
             )
 
-        if (
-            resolved_is_authorised_request is None
-            or resolved_unauthorised_message is None
-            or resolved_run_rag is None
-            or resolved_config is None
-            or resolved_normalise_framework_filter is None
-            or resolved_normalise_controls_comparison_mode is None
-            or resolved_normalise_evidence_corpora is None
-            or resolved_internal_error_message is None
-        ):
+        required_dependencies = [
+            resolved_is_authorised_request,
+            resolved_unauthorised_message,
+            resolved_run_rag,
+            resolved_config,
+            resolved_normalise_framework_filter,
+            resolved_normalise_controls_comparison_mode,
+            resolved_normalise_evidence_corpora,
+            resolved_internal_error_message,
+        ]
+        if _has_missing_dependencies(required_dependencies):
             return ask_response_model(
                 answer="",
                 results=[],

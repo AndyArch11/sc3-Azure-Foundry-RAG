@@ -112,6 +112,7 @@ class TestDynamoDBStateStore:
         from runtime.assessment_orchestration.dynamo_state_store import (
             DynamoDBPollingStateStore,
         )
+
         return DynamoDBPollingStateStore(table_name=table_name, session=boto3_session)
 
     def test_write_and_read_state(self, store: Any) -> None:
@@ -161,6 +162,7 @@ class TestS3StorageRoundTrip:
     @pytest.fixture(scope="class")
     def client(self, boto3_session: Any) -> Any:
         from runtime.storage.aws_s3 import AWSS3StorageClient
+
         return AWSS3StorageClient(session=boto3_session)
 
     @pytest.fixture(scope="class")
@@ -217,6 +219,7 @@ class TestOpenSearchConnectivity:
     @pytest.fixture(scope="class")
     def client(self, opensearch_endpoint: str, index_name: str, boto3_session: Any) -> Any:
         from runtime.search.opensearch import AWSOpenSearchClient
+
         return AWSOpenSearchClient(
             endpoint=opensearch_endpoint,
             index=index_name,
@@ -263,12 +266,8 @@ class TestECSServiceHealth:
     def ecs_client(self, boto3_session: Any) -> Any:
         return boto3_session.client("ecs")
 
-    def test_service_is_active(
-        self, ecs_client: Any, ecs_cluster: str, ecs_service: str
-    ) -> None:
-        resp = ecs_client.describe_services(
-            cluster=ecs_cluster, services=[ecs_service]
-        )
+    def test_service_is_active(self, ecs_client: Any, ecs_cluster: str, ecs_service: str) -> None:
+        resp = ecs_client.describe_services(cluster=ecs_cluster, services=[ecs_service])
         services = resp.get("services", [])
         assert services, f"ECS service {ecs_service!r} not found in cluster {ecs_cluster!r}"
         svc = services[0]
@@ -278,9 +277,7 @@ class TestECSServiceHealth:
     def test_service_has_running_tasks(
         self, ecs_client: Any, ecs_cluster: str, ecs_service: str
     ) -> None:
-        resp = ecs_client.describe_services(
-            cluster=ecs_cluster, services=[ecs_service]
-        )
+        resp = ecs_client.describe_services(cluster=ecs_cluster, services=[ecs_service])
         svc = resp["services"][0]
         running = svc.get("runningCount", 0)
         desired = svc.get("desiredCount", 0)
@@ -292,9 +289,7 @@ class TestECSServiceHealth:
     def test_no_failed_deployments(
         self, ecs_client: Any, ecs_cluster: str, ecs_service: str
     ) -> None:
-        resp = ecs_client.describe_services(
-            cluster=ecs_cluster, services=[ecs_service]
-        )
+        resp = ecs_client.describe_services(cluster=ecs_cluster, services=[ecs_service])
         svc = resp["services"][0]
         for deployment in svc.get("deployments", []):
             if deployment.get("status") == "PRIMARY":

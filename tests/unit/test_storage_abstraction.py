@@ -12,7 +12,6 @@ import pytest
 from runtime.storage import get_storage_client
 from runtime.storage.local_file import LocalFileStorageClient
 
-
 # ---------------------------------------------------------------------------
 # Factory dispatch
 # ---------------------------------------------------------------------------
@@ -29,9 +28,7 @@ class TestStorageFactory:
         client = get_storage_client(base_dir=str(tmp_path))
         assert isinstance(client, LocalFileStorageClient)
 
-    def test_argument_overrides_env(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_argument_overrides_env(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("CLOUD_PROVIDER", "azure")
         client = get_storage_client(cloud_provider="local", base_dir=str(tmp_path))
         assert isinstance(client, LocalFileStorageClient)
@@ -42,9 +39,7 @@ class TestStorageFactory:
         with pytest.raises(ValueError, match="account_url"):
             get_storage_client(cloud_provider="azure")
 
-    def test_azure_factory_returns_azure_client(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_azure_factory_returns_azure_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from runtime.storage.azure_blob import AzureBlobStorageClient
 
         mock_bsc = MagicMock()

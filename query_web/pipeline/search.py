@@ -76,19 +76,31 @@ def _hybrid_search(
         timings["search_s"] = 0.0
         return [], timings
 
-    t0 = time.perf_counter()
-    try:
-        vector = svc._embed_query(question)
-    except Exception as exc:
-        timings["embedding_s"] = round(time.perf_counter() - t0, 3)
-        status_code = getattr(getattr(exc, "response", None), "status_code", None)
-        if status_code == 429:
-            timings["embedding_rate_limited"] = 1.0
-        svc.logger.warning("Embedding failed; returning empty hybrid results: %s", exc)
-        timings["search_s"] = 0.0
-        return [], timings
+    provider = (
+        str(getattr(getattr(svc, "config", None), "cloud_provider", "") or "").strip().lower()
+    )
+    if not provider:
+        import os
 
-    timings["embedding_s"] = round(time.perf_counter() - t0, 3)
+        provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower()
+
+    if provider in {"local", "dev"}:
+        vector = None
+        timings["embedding_s"] = 0.0
+    else:
+        t0 = time.perf_counter()
+        try:
+            vector = svc._embed_query(question)
+        except Exception as exc:
+            timings["embedding_s"] = round(time.perf_counter() - t0, 3)
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+            if status_code == 429:
+                timings["embedding_rate_limited"] = 1.0
+            svc.logger.warning("Embedding failed; returning empty hybrid results: %s", exc)
+            timings["search_s"] = 0.0
+            return [], timings
+
+        timings["embedding_s"] = round(time.perf_counter() - t0, 3)
 
     t1 = time.perf_counter()
     try:

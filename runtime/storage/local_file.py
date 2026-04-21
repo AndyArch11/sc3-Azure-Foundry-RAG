@@ -12,7 +12,9 @@ class LocalFileStorageClient:
     """StorageClient backed by a local filesystem directory tree."""
 
     def __init__(self, base_dir: str | Path | None = None) -> None:
-        self._base = Path(base_dir or os.getenv("LOCAL_STORAGE_BASE_DIR", "/tmp/local_storage"))
+        env_base_dir = os.getenv("LOCAL_STORAGE_BASE_DIR")
+        resolved_base_dir: str | Path = base_dir or env_base_dir or "/tmp/local_storage"
+        self._base = Path(resolved_base_dir)
 
     def _blob_path(self, container: str, key: str) -> Path:
         return self._base / container / key

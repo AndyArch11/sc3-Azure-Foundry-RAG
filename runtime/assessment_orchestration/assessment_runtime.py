@@ -418,6 +418,7 @@ def _fetch_controls(
         # Azure: ResourceNotFoundError; other providers use different types.
         try:
             from azure.core.exceptions import ResourceNotFoundError as _AzureNotFound
+
             if isinstance(exc, _AzureNotFound):
                 message = str(exc).lower()
                 index_name = config.controls_index_name.lower()
@@ -559,6 +560,7 @@ def _hybrid_search(
         """Return True if *exc* indicates the grounding index does not exist."""
         try:
             from azure.core.exceptions import ResourceNotFoundError as _AzureNotFound
+
             if isinstance(exc, _AzureNotFound):
                 message = str(exc).lower()
                 index_name = config.search_index_name.lower()
@@ -1098,8 +1100,7 @@ class SearchBackedAssessmentAgent:
                 report_payload = _extract_json_object(raw_response)
             except Exception as retry_exc:
                 raise RuntimeError(
-                    "Compliance report JSON parsing failed after one retry: "
-                    f"{retry_exc}"
+                    "Compliance report JSON parsing failed after one retry: " f"{retry_exc}"
                 ) from retry_exc
 
         try:

@@ -433,7 +433,6 @@ def _run_aws(args: argparse.Namespace) -> int:
     """
     from ..credentials import get_credential_provider
     from ..storage import get_storage_client
-
     from .config import IngestionConfig
 
     # Allow per-run scoping via environment variable.
@@ -547,18 +546,17 @@ def _run_aws(args: argparse.Namespace) -> int:
 
 def _run_reset(args: argparse.Namespace) -> int:
     """Run run reset."""
-    cloud_provider = (os.getenv("CLOUD_PROVIDER", "azure").strip().lower() or "azure")
+    cloud_provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower() or "azure"
     if cloud_provider in {"local", "dev"}:
         cloud_provider = "azure"
 
     if cloud_provider == "aws":
         from ..credentials import get_credential_provider
         from ..storage import get_storage_client
-
         from .reset_aws import AWSResetConfig, reset_loaded_data_aws
 
         try:
-            config = AWSResetConfig.from_env()
+            aws_config = AWSResetConfig.from_env()
         except ValueError as exc:
             print(f"Configuration error: {exc}", file=sys.stderr)
             return 1
@@ -573,7 +571,7 @@ def _run_reset(args: argparse.Namespace) -> int:
 
         try:
             result = reset_loaded_data_aws(
-                config,
+                aws_config,
                 aws_session,
                 storage_client,
                 purge_objects=args.purge_blobs,
@@ -607,7 +605,7 @@ def _run_reset(args: argparse.Namespace) -> int:
     from .reset import reset_loaded_data
 
     try:
-        config = IngestionConfig.from_env()
+        azure_config = IngestionConfig.from_env()
     except ValueError as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 1
@@ -615,7 +613,7 @@ def _run_reset(args: argparse.Namespace) -> int:
     credential = DefaultAzureCredential()
 
     try:
-        result = reset_loaded_data(config, credential, purge_blobs=args.purge_blobs)
+        result = reset_loaded_data(azure_config, credential, purge_blobs=args.purge_blobs)
     except RuntimeError as exc:
         print(f"Reset error: {exc}", file=sys.stderr)
         return 1
@@ -635,7 +633,7 @@ def _run_reset(args: argparse.Namespace) -> int:
 
 def _run_controls(args: argparse.Namespace) -> int:
     """Run run controls."""
-    cloud_provider = (os.getenv("CLOUD_PROVIDER", "azure").strip().lower() or "azure")
+    cloud_provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower() or "azure"
     if cloud_provider in {"local", "dev"}:
         cloud_provider = "azure"
 
@@ -645,7 +643,6 @@ def _run_controls(args: argparse.Namespace) -> int:
 
     if cloud_provider == "aws":
         from ..credentials import get_credential_provider
-
         from .controls_index_aws import AWSControlsIndexConfig, ensure_controls_index_aws
         from .publish_controls_aws import upload_controls_records_aws
 
@@ -657,19 +654,19 @@ def _run_controls(args: argparse.Namespace) -> int:
             return 1
 
         try:
-            config = AWSControlsIndexConfig.from_env()
+            aws_config = AWSControlsIndexConfig.from_env()
         except ValueError as exc:
             print(f"Configuration error: {exc}", file=sys.stderr)
             return 1
 
         credential_provider = get_credential_provider(cloud_provider="aws")
         aws_session = credential_provider.get_sdk_credential()
-        ensure_controls_index_aws(config, aws_session)
+        ensure_controls_index_aws(aws_config, aws_session)
 
         registry = _build_parser_registry()
         selected = _selected_frameworks(args.controls_framework, registry)
 
-        summaries: list[dict] = []
+        aws_summaries: list[dict[str, object]] = []
         for framework in selected:
             try:
                 parser_instance = registry[framework]["factory"](
@@ -677,7 +674,7 @@ def _run_controls(args: argparse.Namespace) -> int:
                 )
                 records = parser_instance.parse()
             except Exception as exc:
-                summaries.append(
+                aws_summaries.append(
                     {
                         "framework": framework,
                         "error": (
@@ -691,7 +688,7 @@ def _run_controls(args: argparse.Namespace) -> int:
                 continue
 
             if not records:
-                summaries.append(
+                aws_summaries.append(
                     {
                         "framework": framework,
                         "error": "Parser returned no records",
@@ -707,15 +704,15 @@ def _run_controls(args: argparse.Namespace) -> int:
 
             try:
                 summary = upload_controls_records_aws(
-                    config,
+                    aws_config,
                     aws_session,
                     records_payload,
                     replace_existing=args.replace_existing,
                     dry_run=args.dry_run,
                 )
-                summaries.append({"framework": framework, **summary})
+                aws_summaries.append({"framework": framework, **summary})
             except Exception as exc:
-                summaries.append(
+                aws_summaries.append(
                     {
                         "framework": framework,
                         "error": f"Index publish failed: {exc}",
@@ -732,15 +729,15 @@ def _run_controls(args: argparse.Namespace) -> int:
             "source_files_downloaded": [],
             "replace_existing": bool(args.replace_existing),
             "dry_run": bool(args.dry_run),
-            "results": summaries,
+            "results": aws_summaries,
         }
         print(json.dumps(payload, ensure_ascii=True))
 
-        if any(item.get("records_failed", 0) for item in summaries) or any(
-            bool(item.get("error")) for item in summaries
+        if any(item.get("records_failed", 0) for item in aws_summaries) or any(
+            bool(item.get("error")) for item in aws_summaries
         ):
             return 1
-        if any(item.get("error") for item in summaries):
+        if any(item.get("error") for item in aws_summaries):
             return 1
         return 0
 
@@ -760,13 +757,13 @@ def _run_controls(args: argparse.Namespace) -> int:
     from .publish_controls import upload_controls_records
 
     try:
-        config = ControlsIndexConfig.from_env()
+        azure_config = ControlsIndexConfig.from_env()
     except ValueError as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 1
 
     credential = DefaultAzureCredential()
-    ensure_controls_index(config, credential)
+    ensure_controls_index(azure_config, credential)
 
     downloaded_source_files: list[str] = []
     if source_prefix:
@@ -783,13 +780,13 @@ def _run_controls(args: argparse.Namespace) -> int:
     registry = _build_parser_registry()
     selected = _selected_frameworks(args.controls_framework, registry)
 
-    summaries: list[dict] = []
+    azure_summaries: list[dict[str, object]] = []
     for framework in selected:
         try:
             parser_instance = registry[framework]["factory"](fetch_guidance=(not args.no_guidance))
             records = parser_instance.parse()
         except Exception as exc:
-            summaries.append(
+            azure_summaries.append(
                 {
                     "framework": framework,
                     "error": (
@@ -803,7 +800,7 @@ def _run_controls(args: argparse.Namespace) -> int:
             continue
 
         if not records:
-            summaries.append(
+            azure_summaries.append(
                 {
                     "framework": framework,
                     "error": "Parser returned no records",
@@ -819,15 +816,15 @@ def _run_controls(args: argparse.Namespace) -> int:
 
         try:
             summary = upload_controls_records(
-                config,
+                azure_config,
                 credential,
                 records_payload,
                 replace_existing=args.replace_existing,
                 dry_run=args.dry_run,
             )
-            summaries.append({"framework": framework, **summary})
+            azure_summaries.append({"framework": framework, **summary})
         except Exception as exc:
-            summaries.append(
+            azure_summaries.append(
                 {
                     "framework": framework,
                     "error": f"Index publish failed: {exc}",
@@ -844,15 +841,15 @@ def _run_controls(args: argparse.Namespace) -> int:
         "source_files_downloaded": downloaded_source_files,
         "replace_existing": bool(args.replace_existing),
         "dry_run": bool(args.dry_run),
-        "results": summaries,
+        "results": azure_summaries,
     }
     print(json.dumps(payload, ensure_ascii=True))
 
-    if any(item.get("records_failed", 0) for item in summaries) or any(
-        bool(item.get("error")) for item in summaries
+    if any(item.get("records_failed", 0) for item in azure_summaries) or any(
+        bool(item.get("error")) for item in azure_summaries
     ):
         return 1
-    if any(item.get("error") for item in summaries):
+    if any(item.get("error") for item in azure_summaries):
         return 1
     return 0
 

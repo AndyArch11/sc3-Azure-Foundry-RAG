@@ -8,11 +8,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from runtime.llm import get_llm_client
-from runtime.llm.bedrock import BedrockLLMClient
 from runtime.llm.azure_openai import AzureOpenAILLMClient
+from runtime.llm.bedrock import BedrockLLMClient
 from runtime.llm.ollama import OllamaLLMClient
 from runtime.llm.protocol import LLMClient
-
 
 # ---------------------------------------------------------------------------
 # Protocol structural check
@@ -26,7 +25,9 @@ class TestLLMClientProtocol:
         assert isinstance(client, LLMClient)
 
     def test_azure_satisfies_protocol(self) -> None:
-        client = AzureOpenAILLMClient(endpoint="https://example.openai.azure.com", credential=MagicMock())
+        client = AzureOpenAILLMClient(
+            endpoint="https://example.openai.azure.com", credential=MagicMock()
+        )
         assert isinstance(client, LLMClient)
 
     def test_ollama_satisfies_protocol(self) -> None:
@@ -94,7 +95,9 @@ class TestLLMClientFactory:
 
 
 class TestBedrockLLMClient:
-    def _make_client(self, converse_response: dict[str, Any] | None = None) -> tuple[BedrockLLMClient, MagicMock]:
+    def _make_client(
+        self, converse_response: dict[str, Any] | None = None
+    ) -> tuple[BedrockLLMClient, MagicMock]:
         fake_session = MagicMock()
         fake_bedrock = MagicMock()
         fake_session.client.return_value = fake_bedrock
@@ -120,10 +123,12 @@ class TestBedrockLLMClient:
 
     def test_system_messages_extracted(self) -> None:
         client, fake_bedrock = self._make_client(self._converse_resp("ok"))
-        client.chat_complete([
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": "Tell me something"},
-        ])
+        client.chat_complete(
+            [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": "Tell me something"},
+            ]
+        )
         call_kwargs = fake_bedrock.converse.call_args.kwargs
         assert "system" in call_kwargs
         assert call_kwargs["system"][0]["text"] == "You are a helpful assistant."
@@ -131,7 +136,10 @@ class TestBedrockLLMClient:
     def test_converse_called_with_correct_model(self) -> None:
         client, fake_bedrock = self._make_client(self._converse_resp("ok"))
         client.chat_complete([{"role": "user", "content": "test"}])
-        assert fake_bedrock.converse.call_args.kwargs["modelId"] == "anthropic.claude-3-5-sonnet-20241022-v2:0"
+        assert (
+            fake_bedrock.converse.call_args.kwargs["modelId"]
+            == "anthropic.claude-3-5-sonnet-20241022-v2:0"
+        )
 
     def test_empty_messages_returns_empty_string(self) -> None:
         client, fake_bedrock = self._make_client()
@@ -261,10 +269,12 @@ class TestOllamaLLMClient:
 
     def test_echo_returns_last_user_message(self) -> None:
         client = OllamaLLMClient()
-        result = client._echo([
-            {"role": "system", "content": "Be helpful"},
-            {"role": "user", "content": "What is 2+2?"},
-        ])
+        result = client._echo(
+            [
+                {"role": "system", "content": "Be helpful"},
+                {"role": "user", "content": "What is 2+2?"},
+            ]
+        )
         assert "What is 2+2?" in result
 
     def test_echo_no_user_message(self) -> None:

@@ -35,8 +35,8 @@ from .state_store import (
     AssessmentSnapshot,
     FailureRecord,
     PageAssessmentRecord,
-    PollRunSummary,
     PollingState,
+    PollRunSummary,
     _coerce_state,
     _parse_iso,
     _utc_now_iso,
@@ -68,9 +68,7 @@ class DynamoDBPollingStateStore:
     ) -> None:
         self._table_name = table_name or os.getenv("DYNAMODB_TABLE", "")
         if not self._table_name:
-            raise ValueError(
-                "table_name must be supplied or DYNAMODB_TABLE env var must be set"
-            )
+            raise ValueError("table_name must be supplied or DYNAMODB_TABLE env var must be set")
         if session is None:
             try:
                 import boto3
@@ -180,9 +178,7 @@ class DynamoDBPollingStateStore:
             except Exception as exc:
                 # ConditionalCheckFailedException → etag mismatch
                 if "ConditionalCheckFailed" in type(exc).__name__:
-                    raise RuntimeError(
-                        f"commit_state etag mismatch for source '{source}'"
-                    ) from exc
+                    raise RuntimeError(f"commit_state etag mismatch for source '{source}'") from exc
                 raise
         else:
             updates["version"] = new_version
@@ -205,9 +201,10 @@ class DynamoDBPollingStateStore:
             expires_raw = str(current.get("lease_expires_at") or "")
             if expires_raw:
                 try:
-                    if _parse_iso(expires_raw) > now and str(
-                        current.get("owner_run_id") or ""
-                    ) != owner_run_id:
+                    if (
+                        _parse_iso(expires_raw) > now
+                        and str(current.get("owner_run_id") or "") != owner_run_id
+                    ):
                         return False
                 except Exception:
                     pass

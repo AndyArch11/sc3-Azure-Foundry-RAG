@@ -93,3 +93,7 @@ class AzureSearchClient:
         total_count = results.get_count() if hasattr(results, "get_count") else None
         items = [dict(r) for r in results]
         return _SearchResults(items=items, total_count=total_count)
+
+    def load_documents(self, docs: list[dict[str, Any]]) -> None:
+        """Unsupported for cloud backends; retained for protocol compatibility."""
+        raise NotImplementedError("AzureSearchClient does not support load_documents")

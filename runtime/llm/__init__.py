@@ -58,7 +58,8 @@ def get_llm_client(
     ollama_model:
         Ollama model name (local path, default ``llama3``).
     """
-    provider = (cloud_provider or os.getenv("CLOUD_PROVIDER", "azure")).strip().lower()
+    provider_raw = cloud_provider if cloud_provider is not None else os.getenv("CLOUD_PROVIDER")
+    provider = (provider_raw or "azure").strip().lower()
 
     if provider in ("local", "dev"):
         from .ollama import OllamaLLMClient
