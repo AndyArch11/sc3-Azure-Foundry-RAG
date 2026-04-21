@@ -15,6 +15,7 @@
 <body>
   <div class="wrap">
     <script id="server-data" type="application/json">{"question": {{ question | tojson }}, "answer": {{ answer | tojson }}, "error": {{ error | tojson }}, "user_id": {{ user_id | tojson }}}</script>
+    <script id="ask-defaults" type="application/json">{"retrieve_k": {{ retrieve_k | tojson }}, "temperature": {{ temperature | tojson }}, "max_completion_tokens": {{ max_completion_tokens | tojson }}, "evaluator_max_completion_tokens": {{ evaluator_max_completion_tokens | tojson }}, "controls_semantic": {{ (1 if controls_semantic else 0) | tojson }}, "controls_framework": {{ (controls_framework or "") | tojson }}, "controls_comparison_mode": {{ (controls_comparison_mode or "auto-detect") | tojson }}}</script>
     <div class="card">
       <div style="margin-bottom:6px">
         <picture id="page-logo" style="display:block;margin-bottom:6px">
@@ -121,6 +122,9 @@
                 <option value="c" {% if 'c' in (evidence_corpora_include or []) %}selected{% endif %}>Corpus C (artifacts)</option>
                 <option value="legacy" {% if 'legacy' in (evidence_corpora_include or []) %}selected{% endif %}>Legacy (untagged docs)</option>
               </select>
+            </div>
+            <div class="field" style="grid-column:1/-1;display:flex;justify-content:flex-end;align-items:flex-end">
+              <button type="button" class="btn-secondary" style="margin-top:0;font-size:.85rem;padding:6px 14px" onclick="resetAskAdvancedFields()" title="Reset all advanced settings to their configured defaults.">Reset to defaults</button>
             </div>
           </div>
           <input type="hidden" name="session_id" id="session_id_field" value="{{ session_id or '' }}" />

@@ -264,6 +264,39 @@
     return mdFallbackRender(text);
   }
 
+  function resetAskAdvancedFields() {
+    const defaultsEl = document.getElementById('ask-defaults');
+    if (!defaultsEl) return;
+    let defaults;
+    try { defaults = JSON.parse(defaultsEl.textContent); }
+    catch (_) { return; }
+
+    function setVal(id, val) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.value = val != null ? String(val) : '';
+    }
+
+    setVal('retrieve_k', defaults.retrieve_k);
+    setVal('temperature', defaults.temperature);
+    setVal('max_completion_tokens', defaults.max_completion_tokens);
+    setVal('evaluator_max_completion_tokens', defaults.evaluator_max_completion_tokens);
+    setVal('controls_semantic', defaults.controls_semantic);
+    setVal('controls_framework', defaults.controls_framework);
+    setVal('controls_comparison_mode', defaults.controls_comparison_mode);
+
+    // Deselect all corpora options (default = all)
+    const corporaEl = document.getElementById('evidence_corpora_include');
+    if (corporaEl) {
+      Array.from(corporaEl.options).forEach(function (o) { o.selected = false; });
+    }
+
+    // Clear persisted localStorage overrides for token fields
+    ['max_completion_tokens', 'evaluator_max_completion_tokens'].forEach(function (id) {
+      try { localStorage.removeItem('rag_' + id); } catch (_) {}
+    });
+  }
+
   function setRating(btn, turnIdx, stars) {
     const widget = document.querySelector('.rating-widget[data-turn="' + turnIdx + '"]');
     if (!widget) return;
