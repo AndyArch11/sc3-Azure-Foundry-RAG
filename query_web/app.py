@@ -269,10 +269,40 @@ load_local_documents_if_needed(search_client, controls_search_client)
 
 # Initialise CosmosDB client — skipped in local mode (no endpoint configured)
 cosmos_db = None
+_local_state_db_path = os.environ.get("LOCAL_STATE_DB_PATH", "").strip()
+if not _local_state_db_path and (os.environ.get("CLOUD_PROVIDER") or "").strip().lower() in (
+    "local",
+    "dev",
+):
+    _local_state_db_path = str((Path(__file__).resolve().parent.parent / "runtime" / "out" / "local_state.db"))
 if not config.cosmos_endpoint:
     cosmos_client = None  # type: ignore[assignment]
-    conversations_container = None  # type: ignore[assignment]
-    logger.info("CosmosDB not configured — running without conversation persistence (local mode).")
+    if _local_state_db_path:
+        from query_web.conversation_store import SqliteConversationStore
+
+        try:
+            conversations_container = SqliteConversationStore(_local_state_db_path)
+            logger.info(
+                "CosmosDB not configured — using SQLite conversation store at %s",
+                _local_state_db_path,
+            )
+        except Exception as exc:
+            fallback_path = str(
+                (Path(__file__).resolve().parent.parent / "runtime" / "out" / "local_state.db")
+            )
+            logger.warning(
+                "Local conversation store path %s unavailable (%s); falling back to %s",
+                _local_state_db_path,
+                exc,
+                fallback_path,
+            )
+            conversations_container = SqliteConversationStore(fallback_path)
+            _local_state_db_path = fallback_path
+    else:
+        conversations_container = None  # type: ignore[assignment]
+        logger.info(
+            "CosmosDB not configured — running without conversation persistence (local mode)."
+        )
 else:
     try:
         from azure.cosmos import CosmosClient
@@ -288,7 +318,17 @@ else:
 
 orchestration_state_container = None
 confluence_poll_state_store = None
-if cosmos_client is not None and cosmos_db is not None:
+if _local_state_db_path and not config.cosmos_endpoint:
+    try:
+        from runtime.assessment_orchestration.sqlite_state_store import SqlitePollingStateStore
+
+        confluence_poll_state_store = SqlitePollingStateStore(_local_state_db_path)
+        logger.info(
+            "Using SQLite polling state store at %s", _local_state_db_path
+        )
+    except Exception as exc:
+        logger.warning("SQLite polling state store unavailable: %s", exc)
+elif cosmos_client is not None and cosmos_db is not None:
     try:
         orchestration_state_container = cosmos_db.get_container_client(
             config.cosmos_orchestration_container_name

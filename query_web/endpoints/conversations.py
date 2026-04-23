@@ -133,8 +133,8 @@ def _load_conversation(user_id: str, conversation_id: str, container: Any) -> Co
     try:
         doc = container.read_item(item=doc_id, partition_key=user_id)
         return ConversationSession.from_dict(doc)
-    except CosmosResourceNotFoundError:
-        # Conversation doesn't exist yet
+    except (CosmosResourceNotFoundError, KeyError):
+        # Conversation doesn't exist yet (Cosmos or local SQLite store)
         return ConversationSession(
             session_id=str(uuid.uuid4()),
             user_id=user_id,

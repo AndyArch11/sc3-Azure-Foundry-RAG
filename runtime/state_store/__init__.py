@@ -10,7 +10,8 @@ implementation:
 
   * ``azure`` / unset  → ``CosmosPollingStateStore``
   * ``aws``            → ``DynamoDBPollingStateStore``
-  * ``local`` / ``dev``→ ``InMemoryPollingStateStore``
+  * ``local`` / ``dev``→ ``SqlitePollingStateStore`` when ``LOCAL_STATE_DB_PATH`` is set,
+                         otherwise ``InMemoryPollingStateStore`` (ephemeral)
 """
 
 from __future__ import annotations
@@ -53,6 +54,13 @@ def get_state_store(
     provider = (cloud_provider or os.getenv("CLOUD_PROVIDER", "azure")).strip().lower()
 
     if provider in ("local", "dev"):
+        db_path = os.getenv("LOCAL_STATE_DB_PATH", "").strip()
+        if db_path:
+            from runtime.assessment_orchestration.sqlite_state_store import (
+                SqlitePollingStateStore,
+            )
+
+            return SqlitePollingStateStore(db_path)
         return InMemoryPollingStateStore()
 
     if provider == "aws":

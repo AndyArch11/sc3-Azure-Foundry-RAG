@@ -71,13 +71,16 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
       LOCAL_EVIDENCE_JSONL_PATH: /app/runtime/out/chunks.jsonl
       LOCAL_CONTROLS_JSONL_PATH: /app/parsed-controls
+      LOCAL_STATE_DB_PATH: /app/local_state/state.db
     depends_on:
       seeder:
         condition: service_completed_successfully
     volumes:
       - ./runtime/out:/app/runtime/out:ro
       - ./parsed-controls:/app/parsed-controls:ro
+      - local_state:/app/local_state
 
 volumes:
   ollama_data:
   qdrant_data:
+  local_state:

@@ -189,6 +189,7 @@ PRECEDENCE_POLICY_PATH=./query_web/policies/precedence_policy.json \
 OLLAMA_BASE_URL=http://localhost:11434 \
 OLLAMA_MODEL=gemma3:27b \
 QUERY_WEB_AUTH_TOKEN='' \
+LOCAL_STATE_DB_PATH=./local_state/state.db \
 uvicorn query_web.app:app --host 0.0.0.0 --port 8080 --reload
 ```
 
@@ -227,6 +228,7 @@ PRECEDENCE_POLICY_PATH=./query_web/policies/precedence_policy.json \
 OLLAMA_BASE_URL=http://host.docker.internal:11434 \
 OLLAMA_MODEL=gemma3:27b \
 QUERY_WEB_AUTH_TOKEN='' \
+LOCAL_STATE_DB_PATH=./local_state/state.db \
 uvicorn query_web.app:app --host 0.0.0.0 --port 8080 --reload
 ```
 
