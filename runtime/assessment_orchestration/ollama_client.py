@@ -80,6 +80,131 @@ def is_ollama_available(base_url: str | None = None) -> bool:
         return False
 
 
+def _messages_to_prompt(messages: list[dict[str, str]]) -> str:
+    """Convert chat messages to a plain prompt for /api/generate fallback."""
+    parts: list[str] = []
+    for msg in messages:
+        role = str(msg.get("role") or "user").strip().upper()
+        content = str(msg.get("content") or "").strip()
+        if not content:
+            continue
+        parts.append(f"{role}: {content}")
+    parts.append("ASSISTANT:")
+    return "\n\n".join(parts)
+
+
+def _response_error_message(response: Any) -> str:
+    """Extract the most useful error message from an HTTP response."""
+    try:
+        payload = response.json()
+    except Exception:
+        return str(getattr(response, "text", "") or "").strip()
+
+    err = payload.get("error")
+    if isinstance(err, dict):
+        # OpenAI-compatible errors are often nested under error.message.
+        return str(err.get("message") or err).strip()
+    if err is not None:
+        return str(err).strip()
+    return str(payload).strip()
+
+
+def _is_model_not_found(status_code: int, error_message: str) -> bool:
+    msg = error_message.lower()
+    return status_code == 404 and "model" in msg and "not found" in msg
+
+
+def _list_available_models(resolved_url: str, timeout: int) -> list[str]:
+    """Return model names reported by Ollama /api/tags."""
+    try:
+        import requests
+
+        resp = requests.get(f"{resolved_url}/api/tags", timeout=min(timeout, 10))
+        resp.raise_for_status()
+        payload = resp.json()
+    except Exception:
+        return []
+
+    models = payload.get("models")
+    if not isinstance(models, list):
+        return []
+
+    names: list[str] = []
+    for item in models:
+        if isinstance(item, dict):
+            name = str(item.get("name") or "").strip()
+            if name:
+                names.append(name)
+    return names
+
+
+def _choose_fallback_chat_model(requested_model: str, available_models: list[str]) -> str | None:
+    """Pick a non-embedding fallback model when requested model is unavailable."""
+    requested = requested_model.strip().lower()
+    for name in available_models:
+        lower = name.lower()
+        if lower == requested:
+            return name
+
+    for name in available_models:
+        lower = name.lower()
+        if "embed" in lower:
+            continue
+        if lower == requested:
+            continue
+        return name
+    return None
+
+
+def _chat_or_generate_once(
+    *,
+    requests: Any,
+    resolved_url: str,
+    messages: list[dict[str, str]],
+    model: str,
+    temperature: float,
+    timeout: int,
+    force_json: bool,
+    num_ctx: int,
+) -> Any:
+    """Issue one chat request with /api/generate fallback for endpoint compatibility."""
+    endpoint = f"{resolved_url}/api/chat"
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "options": {
+            "temperature": max(0.0, min(2.0, float(temperature))),
+            "num_ctx": num_ctx,
+        },
+    }
+    if force_json:
+        payload["format"] = "json"
+
+    response = requests.post(endpoint, json=payload, timeout=timeout)
+
+    # Older Ollama builds may not implement /api/chat yet.
+    # Fallback to /api/generate using a role-labelled prompt.
+    if response.status_code == 404 and not _is_model_not_found(
+        response.status_code, _response_error_message(response)
+    ):
+        generate_endpoint = f"{resolved_url}/api/generate"
+        generate_payload: dict[str, Any] = {
+            "model": model,
+            "prompt": _messages_to_prompt(messages),
+            "stream": False,
+            "options": {
+                "temperature": max(0.0, min(2.0, float(temperature))),
+                "num_ctx": num_ctx,
+            },
+        }
+        if force_json:
+            generate_payload["format"] = "json"
+        response = requests.post(generate_endpoint, json=generate_payload, timeout=timeout)
+
+    return response
+
+
 def ollama_chat_completion(
     messages: list[dict[str, str]],
     *,
@@ -122,32 +247,70 @@ def ollama_chat_completion(
             "On WSL host: OLLAMA_HOST=0.0.0.0 ollama serve"
         )
 
-    endpoint = f"{resolved_url}/api/chat"
-    payload: dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "stream": False,
-        "options": {
-            "temperature": max(0.0, min(2.0, float(temperature))),
-            "num_ctx": num_ctx,
-        },
-    }
-    if force_json:
-        payload["format"] = "json"
-
     try:
-        response = requests.post(endpoint, json=payload, timeout=timeout)
-        response.raise_for_status()
+        response = _chat_or_generate_once(
+            requests=requests,
+            resolved_url=resolved_url,
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            timeout=timeout,
+            force_json=force_json,
+            num_ctx=num_ctx,
+        )
     except requests.exceptions.RequestException as exc:
         raise RuntimeError(f"Ollama chat request failed: {exc}") from exc
+
+    if _is_model_not_found(response.status_code, _response_error_message(response)):
+        available_models = _list_available_models(resolved_url, timeout)
+        fallback_model = _choose_fallback_chat_model(model, available_models)
+        if fallback_model and fallback_model.strip().lower() != model.strip().lower():
+            logger.warning(
+                "Ollama model '%s' not found; retrying chat request with available model '%s'",
+                model,
+                fallback_model,
+            )
+            try:
+                response = _chat_or_generate_once(
+                    requests=requests,
+                    resolved_url=resolved_url,
+                    messages=messages,
+                    model=fallback_model,
+                    temperature=temperature,
+                    timeout=timeout,
+                    force_json=force_json,
+                    num_ctx=num_ctx,
+                )
+            except requests.exceptions.RequestException as exc:
+                raise RuntimeError(f"Ollama fallback chat request failed: {exc}") from exc
+
+        if _is_model_not_found(response.status_code, _response_error_message(response)):
+            available = ", ".join(available_models) if available_models else "(none reported)"
+            raise RuntimeError(
+                f"Ollama model '{model}' not found at {resolved_url}. "
+                f"Set OLLAMA_MODEL to an available chat model. Available models: {available}"
+            )
+
+    if response.status_code >= 400:
+        error_message = _response_error_message(response) or str(getattr(response, "text", "") or "")
+        try:
+            response.raise_for_status()
+        except requests.exceptions.RequestException as exc:
+            raise RuntimeError(
+                f"Ollama chat request failed ({response.status_code}): {error_message or exc}"
+            ) from exc
 
     try:
         result = response.json()
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"Ollama returned invalid JSON: {exc}") from exc
 
-    # Extract content from Ollama response format
-    content = result.get("message", {}).get("content", "").strip()
+    # Extract content from Ollama response format.
+    # /api/chat returns message.content; /api/generate returns response.
+    content = (
+        str(result.get("message", {}).get("content") or "").strip()
+        or str(result.get("response") or "").strip()
+    )
     if not content:
         raise RuntimeError(f"Ollama returned empty response: {result}")
 

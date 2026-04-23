@@ -125,6 +125,39 @@ def _flatten(text: str) -> str:
     return text.strip()
 
 
+def _strip_testing_procedure_tail(req_id: str, req_text_raw: str) -> str:
+    """Remove testing-procedure tail that follows a requirement statement.
+
+    In the PCI PDF, a requirement block often contains both:
+    - normative requirement prose
+    - testing procedure lines that repeat the same requirement ID
+
+    Keep only the normative portion by truncating at the first repeated
+    requirement marker that introduces testing steps.
+    """
+    # Example: "1.2.1 Examine ..." (same requirement ID followed by testing verb)
+    inline_testing_re = re.compile(
+        rf"\b{re.escape(req_id)}\s+(?:examine|interview|review|verify|assess|perform|identify|observe|confirm|ask|check)\b",
+        re.IGNORECASE,
+    )
+    # Example: "1.2.1.a Examine ..." (lettered testing sub-step)
+    lettered_step_re = re.compile(rf"\b{re.escape(req_id)}\.[a-z]\b", re.IGNORECASE)
+
+    cut_points = []
+    inline_match = inline_testing_re.search(req_text_raw)
+    if inline_match:
+        cut_points.append(inline_match.start())
+
+    lettered_match = lettered_step_re.search(req_text_raw)
+    if lettered_match:
+        cut_points.append(lettered_match.start())
+
+    if not cut_points:
+        return req_text_raw
+
+    return req_text_raw[: min(cut_points)]
+
+
 def _extract_full_text(pdf_path: Path) -> str:
     """Extract and clean page text from the PDF, skipping preamble pages."""
     if _PdfReader is None:
@@ -207,7 +240,7 @@ def _build_requirement_and_guidance_maps(
             if re.match(r"^\d+\.\d+\.\d+\.[a-z]", req_id):
                 continue
 
-            req_text_clean = _flatten(req_text_raw)
+            req_text_clean = _flatten(_strip_testing_procedure_tail(req_id, req_text_raw))
 
             # Skip if this is a testing procedure (starts with an examination verb)
             if _TESTING_VERB_RE.match(req_text_clean):

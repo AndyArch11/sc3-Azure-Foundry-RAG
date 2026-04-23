@@ -152,6 +152,7 @@ class PrecedencePolicy:
     version: str
     default_framework_order: tuple[str, ...]
     rules: tuple[dict[str, Any], ...]
+    default_framework: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +237,19 @@ def _load_precedence_policy(
             if isinstance(item, dict):
                 rules.append(item)
 
-    return PrecedencePolicy(version=version, default_framework_order=order, rules=tuple(rules))
+    default_framework_raw = payload.get("default_framework", "")
+    default_framework: str = ""
+    if isinstance(default_framework_raw, str) and default_framework_raw.strip():
+        default_framework = _canonical_framework_name(default_framework_raw.strip()) or default_framework_raw.strip()
+    if not default_framework and order:
+        default_framework = order[0]
+
+    return PrecedencePolicy(
+        version=version,
+        default_framework_order=order,
+        rules=tuple(rules),
+        default_framework=default_framework,
+    )
 
 
 # ---------------------------------------------------------------------------

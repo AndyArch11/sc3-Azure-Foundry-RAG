@@ -11,6 +11,7 @@ import query_web.pipeline.controls as _controls_module
 from query_web.security.prompt_injection_guard import sanitise_untrusted_text
 
 
+
 def _unwrap_answer(text: str) -> str:
     """Extract plain answer text from wrapped responses.
 
@@ -54,6 +55,7 @@ def _clean_markdown_whitespace(text: str) -> str:
     normalised = re.sub(r"\n[ \t]*\n(?:[ \t]*\n)+", "\n\n", normalised)
 
     return normalised.strip()
+
 
 
 def _ensure_visible_answer(answer: str) -> str:

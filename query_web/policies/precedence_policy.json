@@ -1,6 +1,6 @@
 {
   "version": "2026-04-01",
-  "description": "Default precedence policy for cross-framework contradictions in compliance assistant responses.",
+  "description": "Default precedence policy for cross-framework contradictions in compliance assistant responses. Essential Eight and ISM are distinct frameworks; Essential Eight is NOT a subset or alias of ISM. The default_framework is the governing framework for general questions unless a specific rule below overrides it.",
   "default_framework_order": [
     "Essential Eight",
     "ISM",

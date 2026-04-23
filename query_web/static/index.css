@@ -126,6 +126,7 @@
     .chat-bubble.assistant { background: #f9fafb; border: 1px solid var(--border); align-self: flex-start; }
     .chat-meta { font-size: .75rem; color: var(--muted); margin-bottom: 3px; }
     .btn-secondary { background: #6b7280; margin-top: 10px; padding: 10px 14px; font-size: 1rem; font-weight: 600; }
+    button:disabled, button:disabled:hover { opacity: 0.4; cursor: not-allowed; filter: grayscale(60%); }
     .past-conv-list { list-style: none; padding: 0; margin: 8px 0 0; max-height: 220px; overflow-y: auto; }
     .past-conv-item { padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 5px; cursor: pointer; font-size: .85rem; }
     .past-conv-item:hover, .past-conv-item.active { background: #f0faf8; border-color: var(--accent); }

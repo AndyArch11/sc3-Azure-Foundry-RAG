@@ -14,6 +14,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _resolve_local_jsonl_paths() -> tuple[str, str]:
+    """Resolve local evidence/controls JSONL paths with sensible local defaults.
+
+    Preference order:
+    1) Explicit env var value when provided
+    2) Workspace-relative default for local/dev runs
+    3) Container default path for compose/runtime images
+    """
+    evidence_path = os.getenv("LOCAL_EVIDENCE_JSONL_PATH", "").strip() or "./runtime/out/chunks.jsonl"
+
+    controls_env = os.getenv("LOCAL_CONTROLS_JSONL_PATH", "").strip()
+    if controls_env:
+        return evidence_path, controls_env
+
+    workspace_controls = Path("./parsed-controls")
+    if workspace_controls.exists():
+        return evidence_path, str(workspace_controls)
+
+    return evidence_path, "/app/parsed-controls"
+
+
 def _load_local_jsonl_documents(path_value: str, *, controls_mode: bool) -> list[dict[str, Any]]:
     """Load JSONL documents from local file(s) for in-memory or Qdrant indexing.
 
@@ -134,8 +155,7 @@ def load_local_documents_if_needed(
     if provider not in {"local", "dev"}:
         return
 
-    local_evidence_path = os.getenv("LOCAL_EVIDENCE_JSONL_PATH", "./runtime/out/chunks.jsonl")
-    local_controls_path = os.getenv("LOCAL_CONTROLS_JSONL_PATH", "/app/parsed-controls")
+    local_evidence_path, local_controls_path = _resolve_local_jsonl_paths()
 
     try:
         # Both LocalInMemorySearchClient and LocalQdrantSearchClient define load_documents()

@@ -130,13 +130,41 @@ The query web application runs fully offline against local JSONL data, Ollama, a
 ```bash
 cd runtime
 source .venv/bin/activate
-python -m ingestion.runner --mode local --input-dir ./samples --output-jsonl ./out/chunks.jsonl
+python -m ingestion.runner --mode local --input-dir ./samples/evidence --output-jsonl ./out/chunks.jsonl
 cd ..
 ```
 
+For clean Corpus B local evidence, keep framework source reference files (for example CIS/PCI/AESCSF control parser inputs) out of the local evidence input directory. If framework source files are present in `runtime/samples`, they will be chunked into `runtime/out/chunks.jsonl` and appear under Corpus B listings.
+
+Recommended local split:
+- `runtime/samples/evidence/` for Corpus B/C evidence files used by local chunk generation
+- `runtime/samples/` root (or framework-specific subfolders) for Corpus A parser source references only
+
 If no evidence files are available yet, the app and seeder will start with an empty evidence index and log a warning — queries will simply return no grounding documents until the index is populated.
 
-Control data (`parsed-controls/`) is already present in the repository and does not require a generation step.
+Control data (`parsed-controls/`) is not committed to the repository and must be generated before starting the local stack. Run the controls runner once from the repo root:
+
+```bash
+cd runtime
+source .venv/bin/activate
+
+# Generate all frameworks that fetch their source data automatically
+python3 -m ingestion.controls_runner --mode parse --framework essential_eight
+python3 -m ingestion.controls_runner --mode parse --framework aescsf
+python3 -m ingestion.controls_runner --mode parse --framework ism
+python3 -m ingestion.controls_runner --mode parse --framework nist_csf
+python3 -m ingestion.controls_runner --mode parse --framework pspf
+
+cd ..
+```
+
+> **Note:** CIS Controls and PCI DSS cannot be fetched automatically due to licensing restrictions. They require operator-supplied source files staged in `runtime/samples/` before parsing:
+> - CIS Controls: stage the CIS Controls v8 XLSX and PDF files (see [runtime/README.md](runtime/README.md) for required filenames)
+> - PCI DSS: stage `PCI-DSS-v4_0_1.pdf` in `runtime/samples/`
+>
+> Once staged, run `python3 -m ingestion.controls_runner --mode parse --framework cis_controls` and `python3 -m ingestion.controls_runner --mode parse --framework pci_dss` respectively.
+
+If no control files are available yet, the app will start with an empty controls index — compliance queries will return no grounding documents until the index is populated.
 
 ### Option A — In-memory search (fastest, IDE-friendly)
 
@@ -150,19 +178,23 @@ python3 -m pip install -r requirements-dev.txt
 
 # Pull Ollama models once
 ollama pull nomic-embed-text
-ollama pull llama3.2
+ollama pull gemma3:27b
 
 # Set environment and start the app
 CLOUD_PROVIDER=local \
 LOCAL_VECTOR_BACKEND=inmemory \
 LOCAL_EVIDENCE_JSONL_PATH=./runtime/out/chunks.jsonl \
 LOCAL_CONTROLS_JSONL_PATH=./parsed-controls \
+PRECEDENCE_POLICY_PATH=./query_web/policies/precedence_policy.json \
 OLLAMA_BASE_URL=http://localhost:11434 \
+OLLAMA_MODEL=gemma3:27b \
 QUERY_WEB_AUTH_TOKEN='' \
-uvicorn query_web.app:app --port 8080 --reload
+uvicorn query_web.app:app --host 0.0.0.0 --port 8080 --reload
 ```
 
 Open [http://localhost:8080](http://localhost:8080).
+
+> **Dev container / WSL users:** uvicorn must bind to `0.0.0.0` (included above) to be reachable from the Windows host. In VS Code, use the **Ports** panel and open the **Forwarded Address** for the active (green) forwarded entry. The host port is often remapped (for example container port `8080` may appear as `127.0.0.1:44500`), so do not assume `localhost:8080`. If no forwarded entry appears, use the Command Palette → **Forward a Port** → `8080`.
 
 ### Option B — Qdrant vector search (higher-fidelity local retrieval)
 
@@ -176,20 +208,26 @@ docker run -d -p 6333:6333 --name rag-qdrant qdrant/qdrant
 CLOUD_PROVIDER=local \
 LOCAL_EVIDENCE_JSONL_PATH=./runtime/out/chunks.jsonl \
 LOCAL_CONTROLS_JSONL_PATH=./parsed-controls \
-QDRANT_URL=http://localhost:6333 \
-OLLAMA_BASE_URL=http://localhost:11434 \
+QDRANT_URL=http://host.docker.internal:6333 \
+OLLAMA_BASE_URL=http://host.docker.internal:11434 \
 python ops/scripts/seed_local.py
 
 # Check indexed counts
+LOCAL_EVIDENCE_JSONL_PATH=./runtime/out/chunks.jsonl \
+LOCAL_CONTROLS_JSONL_PATH=./parsed-controls \
+QDRANT_URL=http://host.docker.internal:6333 \
+OLLAMA_BASE_URL=http://host.docker.internal:11434 \
 python ops/scripts/seed_local.py --check
 
 # Start the app
 CLOUD_PROVIDER=local \
 LOCAL_VECTOR_BACKEND=qdrant \
-QDRANT_URL=http://localhost:6333 \
-OLLAMA_BASE_URL=http://localhost:11434 \
+QDRANT_URL=http://host.docker.internal:6333 \
+PRECEDENCE_POLICY_PATH=./query_web/policies/precedence_policy.json \
+OLLAMA_BASE_URL=http://host.docker.internal:11434 \
+OLLAMA_MODEL=gemma3:27b \
 QUERY_WEB_AUTH_TOKEN='' \
-uvicorn query_web.app:app --port 8080 --reload
+uvicorn query_web.app:app --host 0.0.0.0 --port 8080 --reload
 ```
 
 Seeder options: `--force` (re-seed even if populated), `--evidence-only`, `--controls-only`.
@@ -204,6 +242,9 @@ cp .env.local.example .env.local
 
 # Build and start (model pull + seeding run automatically before query-web starts)
 docker compose -f docker-compose.local.yml --env-file .env.local up --build
+
+# Run local Ask end-to-end smoke test
+./ops/scripts/smoke-local-ask.sh
 ```
 
 Model names (`OLLAMA_MODEL`, `OLLAMA_EMBEDDING_MODEL`) are read from `.env.local` and used consistently by the model-puller, seeder, and query-web services. Change them in one place only.

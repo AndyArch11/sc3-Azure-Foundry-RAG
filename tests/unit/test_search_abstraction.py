@@ -141,6 +141,16 @@ class TestLocalInMemorySearchClient:
         results = client.search(query_text="patch management", top=5)
         assert len(results) == 1
 
+    def test_natural_language_query_matches_key_terms(self) -> None:
+        docs = [
+            {"content": "AESCSF includes guidance for backup and recovery controls."},
+            {"content": "Unrelated endpoint hardening text."},
+        ]
+        client = self._client(docs)
+        results = client.search(query_text="What are the policies on backups for AESCSF?", top=5)
+        assert len(results) == 1
+        assert "AESCSF" in results[0]["content"]
+
 
 # ---------------------------------------------------------------------------
 # AzureSearchClient – mocked interactions

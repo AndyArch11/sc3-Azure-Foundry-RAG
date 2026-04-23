@@ -144,9 +144,22 @@ def test_home_template_context_has_expected_keys():
         "max_completion_tokens",
         "index_name",
         "query_deployment",
+        "query_model_display",
         "auth_enabled",
     ):
         assert key in context, f"Missing context key: {key}"
+
+
+def test_home_query_model_display_uses_ollama_model_in_local_mode(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("CLOUD_PROVIDER", "local")
+    monkeypatch.setenv("OLLAMA_MODEL", "gemma3:27b")
+
+    _, home, tpl = _app_with_home(is_authorised=True, config=_make_config(query_deployment="gpt-4"))
+    home(_make_request())
+    context = tpl.TemplateResponse.call_args[0][2]
+    assert context["query_model_display"] == "gemma3:27b"
 
 
 def test_home_context_retrieve_k_matches_config():

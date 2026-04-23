@@ -267,21 +267,24 @@ controls_search_client = get_search_client(
 # Load local JSONL documents if running in local/dev mode
 load_local_documents_if_needed(search_client, controls_search_client)
 
-# Initialise CosmosDB client
+# Initialise CosmosDB client — skipped in local mode (no endpoint configured)
 cosmos_db = None
-try:
-    from azure.cosmos import CosmosClient
-
-    cosmos_client = CosmosClient(url=config.cosmos_endpoint, credential=credential)
-    cosmos_db = cosmos_client.get_database_client(config.cosmos_database_name)
-    conversations_container = cosmos_db.get_container_client(config.cosmos_container_name)
-except (ImportError, Exception) as exc:
-    # If CosmosDB is unavailable, continue with in-memory conversation tracking
+if not config.cosmos_endpoint:
     cosmos_client = None  # type: ignore[assignment]
     conversations_container = None  # type: ignore[assignment]
-    import logging
+    logger.info("CosmosDB not configured — running without conversation persistence (local mode).")
+else:
+    try:
+        from azure.cosmos import CosmosClient
 
-    logging.warning(f"CosmosDB unavailable: {exc}. Conversations will not be persisted.")
+        cosmos_client = CosmosClient(url=config.cosmos_endpoint, credential=credential)
+        cosmos_db = cosmos_client.get_database_client(config.cosmos_database_name)
+        conversations_container = cosmos_db.get_container_client(config.cosmos_container_name)
+    except (ImportError, Exception) as exc:
+        # If CosmosDB is unavailable, continue with in-memory conversation tracking
+        cosmos_client = None  # type: ignore[assignment]
+        conversations_container = None  # type: ignore[assignment]
+        logger.warning(f"CosmosDB unavailable: {exc}. Conversations will not be persisted.")
 
 orchestration_state_container = None
 confluence_poll_state_store = None

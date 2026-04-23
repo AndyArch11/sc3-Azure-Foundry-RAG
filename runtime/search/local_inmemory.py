@@ -2,7 +2,44 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+
+_LOCAL_QUERY_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "how",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "the",
+    "to",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "why",
+    "with",
+}
+
+
+def _query_tokens(query: str) -> list[str]:
+    """Extract meaningful query terms for local substring-style ranking."""
+    tokens = re.findall(r"[a-z0-9][a-z0-9_-]{1,}", query.lower())
+    return [tok for tok in tokens if tok not in _LOCAL_QUERY_STOPWORDS and len(tok) >= 3]
 
 
 class _SearchResults(list[dict[str, Any]]):
@@ -58,11 +95,22 @@ class LocalInMemorySearchClient:
             matched = list(self._docs)
         else:
             query_lower = effective_query.lower()
-            matched = []
+            tokens = _query_tokens(query_lower)
+            scored: list[tuple[int, dict[str, Any]]] = []
             for doc in self._docs:
                 text_blob = " ".join(str(v) for v in doc.values()).lower()
-                if query_lower in text_blob:
-                    matched.append(doc)
+                if query_lower and query_lower in text_blob:
+                    score = 10_000
+                elif tokens:
+                    score = sum(1 for token in tokens if token in text_blob)
+                else:
+                    score = 0
+
+                if score > 0:
+                    scored.append((score, doc))
+
+            scored.sort(key=lambda item: item[0], reverse=True)
+            matched = [doc for _, doc in scored]
 
         # Basic subset of OData filtering used in this repo.
         if filters:

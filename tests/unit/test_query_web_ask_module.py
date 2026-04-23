@@ -204,6 +204,30 @@ def test_ask_post_exception_returns_internal_error() -> None:
     assert body["answer"] == ""
 
 
+def test_ask_post_context_query_model_display_uses_ollama_model_in_local_mode(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CLOUD_PROVIDER", "local")
+    monkeypatch.setenv("OLLAMA_MODEL", "gemma3:27b")
+
+    svc = _make_svc()
+    client = _make_client(svc)
+
+    response = client.post(
+        "/ask",
+        data={
+            "question": "q",
+            "retrieve_k": "1",
+            "temperature": "0.2",
+            "auth_token": "ok",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["query_model_display"] == "gemma3:27b"
+
+
 def test_api_ask_empty_question_returns_validation_error_payload() -> None:
     svc = _make_svc()
     client = _make_client(svc)

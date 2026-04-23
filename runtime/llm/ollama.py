@@ -56,6 +56,7 @@ class OllamaLLMClient:
             messages,
             model=self._model,
             base_url=self._base_url,
+            force_json=False,
         )
 
     def _echo(self, messages: list[dict[str, str]]) -> str:

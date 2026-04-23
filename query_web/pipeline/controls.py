@@ -239,9 +239,20 @@ def _preferred_framework_for_question(question: str, svc: Any) -> str | None:
 
 def _precedence_policy_summary(svc: Any) -> str:
     order = " > ".join(svc.precedence_policy.default_framework_order)
+    default_fw = getattr(svc.precedence_policy, "default_framework", "") or (
+        svc.precedence_policy.default_framework_order[0]
+        if svc.precedence_policy.default_framework_order
+        else ""
+    )
+    governing_line = (
+        f"Governing framework (default, unless a specific rule below applies): {default_fw}\n"
+        if default_fw
+        else ""
+    )
     if not svc.precedence_policy.rules:
         return (
             f"Policy version: {svc.precedence_policy.version}\n"
+            f"{governing_line}"
             f"Default framework precedence: {order}"
         )
 
@@ -258,8 +269,10 @@ def _precedence_policy_summary(svc: Any) -> str:
 
     return (
         f"Policy version: {svc.precedence_policy.version}\n"
+        f"{governing_line}"
         f"Default framework precedence: {order}\n"
-        "Specific precedence rules:\n" + "\n".join(rule_lines)
+        "Specific precedence rules (override the default only for the described topics):\n"
+        + "\n".join(rule_lines)
     )
 
 

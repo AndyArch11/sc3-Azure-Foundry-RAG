@@ -55,6 +55,10 @@ def _env(key: str, default: str) -> str:
 QDRANT_URL = _env("QDRANT_URL", "http://localhost:6333")
 OLLAMA_BASE_URL = _env("OLLAMA_BASE_URL", "http://localhost:11434")
 EMBEDDING_MODEL = _env("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+EMBED_TIMEOUT_SECONDS = int(_env("OLLAMA_EMBED_TIMEOUT_SECONDS", "90"))
+EMBED_MAX_RETRIES = int(_env("OLLAMA_EMBED_MAX_RETRIES", "6"))
+EMBED_BACKOFF_SECONDS = float(_env("OLLAMA_EMBED_BACKOFF_SECONDS", "1.5"))
+EMBED_MIN_CHARS = int(_env("OLLAMA_EMBED_MIN_CHARS", "1000"))
 EVIDENCE_INDEX = _env("EVIDENCE_INDEX", "grounding-index")
 CONTROLS_INDEX = _env("CONTROLS_INDEX", "controls-index")
 EVIDENCE_PATH = _env("LOCAL_EVIDENCE_JSONL_PATH", "./runtime/out/chunks.jsonl")
@@ -173,18 +177,59 @@ def _normalise_controls(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 def _embed_text(text: str) -> list[float]:
-    response = requests.post(
-        f"{OLLAMA_BASE_URL}/api/embeddings",
-        json={"model": EMBEDDING_MODEL, "prompt": text},
-        timeout=60,
-    )
-    response.raise_for_status()
-    body = response.json()
-    if isinstance(body.get("embedding"), list):
-        return [float(v) for v in body["embedding"]]
-    if isinstance(body.get("embeddings"), list) and body["embeddings"]:
-        return [float(v) for v in body["embeddings"][0]]
-    raise RuntimeError(f"Unexpected embedding response: {list(body.keys())}")
+    current_text = text
+    while True:
+        for attempt in range(1, EMBED_MAX_RETRIES + 1):
+            try:
+                response = requests.post(
+                    f"{OLLAMA_BASE_URL}/api/embeddings",
+                    json={"model": EMBEDDING_MODEL, "prompt": current_text},
+                    timeout=EMBED_TIMEOUT_SECONDS,
+                )
+                response.raise_for_status()
+                body = response.json()
+                if isinstance(body.get("embedding"), list):
+                    return [float(v) for v in body["embedding"]]
+                if isinstance(body.get("embeddings"), list) and body["embeddings"]:
+                    return [float(v) for v in body["embeddings"][0]]
+                raise RuntimeError(f"Unexpected embedding response: {list(body.keys())}")
+            except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
+                status_code = getattr(getattr(exc, "response", None), "status_code", None)
+                response_text = getattr(getattr(exc, "response", None), "text", "") or ""
+                context_too_long = (
+                    status_code == 500
+                    and "context length" in response_text.lower()
+                )
+
+                if context_too_long:
+                    break
+
+                is_retryable_http = status_code is not None and status_code >= 500
+                is_retryable = is_retryable_http or isinstance(exc, (requests.Timeout, requests.ConnectionError))
+                if not is_retryable or attempt >= EMBED_MAX_RETRIES:
+                    raise
+                delay = EMBED_BACKOFF_SECONDS * (2 ** (attempt - 1))
+                logger.warning(
+                    "Embedding call failed (attempt %d/%d, status=%s). Retrying in %.1fs ...",
+                    attempt,
+                    EMBED_MAX_RETRIES,
+                    status_code,
+                    delay,
+                )
+                time.sleep(delay)
+
+        if len(current_text) <= EMBED_MIN_CHARS:
+            raise RuntimeError("Embedding input exceeds model context window and cannot be reduced further")
+
+        new_len = max(EMBED_MIN_CHARS, int(len(current_text) * 0.75))
+        logger.warning(
+            "Embedding input exceeded context window (%d chars). Retrying with truncated input (%d chars).",
+            len(current_text),
+            new_len,
+        )
+        current_text = current_text[:new_len]
+
+    raise RuntimeError("Embedding request retries exhausted")
 
 
 def _text_for_embedding(doc: dict[str, Any]) -> str:
@@ -210,7 +255,16 @@ def _collection_count(collection: str) -> int | None:
             return None
         r.raise_for_status()
         info = r.json()
-        return info.get("result", {}).get("vectors_count", 0)
+        result = info.get("result", {})
+
+        # Qdrant versions expose different count fields. Prefer the modern
+        # points_count, then fallback to vectors_count for compatibility.
+        for key in ("points_count", "vectors_count", "indexed_vectors_count"):
+            value = result.get(key)
+            if isinstance(value, int):
+                return value
+
+        return 0
     except Exception as exc:
         logger.warning("Could not read collection %s: %s", collection, exc)
         return None

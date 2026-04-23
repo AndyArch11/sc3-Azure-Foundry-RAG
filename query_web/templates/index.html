@@ -73,19 +73,19 @@
           <div class="grid" id="ask-advanced-fields" {% if not advanced_mode %}style="display:none"{% endif %}>
             <div class="field">
               <label for="retrieve_k">Top K chunks</label>
-              <input id="retrieve_k" name="retrieve_k" type="number" min="1" max="20" value="{{ retrieve_k }}" title="Number of top chunks retrieved from the grounding index for each query." />
+              <input id="retrieve_k" name="retrieve_k" type="number" min="1" max="20" value="{{ retrieve_k }}" title="Number of top chunks retrieved from the grounding index for each query. Accepted range: 1–20." />
             </div>
             <div class="field">
               <label for="temperature">Temperature</label>
-              <input id="temperature" name="temperature" type="number" min="0" max="1" step="0.05" value="{{ temperature }}" title="Model sampling temperature for answer generation; higher values are more variable." />
+              <input id="temperature" name="temperature" type="number" min="0" max="1" step="0.05" value="{{ temperature }}" title="Model sampling temperature for answer generation; higher values are more variable. Accepted range: 0–1, step 0.05." />
             </div>
             <div class="field">
               <label for="max_completion_tokens">Query max tokens</label>
-              <input id="max_completion_tokens" name="max_completion_tokens" type="number" min="256" max="8192" step="1" value="{{ max_completion_tokens }}" title="Maximum completion tokens for answer generation in this request only." />
+              <input id="max_completion_tokens" name="max_completion_tokens" type="number" min="256" max="8192" step="1" value="{{ max_completion_tokens }}" title="Maximum completion tokens for answer generation in this request only. Accepted range: 256–8192." />
             </div>
             <div class="field">
               <label for="evaluator_max_completion_tokens">Evaluator max tokens</label>
-              <input id="evaluator_max_completion_tokens" name="evaluator_max_completion_tokens" type="number" min="128" max="4096" step="1" value="{{ evaluator_max_completion_tokens }}" title="Maximum completion tokens for evaluator scoring in this request only." />
+              <input id="evaluator_max_completion_tokens" name="evaluator_max_completion_tokens" type="number" min="128" max="4096" step="1" value="{{ evaluator_max_completion_tokens }}" title="Maximum completion tokens for evaluator scoring in this request only. Accepted range: 128–4096." />
             </div>
             <div class="field">
               <label for="controls_semantic">Controls ranking</label>
@@ -136,6 +136,13 @@
 
         {% if error %}
         <p style="color:#b91c1c"><strong>Error:</strong> {{ error }}</p>
+        {% endif %}
+
+        {% if answer %}
+        <div class="source" id="latest-answer-fallback">
+          <h3>{% if session_id %}Latest Answer{% else %}Answer{% endif %}</h3>
+          <div class="answer" id="answer-md" data-raw="{{ answer | e }}"></div>
+        </div>
         {% endif %}
 
         {% if advanced_mode and evaluation %}
@@ -230,14 +237,7 @@
         </div>
         {% endif %}
 
-        {% if answer %}
-        <div class="source" id="latest-answer-fallback">
-          <h3>{% if session_id %}Latest Answer{% else %}Answer{% endif %}</h3>
-          <div class="answer" id="answer-md" data-raw="{{ answer | e }}"></div>
-        </div>
-        {% endif %}
-
-        <p class="muted" style="margin-top:14px">Index: <code>{{ index_name }}</code> | Embedding: <code>{{ embedding_deployment }}</code> | Query: <code>{{ query_deployment }}</code> | Threshold: <code>{{ evaluation_threshold }}</code></p>
+        <p class="muted" style="margin-top:14px">Index: <code>{{ index_name }}</code> | Embedding: <code>{{ embedding_deployment }}</code> | Query: <code>{{ query_model_display or query_deployment }}</code> | Threshold: <code>{{ evaluation_threshold }}</code></p>
 
         </div><!-- /ask-results-section -->
       </div>
@@ -252,15 +252,15 @@
           <div class="grid">
             <div class="field">
               <label for="cr-retrieve-k">Top K chunks</label>
-              <input id="cr-retrieve-k" type="number" min="1" max="20" value="5" title="Top chunk count retrieved from Corpus B and Corpus C for report evidence." />
+              <input id="cr-retrieve-k" type="number" min="1" max="20" value="5" title="Top chunk count retrieved from Corpus B and Corpus C for report evidence. Accepted range: 1–20." />
             </div>
             <div class="field">
               <label for="cr-controls-top-k">Controls top-k</label>
-              <input id="cr-controls-top-k" type="number" min="1" max="2000" value="4" title="Number of Corpus A control requirements to include in report assessment." />
+              <input id="cr-controls-top-k" type="number" min="1" max="2000" value="4" title="Number of Corpus A control requirements to include in report assessment. Accepted range: 1–2000." />
             </div>
             <div class="field">
               <label for="cr-temperature">Temperature</label>
-              <input id="cr-temperature" type="number" min="0" max="1" step="0.05" value="1" title="Model sampling temperature used when generating report content." />
+              <input id="cr-temperature" type="number" min="0" max="1" step="0.05" value="1" title="Model sampling temperature used when generating report content. Accepted range: 0–1, step 0.05." />
             </div>
             <div class="field">
               <label for="cr-controls-framework">Controls framework</label>
@@ -342,11 +342,11 @@
             </div>
             <div class="field">
               <label for="az-controls-top-k">Controls top-k</label>
-              <input id="az-controls-top-k" type="number" min="1" max="2000" value="4" title="Number of control requirements to assess for the selected framework." />
+              <input id="az-controls-top-k" type="number" min="1" max="2000" value="4" title="Number of control requirements to assess for the selected framework. Accepted range: 1–2000." />
             </div>
             <div class="field">
               <label for="az-temperature">Temperature</label>
-              <input id="az-temperature" type="number" min="0" max="1" step="0.05" value="1" title="Model sampling temperature used while generating Azure assessment narrative." />
+              <input id="az-temperature" type="number" min="0" max="1" step="0.05" value="1" title="Model sampling temperature used while generating Azure assessment narrative. Accepted range: 0–1, step 0.05." />
             </div>
             <div class="field">
               <label for="az-validation-mode">Schema validation mode</label>
@@ -375,7 +375,7 @@
           <div class="ops-row" style="align-items:flex-end">
             <div class="field" style="margin:0">
               <label for="cf-since-hours">Look-back period (hours)</label>
-              <input id="cf-since-hours" type="number" min="1" max="720" value="24" style="width:90px" title="Report assessed Confluence pages from the last N hours." />
+              <input id="cf-since-hours" type="number" min="1" max="720" value="24" style="width:90px" title="Report assessed Confluence pages from the last N hours. Accepted range: 1–720." />
             </div>
             <button type="button" class="btn-secondary" onclick="refreshConfluencePollStatus()" title="Refresh Confluence poll status and recent assessment results." style="margin-top:0">Refresh</button>
           </div>

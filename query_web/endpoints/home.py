@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastapi import Request
@@ -19,6 +20,12 @@ def register_home_endpoints(
     branding_ctx: Any | None = None,
 ) -> None:
     """Register home page endpoints."""
+
+    def _query_model_display(resolved_config: Any) -> str:
+        provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower()
+        if provider in {"local", "dev"}:
+            return os.getenv("OLLAMA_MODEL", "llama3").strip() or "llama3"
+        return str(getattr(resolved_config, "query_deployment", "")).strip()
 
     def _dep(name: str, value: Any) -> Any:
         if value is not None:
@@ -82,6 +89,7 @@ def register_home_endpoints(
                 "index_name": resolved_config.search_index_name,
                 "embedding_deployment": resolved_config.embedding_deployment,
                 "query_deployment": resolved_config.query_deployment,
+                "query_model_display": _query_model_display(resolved_config),
                 "evaluation_threshold": resolved_config.evaluation_threshold,
                 "auth_enabled": bool(resolved_config.auth_token),
                 "user_id": "",

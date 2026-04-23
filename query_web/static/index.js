@@ -563,7 +563,8 @@
         const hintEl = document.getElementById('cr-corpus-c-availability');
         const generateBtn = document.getElementById('cr-generate-btn');
         const hasCorpusC = typeof cTotal === 'number' && cTotal > 0;
-        if (generateBtn) generateBtn.disabled = !hasCorpusC;
+        const _crBtns = document.querySelectorAll('#compliance-report-ops .ops-row button');
+        _crBtns.forEach(b => { b.disabled = !hasCorpusC; });
         if (hintEl) {
           if (cTotal === null) {
             hintEl.textContent = 'Unable to determine Corpus C availability right now.';

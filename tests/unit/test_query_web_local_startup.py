@@ -279,3 +279,28 @@ def test_load_documents_handles_exception_gracefully(monkeypatch: pytest.MonkeyP
 
     # Should warn and not propagate
     load_local_documents_if_needed(_BrokenClient(), _BrokenClient())  # type: ignore[arg-type]
+
+
+def test_load_documents_uses_workspace_parsed_controls_when_env_unset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    evidence_file = tmp_path / "chunks.jsonl"
+    evidence_file.write_text(json.dumps({"content": "evidence"}) + "\n")
+
+    parsed_controls = tmp_path / "parsed-controls"
+    parsed_controls.mkdir()
+    (parsed_controls / "controls.jsonl").write_text(
+        json.dumps({"requirement_text": "control text", "framework": "ISM"}) + "\n"
+    )
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CLOUD_PROVIDER", "local")
+    monkeypatch.setenv("LOCAL_EVIDENCE_JSONL_PATH", str(evidence_file))
+    monkeypatch.delenv("LOCAL_CONTROLS_JSONL_PATH", raising=False)
+
+    sc = _FakeSearchClient()
+    cc = _FakeSearchClient()
+    load_local_documents_if_needed(sc, cc)  # type: ignore[arg-type]
+
+    assert len(cc.loaded) == 1
+    assert cc.loaded[0][0]["requirement_text"] == "control text"

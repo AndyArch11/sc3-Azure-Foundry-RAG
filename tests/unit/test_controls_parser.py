@@ -832,6 +832,11 @@ class TestPciDssParser:
         for rec in records:
             assert not rec.requirement_text.lower().startswith("examine")
 
+        rec_1_1_1 = next(r for r in records if r.requirement_id == "PCIDSS-1_1_1")
+        rec_1_2_1 = next(r for r in records if r.requirement_id == "PCIDSS-1_2_1")
+        assert "Examine documentation and interview personnel" not in rec_1_1_1.requirement_text
+        assert "Examine the configuration standards" not in rec_1_2_1.requirement_text
+
     def test_requirement_fields(self, tmp_path: Path):
         pdf_path = tmp_path / "pci.pdf"
         pdf_path.write_bytes(b"placeholder")
