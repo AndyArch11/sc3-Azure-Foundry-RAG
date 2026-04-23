@@ -8,6 +8,7 @@ from runtime.assessment_orchestration.polling_worker import (
     _process_assessment_event,
     _requested_frameworks_for_event,
     _requested_frameworks_from_text,
+    create_cosmos_state_store_from_env,
     run_poll_cycle,
 )
 from runtime.assessment_orchestration.state_store import InMemoryPollingStateStore
@@ -104,6 +105,29 @@ class _PostingServer(_FakeServer):
 class _LeaseRejectedStateStore(InMemoryPollingStateStore):
     def try_acquire_lease(self, source: str, *, owner_run_id: str, ttl_seconds: int) -> bool:
         return False
+
+
+def test_create_cosmos_state_store_from_env_uses_sqlite_for_local_provider(
+    tmp_path,
+) -> None:
+    db_path = tmp_path / "poller-local.db"
+    store = create_cosmos_state_store_from_env(
+        {
+            "CLOUD_PROVIDER": "local",
+            "LOCAL_STATE_DB_PATH": str(db_path),
+        }
+    )
+
+    assert store.__class__.__name__ == "SqlitePollingStateStore"
+
+
+def test_create_cosmos_state_store_from_env_requires_cosmos_for_azure() -> None:
+    try:
+        create_cosmos_state_store_from_env({"CLOUD_PROVIDER": "azure"})
+    except ValueError as exc:
+        assert "AZURE_COSMOS_ENDPOINT" in str(exc)
+    else:
+        raise AssertionError("expected ValueError when Azure Cosmos configuration is missing")
 
 
 def test_run_poll_cycle_orders_by_occurred_at_then_title_then_event_id() -> None:

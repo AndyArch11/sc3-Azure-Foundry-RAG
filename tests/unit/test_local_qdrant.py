@@ -464,3 +464,31 @@ def test_load_documents_deletes_existing_collection():
 
     mock_qdrant.delete_collection.assert_called_once_with("test-index")
     mock_qdrant.create_collection.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# delete_documents
+# ---------------------------------------------------------------------------
+
+
+def test_delete_documents_removes_matching_docs_from_local_cache():
+    docs = [
+        {"id": "a", "content": "alpha", "corpus": "b"},
+        {"id": "b", "content": "beta", "corpus": "b"},
+    ]
+    client, _ = _make_client(docs=docs)
+
+    client.delete_documents(documents=[{"id": "a"}])
+
+    assert len(client._docs) == 1
+    assert client._docs[0]["id"] == "b"
+
+
+def test_delete_documents_noop_when_selector_empty():
+    docs = [{"id": "a", "content": "alpha"}]
+    client, _ = _make_client(docs=docs)
+
+    client.delete_documents(documents=[{}])
+
+    assert len(client._docs) == 1
+    assert client._docs[0]["id"] == "a"

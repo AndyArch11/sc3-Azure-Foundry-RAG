@@ -575,3 +575,35 @@ def test_upload_corpus_files_empty_file_skipped() -> None:
     )
     assert len(result["uploaded"]) == 0
     assert len(result["skipped"]) == 1
+
+
+def test_upload_corpus_files_local_mode_indexes_without_storage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = _make_svc(storage_account="")
+    svc.search_client = SimpleNamespace(_docs=[], load_documents=Mock())
+    service = IngestionService(svc)
+    monkeypatch.setenv("CLOUD_PROVIDER", "local")
+
+    file = _make_upload_file("local.pdf", b"local content")
+    fake_doc = SimpleNamespace(source_path="local.pdf", source_type="pdf", text="local content")
+    fake_chunk = SimpleNamespace(
+        chunk_id="chunk-1",
+        source_path="local.pdf",
+        source_type="pdf",
+        chunk_index=0,
+        content="local content",
+    )
+
+    with (
+        patch("runtime.ingestion.extractors.extract_source_document", return_value=fake_doc),
+        patch("runtime.ingestion.chunking.chunk_document", return_value=[fake_chunk]),
+    ):
+        result = service.upload_corpus_files(
+            [file], "user1", corpus="b", corpus_role="narrative_guidance"
+        )
+
+    assert result["local_indexed"] is True
+    assert len(result["uploaded"]) == 1
+    assert result["uploaded"][0]["local_documents"] == 1
+    svc.search_client.load_documents.assert_called_once()

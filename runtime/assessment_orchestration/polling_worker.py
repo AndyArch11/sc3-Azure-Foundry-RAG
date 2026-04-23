@@ -9,6 +9,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from html import escape
+from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from azure.identity import DefaultAzureCredential
@@ -836,9 +837,37 @@ def run_forever(
 
 def create_cosmos_state_store_from_env(
     env: dict[str, str] | None = None,
-) -> CosmosPollingStateStore:
-    """Run create cosmos state store from env."""
+) -> PollingStateStore:
+    """Create a poller state store from environment settings.
+
+    Modes:
+    - local/dev: SQLite-backed state using LOCAL_STATE_DB_PATH when set,
+      otherwise defaults to runtime/out/local_state.db.
+    - azure/default: Cosmos-backed state (requires endpoint + database).
+    """
     values = dict(os.environ) if env is None else dict(env)
+    provider = str(values.get("CLOUD_PROVIDER") or "azure").strip().lower()
+
+    if provider in {"local", "dev"}:
+        from .sqlite_state_store import SqlitePollingStateStore
+
+        default_local_path = str(
+            (Path(__file__).resolve().parent.parent.parent / "runtime" / "out" / "local_state.db")
+        )
+        db_path = str(values.get("LOCAL_STATE_DB_PATH") or "").strip() or default_local_path
+        try:
+            return SqlitePollingStateStore(db_path)
+        except Exception as exc:
+            if db_path != default_local_path:
+                logging.warning(
+                    "Local poller state path %s unavailable (%s); falling back to %s",
+                    db_path,
+                    exc,
+                    default_local_path,
+                )
+                return SqlitePollingStateStore(default_local_path)
+            raise
+
     endpoint = str(values.get("AZURE_COSMOS_ENDPOINT") or "").strip()
     database_name = str(values.get("AZURE_COSMOS_DATABASE_NAME") or "").strip()
     container_name = str(

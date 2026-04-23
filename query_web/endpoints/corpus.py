@@ -140,12 +140,13 @@ def register_corpus_endpoints(
                 and not upload_result["uploaded"]
                 and bool(upload_result["skipped"])
             )
+            local_indexed = bool(upload_result.get("local_indexed"))
             if should_trigger_for_reindex:
                 dedupe_hashes = svc._extract_dedupe_hashes(upload_result["skipped"])
                 reindex_touch = svc._mark_dedupe_blobs_for_reindex(
                     "b", dedupe_hashes, user_id=user_id
                 )
-            if trigger_job and (upload_result["uploaded"] or should_trigger_for_reindex):
+            if trigger_job and not local_indexed and (upload_result["uploaded"] or should_trigger_for_reindex):
                 try:
                     trigger_result = svc._trigger_ingestion_job_with_args(
                         [
@@ -211,6 +212,8 @@ def register_corpus_endpoints(
                     "indexing_notice": (
                         "Ingestion runs asynchronously. Indexed counts can remain unchanged "
                         "until the job reaches Succeeded."
+                        if not local_indexed
+                        else "Local mode indexed uploaded chunks directly; no Azure ingestion job was started."
                     ),
                     "message": message,
                 },
@@ -268,12 +271,13 @@ def register_corpus_endpoints(
                 and not upload_result["uploaded"]
                 and bool(upload_result["skipped"])
             )
+            local_indexed = bool(upload_result.get("local_indexed"))
             if should_trigger_for_reindex:
                 dedupe_hashes = svc._extract_dedupe_hashes(upload_result["skipped"])
                 reindex_touch = svc._mark_dedupe_blobs_for_reindex(
                     "c", dedupe_hashes, user_id=user_id
                 )
-            if trigger_job and (upload_result["uploaded"] or should_trigger_for_reindex):
+            if trigger_job and not local_indexed and (upload_result["uploaded"] or should_trigger_for_reindex):
                 try:
                     trigger_result = svc._trigger_ingestion_job_with_args(
                         [
@@ -339,6 +343,8 @@ def register_corpus_endpoints(
                     "indexing_notice": (
                         "Ingestion runs asynchronously. Indexed counts can remain unchanged "
                         "until the job reaches Succeeded."
+                        if not local_indexed
+                        else "Local mode indexed uploaded chunks directly; no Azure ingestion job was started."
                     ),
                     "message": message,
                 },

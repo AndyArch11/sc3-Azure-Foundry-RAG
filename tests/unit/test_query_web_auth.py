@@ -318,6 +318,77 @@ def test_confluence_poll_status_falls_back_to_poll_state_when_summary_missing() 
     assert body["last_poll"]["poll_count"] == 5
 
 
+def test_confluence_poll_status_reads_local_sqlite_store_written_by_poller() -> None:
+    """End-to-end: poller writes to SQLite; query-web reads the same store via the API.
+
+    This exercises the full shared-state path used when running locally:
+    the Confluence poller writes upsert_poll_run_summary / upsert_page_assessment
+    into a SQLite db, and query-web reads it back through /api/confluence/poll-status.
+    """
+    from runtime.assessment_orchestration.sqlite_state_store import SqlitePollingStateStore
+
+    store = SqlitePollingStateStore(":memory:")
+
+    # Simulate one completed poller cycle writing into the shared store.
+    polled_at = "2026-04-23T10:00:00+00:00"
+    store.upsert_poll_run_summary(
+        "confluence",
+        polled_at=polled_at,
+        since_iso="2026-04-23T09:00:00+00:00",
+        watermark=polled_at,
+        mentions_found=2,
+        jobs_queued=2,
+        terminal_failures=0,
+        error_message="",
+        space_keys=("SEC", "GRC"),
+    )
+    store.upsert_page_assessment(
+        "confluence",
+        target_id="page-1",
+        framework_scope="Essential Eight",
+        title="Security Policy",
+        target_url="https://example.atlassian.net/wiki/pages/page-1",
+        space_key="SEC",
+        status="assessed",
+        overall_risk="medium",
+        findings_count=3,
+        assessed_at=polled_at,
+        page_version="5",
+    )
+
+    client = TestClient(app_module.app)
+    patched_config = replace(app_module.config, required_group_object_id="", auth_token="")
+
+    with (
+        patch.object(app_module, "config", patched_config),
+        patch.object(app_module, "confluence_poll_state_store", store),
+    ):
+        response = client.get("/api/confluence/poll-status?since_hours=24")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["configured"] is True
+
+    # Last poll summary written by poller is visible.
+    assert body["last_poll"]["polled_at"] == polled_at
+    assert body["last_poll"]["mentions_found"] == 2
+    assert body["last_poll"]["jobs_queued"] == 2
+    assert body["last_poll"]["terminal_failures"] == 0
+    assert body["last_poll"]["space_key"] == "SEC, GRC"
+
+    # Assessed page written by poller is visible.
+    assert len(body["assessed_pages"]) == 1
+    page = body["assessed_pages"][0]
+    assert page["title"] == "Security Policy"
+    assert page["framework"] == "Essential Eight"
+    assert page["overall_risk"] == "Medium"
+    assert page["findings_count"] == 3
+
+    # Summary counts are correct.
+    assert body["summary"]["page_status_counts"]["assessed"] == 1
+    assert body["summary"]["risk_counts"]["Medium"] == 1
+
+
 def test_search_resources_diagnostics_blocked_when_target_env_prod() -> None:
     client = TestClient(app_module.app)
     patched_config = replace(app_module.config, required_group_object_id="", auth_token="")

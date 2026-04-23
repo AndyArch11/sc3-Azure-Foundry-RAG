@@ -130,6 +130,21 @@ class TestLocalInMemorySearchClient:
         new = client.search(query_text="new", top=5)
         assert len(new) == 1
 
+    def test_delete_documents_removes_matching_records(self) -> None:
+        client = self._client(
+            [
+                {"id": "a", "content": "old doc"},
+                {"id": "b", "content": "new doc"},
+            ]
+        )
+
+        client.delete_documents(documents=[{"id": "a"}])
+
+        old = client.search(query_text="old", top=5)
+        assert old == []
+        new = client.search(query_text="new", top=5)
+        assert len(new) == 1
+
     def test_vector_query_ignored_no_error(self) -> None:
         """Vector queries are accepted but not applied for local adapter."""
         client = self._client([{"content": "security baseline"}])

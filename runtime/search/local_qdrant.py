@@ -111,6 +111,51 @@ class LocalQdrantSearchClient:
         ]
         self._client.upsert(collection_name=self._index, points=points)
 
+    def delete_documents(self, *, documents: list[dict[str, Any]]) -> None:
+        """Delete documents by payload key/value selectors.
+
+        Accepts the Azure Search-style payload shape used by this codebase,
+        e.g. ``[{"id": "..."}]`` or ``[{"requirement_id": "..."}]``.
+        """
+        selectors: list[dict[str, str]] = []
+        for item in documents:
+            if not isinstance(item, dict):
+                continue
+            selector = {
+                str(k): str(v)
+                for k, v in item.items()
+                if str(k).strip() and v is not None and str(v).strip()
+            }
+            if selector:
+                selectors.append(selector)
+
+        if not selectors:
+            return
+
+        def _matches(doc: dict[str, Any], selector: dict[str, str]) -> bool:
+            return all(str(doc.get(k, "")) == v for k, v in selector.items())
+
+        self._docs = [
+            doc for doc in self._docs if not any(_matches(doc, selector) for selector in selectors)
+        ]
+
+        # Best-effort qdrant delete by payload filter; local in-memory state above
+        # is the source of truth for fallback search and counting.
+        try:
+            from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+            for selector in selectors:
+                conditions = [
+                    FieldCondition(key=key, match=MatchValue(value=value))
+                    for key, value in selector.items()
+                ]
+                self._client.delete(
+                    collection_name=self._index,
+                    points_selector=Filter(must=conditions),
+                )
+        except Exception:
+            pass
+
     def _build_filter(self, filters: str | None) -> Any | None:
         if not filters:
             return None

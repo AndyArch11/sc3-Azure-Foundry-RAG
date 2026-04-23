@@ -39,7 +39,6 @@ def main() -> int:
             )
             triggering_comment_id = str(event.get("content_id") or "")
             logging.info(f"[polling_worker_main] triggering_comment_id: {triggering_comment_id}")
-            # Call the normal handler
             return _process_assessment_event(
                 adapter=adapter,
                 server=server,

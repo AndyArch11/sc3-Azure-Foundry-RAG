@@ -189,7 +189,6 @@ PRECEDENCE_POLICY_PATH=./query_web/policies/precedence_policy.json \
 OLLAMA_BASE_URL=http://localhost:11434 \
 OLLAMA_MODEL=gemma3:27b \
 QUERY_WEB_AUTH_TOKEN='' \
-LOCAL_STATE_DB_PATH=./local_state/state.db \
 uvicorn query_web.app:app --host 0.0.0.0 --port 8080 --reload
 ```
 
@@ -228,7 +227,6 @@ PRECEDENCE_POLICY_PATH=./query_web/policies/precedence_policy.json \
 OLLAMA_BASE_URL=http://host.docker.internal:11434 \
 OLLAMA_MODEL=gemma3:27b \
 QUERY_WEB_AUTH_TOKEN='' \
-LOCAL_STATE_DB_PATH=./local_state/state.db \
 uvicorn query_web.app:app --host 0.0.0.0 --port 8080 --reload
 ```
 
@@ -250,6 +248,14 @@ docker compose -f docker-compose.local.yml --env-file .env.local up --build
 ```
 
 Model names (`OLLAMA_MODEL`, `OLLAMA_EMBEDDING_MODEL`) are read from `.env.local` and used consistently by the model-puller, seeder, and query-web services. Change them in one place only.
+
+To run the local Confluence poller continuously (and populate **Assess → Confluence Poll Activity**), enable the optional compose profile after setting Confluence credentials in `.env.local`:
+
+```bash
+docker compose -f docker-compose.local.yml --env-file .env.local --profile confluence-poller up --build
+```
+
+The poller and query-web share `LOCAL_STATE_DB_PATH` (`/app/local_state/state.db` in compose), so poll summaries and assessed-page status written by the poller are visible in the Assess tab.
 
 Open [http://localhost:8080](http://localhost:8080).
 

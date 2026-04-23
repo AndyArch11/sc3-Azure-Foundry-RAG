@@ -80,6 +80,33 @@ services:
       - ./parsed-controls:/app/parsed-controls:ro
       - local_state:/app/local_state
 
+  confluence-poller:
+    profiles: ["confluence-poller"]
+    build:
+      context: .
+      dockerfile: runtime/Dockerfile.poller
+    container_name: rag-confluence-poller-local
+    restart: unless-stopped
+    env_file:
+      - .env.local
+    environment:
+      CLOUD_PROVIDER: local
+      LOCAL_VECTOR_BACKEND: qdrant
+      QDRANT_URL: http://qdrant:6333
+      OLLAMA_BASE_URL: http://ollama:11434
+      LOCAL_EVIDENCE_JSONL_PATH: /app/runtime/out/chunks.jsonl
+      LOCAL_CONTROLS_JSONL_PATH: /app/parsed-controls
+      PRECEDENCE_POLICY_PATH: /app/query_web/policies/precedence_policy.json
+      LOCAL_STATE_DB_PATH: /app/local_state/state.db
+    depends_on:
+      seeder:
+        condition: service_completed_successfully
+    command: []
+    volumes:
+      - ./runtime/out:/app/runtime/out:ro
+      - ./parsed-controls:/app/parsed-controls:ro
+      - local_state:/app/local_state
+
 volumes:
   ollama_data:
   qdrant_data:

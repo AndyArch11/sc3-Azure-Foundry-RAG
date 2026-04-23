@@ -374,6 +374,10 @@ class _IngestionServiceDeps:
         return BlobServiceClient
 
     @property
+    def search_client(self):
+        return search_client
+
+    @property
     def ALLOWED_EXTENSIONS(self):
         return ALLOWED_EXTENSIONS
 

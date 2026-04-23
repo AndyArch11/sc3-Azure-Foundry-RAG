@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
+import re
+import tempfile
 import time
 import uuid
 from datetime import UTC, datetime
@@ -53,6 +56,180 @@ class IngestionService:
         """Return whether storage-backed corpus upload is configured."""
 
         return bool(self.deps.config.storage_account_name)
+
+    def _is_local_provider(self) -> bool:
+        provider = str(os.getenv("CLOUD_PROVIDER", "azure") or "").strip().lower()
+        return provider in {"local", "dev"}
+
+    def _persist_local_evidence_docs(self, docs: list[dict[str, Any]]) -> None:
+        if not docs:
+            return
+
+        target = os.getenv("LOCAL_EVIDENCE_JSONL_PATH", "").strip() or "./runtime/out/chunks.jsonl"
+        target_path = Path(target)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with target_path.open("a", encoding="utf-8") as handle:
+            for doc in docs:
+                handle.write(json.dumps(doc, ensure_ascii=True) + "\n")
+
+    def _upload_corpus_files_local(
+        self,
+        files: list[UploadFile],
+        user_id: str,
+        *,
+        corpus: str,
+        corpus_role: str,
+    ) -> dict[str, Any]:
+        """Local/dev upload path: parse files and index directly into local search client."""
+
+        from runtime.ingestion.chunking import chunk_document
+        from runtime.ingestion.extractors import extract_source_document
+        from runtime.ingestion.models import SourceDocument
+
+        search_client = getattr(self.deps, "search_client", None)
+        if search_client is None or not hasattr(search_client, "load_documents"):
+            raise RuntimeError("Local corpus upload requires a local search client with load_documents().")
+
+        existing_docs = list(getattr(search_client, "_docs", []) or [])
+        existing_keys = {
+            (str(doc.get("corpus") or ""), str(doc.get("dedupe_hash") or ""))
+            for doc in existing_docs
+            if isinstance(doc, dict)
+        }
+
+        uploaded: list[dict[str, Any]] = []
+        skipped: list[str] = []
+        failed: list[str] = []
+        staged_docs: list[dict[str, Any]] = []
+
+        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        upload_batch_id = str(uuid.uuid4())
+
+        for file in files:
+            original_name = file.filename or "uploaded.bin"
+            ext = Path(original_name).suffix.lower()
+            if ext not in self.deps.ALLOWED_EXTENSIONS:
+                skipped.append(f"{original_name}: disallowed filetype {ext}")
+                try:
+                    file.file.close()
+                except Exception:
+                    pass
+                continue
+
+            try:
+                content = file.file.read()
+                if not content:
+                    skipped.append(original_name)
+                    continue
+
+                content_sha256 = hashlib.sha256(content).hexdigest()
+                normalised_text_sha256, hash_method = self.deps._compute_normalised_text_hash(
+                    content,
+                    filename=original_name,
+                    content_type=file.content_type or "",
+                )
+                dedupe_hash = normalised_text_sha256 or content_sha256
+                dedupe_method = (
+                    "normalised_text_sha256" if normalised_text_sha256 else "content_sha256"
+                )
+
+                if (corpus, dedupe_hash) in existing_keys:
+                    skipped.append(f"{original_name}: duplicate-{dedupe_method}:{dedupe_hash}")
+                    continue
+
+                docs_for_file: list[dict[str, Any]] = []
+                with tempfile.TemporaryDirectory(prefix="query-web-upload-") as temp_dir:
+                    tmp_path = Path(temp_dir) / original_name
+                    tmp_path.write_bytes(content)
+
+                    if ext in {".pdf", ".xlsx", ".xlsm", ".xltx", ".xltm"}:
+                        source_doc = extract_source_document(tmp_path)
+                    elif ext == ".html":
+                        decoded = content.decode("utf-8", errors="ignore")
+                        text = re.sub(r"<[^>]+>", " ", decoded)
+                        source_doc = SourceDocument(
+                            source_path=original_name,
+                            source_type="html",
+                            text=text,
+                        )
+                    else:
+                        skipped.append(
+                            f"{original_name}: unsupported local extractor for {ext}; use azure/compose ingestion"
+                        )
+                        continue
+
+                    chunks = chunk_document(source_doc)
+                    for chunk in chunks:
+                        docs_for_file.append(
+                            {
+                                "id": chunk.chunk_id,
+                                "chunk_id": chunk.chunk_id,
+                                "content": chunk.content,
+                                "source_name": Path(original_name).name,
+                                "source_path": original_name,
+                                "corpus": corpus,
+                                "corpus_role": corpus_role,
+                                "upload_source": "query_web_local",
+                                "uploaded_by": self.deps._sanitise_blob_name_component(
+                                    user_id or "anonymous"
+                                ),
+                                "upload_batch": upload_batch_id,
+                                "uploaded_at": ts,
+                                "original_filename": self.deps._sanitise_blob_name_component(
+                                    original_name
+                                ),
+                                "content_sha256": content_sha256,
+                                "normalised_text_sha256": normalised_text_sha256 or "",
+                                "dedupe_hash": dedupe_hash,
+                                "dedupe_method": dedupe_method,
+                                "hash_method": hash_method,
+                            }
+                        )
+
+                if not docs_for_file:
+                    skipped.append(f"{original_name}: no text extracted")
+                    continue
+
+                existing_keys.add((corpus, dedupe_hash))
+                staged_docs.extend(docs_for_file)
+                uploaded.append(
+                    {
+                        "blob_name": f"local://corpus-{corpus}/by-dedupe/{dedupe_hash}{ext}",
+                        "size_bytes": len(content),
+                        "content_type": file.content_type or "application/octet-stream",
+                        "content_sha256": content_sha256,
+                        "normalised_text_sha256": normalised_text_sha256,
+                        "dedupe_hash": dedupe_hash,
+                        "dedupe_method": dedupe_method,
+                        "repaired_existing": False,
+                        "local_documents": len(docs_for_file),
+                    }
+                )
+            except Exception as exc:
+                logger.warning("Failed to ingest local upload %s: %s", original_name, exc, exc_info=True)
+                failed.append(f"{original_name}: upload failed")
+            finally:
+                try:
+                    file.file.close()
+                except Exception:
+                    pass
+
+        if staged_docs:
+            merged = [*existing_docs, *staged_docs]
+            search_client.load_documents(merged)
+            try:
+                self._persist_local_evidence_docs(staged_docs)
+            except Exception as exc:
+                logger.warning("Failed persisting local upload docs to JSONL: %s", exc)
+
+        return {
+            "upload_batch_id": upload_batch_id if uploaded else None,
+            "prefix": f"corpus-{corpus}/by-dedupe",
+            "uploaded": uploaded,
+            "skipped": skipped,
+            "failed": failed,
+            "local_indexed": True,
+        }
 
     def is_ingestion_job_trigger_enabled(self) -> bool:
         """Return whether Azure Container Apps job trigger settings are configured."""
@@ -333,6 +510,13 @@ class IngestionService:
         """Upload corpus files with dedupe metadata and repair stale dedupe artifacts."""
 
         if not self.is_corpus_upload_enabled():
+            if self._is_local_provider():
+                return self._upload_corpus_files_local(
+                    files,
+                    user_id,
+                    corpus=corpus,
+                    corpus_role=corpus_role,
+                )
             raise RuntimeError(
                 "Corpus upload is not configured. Set AZURE_STORAGE_ACCOUNT_NAME in query web configuration."
             )
