@@ -10,9 +10,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from runtime.assessment_orchestration.sqlite_state_store import SqlitePollingStateStore
 from query_web.conversation_store import SqliteConversationStore
-
+from runtime.assessment_orchestration.sqlite_state_store import SqlitePollingStateStore
 
 # ---------------------------------------------------------------------------
 # SqlitePollingStateStore
@@ -97,8 +96,9 @@ class TestSqlitePollingStateStoreProcessed:
 
     def test_ttl_expiry_clears_event(self, store: SqlitePollingStateStore) -> None:
         # Mark with an already-expired TTL by setting expires_at in the past directly
-        from runtime.assessment_orchestration.state_store import _utc_now_iso
         from datetime import timedelta
+
+        from runtime.assessment_orchestration.state_store import _utc_now_iso
 
         # Inject an expired doc directly
         past = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
@@ -239,7 +239,11 @@ class TestSqliteConversationStore:
     def test_upsert_updates_existing(self, conv_store: SqliteConversationStore) -> None:
         doc = {"id": "user1_conv1", "user_id": "user1", "messages": []}
         conv_store.upsert_item(doc)
-        updated = {"id": "user1_conv1", "user_id": "user1", "messages": [{"role": "user", "content": "hi"}]}
+        updated = {
+            "id": "user1_conv1",
+            "user_id": "user1",
+            "messages": [{"role": "user", "content": "hi"}],
+        }
         conv_store.upsert_item(updated)
         result = conv_store.read_item(item="user1_conv1", partition_key="user1")
         assert len(result["messages"]) == 1
@@ -282,7 +286,9 @@ class TestSqliteConversationStore:
         assert len(rows) == 1
         assert rows[0]["user_id"] == "u1"
 
-    def test_query_items_orders_by_updated_at_desc(self, conv_store: SqliteConversationStore) -> None:
+    def test_query_items_orders_by_updated_at_desc(
+        self, conv_store: SqliteConversationStore
+    ) -> None:
         conv_store.upsert_item(
             {
                 "id": "u1_old",
@@ -350,12 +356,14 @@ class TestConversationStoreIntegration:
 class TestStateStoreFactory:
     def test_factory_returns_sqlite_when_path_set(self, tmp_path) -> None:
         import os
+
         from runtime.state_store import get_state_store
 
         db = str(tmp_path / "test.db")
         store = get_state_store("local", cosmos_container=None)
         # Without LOCAL_STATE_DB_PATH set we get InMemory
         from runtime.assessment_orchestration.state_store import InMemoryPollingStateStore
+
         assert isinstance(store, InMemoryPollingStateStore)
 
         # With LOCAL_STATE_DB_PATH set we get SQLite
@@ -368,6 +376,7 @@ class TestStateStoreFactory:
 
     def test_factory_dev_mode_same_as_local(self, tmp_path) -> None:
         import os
+
         from runtime.state_store import get_state_store
 
         db = str(tmp_path / "dev.db")

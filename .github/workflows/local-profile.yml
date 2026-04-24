@@ -24,6 +24,9 @@ on:
       - requirements-dev.txt
       - .github/workflows/local-profile.yml
 
+permissions:
+  contents: read
+
 jobs:
   local-profile-tests:
     runs-on: ubuntu-latest

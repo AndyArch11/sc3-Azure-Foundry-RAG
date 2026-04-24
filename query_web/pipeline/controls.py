@@ -21,6 +21,7 @@ from runtime.assessment_orchestration._framework_patterns import (
 # ---------------------------------------------------------------------------
 
 _CONTROLS_FRAMEWORK_FILTERS = {
+    "nist_ai_rmf": "NIST AI RMF",
     "nist_csf": "NIST CSF",
     "essential_eight": "Essential Eight",
     "aescsf": "AESCSF",
@@ -86,6 +87,11 @@ _QUERY_STOPWORDS = {
 }
 
 _QUERY_FRAMEWORK_TOKENS = {
+    "ai",
+    "rmf",
+    "airmf",
+    "risk",
+    "management",
     "nists",
     "nist",
     "csf",
@@ -169,7 +175,7 @@ def _build_evidence_corpus_filter(selected_corpora: Iterable[str]) -> str | None
 
 
 # ---------------------------------------------------------------------------
-# Framework Normalization & Authority
+# Framework Normalisation & Authority
 # ---------------------------------------------------------------------------
 
 

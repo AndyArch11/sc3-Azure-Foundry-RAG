@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-from typing import Any
+from typing import Any, cast
 
 import requests
 
@@ -151,7 +151,7 @@ class LocalQdrantSearchClient:
                 ]
                 self._client.delete(
                     collection_name=self._index,
-                    points_selector=Filter(must=conditions),
+                    points_selector=Filter(must=cast(Any, conditions)),
                 )
         except Exception:
             pass
@@ -167,7 +167,10 @@ class LocalQdrantSearchClient:
         from qdrant_client.models import FieldCondition, Filter, MatchValue
 
         return Filter(
-            must=[FieldCondition(key=m.group(1), match=MatchValue(value=m.group(2)))]
+            must=cast(
+                Any,
+                [FieldCondition(key=m.group(1), match=MatchValue(value=m.group(2)))],
+            )
         )
 
     def _fallback_text_search(

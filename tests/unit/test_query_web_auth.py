@@ -4,6 +4,7 @@ import base64
 import json
 import os
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -330,11 +331,11 @@ def test_confluence_poll_status_reads_local_sqlite_store_written_by_poller() -> 
     store = SqlitePollingStateStore(":memory:")
 
     # Simulate one completed poller cycle writing into the shared store.
-    polled_at = "2026-04-23T10:00:00+00:00"
+    polled_at = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
     store.upsert_poll_run_summary(
         "confluence",
         polled_at=polled_at,
-        since_iso="2026-04-23T09:00:00+00:00",
+        since_iso=(datetime.now(UTC) - timedelta(hours=2)).isoformat(),
         watermark=polled_at,
         mentions_found=2,
         jobs_queued=2,

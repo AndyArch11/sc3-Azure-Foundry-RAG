@@ -15,7 +15,7 @@ from .extractors import discover_supported_files, extract_source_document
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
 
-# Bump this when ingestion runtime behavior changes in ways operators may need
+# Bump this when ingestion runtime behaviour changes in ways operators may need
 # to verify quickly from job logs.
 INGESTION_VERSION_SIGNATURE = "ingestion-meta-safe-v2-20260417"
 
@@ -413,7 +413,7 @@ def _run_azure(args: argparse.Namespace) -> int:
             "base_backoff_seconds": base_backoff_seconds,
             "max_backoff_seconds": max_backoff_seconds,
         },
-        "scope_behavior": (
+        "scope_behaviour": (
             "Indexer run processes all blobs matching storage_container_query; "
             "item counts may exceed newly uploaded file count when upload is skipped "
             "or existing scoped blobs are reprocessed."

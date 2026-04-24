@@ -146,7 +146,11 @@ def register_corpus_endpoints(
                 reindex_touch = svc._mark_dedupe_blobs_for_reindex(
                     "b", dedupe_hashes, user_id=user_id
                 )
-            if trigger_job and not local_indexed and (upload_result["uploaded"] or should_trigger_for_reindex):
+            if (
+                trigger_job
+                and not local_indexed
+                and (upload_result["uploaded"] or should_trigger_for_reindex)
+            ):
                 try:
                     trigger_result = svc._trigger_ingestion_job_with_args(
                         [
@@ -277,7 +281,11 @@ def register_corpus_endpoints(
                 reindex_touch = svc._mark_dedupe_blobs_for_reindex(
                     "c", dedupe_hashes, user_id=user_id
                 )
-            if trigger_job and not local_indexed and (upload_result["uploaded"] or should_trigger_for_reindex):
+            if (
+                trigger_job
+                and not local_indexed
+                and (upload_result["uploaded"] or should_trigger_for_reindex)
+            ):
                 try:
                     trigger_result = svc._trigger_ingestion_job_with_args(
                         [

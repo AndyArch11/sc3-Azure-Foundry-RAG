@@ -120,7 +120,7 @@ def test_select_diverse_controls_limits_single_framework_crowding() -> None:
     assert frameworks.count("NIST CSF") <= 3
 
 
-def test_apply_framework_authority_preference_prioritizes_concept_overlap() -> None:
+def test_apply_framework_authority_preference_prioritises_concept_overlap() -> None:
     items = [
         {
             "requirement_id": "E-1",

@@ -66,9 +66,9 @@ def validate_azure_extraction(
             print(f"   Resource Group: {resource_group}")
             print()
 
-        # Initialize server with high resource cap for comprehensive extraction
+        # Initialise server with high resource cap for comprehensive extraction
         if verbose:
-            print("🔧 Initializing AzureMCPServer...")
+            print("🔧 Initialising AzureMCPServer...")
         server = AzureMCPServer(max_resources=500)
 
         # Build and resolve target reference

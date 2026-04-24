@@ -9,7 +9,7 @@ Provide a cloud-agnostic credential surface used by runtime and query services.
 - Avoid leaking provider SDK details into business logic modules.
 
 ## Design Constraints
-- Azure path must continue to use existing managed identity/default credential behavior.
+- Azure path must continue to use existing managed identity/default credential behaviour.
 - AWS path should support IAM role/session usage without changing business logic.
 - Local path should support no-credential or mock credentials for development.
 

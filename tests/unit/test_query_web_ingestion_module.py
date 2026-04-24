@@ -459,9 +459,12 @@ def test_mark_dedupe_blobs_for_reindex_records_not_found() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_upload_corpus_files_raises_when_storage_not_configured() -> None:
+def test_upload_corpus_files_raises_when_storage_not_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     svc = _make_svc(storage_account="")
     service = IngestionService(svc)
+    monkeypatch.delenv("CLOUD_PROVIDER", raising=False)
     with pytest.raises(RuntimeError, match="not configured"):
         service.upload_corpus_files([], "user1", corpus="b", corpus_role="narrative_guidance")
 

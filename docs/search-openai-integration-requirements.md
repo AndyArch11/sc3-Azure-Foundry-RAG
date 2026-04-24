@@ -23,7 +23,7 @@ The following components work **without Search/OpenAI**:
 - ✅ List all resources in a resource group (ARM API enumeration)
 - ✅ Retrieve resource properties and configuration
 - ✅ Extract policy assignments and policy definitions
-- ✅ Normalize resource metadata into AssessedArtifactPackage format
+- ✅ Normalise resource metadata into AssessedArtifactPackage format
 
 ### Tested Coverage
 - 55 different resource instances validated (extraction layer)
@@ -171,7 +171,7 @@ print(report.findings)  # Compliance findings with Search-backed evidence
 ### Phase 1: Extraction Validation (✅ Complete - No Prerequisites)
 - Extract resources from target scope
 - Verify resource types and policy assignments
-- Validate data normalization
+- Validate data normalisation
 - **Status**: Ready to test immediately with `smoke_test_azure_extraction.py`
 
 ### Phase 2: Framework Indexing (Search Prerequisites)
@@ -220,7 +220,7 @@ print(report.findings)  # Compliance findings with Search-backed evidence
    - Run integrated assessment tests
 
 3. **Long-term** (Production hardening):
-   - Performance tuning (caching, batching, cost optimization)
+   - Performance tuning (caching, batching, cost optimisation)
    - Multi-framework support (CIS, NIST, PCI-DSS assessed in parallel)
    - Audit trail and reporting (evidence retention, trend analysis)
 

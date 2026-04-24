@@ -168,7 +168,7 @@ class BaseParser(ABC):
 
 
 def filter_keywords(keywords: Iterable[str]) -> list[str]:
-    """Normalize and remove common stopwords from a keyword iterable."""
+    """Normalise and remove common stopwords from a keyword iterable."""
     cleaned: list[str] = []
     seen: set[str] = set()
 

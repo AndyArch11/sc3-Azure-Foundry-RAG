@@ -282,7 +282,7 @@ def _assessment_task_instruction(artifact: AssessedArtifactPackage) -> str:
             "This evidence is posture-focused, not a full operating model or process review.\n\n"
             "Azure-specific applicability rules:\n"
             "- Do not mark process, governance, training, incident-response, or operational lifecycle controls as compliant solely from resource configuration or Azure Policy assignment evidence.\n"
-            "- When a control requires procedural or organizational evidence not present in the Azure extract, use status=insufficient_evidence or status=not_applicable, and explain why.\n"
+            "- When a control requires procedural or organisational evidence not present in the Azure extract, use status=insufficient_evidence or status=not_applicable, and explain why.\n"
             "- Microsoft Cloud Security Benchmark mappings can partially address downstream frameworks, but they do not by themselves establish full compliance with those mapped controls.\n"
             "- Prefer concrete resource and Azure Policy evidence for technical control checks and be explicit about residual evidence gaps."
         )

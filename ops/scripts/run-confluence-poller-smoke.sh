@@ -17,7 +17,7 @@ Usage:
 Runs assessment_orchestration.polling_worker_main --once with environment
 preflight checks.
 
-Default behavior:
+Default behaviour:
   - Forces CONFLUENCE_POLL_DRY_RUN=true unless --no-dry-run is supplied.
   - Requires all core Confluence and Cosmos env vars to be set.
 

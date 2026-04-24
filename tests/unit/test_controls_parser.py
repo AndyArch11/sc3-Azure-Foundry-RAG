@@ -776,7 +776,7 @@ Policies should be reviewed regularly.
 \u2022 Documented.
 \u2022 Kept up to date.
 1.1.1 Examine documentation and interview personnel to verify that security policies are managed in accordance with this requirement.
-Customized Approach Objective
+Customised Approach Objective
 Expectations and oversight for Requirement 1 are defined and adhered to by affected personnel.
 1.2 Network security controls (NSCs) are configured and maintained.
 Defined Approach Requirements Defined Approach Testing Procedures Purpose
@@ -785,7 +785,7 @@ NSCs control traffic flowing inbound and outbound from the CDE.
 \u2022 Defined.
 \u2022 Implemented.
 1.2.1 Examine the configuration standards for NSC rulesets to verify they are in accordance with this requirement.
-Customized Approach Objective
+Customsed Approach Objective
 The way that NSCs are configured and operate are defined and consistently applied.
 """
 

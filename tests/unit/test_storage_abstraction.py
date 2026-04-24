@@ -198,7 +198,7 @@ class TestAWSS3StorageClient:
         paginator.paginate.assert_called_once_with(Bucket="bucket", Prefix="docs/")
         assert keys == ["a.txt", "b.txt"]
 
-    def test_get_object_metadata_normalizes_fields(self) -> None:
+    def test_get_object_metadata_normalises_fields(self) -> None:
         from datetime import UTC, datetime
 
         client = self._make_client()

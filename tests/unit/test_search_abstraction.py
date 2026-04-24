@@ -202,7 +202,7 @@ class TestAzureSearchClient:
         mock_sdk_client.search.assert_called_once()
         assert results == [{"content": "result1"}]
 
-    def test_search_with_vector_includes_vectorized_query(self) -> None:
+    def test_search_with_vector_includes_vectorised_query(self) -> None:
         from runtime.search.azure_search import AzureSearchClient
 
         mock_sdk_client = MagicMock()

@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _FRAMEWORK_ALIASES: dict[str, str] = {
+    "nist ai rmf": "NIST AI RMF",
+    "nist ai risk management framework": "NIST AI RMF",
+    "ai rmf": "NIST AI RMF",
+    "airmf": "NIST AI RMF",
+    "nist_ai_rmf": "NIST AI RMF",
     "nist": "NIST CSF",
     "nist csf": "NIST CSF",
     "csf": "NIST CSF",
@@ -42,6 +47,7 @@ _FRAMEWORK_ALIASES: dict[str, str] = {
 }
 
 _CANONICAL_FRAMEWORKS: set[str] = {
+    "NIST AI RMF",
     "NIST CSF",
     "Essential Eight",
     "AESCSF",
@@ -166,6 +172,7 @@ def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
         "Essential Eight",
         "ISM",
         "AESCSF",
+        "NIST AI RMF",
         "NIST CSF",
         "PSPF",
         "PCI DSS",
@@ -240,7 +247,10 @@ def _load_precedence_policy(
     default_framework_raw = payload.get("default_framework", "")
     default_framework: str = ""
     if isinstance(default_framework_raw, str) and default_framework_raw.strip():
-        default_framework = _canonical_framework_name(default_framework_raw.strip()) or default_framework_raw.strip()
+        default_framework = (
+            _canonical_framework_name(default_framework_raw.strip())
+            or default_framework_raw.strip()
+        )
     if not default_framework and order:
         default_framework = order[0]
 

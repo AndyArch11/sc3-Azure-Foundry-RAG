@@ -4,7 +4,7 @@ Fetches the canonical maturity model page and the five supplementary ASD
 guidance pages, then emits one RequirementRecord per normative statement
 found in Appendix A (ML1), B (ML2) and C (ML3) of the model.
 
-Requirements are not deduplicated across levels – an organisation assessing
+Requirements are not deduplicated across levels - an organisation assessing
 ML2 compliance needs ALL requirements that appear in the ML2 appendix,
 including those carried forward from ML1.  Filtering by ``maturity_level``
 therefore returns the complete requirement set for that level.

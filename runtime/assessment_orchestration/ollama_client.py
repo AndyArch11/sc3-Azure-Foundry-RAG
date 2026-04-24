@@ -292,7 +292,9 @@ def ollama_chat_completion(
             )
 
     if response.status_code >= 400:
-        error_message = _response_error_message(response) or str(getattr(response, "text", "") or "")
+        error_message = _response_error_message(response) or str(
+            getattr(response, "text", "") or ""
+        )
         try:
             response.raise_for_status()
         except requests.exceptions.RequestException as exc:

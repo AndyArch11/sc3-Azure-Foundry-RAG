@@ -12,7 +12,7 @@ Successfully validated that `runtime/assessment_orchestration/mcp/azure_resource
 
 1. ✅ Extract 55 live resources from Azure subscription without requiring Search index or LLM framework
 2. ✅ Retrieve policy assignments and policy definitions from Azure Policy service
-3. ✅ Normalize extraction results into `AssessedArtifactPackage` format
+3. ✅ Normalise extraction results into `AssessedArtifactPackage` format
 4. ✅ Match Azure CLI resource count exactly (zero discrepancies)
 5. ✅ Support app-only authentication mode (no user context required)
 
@@ -121,7 +121,7 @@ target_reference = build_azure_target_reference(
 resolved = server.resolve_target(target_reference)
 artifact = server.get_content_by_id(resolved.target_id, identity_mode='app_only')
 
-# Analyze results
+# Analyse results
 print(f"Resources: {len(artifact.resources)}")
 print(f"Policy Assignments: {len(artifact.policy_assignments)}")
 
@@ -250,7 +250,7 @@ az resource list \
 
 | Function | Line Range | Status | Notes |
 |----------|-----------|--------|-------|
-| `AzureMCPServer.__init__()` | 29-42 | ✅ Works | Initializes ARM API client with correct base URL |
+| `AzureMCPServer.__init__()` | 29-42 | ✅ Works | Initialises ARM API client with correct base URL |
 | `build_azure_target_reference()` | N/A | ✅ Works | Constructs URI with proper subscription/RG encoding |
 | `resolve_target()` | 52-90 | ✅ Works | Parses and validates target reference |
 | `get_content_by_id()` | 127-175 | ✅ Works | Calls _extract_configuration() with app-only auth |
@@ -286,7 +286,7 @@ az resource list \
 - [x] Can enumerate all resources in a resource group
 - [x] Can retrieve full ARM resource properties
 - [x] Can extract policy assignments and definitions
-- [x] Can normalize into YAML/JSON assessable format
+- [x] Can normalise into YAML/JSON assessable format
 - [x] Can handle pagination (50+ resources, tested with 200 cap)
 - [x] Can operate in app-only auth mode (no user session required)
 

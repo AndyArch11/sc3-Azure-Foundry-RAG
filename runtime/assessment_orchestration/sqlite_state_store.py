@@ -29,8 +29,8 @@ from .state_store import (
     AssessmentSnapshot,
     FailureRecord,
     PageAssessmentRecord,
-    PollRunSummary,
     PollingState,
+    PollRunSummary,
     _coerce_state,
     _parse_iso,
     _utc_now_iso,
@@ -110,7 +110,9 @@ class SqlitePollingStateStore:
                 pass
         return doc
 
-    def _upsert(self, source: str, doc_id: str, doc_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _upsert(
+        self, source: str, doc_id: str, doc_type: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
         expires_at = str(payload.get("expires_at") or "")
         data = json.dumps(payload, separators=(",", ":"), sort_keys=True)
         with self._lock:
@@ -127,9 +129,7 @@ class SqlitePollingStateStore:
             )
         return payload
 
-    def _list(
-        self, source: str, doc_type: str, since_iso: str, limit: int
-    ) -> list[dict[str, Any]]:
+    def _list(self, source: str, doc_type: str, since_iso: str, limit: int) -> list[dict[str, Any]]:
         rows = self._conn.execute(
             "SELECT data FROM docs WHERE source=? AND doc_type=? ORDER BY rowid DESC LIMIT ?",
             (source, doc_type, max(1, limit) * 4),  # over-fetch then filter

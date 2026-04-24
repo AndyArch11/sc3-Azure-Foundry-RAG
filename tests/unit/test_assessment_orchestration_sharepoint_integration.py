@@ -47,6 +47,15 @@ class FakeAssessmentAgent:
             "citations": ["SEC-001"],
         }
 
+    def generate_per_control_assessment(
+        self,
+        artifact: AssessedArtifactPackage,
+        grounding: CorpusGroundingPackage,
+        *,
+        progress_cb=None,
+    ) -> dict:
+        return self.generate_assessment(artifact, grounding)
+
 
 class FakeDeliveryPublisher:
     """Mock delivery publisher for orchestration tests."""

@@ -22,7 +22,9 @@ def _resolve_local_jsonl_paths() -> tuple[str, str]:
     2) Workspace-relative default for local/dev runs
     3) Container default path for compose/runtime images
     """
-    evidence_path = os.getenv("LOCAL_EVIDENCE_JSONL_PATH", "").strip() or "./runtime/out/chunks.jsonl"
+    evidence_path = (
+        os.getenv("LOCAL_EVIDENCE_JSONL_PATH", "").strip() or "./runtime/out/chunks.jsonl"
+    )
 
     controls_env = os.getenv("LOCAL_CONTROLS_JSONL_PATH", "").strip()
     if controls_env:

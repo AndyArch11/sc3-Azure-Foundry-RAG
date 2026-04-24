@@ -457,6 +457,7 @@ Available framework parsers:
 - `aescsf`: Australian Energy Sector Cyber Security Framework (AESCSF v2 core workbook)
 - `cis_controls`: CIS Controls v8 (local XLSX and PDF sourced by the operator — see [runtime/README.md](runtime/README.md) for required filenames)
 - `ism`: ASD Information Security Manual (OSCAL catalog)
+- `nist_ai_rmf`: NIST AI Risk Management Framework 1.0 (auto-fetched from NIST source PDF)
 - `nist_csf`: NIST Cybersecurity Framework 2.0
 - `pci_dss`: PCI DSS v4.0.1 (local PDF sourced by the operator — see [runtime/README.md](runtime/README.md) for required filename)
 - `pspf`: Australian Government Protective Security Policy Framework Release 2025 (public PSPF release PDF)
@@ -469,6 +470,7 @@ Parser outputs are written to `./parsed-controls` with framework-specific filena
 - `aescsf_v2.jsonl`
 - `cis_controls_v8.jsonl`
 - `ism_latest.jsonl`
+- `nist_ai_rmf_1-0.jsonl`
 - `nist_csf_2-0.jsonl`
 - `pci_dss_v4_0_1.jsonl`
 - `pspf_release_2025.jsonl`
@@ -503,6 +505,12 @@ python3 -m ingestion.controls_runner \
 python3 -m ingestion.controls_runner \
   --mode parse \
   --framework ism
+
+# Parse NIST AI RMF controls into ./parsed-controls only
+# Source PDF is fetched automatically from NIST
+python3 -m ingestion.controls_runner \
+  --mode parse \
+  --framework nist_ai_rmf
 
 # Parse NIST CSF controls into ./parsed-controls only
 python3 -m ingestion.controls_runner \
@@ -554,6 +562,17 @@ python3 -m ingestion.controls_runner \
 python3 -m ingestion.controls_runner \
   --mode publish \
   --input-jsonl ../parsed-controls/pci_dss_v4_0_1.jsonl
+
+# Parse and publish NIST AI RMF in one step
+# Source PDF is fetched automatically from NIST
+python3 -m ingestion.controls_runner \
+  --mode parse-and-publish \
+  --framework nist_ai_rmf
+
+# Publish NIST AI RMF JSONL directly
+python3 -m ingestion.controls_runner \
+  --mode publish \
+  --input-jsonl ../parsed-controls/nist_ai_rmf_1-0.jsonl
 ```
 
 Add `--no-guidance` if you want parsers that support guidance-fetch skipping (for example Essential Eight and NIST CSF) to avoid supplementary guidance fetches while building JSONL output.
@@ -641,7 +660,7 @@ sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
 az ad app update --id <00000000-0000-0000-0000-000000000000> --web-redirect-uris https://<webapp>.australiaeast.azurecontainerapps.io/.auth/login/aad/callback
 
 # Parse and publish control data into the controls index (run from inside private network)
-# Supported frameworks: all, aescsf, cis_controls, essential_eight, ism, nist_csf, pci_dss, pspf
+# Supported frameworks: all, aescsf, cis_controls, essential_eight, ism, nist_ai_rmf, nist_csf, pci_dss, pspf
 # cis_controls and pci_dss require staging local reference files in runtime/samples/ first
 SEARCH_EP=$(terraform -chdir=infra/terraform output -raw search_endpoint)
 export AZURE_SEARCH_ENDPOINT="${SEARCH_EP}"

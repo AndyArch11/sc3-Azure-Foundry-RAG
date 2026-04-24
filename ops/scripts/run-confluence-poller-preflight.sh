@@ -14,7 +14,7 @@ Defaults:
   env   = dev
   lines = 100
 
-Behavior:
+Behaviour:
   - Runs run-confluence-poller-smoke.sh first.
   - Then runs check-confluence-poller-health.sh unless --skip-health is supplied.
 

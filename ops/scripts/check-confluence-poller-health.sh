@@ -12,7 +12,7 @@ Defaults:
   env   = dev
   lines = 100
 
-Behavior:
+Behaviour:
   - Resolves resource group and app name from terraform outputs when not provided.
   - Prints Container App summary and revision table.
   - Tails recent logs from the poller app.

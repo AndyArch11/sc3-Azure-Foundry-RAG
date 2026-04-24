@@ -11,6 +11,7 @@ class SearchClient(Protocol):
     @property
     def index_name(self) -> str:
         """Return logical index name."""
+        ...
 
     def search(
         self,
@@ -22,7 +23,7 @@ class SearchClient(Protocol):
         select: list[str] | None = None,
         **extra_kwargs: Any,
     ) -> list[dict[str, Any]]:
-        """Execute search and return normalized documents.
+        """Execute search and return normalised documents.
 
         Parameters
         ----------
@@ -42,6 +43,7 @@ class SearchClient(Protocol):
             Example: ``query_type="semantic"``,
             ``semantic_configuration_name="controls-semantic"``.
         """
+        ...
 
     def load_documents(self, docs: list[dict[str, Any]]) -> None:
         """Load documents into the search index (for local backends only).
@@ -54,3 +56,4 @@ class SearchClient(Protocol):
         docs : list[dict[str, Any]]
             Documents to load into the index.
         """
+        ...

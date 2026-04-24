@@ -5,7 +5,7 @@ and can be safely imported across multiple endpoint modules without creating
 circular dependencies.
 
 Auth, request introspection, and diagnostics functions are kept in app.py
-to maintain a single source of truth for authorization logic.
+to maintain a single source of truth for authorisation logic.
 """
 
 import hashlib
@@ -26,7 +26,7 @@ def _utc_now_iso() -> str:
 
 
 def _sanitise_blob_name_component(value: str) -> str:
-    """Sanitize a component of a blob name to be Azure Storage compatible."""
+    """Sanitise a component of a blob name to be Azure Storage compatible."""
     text = value.strip().replace("\\", "_").replace("/", "_")
     text = re.sub(r"[^A-Za-z0-9._-]", "_", text)
     return text[:120] or "file"
@@ -38,7 +38,7 @@ def _compute_normalised_text_hash(
     filename: str,
     content_type: str,
 ) -> tuple[str | None, str]:
-    """Compute hash of normalized text content for deduplication.
+    """Compute hash of normalised text content for deduplication.
 
     Returns (hash_hex, hash_method) or (None, "binary") for non-text.
     """
@@ -133,7 +133,7 @@ def _risk_label(value: str) -> str:
 
 
 def sanitise_conversation_turn(role: str, content: str) -> str:
-    """Sanitize conversation history entries.
+    """Sanitise conversation history entries.
 
     Delegates to the prompt_injection_guard module.
     """

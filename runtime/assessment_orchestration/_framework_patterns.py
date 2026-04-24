@@ -48,6 +48,7 @@ ALL_FRAMEWORK_ORDER: tuple[str, ...] = (
         "Essential Eight",
         "ISM",
         "AESCSF",
+        "NIST AI RMF",
         "NIST CSF",
         "PSPF",
         "PCI DSS",
@@ -80,6 +81,13 @@ FRAMEWORK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "ISM",
         re.compile(r"\b(ism|information\s+security\s+manual)\b", re.IGNORECASE),
+    ),
+    (
+        "NIST AI RMF",
+        re.compile(
+            r"\b(nist\s*ai\s*rmf|ai\s*risk\s*management\s*framework|nist\s*ai\s*100-1|airmf)\b",
+            re.IGNORECASE,
+        ),
     ),
     (
         "NIST CSF",

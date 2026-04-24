@@ -374,7 +374,7 @@ def _requested_frameworks_from_discussion_context(
                 )
             # If the triggering comment cannot be resolved, fall through to the
             # rest of the discussion context. This preserves the existing
-            # mention-driven behavior for Confluence events that omit comment text.
+            # mention-driven behaviour for Confluence events that omit comment text.
         # If not found in discussion_context, attempt API fetch as fallback
         if not found_triggering_comment:
             logging.info(
@@ -415,7 +415,7 @@ def _requested_frameworks_from_discussion_context(
                 )
             # If the triggering comment cannot be resolved, fall through to the
             # rest of the discussion context. This preserves the existing
-            # mention-driven behavior for Confluence events that omit comment text.
+            # mention-driven behaviour for Confluence events that omit comment text.
     candidate_texts: list[str] = []
     for item in discussion_context:
         text = str(item.get("text") or "").strip()

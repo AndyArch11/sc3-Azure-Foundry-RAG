@@ -217,7 +217,7 @@ Controls index environment variables:
 The grounding ingestion path used by `python3 -m ingestion.runner --mode azure` now
 stamps the blob metadata required by the grounding-index skillset projection.
 
-Default runtime azure mode behavior targets Corpus B:
+Default runtime azure mode behaviour targets Corpus B:
 
 - `INGESTION_CORPUS=b`
 - `INGESTION_CORPUS_ROLE=narrative_guidance`
@@ -469,7 +469,7 @@ Expected outcome:
 - When dry-run is disabled, the poller retrieves Corpus A and Corpus B grounding from Search, generates a structured compliance report via Azure OpenAI, and posts a formatted Confluence footer comment.
 - Cosmos orchestration state is readable/writable with the runtime identity.
 
-Current behavior notes:
+Current behaviour notes:
 
 - Responses are posted as page footer comments.
 - The poller does not currently reply into a specific comment thread.
@@ -786,7 +786,7 @@ Corpus A source upload notes:
 To support this from the ingestion container image, `ingestion.runner` now supports:
 
 - `--mode controls`
-- `--controls-framework all|aescsf|cis_controls|essential_eight|ism|nist_csf|pci_dss|pspf`
+- `--controls-framework all|aescsf|cis_controls|essential_eight|ism|nist_ai_rmf|nist_csf|pci_dss|pspf`
 - `--controls-source-prefix <blob-prefix>`
 - `--replace-existing`
 - `--dry-run`
@@ -800,7 +800,7 @@ Query web exposes authenticated clear endpoints for vector/index data management
 - `POST /api/corpus-b/clear`
 - `POST /api/corpus-c/clear`
 
-Safety behavior:
+Safety behaviour:
 
 - All clear APIs support `dry_run=true` to preview impact before deletion.
 - Corpus B/C clear support `clear_blobs=true` to also remove uploaded blob source data.

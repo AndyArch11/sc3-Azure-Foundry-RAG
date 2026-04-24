@@ -38,6 +38,8 @@ def test_canonical_framework_name_empty_string() -> None:
 
 
 def test_canonical_framework_name_known_alias() -> None:
+    assert _canonical_framework_name("nist_ai_rmf") == "NIST AI RMF"
+    assert _canonical_framework_name("ai rmf") == "NIST AI RMF"
     assert _canonical_framework_name("nist") == "NIST CSF"
     assert _canonical_framework_name("e8") == "Essential Eight"
     assert _canonical_framework_name("ism") == "ISM"
@@ -143,8 +145,9 @@ def test_parse_framework_authority_order_none_returns_default() -> None:
     result = _parse_framework_authority_order(None)
     assert result[0] == "Essential Eight"
     assert "ISM" in result
+    assert "NIST AI RMF" in result
     assert "NIST CSF" in result
-    assert len(result) == 7
+    assert len(result) == 8
 
 
 def test_parse_framework_authority_order_empty_string_returns_default() -> None:

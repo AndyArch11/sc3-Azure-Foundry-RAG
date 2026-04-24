@@ -41,7 +41,7 @@ class IngestionService:
 
     The service receives an explicit dependency container so helper
     lookups happen at runtime while preserving existing patch.object
-    test behavior through thin wrappers in app.py.
+    test behaviour through thin wrappers in app.py.
     """
 
     def __init__(self, deps: Any) -> None:
@@ -88,7 +88,9 @@ class IngestionService:
 
         search_client = getattr(self.deps, "search_client", None)
         if search_client is None or not hasattr(search_client, "load_documents"):
-            raise RuntimeError("Local corpus upload requires a local search client with load_documents().")
+            raise RuntimeError(
+                "Local corpus upload requires a local search client with load_documents()."
+            )
 
         existing_docs = list(getattr(search_client, "_docs", []) or [])
         existing_keys = {
@@ -206,7 +208,9 @@ class IngestionService:
                     }
                 )
             except Exception as exc:
-                logger.warning("Failed to ingest local upload %s: %s", original_name, exc, exc_info=True)
+                logger.warning(
+                    "Failed to ingest local upload %s: %s", original_name, exc, exc_info=True
+                )
                 failed.append(f"{original_name}: upload failed")
             finally:
                 try:

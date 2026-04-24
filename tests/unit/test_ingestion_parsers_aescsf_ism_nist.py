@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import io
 import json
 from types import SimpleNamespace
 
 import pytest
 
-from runtime.ingestion.parsers import aescsf, ism, nist_csf
+from runtime.ingestion.parsers import aescsf, ism, nist_ai_rmf, nist_csf
 
 
 def test_aescsf_slugify_and_parse_maturity_level() -> None:
@@ -248,3 +249,164 @@ def test_aescsf_fetch_workbook_reads_bytes(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(aescsf.urllib.request, "urlopen", lambda req, timeout=60: _Resp())
     data = aescsf.AescsfParser()._fetch_workbook()
     assert data == b"xlsx-bytes"
+
+
+def test_nist_ai_rmf_loads_explicit_local_pdf_path(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    explicit_pdf = tmp_path / "explicit.pdf"
+    explicit_pdf.write_bytes(b"%PDF-1.4 explicit")
+
+    called_with: list[object] = []
+
+    def _fake_reader(arg):
+        called_with.append(arg)
+        return "reader-from-explicit"
+
+    monkeypatch.setattr(nist_ai_rmf, "_PdfReader", _fake_reader)
+    monkeypatch.setattr(
+        nist_ai_rmf.requests,
+        "get",
+        lambda *args, **kwargs: pytest.fail("requests.get should not be called"),
+    )
+
+    parser = nist_ai_rmf.NistAiRmfParser(pdf_path=explicit_pdf)
+    reader = parser._load_pdf_reader()
+
+    assert reader == "reader-from-explicit"
+    assert called_with == [str(explicit_pdf.resolve())]
+
+
+def test_nist_ai_rmf_loads_default_local_pdf_path_when_present(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    default_pdf = tmp_path / "NIST.AI.100-1.pdf"
+    default_pdf.write_bytes(b"%PDF-1.4 default")
+
+    called_with: list[object] = []
+
+    def _fake_reader(arg):
+        called_with.append(arg)
+        return "reader-from-default"
+
+    monkeypatch.setattr(nist_ai_rmf, "_DEFAULT_PDF_PATH", default_pdf)
+    monkeypatch.setattr(nist_ai_rmf, "_PdfReader", _fake_reader)
+    monkeypatch.setattr(
+        nist_ai_rmf.requests,
+        "get",
+        lambda *args, **kwargs: pytest.fail("requests.get should not be called"),
+    )
+
+    parser = nist_ai_rmf.NistAiRmfParser()
+    reader = parser._load_pdf_reader()
+
+    assert reader == "reader-from-default"
+    assert called_with == [str(default_pdf)]
+
+
+def test_nist_ai_rmf_downloads_pdf_when_local_files_absent(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    called_with: list[object] = []
+
+    class _Response:
+        content = b"%PDF-1.4 downloaded"
+
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
+
+    def _fake_reader(arg):
+        called_with.append(arg)
+        return "reader-from-download"
+
+    requested: dict[str, object] = {}
+
+    def _fake_get(url: str, timeout: int):
+        requested["url"] = url
+        requested["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr(nist_ai_rmf, "_DEFAULT_PDF_PATH", tmp_path / "missing-default.pdf")
+    monkeypatch.setattr(nist_ai_rmf, "_PdfReader", _fake_reader)
+    monkeypatch.setattr(nist_ai_rmf.requests, "get", _fake_get)
+
+    parser = nist_ai_rmf.NistAiRmfParser(pdf_path=tmp_path / "missing-explicit.pdf")
+    reader = parser._load_pdf_reader()
+
+    assert reader == "reader-from-download"
+    assert requested == {"url": nist_ai_rmf.SOURCE_URI, "timeout": 90}
+    assert len(called_with) == 1
+    assert isinstance(called_with[0], io.BytesIO)
+
+
+def test_nist_ai_rmf_extract_control_entries_parses_real_style_tokens() -> None:
+    text = (
+        "GOVERN 1: Governance is established. "
+        "GOVERN 1.1: Legal and regulatory requirements involving AI are understood. "
+        "GOVERN 1.2: Trustworthy AI characteristics are integrated. "
+        "MAP 1: Context is established and understood. "
+        "MAP 1.1: Intended purposes and settings are understood."
+    )
+
+    entries = nist_ai_rmf._extract_control_entries(text)
+
+    assert entries[0] == ("GOVERN", "1", "Governance is established.")
+    assert entries[1][0] == "GOVERN"
+    assert entries[1][1] == "1.1"
+    assert "Legal and regulatory requirements" in entries[1][2]
+    assert entries[-1][0] == "MAP"
+    assert entries[-1][1] == "1.1"
+
+
+def test_nist_ai_rmf_parse_controls_from_text_uses_real_subcategories_only() -> None:
+    text = (
+        "GOVERN 1: Governance is established. "
+        "GOVERN 1.1: Legal and regulatory requirements involving AI are understood. "
+        "GOVERN 1.2: Trustworthy AI characteristics are integrated. "
+        "MAP 1: Context is established and understood. "
+        "MAP 1.1: Intended purposes and settings are understood."
+    )
+
+    parser = nist_ai_rmf.NistAiRmfParser(fetch_guidance=False)
+    records = parser._parse_controls_from_text(text)
+
+    assert len(records) == 3
+    assert [record.requirement_id for record in records] == [
+        "NIST-AI-RMF-GOVERN-1-1",
+        "NIST-AI-RMF-GOVERN-1-2",
+        "NIST-AI-RMF-MAP-1-1",
+    ]
+    assert records[0].requirement_text.startswith("Legal and regulatory requirements involving AI")
+    assert records[0].control_family.startswith("Govern 1 - Governance is established")
+    assert records[0].guidance_text == "Governance is established."
+    assert records[0].source_section == "Govern 1.1"
+    assert records[0].source_uri == nist_ai_rmf.SOURCE_URI
+
+
+def test_nist_ai_rmf_extract_playbook_page_guidance_maps_bookmark_urls() -> None:
+    html = """
+    <html><body>
+      <h3>GOVERN 1.1</h3>
+      <p>Playbook guidance for 1.1.</p>
+      <h3>GOVERN 1.2</h3>
+      <p>Playbook guidance for 1.2.</p>
+    </body></html>
+    """
+
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        pytest.skip("beautifulsoup4 not installed")
+
+    soup = BeautifulSoup(html, "html.parser")
+    result = nist_ai_rmf._extract_playbook_page_guidance(
+        soup,
+        "GOVERN",
+        "https://airc.nist.gov/airmf-resources/playbook/govern/",
+    )
+
+    assert result["GOVERN 1.1"][0] == "Playbook guidance for 1.1."
+    assert result["GOVERN 1.1"][1].endswith("#govern-1-1")
+    assert result["GOVERN 1.2"][0] == "Playbook guidance for 1.2."
+    assert result["GOVERN 1.2"][1].endswith("#govern-1-2")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -173,7 +174,7 @@ def _make_client(
     user: dict | None = None,
     comments: list | None = None,
     comment_post_result: dict | None = None,
-) -> ConfluenceClient:
+) -> Any:
     mock = MagicMock(spec=ConfluenceClient)
     mock.get_page.return_value = page if page is not None else dict(_DEFAULT_PAGE)
     mock.get_user.return_value = user if user is not None else dict(_DEFAULT_USER)
@@ -476,7 +477,7 @@ def test_get_recent_mentions_scope_mismatch_raises_permission_error() -> None:
         sp.get_recent_mentions(since="2026-04-04T00:00:00Z")
 
 
-def test_list_spaces_basic_falls_back_to_v1_when_v2_unauthorized() -> None:
+def test_list_spaces_basic_falls_back_to_v1_when_v2_unauthorised() -> None:
     client = ConfluenceClient(
         base_url="https://example.atlassian.net",
         auth_email="bot@example.com",
@@ -504,7 +505,7 @@ def test_list_spaces_basic_falls_back_to_v1_when_v2_unauthorized() -> None:
     assert spaces[0]["key"] == "SEC"
 
 
-def test_get_page_basic_falls_back_to_v1_when_v2_unauthorized() -> None:
+def test_get_page_basic_falls_back_to_v1_when_v2_unauthorised() -> None:
     client = ConfluenceClient(
         base_url="https://example.atlassian.net",
         auth_email="bot@example.com",
@@ -543,7 +544,7 @@ def test_get_page_basic_falls_back_to_v1_when_v2_unauthorized() -> None:
     assert page["spaceId"] == "SEC"
 
 
-def test_post_footer_comment_basic_falls_back_to_v1_when_v2_unauthorized() -> None:
+def test_post_footer_comment_basic_falls_back_to_v1_when_v2_unauthorised() -> None:
     client = ConfluenceClient(
         base_url="https://example.atlassian.net",
         auth_email="bot@example.com",
