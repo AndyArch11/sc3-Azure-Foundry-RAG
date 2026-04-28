@@ -172,8 +172,13 @@ if ! command -v az >/dev/null 2>&1; then
 fi
 
 if ! az account show >/dev/null 2>&1; then
-  echo "Azure CLI is not authenticated. Run: az login"
-  exit 1
+  echo "INFO: Azure CLI not authenticated; attempting managed identity login..."
+  if az login --identity --output none >/dev/null 2>&1; then
+    echo "INFO: Azure CLI authenticated via managed identity."
+  else
+    echo "Azure CLI is not authenticated. Run: az login"
+    exit 1
+  fi
 fi
 
 echo "==> Initialising Terraform root stack"

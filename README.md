@@ -462,9 +462,9 @@ On the jumpbox:
   - `sudo ./ops/scripts/azure/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" --secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
 8. Build and push immutable image tags from the jumpbox (only for images you are rolling out):
   ```bash
-  sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-ingestion.sh
-  sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-query-web.sh
-  sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-confluence-poller.sh
+  ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-ingestion.sh
+  ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-query-web.sh
+  ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-confluence-poller.sh
   ```
   - Update the corresponding `*_image_tag` values in `infra/terraform/azure/environments/${TARGET_ENV}/${TARGET_ENV}.tfvars` with the immutable tags produced above.
   - After creating a new container image, you may want to run the optional RBAC reconcilliation command (requires elevated privileges): 
@@ -503,7 +503,7 @@ az login --identity
 
 Build and push the ingestion image from a Docker-capable host inside the VNet, typically the jumpbox:
 
-- `sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-ingestion.sh`
+- `ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-ingestion.sh`
 - Update `ingestion_job_image_tag` in `infra/terraform/azure/environments/<env>/<env>.tfvars` with `<immutable-ingestion-tag>` container tag
 
 Roll out the new image tag from jumpbox with the standard non-RBAC rollout script:
@@ -677,7 +677,7 @@ See [runtime/README.md](runtime/README.md) for the full controls pipeline refere
 
 Build and push the query web image from a Docker-capable host inside the VNet:
 
-- `sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-query-web.sh`
+- `ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-query-web.sh`
 - Update `query_web_image_tag` in `infra/terraform/azure/environments/<env>/<env>.tfvars` with `<immutable-query-web-tag>` container tag
 
 Roll out the query web image from jumpbox:
@@ -717,9 +717,9 @@ az login --identity
 ./ops/scripts/azure/phase3c-app-secrets.sh "${TARGET_ENV}" apply
 
 # Build and push immutable images from a private-network-connected host
-sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-ingestion.sh
-sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-query-web.sh
-sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-confluence-poller.sh
+ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-ingestion.sh
+ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-query-web.sh
+ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-confluence-poller.sh
 
 # External/admin: create the Entra app registration used by query web EasyAuth
 # and grant the least-privilege permission bundle needed for jumpbox credential rotation

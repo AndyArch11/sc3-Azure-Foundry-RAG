@@ -165,6 +165,7 @@ DEFAULT_TAG="$(date +%Y%m%d%H%M)-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 
 IMAGE_TAG="${IMAGE_TAG:-${DEFAULT_TAG}}"
 IMAGE_REPOSITORY="ingestion-runner"
 RESOURCE_GROUP="${RESOURCE_GROUP:-rg-ai-platform-${ENV}}"
+ENV_TFVARS_FILE="${TF_DIR}/environments/${ENV}/${ENV}.tfvars"
 
 # ---------------------------------------------------------------------------
 # Resolve ACR login server.
@@ -192,6 +193,19 @@ fi
 
 if [[ -z "${JOB_NAME}" ]]; then
   JOB_NAME="caj-ingestion-${ENV}-${LOCATION_SHORT}-${INSTANCE}"
+fi
+
+if [[ -z "${ACR_LOGIN_SERVER}" ]]; then
+  # Prefer explicit tfvars override when available.
+  # This is resilient when terraform output is unavailable (for example, running
+  # the script via sudo in a shell that does not have the same terraform context).
+  if [[ -f "${ENV_TFVARS_FILE}" ]]; then
+    ACR_NAME_OVERRIDE="$(grep -E '^acr_name_override\s*=\s*"' "${ENV_TFVARS_FILE}" | awk -F'"' '{print $2}' | head -1 || true)"
+    if [[ -n "${ACR_NAME_OVERRIDE}" ]]; then
+      ACR_LOGIN_SERVER="${ACR_NAME_OVERRIDE}.azurecr.io"
+      echo "INFO: Using ACR login server from tfvars override: ${ACR_LOGIN_SERVER}"
+    fi
+  fi
 fi
 
 if [[ -z "${ACR_LOGIN_SERVER}" ]]; then

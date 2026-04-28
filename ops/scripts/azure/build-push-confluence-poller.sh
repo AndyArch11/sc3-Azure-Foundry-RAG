@@ -149,11 +149,25 @@ DEFAULT_TAG="$(date +%Y%m%d%H%M)-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 
 IMAGE_TAG="${IMAGE_TAG:-${DEFAULT_TAG}}"
 IMAGE_REPOSITORY="confluence-poller"
 ACR_LOGIN_SERVER="${ACR_LOGIN_SERVER:-}"
+ENV_TFVARS_FILE="${TF_DIR}/environments/${ENV}/${ENV}.tfvars"
 
 if [[ -z "${ACR_LOGIN_SERVER}" ]] && command -v terraform &>/dev/null; then
   pushd "${TF_DIR}" >/dev/null
   ACR_LOGIN_SERVER=$(terraform output -raw acr_login_server 2>/dev/null || true)
   popd >/dev/null
+fi
+
+if [[ -z "${ACR_LOGIN_SERVER}" ]]; then
+  # Prefer explicit tfvars override when available.
+  # This is resilient when terraform output is unavailable (for example, running
+  # the script via sudo in a shell that does not have the same terraform context).
+  if [[ -f "${ENV_TFVARS_FILE}" ]]; then
+    ACR_NAME_OVERRIDE="$(grep -E '^acr_name_override\s*=\s*"' "${ENV_TFVARS_FILE}" | awk -F'"' '{print $2}' | head -1 || true)"
+    if [[ -n "${ACR_NAME_OVERRIDE}" ]]; then
+      ACR_LOGIN_SERVER="${ACR_NAME_OVERRIDE}.azurecr.io"
+      echo "INFO: Using ACR login server from tfvars override: ${ACR_LOGIN_SERVER}"
+    fi
+  fi
 fi
 
 if [[ -z "${ACR_LOGIN_SERVER}" ]]; then
