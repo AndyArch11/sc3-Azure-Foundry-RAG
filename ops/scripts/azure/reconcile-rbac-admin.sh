@@ -4,7 +4,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/reconcile-rbac-admin.sh <env> [plan|apply]
+  ./ops/scripts/azure/reconcile-rbac-admin.sh <env> [plan|apply]
 
 Admin-only RBAC reconciliation for standard private-network deployments.
 This script targets only role-assignment resources so jumpbox rollouts can stay
@@ -16,14 +16,14 @@ Requirements:
     (Owner or User Access Administrator at required scopes)
 
 Examples:
-  ./ops/scripts/reconcile-rbac-admin.sh dev plan
-  ./ops/scripts/reconcile-rbac-admin.sh dev apply
+  ./ops/scripts/azure/reconcile-rbac-admin.sh dev plan
+  ./ops/scripts/azure/reconcile-rbac-admin.sh dev apply
 EOF
   exit 0
 fi
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TF_DIR="${ROOT_DIR}/infra/terraform"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+TF_DIR="${ROOT_DIR}/infra/terraform/azure"
 
 ENVIRONMENT="${1:-dev}"
 ACTION="${2:-plan}"

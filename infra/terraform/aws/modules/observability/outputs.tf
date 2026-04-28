@@ -17,3 +17,19 @@ output "opensearch_log_group_arn" {
 output "log_group_arns" {
   value = [for g in aws_cloudwatch_log_group.this : g.arn]
 }
+
+output "amp_workspace_id" {
+  value = aws_prometheus_workspace.this.id
+}
+
+output "amp_workspace_arn" {
+  value = aws_prometheus_workspace.this.arn
+}
+
+output "amp_workspace_alias" {
+  value = aws_prometheus_workspace.this.alias
+}
+
+output "amp_remote_write_url" {
+  value = "https://aps-workspaces.${data.aws_region.current.name}.amazonaws.com/workspaces/${aws_prometheus_workspace.this.id}/api/v1/remote_write"
+}

@@ -7,10 +7,6 @@ This directory is now a multi-cloud container.
 - `azure/`: canonical Azure Terraform stack
 - `aws/`: AWS Terraform stack
 
-## Compatibility
-
-The legacy Azure root paths in this directory are preserved as compatibility symlinks so existing commands like `terraform -chdir=infra/terraform ...` continue to work during migration.
-
 New documentation and new scripts should prefer the canonical Azure path:
 
 - `terraform -chdir=infra/terraform/azure init ...`

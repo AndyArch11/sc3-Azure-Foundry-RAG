@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import UTC, datetime
 from typing import Any
 
 import requests
 
+from runtime.outbound_instrumentation import request_with_instrumentation
+
 from .controls_index_aws import AWSControlsIndexConfig
 from .publish_controls import _controls_manifest_hash
+
+logger = logging.getLogger(__name__)
 
 
 def _signed_headers(session: Any, method: str, url: str, body: str) -> dict[str, str]:
@@ -55,7 +60,17 @@ def _search_existing_framework_version(
     }
     body = json.dumps(body_payload, ensure_ascii=True)
     headers = _signed_headers(session, "POST", search_url, body)
-    response = requests.post(search_url, data=body, headers=headers, timeout=30)
+    response = request_with_instrumentation(
+        "POST",
+        search_url,
+        logger=logger,
+        data=body,
+        headers=headers,
+        timeout=30,
+        system="aws-opensearch",
+        operation="search_existing_framework_version",
+        request_callable=requests.post,
+    )
     if response.status_code == 404:
         return [], set()
     response.raise_for_status()
@@ -97,7 +112,17 @@ def _bulk_delete_requirements(
 
     body = "\n".join(lines) + "\n"
     headers = _signed_headers(session, "POST", bulk_url, body)
-    response = requests.post(bulk_url, data=body, headers=headers, timeout=30)
+    response = request_with_instrumentation(
+        "POST",
+        bulk_url,
+        logger=logger,
+        data=body,
+        headers=headers,
+        timeout=30,
+        system="aws-opensearch",
+        operation="bulk_delete_requirements",
+        request_callable=requests.post,
+    )
     response.raise_for_status()
 
 
@@ -239,7 +264,17 @@ def upload_controls_records_aws(
 
         body = "\n".join(lines) + "\n"
         headers = _signed_headers(session, "POST", bulk_url, body)
-        response = requests.post(bulk_url, data=body, headers=headers, timeout=30)
+        response = request_with_instrumentation(
+            "POST",
+            bulk_url,
+            logger=logger,
+            data=body,
+            headers=headers,
+            timeout=30,
+            system="aws-opensearch",
+            operation="bulk_upload_controls",
+            request_callable=requests.post,
+        )
         response.raise_for_status()
         payload = response.json()
 

@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from azure.search.documents import SearchClient as _AzureSDKSearchClient
 from azure.search.documents.models import VectorizedQuery
+
+from runtime.outbound_instrumentation import sdk_call_with_instrumentation
+
+logger = logging.getLogger(__name__)
 
 
 class _SearchResults(list[dict[str, Any]]):
@@ -89,7 +94,12 @@ class AzureSearchClient:
         # Forward provider-specific hints (e.g. query_type, semantic_configuration_name).
         kwargs.update(extra_kwargs)
 
-        results = self._client.search(**kwargs)
+        results = sdk_call_with_instrumentation(
+            logger=logger,
+            system="azure-search",
+            operation="search_documents",
+            call=lambda: self._client.search(**kwargs),
+        )
         total_count = results.get_count() if hasattr(results, "get_count") else None
         items = [dict(r) for r in results]
         return _SearchResults(items=items, total_count=total_count)

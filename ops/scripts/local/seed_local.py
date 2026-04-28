@@ -6,11 +6,11 @@ Runs as a one-shot service before query-web starts in the local Docker Compose s
 
 Usage
 -----
-    python ops/scripts/seed_local.py               # seed both indexes
-    python ops/scripts/seed_local.py --check        # report counts, exit non-zero if empty
-    python ops/scripts/seed_local.py --force        # re-seed even if collections are already populated
-    python ops/scripts/seed_local.py --evidence-only
-    python ops/scripts/seed_local.py --controls-only
+    python ops/scripts/local/seed_local.py               # seed both indexes
+    python ops/scripts/local/seed_local.py --check        # report counts, exit non-zero if empty
+    python ops/scripts/local/seed_local.py --force        # re-seed even if collections are already populated
+    python ops/scripts/local/seed_local.py --evidence-only
+    python ops/scripts/local/seed_local.py --controls-only
 
 Environment Variables
 ---------------------
@@ -123,20 +123,35 @@ def _load_jsonl_files(path_value: str) -> list[dict[str, Any]]:
 
 
 def _normalise_evidence(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def infer_corpus(source_path: str, explicit_corpus: str) -> str:
+        corpus = (explicit_corpus or "").strip().lower()
+        if corpus in {"a", "b", "c"}:
+            return corpus
+
+        normalised_path = (source_path or "").replace("\\", "/").lower()
+        if "/corpus-b/" in normalised_path:
+            return "b"
+        if "/corpus-c/" in normalised_path:
+            return "c"
+
+        return "c"
+
     docs: list[dict[str, Any]] = []
     for i, payload in enumerate(raw):
         content = str(payload.get("content") or "").strip()
         if not content:
             continue
         source_path = str(payload.get("source_path") or "")
+        corpus = infer_corpus(source_path, str(payload.get("corpus") or ""))
+        default_role = "narrative_guidance" if corpus == "b" else "evidence"
         docs.append(
             {
                 "id": payload.get("id") or payload.get("chunk_id") or f"evidence:{i}",
                 "content": content,
                 "source_name": Path(source_path).name if source_path else "",
                 "source_path": source_path,
-                "corpus": payload.get("corpus") or "b",
-                "corpus_role": payload.get("corpus_role") or "narrative_guidance",
+                "corpus": corpus,
+                "corpus_role": payload.get("corpus_role") or default_role,
                 "upload_source": payload.get("upload_source") or "local",
                 "uploaded_by": payload.get("uploaded_by") or "local",
                 "upload_batch": payload.get("upload_batch") or "local",

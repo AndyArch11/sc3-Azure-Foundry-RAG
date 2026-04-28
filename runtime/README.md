@@ -80,7 +80,7 @@ Supported controls parsers:
 
 ### CIS Controls Local Source Files
 
-The `cis_controls` parser expects these files to exist in `runtime/samples/`:
+The `cis_controls` parser expects these files to exist in `runtime/samples/api/corpus-a/`:
 
 - `CIS_Controls_Version_8.xlsx`
 - `CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf`
@@ -92,12 +92,12 @@ These files should be sourced by the person running the parser from:
 Licensing note:
 
 - The repository does not distribute these CIS source files as part of the parser implementation.
-- Because of CIS licensing constraints, operators must obtain the official XLSX and PDF themselves and place them in `runtime/samples/` before running the parser.
+- Because of CIS licensing constraints, operators must obtain the official XLSX and PDF themselves and place them in `runtime/samples/api/corpus-a/` before running the parser.
 - The parser assumes the files are the official downloads and uses them as local inputs only.
 
 ### PCI DSS v4.0.1 Local Source File
 
-The `pci_dss` parser expects this file to exist in `runtime/samples/`:
+The `pci_dss` parser expects this file to exist in `runtime/samples/api/corpus-a/`:
 
 - `PCI-DSS-v4_0_1.pdf`
 
@@ -108,7 +108,7 @@ This file should be sourced from the PCI Security Standards Council:
 Licensing note:
 
 - The repository does not distribute the PCI DSS document.
-- Operators must obtain the official PDF from the PCI SSC document library and place it in `runtime/samples/` before running the parser.
+- Operators must obtain the official PDF from the PCI SSC document library and place it in `runtime/samples/api/corpus-a/` before running the parser.
 - The parser uses the file as a local input only and does not redistribute any content.
 
 ### PSPF Release 2025 Source Documents
@@ -228,7 +228,7 @@ To target Corpus C with the same runtime uploader, override the corpus metadata:
 - `INGESTION_CORPUS=c`
 - `INGESTION_CORPUS_ROLE=customer_evidence`
 
-These overrides apply only to the grounding ingestion path for Corpus B and Corpus C.
+These overrides apply to Corpus B grounding ingestion and Corpus C evidence ingestion.
 Corpus A uses the controls pipeline and does not use the grounding-index skillset
 projection.
 
@@ -239,9 +239,9 @@ projection.
 Provision the target environment before running azure mode:
 
 ```bash
-./ops/scripts/phase1-bootstrap.sh <env>
-./ops/scripts/phase2-network-dns.sh <env> apply
-./ops/scripts/phase3-data-ai.sh <env> apply
+./ops/scripts/azure/phase1-bootstrap.sh <env>
+./ops/scripts/azure/phase2-network-dns.sh <env> apply
+./ops/scripts/azure/phase3-data-ai.sh <env> apply
 ```
 
 For runtime deployment, the environment tfvars usually need:
@@ -272,7 +272,7 @@ Run these commands from the repository root on a host that can reach the private
 
 ```bash
 TARGET_ENV="<env>"   # dev, test, or prod
-TF_DIR="infra/terraform"
+TF_DIR="infra/terraform/azure"
 
 terraform -chdir="${TF_DIR}" init \
   -backend-config="environments/${TARGET_ENV}/backend.hcl"
@@ -325,12 +325,12 @@ TARGET_ENV="<env>"
 INGESTION_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)"
 QUERY_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)"
 
-ENV="${TARGET_ENV}" IMAGE_TAG="${INGESTION_TAG}" ./ops/scripts/build-push-ingestion.sh
-ENV="${TARGET_ENV}" IMAGE_TAG="${QUERY_TAG}" ./ops/scripts/build-push-query-web.sh
+ENV="${TARGET_ENV}" IMAGE_TAG="${INGESTION_TAG}" ./ops/scripts/azure/build-push-ingestion.sh
+ENV="${TARGET_ENV}" IMAGE_TAG="${QUERY_TAG}" ./ops/scripts/azure/build-push-query-web.sh
 
 # Optional Confluence poller image
 POLLER_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)"
-ENV="${TARGET_ENV}" IMAGE_TAG="${POLLER_TAG}" ./ops/scripts/build-push-confluence-poller.sh
+ENV="${TARGET_ENV}" IMAGE_TAG="${POLLER_TAG}" ./ops/scripts/azure/build-push-confluence-poller.sh
 ```
 
 Use immutable tags rather than `latest` so Container Apps revisions roll forward predictably and Terraform plans remain stable.
@@ -344,24 +344,24 @@ EasyAuth app credential and write it to your private Key Vault:
 
 ```bash
 # Run once per environment to provision private app-secrets Key Vault + PE:
-./ops/scripts/phase3c-app-secrets.sh "${TARGET_ENV}" apply
+./ops/scripts/azure/phase3c-app-secrets.sh "${TARGET_ENV}" apply
 
-sudo ./ops/scripts/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" \
+sudo ./ops/scripts/azure/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" \
   --secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 ```
 
 ```bash
-sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+sudo ./ops/scripts/azure/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --ingestion-tag "${INGESTION_TAG}" \
   --query-web-tag "${QUERY_TAG}" \
-  --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" \
+  --entra-secret-kv "$(terraform -chdir=infra/terraform/azure output -raw app_secrets_key_vault_name)" \
   --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 
 # Enable and roll out Confluence poller app
-sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+sudo ./ops/scripts/azure/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --confluence-poller-tag "${POLLER_TAG}" \
   --enable-confluence-poller \
-  --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" \
+  --entra-secret-kv "$(terraform -chdir=infra/terraform/azure output -raw app_secrets_key_vault_name)" \
   --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 ```
 
@@ -369,9 +369,9 @@ sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
 
 **Example for ingestion-only rollout:**
 ```bash
-sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+sudo ./ops/scripts/azure/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --ingestion-tag "${INGESTION_TAG}" \
-  --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" \
+  --entra-secret-kv "$(terraform -chdir=infra/terraform/azure output -raw app_secrets_key_vault_name)" \
   --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 ```
 
@@ -381,13 +381,13 @@ Then reconcile RBAC resources from an admin identity:
 
 ```bash
 # Run from admin context (local admin shell or CI), not jumpbox UAMI context.
-./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply
+./ops/scripts/azure/reconcile-rbac-admin.sh "${TARGET_ENV}" apply
 ```
 
 ### Upload Documents To Blob Storage
 
 ```bash
-STORAGE_NAME=$(terraform -chdir=infra/terraform output -raw storage_account_name)
+STORAGE_NAME=$(terraform -chdir=infra/terraform/azure output -raw storage_account_name)
 
 az storage blob upload-batch \
   --account-name "${STORAGE_NAME}" \
@@ -400,8 +400,8 @@ az storage blob upload-batch \
 
 
 ```bash
-RG_NAME=$(terraform -chdir=infra/terraform output -raw resource_group_name)
-JOB_NAME=$(terraform -chdir=infra/terraform output -raw container_app_job_name)
+RG_NAME=$(terraform -chdir=infra/terraform/azure output -raw resource_group_name)
+JOB_NAME=$(terraform -chdir=infra/terraform/azure output -raw container_app_job_name)
 
 az containerapp job start \
   -n "${JOB_NAME}" \
@@ -425,11 +425,11 @@ az containerapp job start \
 ### Validate The Query Web App
 
 ```bash
-QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn)
+QUERY_FQDN=$(terraform -chdir=infra/terraform/azure output -raw query_web_fqdn)
 
 QUERY_WEB_RUN_API_ASK=true \
 QUERY_WEB_REQUIRE_CONVERSATIONS=true \
-./ops/scripts/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
+./ops/scripts/azure/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
 ```
 
 If `query_web_auth_token` is configured in tfvars, pass the same token to the integration runner and any direct `curl` calls.
@@ -459,7 +459,7 @@ export CONFLUENCE_API_TOKEN="<token>"
 export CONFLUENCE_ACCOUNT_ID="<atlassian-account-id>"
 
 # Safe smoke mode (forces dry-run=true unless --no-dry-run is passed)
-./ops/scripts/run-confluence-poller-smoke.sh
+./ops/scripts/azure/run-confluence-poller-smoke.sh
 ```
 
 Expected outcome:
@@ -484,13 +484,13 @@ After deploying the poller Container App, check status and recent logs:
 cd /workspaces/sc3-Azure-Foundry-RAG
 
 # Resolve app name/resource group from terraform outputs
-./ops/scripts/check-confluence-poller-health.sh
+./ops/scripts/azure/check-confluence-poller-health.sh
 
 # Custom tail length
-./ops/scripts/check-confluence-poller-health.sh dev --lines 200
+./ops/scripts/azure/check-confluence-poller-health.sh dev --lines 200
 
 # Stream logs continuously
-./ops/scripts/check-confluence-poller-health.sh dev --follow
+./ops/scripts/azure/check-confluence-poller-health.sh dev --follow
 ```
 
 This helper prints:
@@ -539,10 +539,10 @@ cd /workspaces/sc3-Azure-Foundry-RAG
 
 # Step 1: one-shot smoke (dry-run by default)
 # Step 2: deployed app health + logs
-./ops/scripts/run-confluence-poller-preflight.sh dev
+./ops/scripts/azure/run-confluence-poller-preflight.sh dev
 
 # Skip deployed health checks and run smoke only
-./ops/scripts/run-confluence-poller-preflight.sh dev --skip-health
+./ops/scripts/azure/run-confluence-poller-preflight.sh dev --skip-health
 ```
 
 ### Query Web Precedence Policy
@@ -601,7 +601,7 @@ Operator checklist (post-rollout):
 1. Verify query web reports active policy metadata:
 
 ```bash
-QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn)
+QUERY_FQDN=$(terraform -chdir=infra/terraform/azure output -raw query_web_fqdn)
 
 curl -sS "https://${QUERY_FQDN}/health" | jq '{
   precedence_policy_version,
@@ -646,7 +646,7 @@ If `query_web_auth_token` is enabled, include it in API ask payloads and
 conversation endpoints:
 
 ```bash
-QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn)
+QUERY_FQDN=$(terraform -chdir=infra/terraform/azure output -raw query_web_fqdn)
 AUTH_TOKEN="<query-web-auth-token>"
 TEST_TEMPERATURE="${QUERY_WEB_TEST_TEMPERATURE:-1.0}"
 
@@ -675,7 +675,7 @@ Auth-protected variant (Entra group-gated):
 ```bash
 QUERY_WEB_RUN_API_ASK=true \
 QUERY_WEB_REQUIRE_CONVERSATIONS=true \
-./ops/scripts/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
+./ops/scripts/azure/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
 ```
 
 ### Corpus B Upload And Ingestion Trigger API
@@ -722,15 +722,15 @@ Corpus B duplicate policy:
 Example (shared-token variant):
 
 ```bash
-QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn)
+QUERY_FQDN=$(terraform -chdir=infra/terraform/azure output -raw query_web_fqdn)
 AUTH_TOKEN="<query-web-auth-token>"
 
 curl -sS "https://${QUERY_FQDN}/api/corpus-b/ingest" \
   -H "Content-Type: multipart/form-data" \
   -F "trigger_job=true" \
   -F "auth_token=${AUTH_TOKEN}" \
-  -F "files=@./runtime/samples/sample-policy.pdf" \
-  -F "files=@./runtime/samples/sample-standard.docx" | jq
+  -F "files=@./runtime/samples/api/corpus-b/sample-policy.pdf" \
+  -F "files=@./runtime/samples/api/corpus-b/sample-standard.docx" | jq
 ```
 
 Example (Entra group-gated variant):
@@ -781,7 +781,7 @@ Corpus A source upload notes:
   - `CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf`
   - `PCI-DSS-v4_0_1.pdf`
 - Query web stages uploads under `corpus-a/source/<framework>/<upload-batch>/...`.
-- When `trigger_job=true`, query web starts the controls job with `--controls-source-prefix <blob-prefix>` so the ingestion runner can download the staged files into `runtime/samples/` before parsing.
+- When `trigger_job=true`, query web starts the controls job with `--controls-source-prefix <blob-prefix>` so the ingestion runner can download the staged files into `runtime/samples/api/corpus-a/` before parsing.
 
 To support this from the ingestion container image, `ingestion.runner` now supports:
 
@@ -803,7 +803,7 @@ Query web exposes authenticated clear endpoints for vector/index data management
 Safety behaviour:
 
 - All clear APIs support `dry_run=true` to preview impact before deletion.
-- Corpus B/C clear support `clear_blobs=true` to also remove uploaded blob source data.
+- Corpus B (grounding) and Corpus C (evidence) clear APIs support `clear_blobs=true` to also remove uploaded blob source data.
 - In dry run mode, responses return `would_delete` counters; in execute mode, they return `deleted` counters.
 
 Request examples:
@@ -882,12 +882,12 @@ Then run the repository bootstrap script:
 git clone <your-repo-url> /opt/sc3-ingestion
 cd /opt/sc3-ingestion
 
-./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --az-login-client-id "<agent-runtime-uami-client-id>" --run-unit-tests
+./ops/scripts/azure/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --az-login-client-id "<agent-runtime-uami-client-id>" --run-unit-tests
 ```
 
 If exactly one user-assigned managed identity is attached to the VM, `--az-login-client-id` can be omitted and the script auto-discovers it.
 
-The script installs Docker, Python 3.12, Azure CLI, git, unzip, and other required OS packages, creates `runtime/.venv`, installs `requirements-dev.txt`, and optionally runs `./ops/scripts/install-terraform-local.sh`. It then authenticates with the managed identity, runs the unit test suite, and prints a smoke-check report across all installed components.
+The script installs Docker, Python 3.12, Azure CLI, git, unzip, and other required OS packages, creates `runtime/.venv`, installs `requirements-dev.txt`, and optionally runs `./ops/scripts/local/install-terraform-local.sh`. It then authenticates with the managed identity, runs the unit test suite, and prints a smoke-check report across all installed components.
 
 Flags that are not passed are reported as skipped in the smoke report rather than causing failures, so you can run a subset (for example, if Azure CLI is pre-installed by your base image):
 
@@ -898,14 +898,14 @@ git clone <your-repo-url> /opt/sc3-ingestion
 cd /opt/sc3-ingestion
 
 # Full setup with Terraform, Azure CLI, managed identity login, and unit tests.
-./ops/scripts/configure-jumpbox.sh \
+./ops/scripts/azure/configure-jumpbox.sh \
   --install-terraform \
   --install-azure-cli \
   --az-login-identity \
   --run-unit-tests
 
 # Use this only when multiple UAMIs are attached and you must force one identity.
-# ./ops/scripts/configure-jumpbox.sh \
+# ./ops/scripts/azure/configure-jumpbox.sh \
 #   --install-terraform \
 #   --install-azure-cli \
 #   --az-login-identity \
@@ -916,7 +916,7 @@ cd runtime
 source .venv/bin/activate
 
 TARGET_ENV="<env>"
-TF_DIR="../infra/terraform"
+TF_DIR="../infra/terraform/azure"
 
 terraform -chdir="${TF_DIR}" init \
   -backend-config="environments/${TARGET_ENV}/backend.hcl"
@@ -947,13 +947,13 @@ Use `requirements.txt` when you only need the ingestion runtime. Use `../require
 If Docker is managed separately or not needed, use:
 
 ```bash
-./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --run-unit-tests --skip-docker
+./ops/scripts/azure/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --run-unit-tests --skip-docker
 ```
 
 If you only need the ingestion runtime dependencies (no query-web or pytest), use:
 
 ```bash
-./ops/scripts/configure-jumpbox.sh --runtime-only
+./ops/scripts/azure/configure-jumpbox.sh --runtime-only
 ```
 
 Every component that is not installed by the options you pass is reported as `SKIP` in the smoke report rather than `FAIL`, so you can run any subset of flags safely.

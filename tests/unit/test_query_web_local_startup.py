@@ -84,7 +84,7 @@ def test_load_evidence_defaults_corpus_to_b(tmp_path: Path):
     f.write_text(json.dumps({"content": "text"}) + "\n")
 
     result = _load_local_jsonl_documents(str(f), controls_mode=False)
-    assert result[0]["corpus"] == "b"
+    assert result[0]["corpus"] == "c"
 
 
 def test_load_evidence_preserves_existing_corpus(tmp_path: Path):

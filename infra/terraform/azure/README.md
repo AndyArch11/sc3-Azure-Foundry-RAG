@@ -19,17 +19,17 @@ Apply order:
 1. Build Terraform runner container:
    - `docker build -t tf-runner:local ops/containers/terraform-runner`
    - If Docker is unavailable in your current environment, install Terraform locally instead:
-   - `./ops/scripts/install-terraform-local.sh`
+   - `./ops/scripts/local/install-terraform-local.sh`
 2. Authenticate to Azure (host shell or inside runner container):
    - `az login`
    - `az account set --subscription <subscription-id>`
 3. Run bootstrap and write backend config:
-   - `./ops/scripts/phase1-bootstrap.sh dev`
+   - `./ops/scripts/azure/phase1-bootstrap.sh dev`
 
 After bootstrap, initialise the environment stack:
 
 - `terraform -chdir=infra/terraform/azure init -backend-config=infra/terraform/azure/environments/dev/backend.hcl`
-- Legacy compatibility path: `terraform -chdir=infra/terraform init -backend-config=infra/terraform/environments/dev/backend.hcl`
+- Legacy compatibility path: `terraform -chdir=infra/terraform/azure init -backend-config=infra/terraform/azure/environments/dev/backend.hcl`
 
 ## Environment Teardown
 
@@ -161,7 +161,7 @@ Recovery:
 
 1. Confirm no active Terraform process.
 2. Force unlock using the lock ID from the error:
-   - `terraform -chdir=infra/terraform force-unlock -force <LOCK_ID>`
+   - `terraform -chdir=infra/terraform/azure force-unlock -force <LOCK_ID>`
 
 Notes:
 

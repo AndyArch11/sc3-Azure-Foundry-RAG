@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from typing import Any
 
 import requests
+
+from runtime.outbound_instrumentation import request_with_instrumentation
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -58,7 +63,16 @@ def ensure_controls_index_aws(config: AWSControlsIndexConfig, session: Any) -> N
     index_url = f"{config.opensearch_endpoint.rstrip('/')}/{config.controls_index_name}"
 
     head_headers = _signed_headers(session, "HEAD", index_url, "")
-    head_response = requests.head(index_url, headers=head_headers, timeout=30)
+    head_response = request_with_instrumentation(
+        "HEAD",
+        index_url,
+        logger=logger,
+        headers=head_headers,
+        timeout=30,
+        system="aws-opensearch",
+        operation="index_exists",
+        request_callable=requests.head,
+    )
     if head_response.status_code == 200:
         return
     if head_response.status_code != 404:
@@ -98,5 +112,15 @@ def ensure_controls_index_aws(config: AWSControlsIndexConfig, session: Any) -> N
     )
 
     put_headers = _signed_headers(session, "PUT", index_url, body)
-    put_response = requests.put(index_url, data=body, headers=put_headers, timeout=30)
+    put_response = request_with_instrumentation(
+        "PUT",
+        index_url,
+        logger=logger,
+        data=body,
+        headers=put_headers,
+        timeout=30,
+        system="aws-opensearch",
+        operation="create_index",
+        request_callable=requests.put,
+    )
     put_response.raise_for_status()

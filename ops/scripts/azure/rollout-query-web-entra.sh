@@ -4,7 +4,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/rollout-query-web-entra.sh <env> [plan|apply] [--include-redirect-uri] [--runtime-uami-principal-id <object-id>]
+  ./ops/scripts/azure/rollout-query-web-entra.sh <env> [plan|apply] [--include-redirect-uri] [--runtime-uami-principal-id <object-id>]
 
 Runs the EXTERNAL/ADMIN Entra rollout path for query web auth resources only.
 
@@ -18,16 +18,16 @@ What this script does:
   - bypasses bootstrap Key Vault lookup paths unrelated to Entra rollout
 
 Examples:
-  ./ops/scripts/rollout-query-web-entra.sh dev plan
-  ./ops/scripts/rollout-query-web-entra.sh dev apply
-  ./ops/scripts/rollout-query-web-entra.sh dev apply --include-redirect-uri
-  ./ops/scripts/rollout-query-web-entra.sh dev apply --runtime-uami-principal-id "<uami-object-id>"
+  ./ops/scripts/azure/rollout-query-web-entra.sh dev plan
+  ./ops/scripts/azure/rollout-query-web-entra.sh dev apply
+  ./ops/scripts/azure/rollout-query-web-entra.sh dev apply --include-redirect-uri
+  ./ops/scripts/azure/rollout-query-web-entra.sh dev apply --runtime-uami-principal-id "<uami-object-id>"
 EOF
   exit 0
 fi
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TF_DIR="${ROOT_DIR}/infra/terraform"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+TF_DIR="${ROOT_DIR}/infra/terraform/azure"
 
 ENVIRONMENT="${1:-dev}"
 ACTION="${2:-apply}"

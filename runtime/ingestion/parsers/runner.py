@@ -27,10 +27,9 @@ import logging
 import sys
 from pathlib import Path
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(levelname)s %(name)s – %(message)s",
-)
+from runtime.log_config import configure_logging as _configure_logging
+
+_configure_logging("parsers-runner")
 logger = logging.getLogger(__name__)
 
 

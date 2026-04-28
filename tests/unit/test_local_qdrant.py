@@ -12,6 +12,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 # ---------------------------------------------------------------------------
 # Helpers — build a LocalQdrantSearchClient with all I/O mocked
@@ -167,6 +168,33 @@ def test_embed_text_raises_on_missing_vectors():
     with patch("runtime.search.local_qdrant.requests.post", return_value=mock_response):
         with pytest.raises(RuntimeError, match="embedding response"):
             client._embed_text("hello")
+
+
+def test_embed_text_retries_with_shorter_prompt_on_context_length_error():
+    client, _ = _make_client()
+
+    first = MagicMock()
+    first.raise_for_status.side_effect = requests.HTTPError("500 Server Error")
+    first.text = "llm embedding error: the input length exceeds the context length"
+
+    second = MagicMock()
+    second.raise_for_status.return_value = None
+    second.json.return_value = {"embedding": [0.9, 0.8]}
+
+    long_text = "x" * 12000
+    with patch(
+        "runtime.search.local_qdrant.requests.post",
+        side_effect=[first, second],
+    ) as post_mock:
+        result = client._embed_text(long_text)
+
+    assert result == [0.9, 0.8]
+    assert post_mock.call_count == 2
+
+    first_payload = post_mock.call_args_list[0].kwargs["json"]
+    second_payload = post_mock.call_args_list[1].kwargs["json"]
+    assert len(first_payload["prompt"]) <= 6000
+    assert len(second_payload["prompt"]) < len(first_payload["prompt"])
 
 
 # ---------------------------------------------------------------------------

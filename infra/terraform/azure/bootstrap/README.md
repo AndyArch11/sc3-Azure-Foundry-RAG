@@ -31,7 +31,7 @@ Note: The Terraform backend storage account is intentionally protected against a
 Run from repository root:
 
 ```bash
-./ops/scripts/phase1-bootstrap.sh dev
+./ops/scripts/azure/phase1-bootstrap.sh dev
 ```
 
 Optional environment variables:
@@ -44,10 +44,10 @@ Optional environment variables:
 - `TF_KEY_VAULT_PREFIX` (default `kvtfstate`)
 - `TF_KEY_VAULT_EXTRA_RBAC_OBJECT_IDS` (comma-separated Entra object IDs)
 
-The script updates `infra/terraform/environments/<env>/backend.hcl` with the generated state storage details.
+The script updates `infra/terraform/azure/environments/<env>/backend.hcl` with the generated state storage details.
 
 When `TF_ENABLE_BOOTSTRAP_KEY_VAULT=false`, bootstrap Key Vault creation and phase2 jumpbox key publish are both disabled.
-Enterprise implementations are expected to modify or replace the publish workflow in [ops/scripts/phase2-network-dns.sh](ops/scripts/phase2-network-dns.sh) to integrate with organisation-owned key and secret lifecycle controls.
+Enterprise implementations are expected to modify or replace the publish workflow in [ops/scripts/azure/phase2-network-dns.sh](ops/scripts/azure/phase2-network-dns.sh) to integrate with organisation-owned key and secret lifecycle controls.
 
 ## Teardown
 
@@ -55,14 +55,14 @@ Destroy bootstrap only after the main environment stack has already been destroy
 
 Typical order:
 
-1. Destroy the root environment stack in `infra/terraform/`
+1. Destroy the root environment stack in `infra/terraform/azure`
 2. Remove backend protection controls
-3. Destroy the bootstrap stack in `infra/terraform/bootstrap/`
+3. Destroy the bootstrap stack in `infra/terraform/azure/bootstrap/`
 
 Example bootstrap destroy:
 
 ```bash
-terraform -chdir=infra/terraform/bootstrap destroy \
+terraform -chdir=infra/terraform/azure/bootstrap destroy \
   -input=false \
   -var-file=terraform.tfvars
 ```

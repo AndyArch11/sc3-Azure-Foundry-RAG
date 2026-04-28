@@ -48,7 +48,7 @@ Replace `<suffix>` with your deployment suffix (e.g., "dev-eastus-abc123").
 Retrieve values from:
 ```bash
 TARGET_ENV="<env>"
-TF_DIR="infra/terraform"
+TF_DIR="infra/terraform/azure"
 
 terraform -chdir="${TF_DIR}" init \
   -backend-config="environments/${TARGET_ENV}/backend.hcl"
@@ -77,7 +77,7 @@ Verify the data plane exists:
 
 ```bash
 TARGET_ENV="<env>"
-TF_DIR="infra/terraform"
+TF_DIR="infra/terraform/azure"
 
 terraform -chdir="${TF_DIR}" init \
   -backend-config="environments/${TARGET_ENV}/backend.hcl"
@@ -109,9 +109,9 @@ Build and push from a Docker-capable host inside the VNet:
 TARGET_ENV="<env>"
 QUERY_TAG="$(date +%Y%m%d%H%M)-<gitsha>"
 
-ENV="${TARGET_ENV}" IMAGE_TAG="${QUERY_TAG}" ./ops/scripts/build-push-query-web.sh
+ENV="${TARGET_ENV}" IMAGE_TAG="${QUERY_TAG}" ./ops/scripts/azure/build-push-query-web.sh
 
-terraform -chdir=infra/terraform apply \
+terraform -chdir=infra/terraform/azure apply \
   -input=false \
   -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
   -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \
@@ -129,7 +129,7 @@ Resolve the application FQDN from Terraform:
 
 ```bash
 TARGET_ENV="<env>"
-QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn)
+QUERY_FQDN=$(terraform -chdir=infra/terraform/azure output -raw query_web_fqdn)
 ```
 
 ### Health Check
@@ -152,7 +152,7 @@ curl "https://${QUERY_FQDN}/api/config"
 ```bash
 QUERY_WEB_RUN_API_ASK=true \
 QUERY_WEB_REQUIRE_CONVERSATIONS=true \
-./ops/scripts/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
+./ops/scripts/azure/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
 ```
 
 ### Create A Conversation
@@ -325,7 +325,7 @@ If issues arise:
    TARGET_ENV="<env>"
    ROLLBACK_TAG="<previous-query-web-tag>"
 
-   terraform -chdir=infra/terraform apply \
+   terraform -chdir=infra/terraform/azure apply \
      -input=false \
      -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
      -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \

@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
+
+from runtime.log_config import configure_logging as _configure_logging
+
+_configure_logging("polling-worker-main")
+
+_LOGGER = logging.getLogger(__name__)
 
 from .polling_worker import (
     _process_assessment_event,
@@ -24,9 +31,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        import logging
-
-        logging.info("[polling_worker_main] Starting poll cycle/main loop")
+        _LOGGER.info("Starting poll cycle/main loop", extra={"event": "worker_start"})
         config = load_poller_config_from_env()
         state_store = create_cosmos_state_store_from_env()
         server = create_confluence_mcp_server_from_env()
@@ -34,11 +39,14 @@ def main() -> int:
 
         def debug_event_handler(event):
             """Run debug event handler."""
-            logging.info(
-                f"[polling_worker_main] Processing event: {json.dumps(event, sort_keys=True)}"
-            )
             triggering_comment_id = str(event.get("content_id") or "")
-            logging.info(f"[polling_worker_main] triggering_comment_id: {triggering_comment_id}")
+            _LOGGER.info(
+                "Processing assessment event",
+                extra={
+                    "event": "poll_event_received",
+                    "content_id": triggering_comment_id,
+                },
+            )
             return _process_assessment_event(
                 adapter=adapter,
                 server=server,

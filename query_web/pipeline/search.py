@@ -8,6 +8,9 @@ from typing import Any
 
 import requests  # type: ignore[import-untyped]
 
+from query_web.request_context import outbound_trace_headers
+from runtime.outbound_instrumentation import request_with_instrumentation
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,11 +25,23 @@ def _embed_query(question: str, *, svc: Any) -> list[float]:
 
     for attempt in range(max_attempts):
         try:
-            response = requests.post(
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                **outbound_trace_headers(),
+            }
+            response = request_with_instrumentation(
+                "POST",
                 url,
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                logger=svc.logger,
+                headers=headers,
                 json={"input": question},
                 timeout=30,
+                retry_count=attempt,
+                system="azure-openai",
+                operation="embedding_create",
+                header_getter=outbound_trace_headers,
+                request_callable=requests.post,
             )
             response.raise_for_status()
             payload = response.json()

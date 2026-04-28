@@ -20,8 +20,11 @@ from __future__ import annotations
 import json
 import logging
 import re
-import urllib.request
 from typing import Dict, List, Optional, Tuple
+
+import requests  # type: ignore[import-untyped]
+
+from runtime.outbound_instrumentation import request_with_instrumentation
 
 from .base import BaseParser, RequirementRecord, filter_keywords
 
@@ -156,12 +159,22 @@ class IsmParser(BaseParser):
 
     def _fetch_catalog(self) -> dict:
         """Run fetch catalog."""
-        req = urllib.request.Request(
+        response = request_with_instrumentation(
+            "GET",
             self._catalog_url,
+            logger=logger,
+            timeout=30,
             headers={"User-Agent": "ism-parser/1.0 (controls ingestion)"},
+            system="githubusercontent",
+            operation="download_ism_catalog",
+            request_callable=requests.get,
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
-            raw = resp.read()
+        response.raise_for_status()
+        if hasattr(response, "json"):
+            payload = response.json()
+            if isinstance(payload, dict):
+                return payload
+        raw = response.content
         return json.loads(raw)
 
     def _build_records(self, data: dict) -> List[RequirementRecord]:

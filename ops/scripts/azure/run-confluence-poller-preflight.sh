@@ -8,7 +8,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/run-confluence-poller-preflight.sh [env] [--skip-health] [--no-dry-run] [--lines <n>] [--follow]
+  ./ops/scripts/azure/run-confluence-poller-preflight.sh [env] [--skip-health] [--no-dry-run] [--lines <n>] [--follow]
 
 Defaults:
   env   = dev
@@ -19,16 +19,16 @@ Behaviour:
   - Then runs check-confluence-poller-health.sh unless --skip-health is supplied.
 
 Examples:
-  ./ops/scripts/run-confluence-poller-preflight.sh
-  ./ops/scripts/run-confluence-poller-preflight.sh dev --lines 200
-  ./ops/scripts/run-confluence-poller-preflight.sh dev --skip-health
+  ./ops/scripts/azure/run-confluence-poller-preflight.sh
+  ./ops/scripts/azure/run-confluence-poller-preflight.sh dev --lines 200
+  ./ops/scripts/azure/run-confluence-poller-preflight.sh dev --skip-health
 EOF
   exit 0
 fi
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SMOKE_SCRIPT="${ROOT_DIR}/ops/scripts/run-confluence-poller-smoke.sh"
-HEALTH_SCRIPT="${ROOT_DIR}/ops/scripts/check-confluence-poller-health.sh"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+SMOKE_SCRIPT="${ROOT_DIR}/ops/scripts/azure/run-confluence-poller-smoke.sh"
+HEALTH_SCRIPT="${ROOT_DIR}/ops/scripts/azure/check-confluence-poller-health.sh"
 
 ENVIRONMENT="${1:-dev}"
 if [[ $# -gt 0 && "${1}" != --* ]]; then

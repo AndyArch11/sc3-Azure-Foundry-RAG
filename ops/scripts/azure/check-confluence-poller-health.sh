@@ -6,7 +6,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/check-confluence-poller-health.sh [env] [--resource-group <rg>] [--app-name <name>] [--lines <n>] [--follow]
+  ./ops/scripts/azure/check-confluence-poller-health.sh [env] [--resource-group <rg>] [--app-name <name>] [--lines <n>] [--follow]
 
 Defaults:
   env   = dev
@@ -18,15 +18,15 @@ Behaviour:
   - Tails recent logs from the poller app.
 
 Examples:
-  ./ops/scripts/check-confluence-poller-health.sh
-  ./ops/scripts/check-confluence-poller-health.sh dev --lines 200
-  ./ops/scripts/check-confluence-poller-health.sh prod --follow
+  ./ops/scripts/azure/check-confluence-poller-health.sh
+  ./ops/scripts/azure/check-confluence-poller-health.sh dev --lines 200
+  ./ops/scripts/azure/check-confluence-poller-health.sh prod --follow
 EOF
   exit 0
 fi
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TF_DIR="${ROOT_DIR}/infra/terraform"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+TF_DIR="${ROOT_DIR}/infra/terraform/azure"
 
 ENVIRONMENT="${1:-dev}"
 if [[ $# -gt 0 && "${1}" != --* ]]; then

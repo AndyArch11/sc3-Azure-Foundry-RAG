@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Protocol
 
+from ..trace_context import scoped_trace_context
 from .models import (
     AccessDecision,
     AssessedArtifactPackage,
@@ -127,6 +128,30 @@ class OrchestratorAdapter:
                 enriched["selected_skill"] = selected_skill
         return enriched
 
+    def _job_with_traceparent(self, job: AssessmentJob, traceparent: str) -> AssessmentJob:
+        traceparent_value = str(traceparent or "").strip()
+        if not traceparent_value:
+            return job
+        existing_traceparent = str(job.metadata.get("traceparent") or "").strip()
+        if existing_traceparent == traceparent_value:
+            return job
+        merged_metadata = dict(job.metadata)
+        merged_metadata["traceparent"] = traceparent_value
+        return AssessmentJob(
+            job_id=job.job_id,
+            source_type=job.source_type,
+            provider=job.provider,
+            target_id=job.target_id,
+            target_url=job.target_url,
+            trigger_type=job.trigger_type,
+            request_identity_mode=job.request_identity_mode,
+            delivery_policy=job.delivery_policy,
+            correlation_id=job.correlation_id,
+            requester_id=job.requester_id,
+            requester_email=job.requester_email,
+            metadata=merged_metadata,
+        )
+
     def collect_grounding(
         self, job: AssessmentJob
     ) -> tuple[AssessedArtifactPackage, CorpusGroundingPackage]:
@@ -182,6 +207,10 @@ class OrchestratorAdapter:
         )
         artifact_metadata = dict(artifact.metadata)
         artifact_metadata["job_metadata"] = dict(job.metadata)
+        artifact_metadata["correlation_id"] = job.correlation_id
+        traceparent = str(job.metadata.get("traceparent") or "").strip()
+        if traceparent:
+            artifact_metadata["traceparent"] = traceparent
         requested_framework = str(job.metadata.get("requested_framework") or "").strip()
         if requested_framework:
             artifact_metadata["framework_filter_override"] = requested_framework
@@ -216,42 +245,55 @@ class OrchestratorAdapter:
         )
         return artifact, grounding
 
-    def run_assessment(self, job: AssessmentJob) -> dict[str, Any]:
+    def run_assessment(self, job: AssessmentJob, *, traceparent: str = "") -> dict[str, Any]:
         """Run run assessment."""
-        artifact, grounding = self.collect_grounding(job)
-        assessment = self._assessment_agent.generate_assessment(artifact, grounding)
-        self._audit_sink.record_stage(
-            job,
-            "assessment_generated",
-            self._stage_payload(
-                "assessment_generated", {"schema_version": assessment.get("schema_version", "")}
-            ),
-        )
-        return assessment
+        effective_job = self._job_with_traceparent(job, traceparent)
+        traceparent_value = str(effective_job.metadata.get("traceparent") or "").strip()
+        with scoped_trace_context(
+            correlation_id=effective_job.correlation_id,
+            traceparent=traceparent_value,
+        ):
+            artifact, grounding = self.collect_grounding(effective_job)
+            assessment = self._assessment_agent.generate_assessment(artifact, grounding)
+            self._audit_sink.record_stage(
+                effective_job,
+                "assessment_generated",
+                self._stage_payload(
+                    "assessment_generated", {"schema_version": assessment.get("schema_version", "")}
+                ),
+            )
+            return assessment
 
     def run_per_control_assessment(
         self,
         job: AssessmentJob,
         *,
         progress_cb: Callable[[int, int, str, str], None] | None = None,
+        traceparent: str = "",
     ) -> dict[str, Any]:
         """Like :meth:`run_assessment` but uses a per-control LLM loop for broader coverage."""
-        artifact, grounding = self.collect_grounding(job)
-        assessment = self._assessment_agent.generate_per_control_assessment(
-            artifact, grounding, progress_cb=progress_cb
-        )
-        self._audit_sink.record_stage(
-            job,
-            "assessment_generated",
-            self._stage_payload(
+        effective_job = self._job_with_traceparent(job, traceparent)
+        traceparent_value = str(effective_job.metadata.get("traceparent") or "").strip()
+        with scoped_trace_context(
+            correlation_id=effective_job.correlation_id,
+            traceparent=traceparent_value,
+        ):
+            artifact, grounding = self.collect_grounding(effective_job)
+            assessment = self._assessment_agent.generate_per_control_assessment(
+                artifact, grounding, progress_cb=progress_cb
+            )
+            self._audit_sink.record_stage(
+                effective_job,
                 "assessment_generated",
-                {
-                    "schema_version": assessment.get("schema_version", ""),
-                    "assessment_strategy": "per_control",
-                },
-            ),
-        )
-        return assessment
+                self._stage_payload(
+                    "assessment_generated",
+                    {
+                        "schema_version": assessment.get("schema_version", ""),
+                        "assessment_strategy": "per_control",
+                    },
+                ),
+            )
+            return assessment
 
     def run_queue_message(self, message: QueueMessage) -> dict[str, Any]:
         """Run run queue message."""
@@ -267,4 +309,4 @@ class OrchestratorAdapter:
                 },
             ),
         )
-        return self.run_assessment(message.job)
+        return self.run_assessment(message.job, traceparent=message.traceparent)

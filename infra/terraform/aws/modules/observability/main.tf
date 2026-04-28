@@ -1,9 +1,15 @@
+data "aws_region" "current" {}
+
 locals {
   log_groups = {
     "query-web"  = "/ecs/${var.naming_suffix}/query-web"
     "ingestion"  = "/ecs/${var.naming_suffix}/ingestion"
     "opensearch" = "/aws/opensearch/${var.naming_suffix}"
   }
+}
+
+resource "aws_prometheus_workspace" "this" {
+  alias = "sc3-rag-${var.naming_suffix}"
 }
 
 resource "aws_cloudwatch_log_group" "this" {

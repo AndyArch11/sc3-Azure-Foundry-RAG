@@ -32,7 +32,7 @@ terraform init \
 ## Validation Before Apply
 
 ```bash
-terraform fmt modules/* main.tf
+terraform fmt -recursive modules main.tf
 terraform validate
 terraform plan -var-file=environments/dev/dev.tfvars
 ```

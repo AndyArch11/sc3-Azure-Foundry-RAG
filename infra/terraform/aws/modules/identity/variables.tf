@@ -32,6 +32,12 @@ variable "log_group_arns" {
   default = []
 }
 
+variable "amp_workspace_arn" {
+  type        = string
+  description = "Amazon Managed Prometheus workspace ARN. Empty disables remote-write permissions."
+  default     = ""
+}
+
 variable "app_secret_arn" {
   type        = string
   description = "ARN of the Secrets Manager secret for application runtime values. Leave empty to skip policy creation."

@@ -11,6 +11,7 @@ import requests  # type: ignore[import-untyped]
 
 from ..credentials import get_credential_provider
 from ..search import SearchClient, get_search_client
+from ..trace_context import outbound_trace_headers
 from ._framework_patterns import infer_single_framework as _infer_framework_filter
 from .models import AssessedArtifactPackage, CorpusGroundingPackage
 
@@ -306,9 +307,14 @@ def _embed_query(
         f"{config.openai_endpoint}/openai/deployments/"
         f"{config.embedding_deployment}/embeddings?api-version=2023-05-15"
     )
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        **outbound_trace_headers(),
+    }
     response = requests.post(
         url,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers=headers,
         json={"input": question},
         timeout=30,
     )
@@ -336,15 +342,20 @@ def _chat_completion(
         azure_endpoint=config.openai_endpoint,
     )
     safe_temperature = max(0.0, min(1.0, float(config.temperature)))
+    outbound_headers = outbound_trace_headers()
+
+    request_kwargs: dict[str, Any] = {
+        "model": config.query_deployment,
+        "messages": cast(Any, messages),
+        "max_completion_tokens": 1400,
+        "temperature": safe_temperature,
+        "timeout": timeout,
+    }
+    if outbound_headers:
+        request_kwargs["extra_headers"] = outbound_headers
 
     try:
-        response = client.chat.completions.create(
-            model=config.query_deployment,
-            messages=cast(Any, messages),
-            max_completion_tokens=1400,
-            temperature=safe_temperature,
-            timeout=timeout,
-        )
+        response = client.chat.completions.create(**request_kwargs)
     except Exception as exc:
         message = str(exc).lower()
         should_retry_with_one = (
@@ -360,13 +371,8 @@ def _chat_completion(
         )
         if not should_retry_with_one:
             raise
-        response = client.chat.completions.create(
-            model=config.query_deployment,
-            messages=cast(Any, messages),
-            max_completion_tokens=1400,
-            temperature=1.0,
-            timeout=timeout,
-        )
+        request_kwargs["temperature"] = 1.0
+        response = client.chat.completions.create(**request_kwargs)
     return str(response.choices[0].message.content or "").strip()
 
 

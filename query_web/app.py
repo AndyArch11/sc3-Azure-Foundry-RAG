@@ -7,6 +7,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Protocol
 
+from query_web.log_config import configure_logging as _configure_logging
+
+_configure_logging("query-web")
+
 import requests  # type: ignore[import-untyped]
 from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
 from azure.storage.blob import BlobServiceClient
@@ -71,6 +75,7 @@ from query_web.endpoints.home import register_home_endpoints
 from query_web.endpoints.ingestion import IngestionService as _IngestionService
 from query_web.endpoints.status import register_status_endpoints
 from query_web.local_startup import load_local_documents_if_needed
+from query_web.metrics import register_metrics_endpoint
 from query_web.models import AskRequest, AskResponse
 from query_web.pipeline.answer import (
     _build_retrieval_based_fallback_answer,
@@ -94,6 +99,7 @@ from query_web.pipeline.search import (
     _delete_search_documents_by_filter,
     _list_search_documents_by_filter,
 )
+from query_web.request_context import register_request_context_middleware
 from query_web.security import auth as _auth
 from query_web.security.prompt_injection_guard import (
     BLOCKED_PROMPT_INJECTION_MESSAGE,
@@ -253,6 +259,7 @@ app.mount(
     StaticFiles(directory=str(_branding_dir)),
     name="branding",
 )
+register_request_context_middleware(app)
 
 
 def _branding_ctx() -> dict[str, Any]:
@@ -428,12 +435,26 @@ def _get_user_id(auth_token: str, session_id: str) -> str:
     return _conversations_get_user_id(auth_token, session_id)
 
 
-def _load_conversation(user_id: str, conversation_id: str) -> ConversationSession:
-    return _conversations_load_conversation(user_id, conversation_id, conversations_container)
+def _load_conversation(
+    user_id: str,
+    conversation_id: str,
+    *,
+    correlation_id: str = "",
+) -> ConversationSession:
+    return _conversations_load_conversation(
+        user_id,
+        conversation_id,
+        conversations_container,
+        correlation_id=correlation_id,
+    )
 
 
-def _save_conversation(session: ConversationSession) -> None:
-    _conversations_save_conversation(session, conversations_container)
+def _save_conversation(session: ConversationSession, *, correlation_id: str = "") -> None:
+    _conversations_save_conversation(
+        session,
+        conversations_container,
+        correlation_id=correlation_id,
+    )
 
 
 def _build_feedback_context(session: ConversationSession, limit: int = 5) -> str:
@@ -1008,3 +1029,6 @@ register_conversations_endpoints(
     _is_authorised_request,
     _unauthorised_message,
 )
+
+# Prometheus metrics scrape endpoint — GET /metrics
+register_metrics_endpoint(app)

@@ -306,8 +306,8 @@ resource "azapi_resource" "account_capability_host" {
 # change, as long-running in-place updates can hang in preview APIs.
 resource "terraform_data" "project_capability_host_recreate" {
   input = {
-    vector_store_connection  = var.search_service_name
-    storage_connection       = var.storage_account_name
+    vector_store_connection   = var.search_service_name
+    storage_connection        = var.storage_account_name
     thread_storage_connection = var.cosmosdb_account_name
   }
 }

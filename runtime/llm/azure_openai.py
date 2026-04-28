@@ -11,6 +11,8 @@ import logging
 import os
 from typing import Any, Callable
 
+from runtime.trace_context import outbound_trace_headers
+
 logger = logging.getLogger(__name__)
 
 
@@ -94,15 +96,19 @@ class AzureOpenAILLMClient:
             azure_endpoint=self._endpoint,
         )
         safe_temperature = self._temperature
+        outbound_headers = outbound_trace_headers()
 
         def _do_create(temp: float) -> Any:
-            return client.chat.completions.create(
-                model=self._deployment,
-                messages=cast(Any, messages),
-                max_completion_tokens=1400,
-                temperature=temp,
-                timeout=self._timeout,
-            )
+            request_kwargs: dict[str, Any] = {
+                "model": self._deployment,
+                "messages": cast(Any, messages),
+                "max_completion_tokens": 1400,
+                "temperature": temp,
+                "timeout": self._timeout,
+            }
+            if outbound_headers:
+                request_kwargs["extra_headers"] = outbound_headers
+            return client.chat.completions.create(**request_kwargs)
 
         try:
             response = _do_create(safe_temperature)

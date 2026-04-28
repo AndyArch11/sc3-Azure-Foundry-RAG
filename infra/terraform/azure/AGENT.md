@@ -11,7 +11,7 @@ infra/terraform/azure/
 ## Validation Before Apply
 
 ```bash
-terraform fmt modules/* main.tf
+terraform fmt -recursive modules main.tf
 terraform validate
 terraform plan -var-file=environments/dev/bootstrap.generated.tfvars -var-file=environments/dev/dev.tfvars  # or prod/test
 ```

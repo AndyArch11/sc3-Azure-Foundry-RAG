@@ -44,9 +44,9 @@ Run integration smoke tests from a private-network context (for example, jumpbox
 
 ```bash
 TARGET_ENV="<env>"
-QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn)
+QUERY_FQDN=$(terraform -chdir=infra/terraform/azure output -raw query_web_fqdn)
 
-./ops/scripts/run-query-web-integration-tests.sh \
+./ops/scripts/azure/run-query-web-integration-tests.sh \
   "https://${QUERY_FQDN}" \
   "<optional-auth-token>"
 ```
@@ -57,9 +57,9 @@ Recommended pre-test rollout flow:
 TARGET_ENV="<env>"
 QUERY_TAG="$(date +%Y%m%d%H%M)-<gitsha>"
 
-ENV="${TARGET_ENV}" IMAGE_TAG="${QUERY_TAG}" ./ops/scripts/build-push-query-web.sh
+ENV="${TARGET_ENV}" IMAGE_TAG="${QUERY_TAG}" ./ops/scripts/azure/build-push-query-web.sh
 
-terraform -chdir=infra/terraform apply \
+terraform -chdir=infra/terraform/azure apply \
   -input=false \
   -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
   -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \
@@ -88,7 +88,7 @@ Example preflight-only check:
 
 ```bash
 QUERY_WEB_PREFLIGHT_ONLY=true \
-./ops/scripts/run-query-web-integration-tests.sh "https://<query-web-fqdn>"
+./ops/scripts/azure/run-query-web-integration-tests.sh "https://<query-web-fqdn>"
 ```
 
 The suite validates:

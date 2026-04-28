@@ -17,6 +17,11 @@
 				"hashicorp.terraform"
 			]
 		}
+	},
+	"portsAttributes": {
+		"8080": {
+			"label": "0.0.0.0:8080"
+		}
 	}
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.

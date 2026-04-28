@@ -4,7 +4,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/phase2-network-dns.sh <env> [plan|apply]
+  ./ops/scripts/azure/phase2-network-dns.sh <env> [plan|apply]
 
 Runs Phase 2 Terraform targets for foundation, network, and DNS.
 
@@ -21,8 +21,8 @@ fi
 
 # Executes Phase 2 scoped Terraform plan/apply for foundation, network, DNS, and bastion.
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TF_DIR="${ROOT_DIR}/infra/terraform"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+TF_DIR="${ROOT_DIR}/infra/terraform/azure"
 
 ENVIRONMENT="${1:-dev}"
 ACTION="${2:-plan}"
@@ -150,7 +150,7 @@ else
   # reads it to configure the VM. This must run before terraform apply so that
   # the data source for the public key secret does not fail.
   if [[ "${ENABLE_BOOTSTRAP_KEY_VAULT}" == "true" ]]; then
-    BOOTSTRAP_KV_NAME="$(terraform -chdir="${ROOT_DIR}/infra/terraform/bootstrap" output -raw key_vault_name 2>/dev/null || true)"
+    BOOTSTRAP_KV_NAME="$(terraform -chdir="${ROOT_DIR}/infra/terraform/azure/bootstrap" output -raw key_vault_name 2>/dev/null || true)"
     if [[ -z "${BOOTSTRAP_KV_NAME}" ]]; then
       echo "==> Skipping Key Vault key seeding: bootstrap key_vault_name output not found (run phase1 first)"
     else

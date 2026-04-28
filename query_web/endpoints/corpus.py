@@ -21,6 +21,8 @@ from fastapi import File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from query_web.request_context import outbound_trace_headers
+
 logger = logging.getLogger(__name__)
 
 
@@ -164,8 +166,12 @@ def register_corpus_endpoints(
                     effective_scope_query = scope_query
                 except Exception as exc:
                     logger.warning(
-                        "Corpus B scoped job start failed; falling back to default job args: %s",
-                        exc,
+                        "Corpus B scoped job start failed; falling back to default job args",
+                        extra={
+                            "event": "ingest_scoped_job_fallback",
+                            "corpus": "b",
+                            "exc_type": type(exc).__name__,
+                        },
                     )
                     trigger_result = svc._trigger_ingestion_job()
                     effective_scope_query = None
@@ -175,7 +181,14 @@ def register_corpus_endpoints(
                 try:
                     latest_job = svc._latest_ingestion_job_execution()
                 except Exception as exc:
-                    logger.warning("Failed to fetch latest ingestion job execution: %s", exc)
+                    logger.warning(
+                        "Failed to fetch latest ingestion job execution",
+                        extra={
+                            "event": "ingest_job_fetch_failed",
+                            "corpus": "b",
+                            "exc_type": type(exc).__name__,
+                        },
+                    )
 
             message = ""
             if not upload_result["uploaded"]:
@@ -224,7 +237,14 @@ def register_corpus_endpoints(
                 status_code=status_code,
             )
         except Exception as exc:
-            logger.exception("Failed /api/corpus-b/ingest request: %s", exc)
+            logger.exception(
+                "Failed corpus ingest request",
+                extra={
+                    "event": "corpus_ingest_failed",
+                    "corpus": "b",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.post("/api/corpus-c/ingest")
@@ -299,8 +319,12 @@ def register_corpus_endpoints(
                     effective_scope_query = scope_query
                 except Exception as exc:
                     logger.warning(
-                        "Corpus C scoped job start failed; falling back to default job args: %s",
-                        exc,
+                        "Corpus C scoped job start failed; falling back to default job args",
+                        extra={
+                            "event": "ingest_scoped_job_fallback",
+                            "corpus": "c",
+                            "exc_type": type(exc).__name__,
+                        },
                     )
                     trigger_result = svc._trigger_ingestion_job()
                     effective_scope_query = None
@@ -310,7 +334,14 @@ def register_corpus_endpoints(
                 try:
                     latest_job = svc._latest_ingestion_job_execution()
                 except Exception as exc:
-                    logger.warning("Failed to fetch latest ingestion job execution: %s", exc)
+                    logger.warning(
+                        "Failed to fetch latest ingestion job execution",
+                        extra={
+                            "event": "ingest_job_fetch_failed",
+                            "corpus": "c",
+                            "exc_type": type(exc).__name__,
+                        },
+                    )
 
             message = ""
             if not upload_result["uploaded"]:
@@ -359,7 +390,14 @@ def register_corpus_endpoints(
                 status_code=status_code,
             )
         except Exception as exc:
-            logger.exception("Failed /api/corpus-c/ingest request: %s", exc)
+            logger.exception(
+                "Failed corpus ingest request",
+                extra={
+                    "event": "corpus_ingest_failed",
+                    "corpus": "c",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.post("/api/corpus-a/clear")
@@ -403,7 +441,14 @@ def register_corpus_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/corpus-a/clear request: %s", exc)
+            logger.exception(
+                "Failed corpus clear request",
+                extra={
+                    "event": "corpus_clear_failed",
+                    "corpus": "a",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.post("/api/corpus-b/clear")
@@ -444,7 +489,14 @@ def register_corpus_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/corpus-b/clear request: %s", exc)
+            logger.exception(
+                "Failed corpus clear request",
+                extra={
+                    "event": "corpus_clear_failed",
+                    "corpus": "b",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.post("/api/corpus-c/clear")
@@ -483,7 +535,14 @@ def register_corpus_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/corpus-c/clear request: %s", exc)
+            logger.exception(
+                "Failed corpus clear request",
+                extra={
+                    "event": "corpus_clear_failed",
+                    "corpus": "c",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.post("/api/corpus-a/upload")
@@ -640,10 +699,24 @@ def register_corpus_endpoints(
                 status_code=status_code,
             )
         except ValueError as exc:
-            logger.warning("Bad request to /api/corpus-a/upload: %s", exc)
+            logger.warning(
+                "Bad request to corpus upload",
+                extra={
+                    "event": "corpus_upload_bad_request",
+                    "corpus": "a",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             return JSONResponse({"error": "Invalid request parameters."}, status_code=400)
         except Exception as exc:
-            logger.exception("Failed /api/corpus-a/upload request: %s", exc)
+            logger.exception(
+                "Failed corpus upload request",
+                extra={
+                    "event": "corpus_upload_failed",
+                    "corpus": "a",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.get("/api/corpus-a/status")
@@ -660,7 +733,14 @@ def register_corpus_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/corpus-a/status request: %s", exc)
+            logger.exception(
+                "Failed corpus status request",
+                extra={
+                    "event": "corpus_status_failed",
+                    "corpus": "a",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.get("/api/corpus-a/list")
@@ -704,7 +784,14 @@ def register_corpus_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/corpus-a/list request: %s", exc)
+            logger.exception(
+                "Failed corpus list request",
+                extra={
+                    "event": "corpus_list_failed",
+                    "corpus": "a",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.get("/api/ingestion-job/diagnostics")
@@ -729,9 +816,13 @@ def register_corpus_endpoints(
                 f"/providers/Microsoft.App/jobs/{svc.config.ingestion_job_name}/executions"
                 "?api-version=2024-03-01"
             )
+            headers = {
+                "Authorization": f"Bearer {token}",
+                **outbound_trace_headers(),
+            }
             response = requests.get(
                 url,
-                headers={"Authorization": f"Bearer {token}"},
+                headers=headers,
                 timeout=30,
             )
 
@@ -789,7 +880,10 @@ def register_corpus_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/ingestion-job/diagnostics request: %s", exc)
+            logger.exception(
+                "Failed ingestion job diagnostics request",
+                extra={"event": "ingestion_job_diagnostics_failed", "exc_type": type(exc).__name__},
+            )
             return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.get("/api/corpus-b/list")
@@ -839,7 +933,14 @@ def register_corpus_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/corpus-b/list request: %s", exc)
+            logger.exception(
+                "Failed corpus list request",
+                extra={
+                    "event": "corpus_list_failed",
+                    "corpus": "b",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.get("/api/corpus-c/list")
@@ -889,7 +990,14 @@ def register_corpus_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/corpus-c/list request: %s", exc)
+            logger.exception(
+                "Failed corpus list request",
+                extra={
+                    "event": "corpus_list_failed",
+                    "corpus": "c",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.get("/api/ingestion-job/latest")
@@ -908,7 +1016,10 @@ def register_corpus_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/ingestion-job/latest request: %s", exc)
+            logger.exception(
+                "Failed ingestion job latest request",
+                extra={"event": "ingestion_job_latest_failed", "exc_type": type(exc).__name__},
+            )
             return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.get("/api/confluence/poll-status")
@@ -946,7 +1057,13 @@ def register_corpus_endpoints(
                     "confluence"
                 )
             except Exception as exc:
-                logger.exception("Failed reading latest Confluence poll summary: %s", exc)
+                logger.exception(
+                    "Failed reading latest Confluence poll summary",
+                    extra={
+                        "event": "confluence_poll_summary_failed",
+                        "exc_type": type(exc).__name__,
+                    },
+                )
                 store_errors.append("latest poll summary unavailable")
 
             poll_state = None
@@ -956,7 +1073,13 @@ def register_corpus_endpoints(
                     if callable(load_state):
                         poll_state = load_state("confluence")
                 except Exception as exc:
-                    logger.exception("Failed reading Confluence poll state fallback: %s", exc)
+                    logger.exception(
+                        "Failed reading Confluence poll state fallback",
+                        extra={
+                            "event": "confluence_poll_state_fallback_failed",
+                            "exc_type": type(exc).__name__,
+                        },
+                    )
 
             assessed_pages: list[Any] = []
             try:
@@ -966,7 +1089,13 @@ def register_corpus_endpoints(
                     limit=200,
                 )
             except Exception as exc:
-                logger.exception("Failed reading recent Confluence page assessments: %s", exc)
+                logger.exception(
+                    "Failed reading recent Confluence page assessments",
+                    extra={
+                        "event": "confluence_assessments_fetch_failed",
+                        "exc_type": type(exc).__name__,
+                    },
+                )
                 store_errors.append("recent page assessments unavailable")
 
             recent_failures: list[Any] = []
@@ -987,7 +1116,13 @@ def register_corpus_endpoints(
                     else:
                         recent_failures = []
             except Exception as exc:
-                logger.exception("Failed reading recent Confluence poll failures: %s", exc)
+                logger.exception(
+                    "Failed reading recent Confluence poll failures",
+                    extra={
+                        "event": "confluence_poll_failures_fetch_failed",
+                        "exc_type": type(exc).__name__,
+                    },
+                )
                 store_errors.append("recent poll failures unavailable")
 
             page_status_counts: dict[str, int] = {}
@@ -1083,7 +1218,10 @@ def register_corpus_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/confluence/poll-status request: %s", exc)
+            logger.exception(
+                "Failed Confluence poll status request",
+                extra={"event": "confluence_poll_status_failed", "exc_type": type(exc).__name__},
+            )
             return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.post("/api/corpus-a/ingest")
@@ -1181,5 +1319,12 @@ def register_corpus_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/corpus-a/ingest request: %s", exc)
+            logger.exception(
+                "Failed corpus ingest request",
+                extra={
+                    "event": "corpus_ingest_failed",
+                    "corpus": "a",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)

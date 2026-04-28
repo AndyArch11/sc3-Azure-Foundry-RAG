@@ -9,8 +9,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 from openai.types.chat import ChatCompletionMessageParam
 
+from query_web.request_context import outbound_trace_headers
 from query_web.security.prompt_injection_guard import BLOCKED_PROMPT_INJECTION_MESSAGE
 from runtime.llm import get_llm_client
+from runtime.outbound_instrumentation import sdk_call_with_instrumentation
 
 if TYPE_CHECKING:
     pass
@@ -163,14 +165,24 @@ def _chat_completion(
 
     safe_temperature = max(0.0, min(1.0, float(temperature)))
     token_cap = int(max_completion_tokens or svc.config.max_completion_tokens)
+    outbound_headers = outbound_trace_headers()
+
+    request_kwargs: dict[str, Any] = {
+        "model": deployment,
+        "messages": typed_messages,
+        "max_completion_tokens": token_cap,
+        "temperature": safe_temperature,
+        "timeout": timeout,
+    }
+    if outbound_headers:
+        request_kwargs["extra_headers"] = outbound_headers
 
     try:
-        response = client.chat.completions.create(
-            model=deployment,
-            messages=typed_messages,
-            max_completion_tokens=token_cap,
-            temperature=safe_temperature,
-            timeout=timeout,
+        response = sdk_call_with_instrumentation(
+            logger=svc.logger,
+            system="azure-openai",
+            operation="chat_completions_create",
+            call=lambda: client.chat.completions.create(**request_kwargs),
         )
     except Exception as exc:
         if safe_temperature != 1.0 and _is_temperature_unsupported_error(exc):
@@ -179,12 +191,12 @@ def _chat_completion(
                 safe_temperature,
                 deployment,
             )
-            response = client.chat.completions.create(
-                model=deployment,
-                messages=typed_messages,
-                max_completion_tokens=token_cap,
-                temperature=1.0,
-                timeout=timeout,
+            request_kwargs["temperature"] = 1.0
+            response = sdk_call_with_instrumentation(
+                logger=svc.logger,
+                system="azure-openai",
+                operation="chat_completions_create_retry",
+                call=lambda: client.chat.completions.create(**request_kwargs),
             )
         else:
             raise

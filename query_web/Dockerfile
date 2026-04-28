@@ -10,9 +10,13 @@ RUN pip install --no-cache-dir -r query_web-requirements.txt -r runtime-requirem
 
 COPY query_web/ ./query_web/
 COPY runtime/ ./runtime/
+COPY parsed-controls/ ./parsed-controls/
 COPY query_web/policies/precedence_policy.json ./policies/precedence_policy.json
+COPY ops/scripts/local/seed_local.py /app/local/seed_local.py
 
-RUN useradd -m -u 1000 appuser
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app/local_state && \
+    chown -R appuser:appuser /app/local_state
 USER appuser
 
 EXPOSE 8080

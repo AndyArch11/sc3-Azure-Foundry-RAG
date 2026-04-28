@@ -2,7 +2,7 @@
 # Build the ingestion-runner Docker image and push it to the environment's ACR.
 #
 # Usage:
-#   ENV=<env> IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-ingestion.sh
+#   ENV=<env> IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/azure/build-push-ingestion.sh
 #
 # Prerequisites:
 #   - Docker daemon running and authenticated to the registry
@@ -16,21 +16,24 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ENV=<env> IMAGE_TAG=<immutable-tag> ./ops/scripts/build-push-ingestion.sh
+  ENV=<env> IMAGE_TAG=<immutable-tag> ./ops/scripts/azure/build-push-ingestion.sh
 
 Builds and pushes the ingestion-runner image to the target environment ACR.
 
 Recommended follow-up rollout:
-  sudo ./ops/scripts/rollout-agent-hosting.sh <env> apply \
+  sudo ./ops/scripts/azure/rollout-agent-hosting.sh <env> apply \
     --ingestion-tag <immutable-tag>
 
 Optional RBAC reconciliation (admin identity):
-  ./ops/scripts/reconcile-rbac-admin.sh <env> apply
+  ./ops/scripts/azure/reconcile-rbac-admin.sh <env> apply
 EOF
   exit 0
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+RUNTIME_DIR="${REPO_ROOT}/runtime"
+TF_DIR="${REPO_ROOT}/infra/terraform/azure"
 
 DOCKER_CMD=(docker)
 
@@ -152,7 +155,7 @@ _assert_private_acr_data_endpoint_if_enabled() {
 }
 
 _ensure_az_login
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 RUNTIME_DIR="${REPO_ROOT}/runtime"
 
 ENV="${ENV:-dev}"
@@ -171,7 +174,7 @@ RESOURCE_GROUP="${RESOURCE_GROUP:-rg-ai-platform-${ENV}}"
 #   3. Derived directly from naming convention: acr<env><location_short><instance>
 #      No API call required — avoids needing registries/read permission.
 # ---------------------------------------------------------------------------
-TF_DIR="${REPO_ROOT}/infra/terraform"
+TF_DIR="${REPO_ROOT}/infra/terraform/azure"
 ACR_LOGIN_SERVER="${ACR_LOGIN_SERVER:-}"
 JOB_NAME="${JOB_NAME:-}"
 
@@ -236,9 +239,9 @@ echo ""
 echo "==> Done: ${FULL_IMAGE}"
 echo ""
 echo "==> Rollout command:"
-echo "sudo ./ops/scripts/rollout-agent-hosting.sh ${ENV} apply --ingestion-tag ${IMAGE_TAG}"
+echo "sudo ./ops/scripts/azure/rollout-agent-hosting.sh ${ENV} apply --ingestion-tag ${IMAGE_TAG}"
 echo "# Optional admin RBAC reconciliation:"
-echo "./ops/scripts/reconcile-rbac-admin.sh ${ENV} apply"
+echo "./ops/scripts/azure/reconcile-rbac-admin.sh ${ENV} apply"
 echo ""
 echo "Trigger ingestion job (files already in blob storage):"
 echo "  az containerapp job start \\"

@@ -6,6 +6,8 @@ from typing import Any, Callable, Mapping
 
 import requests  # type: ignore[import-untyped]
 
+from runtime.trace_context import outbound_trace_headers
+
 from .assessment_runtime import create_search_backed_assessment_agent_from_env
 from .interfaces import OrchestratorAdapter
 from .mcp.confluence import ConfluenceMCPServer
@@ -106,7 +108,11 @@ def _required(env: Mapping[str, str], key: str) -> str:
 
 def _resolve_cloud_id(base_url: str, timeout_s: float = 10.0) -> str:
     """Run resolve cloud id."""
-    resp = requests.get(f"{base_url.rstrip('/')}/_edge/tenant_info", timeout=timeout_s)
+    resp = requests.get(
+        f"{base_url.rstrip('/')}/_edge/tenant_info",
+        timeout=timeout_s,
+        headers=outbound_trace_headers(),
+    )
     resp.raise_for_status()
     cloud_id = str((resp.json() or {}).get("cloudId") or "").strip()
     if not cloud_id:

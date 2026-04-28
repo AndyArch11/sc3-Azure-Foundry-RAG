@@ -14,11 +14,47 @@ from azure.cosmos.exceptions import CosmosResourceNotFoundError
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import JSONResponse
 
+from query_web.constants import COSMOS_CONVERSATION_SCHEMA_VERSION, SERVICE_NAME
+from query_web.metrics import observe_cosmos_schema_access
+from query_web.request_context import get_correlation_id
 from query_web.utils import _utc_now_iso
+from runtime.outbound_instrumentation import sdk_call_with_instrumentation
 
 logger = logging.getLogger(__name__)
 
 _INTERNAL_ERROR_MESSAGE = "Internal server error; check logs for details."
+
+
+def _log_cosmos_access(
+    *,
+    operation: str,
+    container: str,
+    schema_version_read: str,
+    schema_version_written: str,
+    upcasted: bool,
+    correlation_id: str = "",
+) -> None:
+    """Emit a structured cosmos_schema_access log line for monitoring schema version usage."""
+    logger.info(
+        "cosmos_schema_access",
+        extra={
+            "schema_version_read": schema_version_read,
+            "schema_version_written": schema_version_written,
+            "upcasted": upcasted,
+            "client_id": SERVICE_NAME,
+            "operation": operation,
+            "container": container,
+            "correlation_id": correlation_id,
+        },
+    )
+    observe_cosmos_schema_access(
+        operation=operation,
+        container=container,
+        schema_version_read=schema_version_read,
+        schema_version_written=schema_version_written,
+        upcasted=upcasted,
+        service=SERVICE_NAME,
+    )
 
 
 @dataclass
@@ -78,6 +114,7 @@ class ConversationSession:
             "updated_at": self.updated_at,
             "evaluation_threshold": self.evaluation_threshold,
             "type": "conversation",
+            "schema_version": COSMOS_CONVERSATION_SCHEMA_VERSION,
         }
 
     @staticmethod
@@ -118,7 +155,13 @@ def _get_user_id(auth_token: str, session_id: str) -> str:
     return session_id[:16]
 
 
-def _load_conversation(user_id: str, conversation_id: str, container: Any) -> ConversationSession:
+def _load_conversation(
+    user_id: str,
+    conversation_id: str,
+    container: Any,
+    *,
+    correlation_id: str = "",
+) -> ConversationSession:
     """Load conversation from CosmosDB or create new one."""
     if not container:
         # Fallback to in-memory new conversation
@@ -131,7 +174,22 @@ def _load_conversation(user_id: str, conversation_id: str, container: Any) -> Co
     # Sanitise ID by replacing hyphens from UUIDs with underscores for Cosmos compatibility
     doc_id = f"{user_id.replace('-', '_')}_{conversation_id.replace('-', '_')}"
     try:
-        doc = container.read_item(item=doc_id, partition_key=user_id)
+        doc = sdk_call_with_instrumentation(
+            logger=logger,
+            system="azure-cosmos",
+            operation="read_item",
+            call=lambda: container.read_item(item=doc_id, partition_key=user_id),
+        )
+        doc_schema = str(doc.get("schema_version") or "unknown")
+        upcasted = doc_schema != COSMOS_CONVERSATION_SCHEMA_VERSION
+        _log_cosmos_access(
+            operation="read",
+            container="conversations",
+            schema_version_read=doc_schema,
+            schema_version_written="",
+            upcasted=upcasted,
+            correlation_id=correlation_id,
+        )
         return ConversationSession.from_dict(doc)
     except (CosmosResourceNotFoundError, KeyError):
         # Conversation doesn't exist yet (Cosmos or local SQLite store)
@@ -144,12 +202,30 @@ def _load_conversation(user_id: str, conversation_id: str, container: Any) -> Co
         raise RuntimeError(f"Conversation persistence read failed: {exc}") from exc
 
 
-def _save_conversation(session: ConversationSession, container: Any) -> None:
+def _save_conversation(
+    session: ConversationSession,
+    container: Any,
+    *,
+    correlation_id: str = "",
+) -> None:
     """Save conversation to CosmosDB."""
     if not container:
         return
     try:
-        container.upsert_item(session.to_dict())
+        sdk_call_with_instrumentation(
+            logger=logger,
+            system="azure-cosmos",
+            operation="upsert_item",
+            call=lambda: container.upsert_item(session.to_dict()),
+        )
+        _log_cosmos_access(
+            operation="upsert",
+            container="conversations",
+            schema_version_read="",
+            schema_version_written=COSMOS_CONVERSATION_SCHEMA_VERSION,
+            upcasted=False,
+            correlation_id=correlation_id,
+        )
     except Exception as exc:
         raise RuntimeError(f"Conversation persistence write failed: {exc}") from exc
 
@@ -186,11 +262,16 @@ def register_conversations_endpoints(
 
         try:
             query = "SELECT c.session_id, c.conversation_id, c.created_at, c.updated_at, c.messages FROM c WHERE c.user_id = @user_id AND c.type = 'conversation' ORDER BY c.updated_at DESC"
-            items = list(
-                conversations_container.query_items(
-                    query=query,
-                    parameters=[{"name": "@user_id", "value": user_id}],
-                )
+            items = sdk_call_with_instrumentation(
+                logger=logger,
+                system="azure-cosmos",
+                operation="query_items",
+                call=lambda: list(
+                    conversations_container.query_items(
+                        query=query,
+                        parameters=[{"name": "@user_id", "value": user_id}],
+                    )
+                ),
             )
             return JSONResponse({"conversations": items})
         except Exception as exc:
@@ -206,7 +287,12 @@ def register_conversations_endpoints(
             return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
         try:
-            session = _load_conversation(user_id, conversation_id, conversations_container)
+            session = _load_conversation(
+                user_id,
+                conversation_id,
+                conversations_container,
+                correlation_id=get_correlation_id(request),
+            )
             return JSONResponse(
                 {
                     "session_id": session.session_id,
@@ -253,7 +339,11 @@ def register_conversations_endpoints(
                 user_id=user_id,
                 conversation_id=conversation_id,
             )
-            _save_conversation(session, conversations_container)
+            _save_conversation(
+                session,
+                conversations_container,
+                correlation_id=get_correlation_id(request),
+            )
 
             return JSONResponse(
                 {
@@ -280,10 +370,19 @@ def register_conversations_endpoints(
             return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
         try:
-            session = _load_conversation(user_id, conversation_id, conversations_container)
+            session = _load_conversation(
+                user_id,
+                conversation_id,
+                conversations_container,
+                correlation_id=get_correlation_id(request),
+            )
             session.messages.append(ConversationMessage(role=role, content=content))
             session.updated_at = _utc_now_iso()
-            _save_conversation(session, conversations_container)
+            _save_conversation(
+                session,
+                conversations_container,
+                correlation_id=get_correlation_id(request),
+            )
 
             return JSONResponse(
                 {
@@ -319,7 +418,12 @@ def register_conversations_endpoints(
             return JSONResponse({"error": "rating must be between 1 and 5"}, status_code=400)
 
         try:
-            session = _load_conversation(user_id, conversation_id, conversations_container)
+            session = _load_conversation(
+                user_id,
+                conversation_id,
+                conversations_container,
+                correlation_id=get_correlation_id(request),
+            )
 
             if assistant_timestamp:
                 has_target = any(
@@ -340,7 +444,11 @@ def register_conversations_endpoints(
                 )
             )
             session.updated_at = _utc_now_iso()
-            _save_conversation(session, conversations_container)
+            _save_conversation(
+                session,
+                conversations_container,
+                correlation_id=get_correlation_id(request),
+            )
 
             return JSONResponse(
                 {

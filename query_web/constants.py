@@ -9,6 +9,15 @@ QUERY_WEB_VERSION_SIGNATURE = "query-web-meta-safe-v2-20260417"
 
 COMPLIANCE_REPORT_SCHEMA_VERSION = "v1.1"
 
+# Storage schema version stamped on every Cosmos document written by query-web.
+# Bump this when the document shape changes and follow the rolling migration playbook
+# in docs/compliance-rag-recommended-approach.md.
+COSMOS_CONVERSATION_SCHEMA_VERSION = "v1"
+
+# Identity emitted in cosmos_schema_access log lines so Log Analytics queries can
+# surface which service is still reading a deprecated schema version.
+SERVICE_NAME = "query-web"
+
 ALLOWED_EXTENSIONS = {
     ".pdf",
     ".xlsx",

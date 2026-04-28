@@ -4,11 +4,11 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/phase1-bootstrap.sh <env>
+  ./ops/scripts/azure/phase1-bootstrap.sh <env>
 
 Bootstraps remote Terraform state and writes:
-  - infra/terraform/environments/<env>/backend.hcl
-  - infra/terraform/environments/<env>/bootstrap.generated.tfvars
+  - infra/terraform/azure/environments/<env>/backend.hcl
+  - infra/terraform/azure/environments/<env>/bootstrap.generated.tfvars
 
 Supported environments:
   dev, test, prod
@@ -18,8 +18,8 @@ fi
 
 # Runs bootstrap Terraform and updates backend.hcl for the selected environment.
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BOOTSTRAP_DIR="${ROOT_DIR}/infra/terraform/bootstrap"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+BOOTSTRAP_DIR="${ROOT_DIR}/infra/terraform/azure/bootstrap"
 
 ENVIRONMENT="${1:-dev}"
 LOCATION="${TF_LOCATION:-australiaeast}"
@@ -36,8 +36,8 @@ esac
 RESOURCE_GROUP_NAME="${TF_STATE_RESOURCE_GROUP:-rg-tfstate-${ENVIRONMENT}}"
 STORAGE_ACCOUNT_PREFIX="${TF_STATE_STORAGE_PREFIX:-sttfstate${ENVIRONMENT}}"
 BACKEND_KEY="${TF_BACKEND_KEY:-platform/${ENVIRONMENT}.tfstate}"
-BACKEND_FILE="${ROOT_DIR}/infra/terraform/environments/${ENVIRONMENT}/backend.hcl"
-GENERATED_BOOTSTRAP_VARS_FILE="${ROOT_DIR}/infra/terraform/environments/${ENVIRONMENT}/bootstrap.generated.tfvars"
+BACKEND_FILE="${ROOT_DIR}/infra/terraform/azure/environments/${ENVIRONMENT}/backend.hcl"
+GENERATED_BOOTSTRAP_VARS_FILE="${ROOT_DIR}/infra/terraform/azure/environments/${ENVIRONMENT}/bootstrap.generated.tfvars"
 ENABLE_BOOTSTRAP_KEY_VAULT="${TF_ENABLE_BOOTSTRAP_KEY_VAULT:-true}"
 KEY_VAULT_PREFIX="${TF_KEY_VAULT_PREFIX:-kvtfstate}"
 KEY_VAULT_EXTRA_RBAC_OBJECT_IDS="${TF_KEY_VAULT_EXTRA_RBAC_OBJECT_IDS:-}"

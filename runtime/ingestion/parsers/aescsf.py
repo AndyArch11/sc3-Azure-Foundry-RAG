@@ -20,8 +20,11 @@ from __future__ import annotations
 import io
 import logging
 import re
-import urllib.request
 from typing import Dict, List, Optional
+
+import requests  # type: ignore[import-untyped]
+
+from runtime.outbound_instrumentation import request_with_instrumentation
 
 from .base import BaseParser, RequirementRecord, filter_keywords
 
@@ -190,12 +193,18 @@ class AescsfParser(BaseParser):
 
     def _fetch_workbook(self) -> bytes:
         """Run fetch workbook."""
-        req = urllib.request.Request(
+        response = request_with_instrumentation(
+            "GET",
             self._toolkit_url,
+            logger=logger,
+            timeout=60,
             headers={"User-Agent": "aescsf-parser/1.0 (controls ingestion)"},
+            system="aemo",
+            operation="download_aescsf_workbook",
+            request_callable=requests.get,
         )
-        with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310
-            return resp.read()
+        response.raise_for_status()
+        return response.content
 
     def _build_records(self, workbook_bytes: bytes) -> List[RequirementRecord]:
         """Run build records."""

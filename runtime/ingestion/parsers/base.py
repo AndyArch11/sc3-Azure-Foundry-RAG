@@ -122,7 +122,7 @@ class RequirementRecord:
 
     Designed to be serialised to JSONL and loaded into a dedicated
     Azure AI Search controls index (Corpus A) alongside the main
-    evidence corpus (Corpus B).
+    grounding corpus (Corpus B).
     """
 
     # Stable, deterministic identifier.  Format: <framework-slug>-<family-slug>-<scope>-<seq>

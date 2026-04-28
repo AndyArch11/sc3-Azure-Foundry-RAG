@@ -23,6 +23,10 @@ import logging
 import re
 from typing import Dict, List, Optional, Tuple
 
+import requests  # type: ignore[import-untyped]
+
+from runtime.outbound_instrumentation import request_with_instrumentation
+
 from .base import BaseParser, RequirementRecord, filter_keywords
 
 logger = logging.getLogger(__name__)
@@ -781,7 +785,6 @@ def _slugify(text: str) -> str:
 def _fetch_guidance(category_id: str) -> str:
     """Attempt to fetch category guidance text from NIST CPRT. Returns empty string on failure."""
     try:
-        import requests  # noqa: PLC0415  # type: ignore
         from bs4 import BeautifulSoup  # noqa: PLC0415
     except ImportError:
         logger.debug(
@@ -791,10 +794,15 @@ def _fetch_guidance(category_id: str) -> str:
 
     url = f"https://www.nist.gov/cyberframework/csf-20-by-the-numbers"
     try:
-        resp = requests.get(
+        resp = request_with_instrumentation(
+            "GET",
             "https://www.nist.gov/cyberframework",
+            logger=logger,
             timeout=15,
             headers={"User-Agent": "Mozilla/5.0"},
+            system="nist",
+            operation="fetch_nist_csf_guidance",
+            request_callable=requests.get,
         )
     except Exception as exc:
         logger.debug("Guidance fetch failed for %s: %s", category_id, exc)
@@ -808,7 +816,6 @@ def _build_category_guidance_map(fetch_guidance: bool) -> Dict[str, str]:
         return {}
 
     try:
-        import requests  # noqa: PLC0415  # type: ignore
         from bs4 import BeautifulSoup  # noqa: PLC0415
     except ImportError:
         logger.warning("requests/beautifulsoup4 not installed; guidance will be empty.")

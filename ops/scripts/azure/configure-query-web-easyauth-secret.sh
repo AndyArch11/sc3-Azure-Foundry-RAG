@@ -4,7 +4,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/configure-query-web-easyauth-secret.sh <env> --key-vault-name <kv-name> [--secret-name <name>] [--credential-display-name <name>] [--valid-days <days>]
+  ./ops/scripts/azure/configure-query-web-easyauth-secret.sh <env> --key-vault-name <kv-name> [--secret-name <name>] [--credential-display-name <name>] [--valid-days <days>]
 
 Creates (append-only) an Entra app credential for the Terraform-managed query-web
 app registration and writes the generated secret value to Azure Key Vault.
@@ -15,14 +15,14 @@ Defaults:
   valid-days             = 365
 
 Examples:
-  ./ops/scripts/configure-query-web-easyauth-secret.sh dev --key-vault-name kv-app-secrets-dev
-  ./ops/scripts/configure-query-web-easyauth-secret.sh dev --key-vault-name kv-app-secrets-dev --secret-name query-web-easyauth-client-secret --valid-days 180
+  ./ops/scripts/azure/configure-query-web-easyauth-secret.sh dev --key-vault-name kv-app-secrets-dev
+  ./ops/scripts/azure/configure-query-web-easyauth-secret.sh dev --key-vault-name kv-app-secrets-dev --secret-name query-web-easyauth-client-secret --valid-days 180
 EOF
   exit 0
 fi
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TF_DIR="${ROOT_DIR}/infra/terraform"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+TF_DIR="${ROOT_DIR}/infra/terraform/azure"
 
 ENVIRONMENT="${1:-dev}"
 shift $(( $# >= 1 ? 1 : 0 ))
@@ -110,7 +110,7 @@ fi
 if [[ -z "${APP_CLIENT_ID}" ]]; then
   echo "Unable to read query_web_entra_client_id from Terraform outputs."
   echo "Run external Entra bootstrap first to create the app registration target, then rerun this script:"
-  echo "  ./ops/scripts/rollout-query-web-entra.sh ${ENVIRONMENT} apply"
+  echo "  ./ops/scripts/azure/rollout-query-web-entra.sh ${ENVIRONMENT} apply"
   exit 1
 fi
 
@@ -136,9 +136,9 @@ if [[ ${KV_PREFLIGHT_RC} -ne 0 ]]; then
   echo ""
   echo "Remediation:"
   echo "  1. Re-run private DNS provisioning/link:"
-  echo "     ./ops/scripts/phase2-network-dns.sh ${ENVIRONMENT} apply"
+  echo "     ./ops/scripts/azure/phase2-network-dns.sh ${ENVIRONMENT} apply"
   echo "  2. Re-run app-secrets private endpoint deployment:"
-  echo "     ./ops/scripts/phase3c-app-secrets.sh ${ENVIRONMENT} apply"
+  echo "     ./ops/scripts/azure/phase3c-app-secrets.sh ${ENVIRONMENT} apply"
   echo "  3. From jumpbox, verify private resolution:" 
   echo "     getent ahostsv4 ${KEY_VAULT_NAME}.vault.azure.net"
   echo ""
@@ -197,9 +197,9 @@ if [[ ${AZ_KV_RC} -ne 0 ]]; then
   echo ""
   echo "Recommended checks:"
   echo "  1. Re-run phase 2 to ensure privatelink.vaultcore.azure.net DNS zone exists and is linked:"
-  echo "     ./ops/scripts/phase2-network-dns.sh ${ENVIRONMENT} apply"
+  echo "     ./ops/scripts/azure/phase2-network-dns.sh ${ENVIRONMENT} apply"
   echo "  2. Re-run phase 3c to ensure the Key Vault private endpoint and zone group are present:"
-  echo "     ./ops/scripts/phase3c-app-secrets.sh ${ENVIRONMENT} apply"
+  echo "     ./ops/scripts/azure/phase3c-app-secrets.sh ${ENVIRONMENT} apply"
   echo "  3. From jumpbox, verify ${KEY_VAULT_NAME}.vault.azure.net resolves to a private IP:"
   echo "     getent ahostsv4 ${KEY_VAULT_NAME}.vault.azure.net"
   echo ""
@@ -216,4 +216,4 @@ echo "==> Done"
 echo "App client ID: ${APP_CLIENT_ID}"
 echo "Secret ID: ${SECRET_ID}"
 echo "Next rollout command:"
-echo "  sudo ./ops/scripts/rollout-agent-hosting.sh ${ENVIRONMENT} apply --entra-secret-kv ${KEY_VAULT_NAME} --entra-secret-name ${SECRET_NAME}"
+echo "  sudo ./ops/scripts/azure/rollout-agent-hosting.sh ${ENVIRONMENT} apply --entra-secret-kv ${KEY_VAULT_NAME} --entra-secret-name ${SECRET_NAME}"

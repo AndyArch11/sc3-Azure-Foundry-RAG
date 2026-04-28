@@ -4,7 +4,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/rollout-agent-hosting.sh <env> [plan|apply] [--ingestion-tag <tag>] [--query-web-tag <tag>] [--confluence-poller-tag <tag>] [--enable-confluence-poller] [--disable-confluence-poller] [--entra-secret-kv <kv-name>] [--entra-secret-name <secret-name>] [--confluence-base-url <url>] [--confluence-auth-mode <basic|bearer|oauth>] [--confluence-auth-email <email>] [--confluence-api-token <token>] [--confluence-cloud-id <cloud-id>] [--confluence-account-id <account-id>] [--confluence-space-keys <KEY1,KEY2,...>] [--repair-query-web-reply-url]
+  ./ops/scripts/azure/rollout-agent-hosting.sh <env> [plan|apply] [--ingestion-tag <tag>] [--query-web-tag <tag>] [--confluence-poller-tag <tag>] [--enable-confluence-poller] [--disable-confluence-poller] [--entra-secret-kv <kv-name>] [--entra-secret-name <secret-name>] [--confluence-base-url <url>] [--confluence-auth-mode <basic|bearer|oauth>] [--confluence-auth-email <email>] [--confluence-api-token <token>] [--confluence-cloud-id <cloud-id>] [--confluence-account-id <account-id>] [--confluence-space-keys <KEY1,KEY2,...>] [--repair-query-web-reply-url]
 
 Runs the STANDARD (non-preview) rollout for module.agent_hosting only.
 
@@ -23,11 +23,11 @@ What this script does:
   - optional --repair-query-web-reply-url attempts az ad app update when reply URL is missing
 
 Examples:
-  ./ops/scripts/rollout-agent-hosting.sh dev apply
-  ./ops/scripts/rollout-agent-hosting.sh dev apply --ingestion-tag 202603292354-8115700 --query-web-tag 202603292347-8115700
-  ./ops/scripts/rollout-agent-hosting.sh dev apply --confluence-poller-tag 202604041530-a1b2c3d --enable-confluence-poller
-  ./ops/scripts/rollout-agent-hosting.sh dev apply --query-web-tag 202603292347-8115700 --entra-secret-kv kv-app-secrets-dev
-  ./ops/scripts/rollout-agent-hosting.sh dev apply \
+  ./ops/scripts/azure/rollout-agent-hosting.sh dev apply
+  ./ops/scripts/azure/rollout-agent-hosting.sh dev apply --ingestion-tag 202603292354-8115700 --query-web-tag 202603292347-8115700
+  ./ops/scripts/azure/rollout-agent-hosting.sh dev apply --confluence-poller-tag 202604041530-a1b2c3d --enable-confluence-poller
+  ./ops/scripts/azure/rollout-agent-hosting.sh dev apply --query-web-tag 202603292347-8115700 --entra-secret-kv kv-app-secrets-dev
+  ./ops/scripts/azure/rollout-agent-hosting.sh dev apply \
     --enable-confluence-poller \
     --confluence-base-url https://myorg.atlassian.net \
     --confluence-auth-mode basic \
@@ -36,7 +36,7 @@ Examples:
     --confluence-space-keys 'SEC,GRC'
 
   # Example for Atlassian scoped token path (Bearer + cloud-id)
-  ./ops/scripts/rollout-agent-hosting.sh dev apply \
+  ./ops/scripts/azure/rollout-agent-hosting.sh dev apply \
     --enable-confluence-poller \
     --confluence-base-url https://myorg.atlassian.net \
     --confluence-auth-mode bearer \
@@ -46,8 +46,8 @@ EOF
   exit 0
 fi
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TF_DIR="${ROOT_DIR}/infra/terraform"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+TF_DIR="${ROOT_DIR}/infra/terraform/azure"
 
 ENVIRONMENT="${1:-dev}"
 ACTION="${2:-apply}"

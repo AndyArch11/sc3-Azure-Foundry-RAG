@@ -26,6 +26,8 @@ from typing import Any, List
 
 import requests  # type: ignore[import-untyped]
 
+from runtime.outbound_instrumentation import request_with_instrumentation
+
 from .base import BaseParser, RequirementRecord, filter_keywords, keywordise_values
 
 logger = logging.getLogger(__name__)
@@ -166,7 +168,15 @@ class NistAiRmfParser(BaseParser):
                 return _PdfReader(str(path))
 
         logger.info("NIST AI RMF: downloading source PDF from %s", SOURCE_URI)
-        response = requests.get(SOURCE_URI, timeout=90)
+        response = request_with_instrumentation(
+            "GET",
+            SOURCE_URI,
+            logger=logger,
+            timeout=90,
+            system="nist",
+            operation="download_nist_ai_rmf_pdf",
+            request_callable=requests.get,
+        )
         response.raise_for_status()
         return _PdfReader(io.BytesIO(response.content))
 
@@ -305,10 +315,15 @@ def _build_playbook_guidance_map(fetch_guidance: bool = True) -> dict[str, tuple
     for function_token, slug in _PLAYBOOK_SLUG_BY_TOKEN.items():
         page_url = f"{_PLAYBOOK_BASE_URI}/{slug}/"
         try:
-            response = requests.get(
+            response = request_with_instrumentation(
+                "GET",
                 page_url,
+                logger=logger,
                 timeout=30,
                 headers={"User-Agent": "Mozilla/5.0"},
+                system="nist",
+                operation="fetch_nist_ai_rmf_playbook",
+                request_callable=requests.get,
             )
             response.raise_for_status()
         except Exception as exc:  # pragma: no cover - network dependent

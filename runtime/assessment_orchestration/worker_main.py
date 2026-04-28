@@ -4,6 +4,10 @@ import argparse
 import json
 import sys
 
+from runtime.log_config import configure_logging as _configure_logging
+
+_configure_logging("worker")
+
 from .runtime_wiring import create_orchestrator_adapter_from_env
 from .worker import process_queue_message_json
 

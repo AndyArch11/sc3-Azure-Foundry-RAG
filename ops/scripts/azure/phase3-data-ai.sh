@@ -4,7 +4,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/phase3-data-ai.sh <env> [plan|apply]
+  ./ops/scripts/azure/phase3-data-ai.sh <env> [plan|apply]
 
 Runs Phase 3 Terraform targets for observability, data services, Foundry,
 private endpoints, identity, and bastion/jumpbox.
@@ -35,8 +35,8 @@ fi
 # Foundry, private endpoints, identity, and bastion/jumpbox.
 # Agent hosting (preview API) is deployed separately via phase3b-agent-hosting.sh.
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TF_DIR="${ROOT_DIR}/infra/terraform"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+TF_DIR="${ROOT_DIR}/infra/terraform/azure"
 
 ENVIRONMENT="${1:-dev}"
 ACTION="${2:-plan}"
@@ -164,7 +164,17 @@ if [[ "${ACTION}" == "apply" ]]; then
   STATE_SA_NAME=$(az storage account list --resource-group "${STATE_RG}" --query "[?starts_with(name, 'sttfstate')].name" -o tsv 2>/dev/null | head -1 || true)
   
   if [[ -n "${STATE_SA_NAME}" ]]; then
-    PRINCIPAL_ID=$(az identity list --query "[?name=='${IDENTITY_NAME}'].principalId" -o tsv 2>/dev/null || true)
+    # Look up the identity in the platform resource group (not the tfstate group).
+    # Fall back to the Terraform output when the az identity list scope misses it.
+    PLATFORM_RG="rg-ai-platform-${ENVIRONMENT}"
+    PRINCIPAL_ID=$(az identity show \
+      --resource-group "${PLATFORM_RG}" \
+      --name "${IDENTITY_NAME}" \
+      --query principalId -o tsv 2>/dev/null || true)
+    # Second attempt: pull directly from Terraform output (already computed above)
+    if [[ -z "${PRINCIPAL_ID}" ]]; then
+      PRINCIPAL_ID=$(terraform -chdir="${TF_DIR}" output -raw agent_runtime_principal_id 2>/dev/null || true)
+    fi
     if [[ -n "${PRINCIPAL_ID}" ]]; then
       SA_ID="/subscriptions/$(az account show --query id -o tsv)/resourceGroups/${STATE_RG}/providers/Microsoft.Storage/storageAccounts/${STATE_SA_NAME}"
       echo "Assigning Storage Blob Data Contributor role to ${IDENTITY_NAME} on ${STATE_SA_NAME}"

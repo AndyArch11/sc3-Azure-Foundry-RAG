@@ -56,7 +56,7 @@ the root stack, while the client secret is expected to be created or rotated
 from jumpbox and stored in a private Key Vault. Use:
 
 ```bash
-sudo ./ops/scripts/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" \
+sudo ./ops/scripts/azure/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" \
   --key-vault-name "<private-kv-name>" \
   --secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 ```
@@ -68,7 +68,7 @@ Build and push with:
 
 ```bash
 TARGET_ENV="<env>"
-ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/build-push-ingestion.sh
+ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ./ops/scripts/azure/build-push-ingestion.sh
 ```
 
 Then roll that exact tag using the standard jumpbox rollout script so deployments remain reproducible.
@@ -76,13 +76,13 @@ Then roll that exact tag using the standard jumpbox rollout script so deployment
 Example rollout:
 
 ```bash
-sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+sudo ./ops/scripts/azure/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --ingestion-tag "<immutable-ingestion-tag>" \
   --entra-secret-kv "<private-kv-name>" \
   --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 
 # Confluence poller rollout
-sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+sudo ./ops/scripts/azure/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --confluence-poller-tag "<immutable-poller-tag>" \
   --enable-confluence-poller
 ```
@@ -91,7 +91,7 @@ If RBAC role assignments need reconciliation, run from an admin identity:
 
 ```bash
 # Run from admin context (local admin shell or CI), not jumpbox UAMI context.
-./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply
+./ops/scripts/azure/reconcile-rbac-admin.sh "${TARGET_ENV}" apply
 ```
 
 > **Note:** the script must run from inside the VNet (jumpbox or CI with VNet
@@ -101,9 +101,9 @@ If RBAC role assignments need reconciliation, run from an admin identity:
 
 ```bash
 TARGET_ENV="<env>"
-JOB_NAME=$(terraform -chdir=infra/terraform output -raw container_app_job_name)
-RESOURCE_GROUP=$(terraform -chdir=infra/terraform output -raw resource_group_name)
-QUERY_APP=$(terraform -chdir=infra/terraform output -raw query_web_app_name)
+JOB_NAME=$(terraform -chdir=infra/terraform/azure output -raw container_app_job_name)
+RESOURCE_GROUP=$(terraform -chdir=infra/terraform/azure output -raw resource_group_name)
+QUERY_APP=$(terraform -chdir=infra/terraform/azure output -raw query_web_app_name)
 
 # Index files already in blob storage (default args)
 az containerapp job start \

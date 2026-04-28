@@ -41,6 +41,7 @@ module "identity" {
   bedrock_model_id        = var.bedrock_model_id
   bedrock_embedding_model = var.bedrock_embedding_model_id
   log_group_arns          = module.observability.log_group_arns
+  amp_workspace_arn       = module.observability.amp_workspace_arn
   app_secret_arn          = module.app_secrets.secret_arn
 }
 
@@ -51,35 +52,36 @@ module "container_registry" {
 }
 
 module "app_hosting" {
-  source                     = "./modules/app_hosting"
-  naming_suffix              = local.naming_suffix
-  vpc_id                     = module.network.vpc_id
-  private_subnet_ids         = module.network.private_subnet_ids
-  ecs_sg_id                  = module.network.ecs_sg_id
-  task_execution_role_arn    = module.identity.task_execution_role_arn
-  task_role_arn              = module.identity.task_role_arn
-  query_web_repository_url   = module.container_registry.query_web_repository_url
-  ingestion_repository_url   = module.container_registry.ingestion_repository_url
-  query_web_image_tag        = var.query_web_image_tag
-  ingestion_image_tag        = var.ingestion_image_tag
-  query_web_cpu              = var.query_web_cpu
-  query_web_memory_mb        = var.query_web_memory_mb
-  query_web_desired_count    = var.query_web_desired_count
-  ingestion_cpu              = var.ingestion_cpu
-  ingestion_memory_mb        = var.ingestion_memory_mb
-  enable_query_web           = var.enable_query_web
-  enable_ingestion_job       = var.enable_ingestion_job
-  log_group_name_query_web   = module.observability.query_web_log_group_name
-  log_group_name_ingestion   = module.observability.ingestion_log_group_name
-  aws_region                 = var.aws_region
-  opensearch_endpoint        = module.data_services.opensearch_endpoint
-  s3_bucket_name             = module.data_services.s3_bucket_name
-  dynamodb_table_name        = module.data_services.dynamodb_table_name
-  search_index_name          = var.search_index_name
-  controls_index_name        = var.controls_index_name
-  bedrock_model_id           = var.bedrock_model_id
-  bedrock_embedding_model_id = var.bedrock_embedding_model_id
-  app_secrets_secret_arn     = module.app_secrets.secret_arn
+  source                      = "./modules/app_hosting"
+  naming_suffix               = local.naming_suffix
+  vpc_id                      = module.network.vpc_id
+  private_subnet_ids          = module.network.private_subnet_ids
+  ecs_sg_id                   = module.network.ecs_sg_id
+  task_execution_role_arn     = module.identity.task_execution_role_arn
+  task_role_arn               = module.identity.task_role_arn
+  query_web_repository_url    = module.container_registry.query_web_repository_url
+  ingestion_repository_url    = module.container_registry.ingestion_repository_url
+  query_web_image_tag         = var.query_web_image_tag
+  ingestion_image_tag         = var.ingestion_image_tag
+  query_web_cpu               = var.query_web_cpu
+  query_web_memory_mb         = var.query_web_memory_mb
+  query_web_desired_count     = var.query_web_desired_count
+  ingestion_cpu               = var.ingestion_cpu
+  ingestion_memory_mb         = var.ingestion_memory_mb
+  enable_query_web            = var.enable_query_web
+  enable_ingestion_job        = var.enable_ingestion_job
+  log_group_name_query_web    = module.observability.query_web_log_group_name
+  log_group_name_ingestion    = module.observability.ingestion_log_group_name
+  aws_region                  = var.aws_region
+  prometheus_remote_write_url = module.observability.amp_remote_write_url
+  opensearch_endpoint         = module.data_services.opensearch_endpoint
+  s3_bucket_name              = module.data_services.s3_bucket_name
+  dynamodb_table_name         = module.data_services.dynamodb_table_name
+  search_index_name           = var.search_index_name
+  controls_index_name         = var.controls_index_name
+  bedrock_model_id            = var.bedrock_model_id
+  bedrock_embedding_model_id  = var.bedrock_embedding_model_id
+  app_secrets_secret_arn      = module.app_secrets.secret_arn
 }
 
 resource "aws_opensearch_domain_policy" "main" {

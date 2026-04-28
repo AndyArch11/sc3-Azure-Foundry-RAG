@@ -51,7 +51,7 @@ smoke_report() {
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/configure-jumpbox.sh [options]
+  ./ops/scripts/azure/configure-jumpbox.sh [options]
 
 Configures an Ubuntu jumpbox for local platform operations by:
   - installing OS packages (Docker, Python, Azure CLI, etc.)
@@ -65,10 +65,10 @@ Options:
   --repo-dir <path>         Repository root to configure (default: current repo root)
   --python-version <ver>    Python version to install and use for the venv (default: 3.12)
   --runtime-only            Install runtime/requirements.txt instead of requirements-dev.txt
-  --install-terraform       Run ops/scripts/install-terraform-local.sh
+  --install-terraform       Run ops/scripts/local/install-terraform-local.sh
   --terraform-version <ver> Terraform version passed to install-terraform-local.sh
   --init-terraform-backend <env>
-                           Run 'terraform init -backend-config=infra/terraform/environments/<env>/backend.hcl'
+                           Run 'terraform init -backend-config=infra/terraform/azure/environments/<env>/backend.hcl'
                            after az login. Supported env: dev, test, prod.
   --install-azure-cli       Install Azure CLI via the Microsoft apt repository
   --az-login-identity       Run 'az login --identity' after setup (requires managed identity)
@@ -79,10 +79,10 @@ Options:
   --skip-apt-update         Skip apt-get update and package installation
 
 Examples:
-  ./ops/scripts/configure-jumpbox.sh --install-terraform
-  ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --az-login-client-id <client-id> --init-terraform-backend dev --run-unit-tests
-  ./ops/scripts/configure-jumpbox.sh --repo-dir /opt/sc3-ingestion --install-terraform
-  ./ops/scripts/configure-jumpbox.sh --runtime-only
+  ./ops/scripts/azure/configure-jumpbox.sh --install-terraform
+  ./ops/scripts/azure/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --az-login-client-id <client-id> --init-terraform-backend dev --run-unit-tests
+  ./ops/scripts/azure/configure-jumpbox.sh --repo-dir /opt/sc3-ingestion --install-terraform
+  ./ops/scripts/azure/configure-jumpbox.sh --runtime-only
 EOF
   exit 0
 fi
@@ -91,7 +91,7 @@ fi
 # Defaults.
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+DEFAULT_REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 REPO_DIR="${DEFAULT_REPO_ROOT}"
 PYTHON_VERSION="3.12"
@@ -343,9 +343,9 @@ install_terraform() {
 
   info "Installing Terraform"
   if [[ -n "${TERRAFORM_VERSION}" ]]; then
-    "${REPO_DIR}/ops/scripts/install-terraform-local.sh" "${TERRAFORM_VERSION}"
+    "${REPO_DIR}/ops/scripts/local/install-terraform-local.sh" "${TERRAFORM_VERSION}"
   else
-    "${REPO_DIR}/ops/scripts/install-terraform-local.sh"
+    "${REPO_DIR}/ops/scripts/local/install-terraform-local.sh"
   fi
 }
 
@@ -486,7 +486,7 @@ init_terraform_backend() {
     exit 1
   fi
 
-  local tf_dir="${REPO_DIR}/infra/terraform"
+  local tf_dir="${REPO_DIR}/infra/terraform/azure"
   local backend_file="${tf_dir}/environments/${INIT_TERRAFORM_BACKEND_ENV}/backend.hcl"
   local backend_rg=""
   local backend_sa=""
@@ -582,7 +582,7 @@ run_smoke_tests() {
   # Terraform backend init status
   if [[ -z "${INIT_TERRAFORM_BACKEND_ENV}" ]]; then
     smoke_record "terraform backend init" "SKIP"
-  elif [[ -d "${REPO_DIR}/infra/terraform/.terraform" ]]; then
+  elif [[ -d "${REPO_DIR}/infra/terraform/azure/.terraform" ]]; then
     smoke_record "terraform backend init" "PASS"
   else
     smoke_record "terraform backend init" "FAIL"

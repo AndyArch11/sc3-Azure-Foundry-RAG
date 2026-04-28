@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 import requests
+
+from runtime.outbound_instrumentation import InstrumentedRequestsSession
+
+logger = logging.getLogger(__name__)
 
 
 class AWSOpenSearchClient:
@@ -30,7 +35,7 @@ class AWSOpenSearchClient:
         self._region_name = region_name
         self._service_name = service_name
         self._timeout_seconds = timeout_seconds
-        self._http = requests.Session()
+        self._http = InstrumentedRequestsSession(logger=logger, system="aws-opensearch")
 
     def _get_session(self) -> Any:
         if self._session is not None:
@@ -156,6 +161,7 @@ class AWSOpenSearchClient:
             data=body,
             headers=headers,
             timeout=self._timeout_seconds,
+            operation="search_documents",
         )
         response.raise_for_status()
 

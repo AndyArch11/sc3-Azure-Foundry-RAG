@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 from typing import Any, cast
 
+logger = logging.getLogger(__name__)
+
 import requests
+
+from runtime.trace_context import outbound_trace_headers
 
 
 class _SearchResults(list[dict[str, Any]]):
@@ -63,20 +68,52 @@ class LocalQdrantSearchClient:
         seed = str(doc.get("id") or doc.get("chunk_id") or f"{self._index}:{ordinal}")
         return int(hashlib.sha256(seed.encode("utf-8")).hexdigest()[:15], 16)
 
+    @staticmethod
+    def _embedding_char_budget() -> int:
+        """Return the initial per-request text budget for Ollama embeddings."""
+        raw = os.getenv("OLLAMA_EMBED_MAX_CHARS", "6000").strip()
+        try:
+            budget = int(raw)
+        except ValueError:
+            budget = 6000
+        return max(256, budget)
+
     def _embed_text(self, text: str) -> list[float]:
-        payload = {"model": self._embedding_model, "prompt": text}
-        response = requests.post(
-            f"{self._ollama_base_url}/api/embeddings",
-            json=payload,
-            timeout=45,
-        )
-        response.raise_for_status()
-        body = response.json()
-        if isinstance(body.get("embedding"), list):
-            return [float(v) for v in body["embedding"]]
-        if isinstance(body.get("embeddings"), list) and body["embeddings"]:
-            return [float(v) for v in body["embeddings"][0]]
-        raise RuntimeError("Ollama embedding response did not include vectors")
+        prompt = text.strip()
+        if not prompt:
+            raise RuntimeError("Cannot embed empty text")
+
+        min_chars = 256
+        prompt = prompt[: self._embedding_char_budget()]
+
+        while True:
+            payload = {"model": self._embedding_model, "prompt": prompt}
+            response = requests.post(
+                f"{self._ollama_base_url}/api/embeddings",
+                json=payload,
+                timeout=45,
+                headers=outbound_trace_headers(),
+            )
+            try:
+                response.raise_for_status()
+            except requests.HTTPError:
+                body_text = (getattr(response, "text", "") or "").lower()
+                context_overflow = (
+                    "input length exceeds the context length" in body_text
+                    or "context length" in body_text
+                    or "llm embedding error" in body_text
+                )
+                if context_overflow and len(prompt) > min_chars:
+                    prompt = prompt[: max(min_chars, len(prompt) // 2)]
+                    continue
+                raise
+
+            body = response.json()
+            if isinstance(body.get("embedding"), list):
+                return [float(v) for v in body["embedding"]]
+            if isinstance(body.get("embeddings"), list) and body["embeddings"]:
+                return [float(v) for v in body["embeddings"][0]]
+            raise RuntimeError("Ollama embedding response did not include vectors")
 
     def load_documents(self, docs: list[dict[str, Any]]) -> None:
         from qdrant_client.models import Distance, PointStruct, VectorParams
@@ -91,7 +128,14 @@ class LocalQdrantSearchClient:
             text = self._text_for_embedding(doc)
             if not text:
                 continue
-            vectors.append(self._embed_text(text))
+            try:
+                vec = self._embed_text(text)
+            except Exception as exc:
+                logger.warning(
+                    "Skipping document — embedding failed (%s): %.120s", type(exc).__name__, exc
+                )
+                continue
+            vectors.append(vec)
             payload_docs.append(doc)
 
         if not vectors:
@@ -109,7 +153,11 @@ class LocalQdrantSearchClient:
             PointStruct(id=self._point_id(doc, i), vector=vec, payload=doc)
             for i, (doc, vec) in enumerate(zip(payload_docs, vectors))
         ]
-        self._client.upsert(collection_name=self._index, points=points)
+        _UPSERT_BATCH = 64
+        for start in range(0, len(points), _UPSERT_BATCH):
+            self._client.upsert(
+                collection_name=self._index, points=points[start : start + _UPSERT_BATCH]
+            )
 
     def delete_documents(self, *, documents: list[dict[str, Any]]) -> None:
         """Delete documents by payload key/value selectors.

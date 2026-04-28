@@ -3,7 +3,7 @@
 Operational convention:
 
 - Use `TARGET_ENV` in runbooks and shell examples.
-- Treat `infra/terraform/environments/<env>/<env>.tfvars` as the authoritative environment configuration.
+- Treat `infra/terraform/azure/environments/<env>/<env>.tfvars` as the authoritative environment configuration.
 - Roll out runtime image changes through Terraform with immutable image tags.
 
 ## Phase 1

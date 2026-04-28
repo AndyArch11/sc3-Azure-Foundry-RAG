@@ -221,32 +221,30 @@ def test_ism_fetch_catalog_uses_json_response(monkeypatch: pytest.MonkeyPatch) -
     payload = {"catalog": {"metadata": {"version": "x"}, "groups": []}}
 
     class _Resp:
-        def __enter__(self):
-            return self
+        content = json.dumps(payload).encode("utf-8")
 
-        def __exit__(self, exc_type, exc, tb):
-            return False
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
 
-        def read(self) -> bytes:
-            return json.dumps(payload).encode("utf-8")
-
-    monkeypatch.setattr(ism.urllib.request, "urlopen", lambda req, timeout=30: _Resp())
+    monkeypatch.setattr(ism, "request_with_instrumentation", lambda *args, **kwargs: _Resp())
     data = ism.IsmParser()._fetch_catalog()
     assert data == payload
 
 
 def test_aescsf_fetch_workbook_reads_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
     class _Resp:
-        def __enter__(self):
-            return self
+        content = b"xlsx-bytes"
 
-        def __exit__(self, exc_type, exc, tb):
-            return False
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
 
-        def read(self) -> bytes:
-            return b"xlsx-bytes"
-
-    monkeypatch.setattr(aescsf.urllib.request, "urlopen", lambda req, timeout=60: _Resp())
+    monkeypatch.setattr(
+        aescsf,
+        "request_with_instrumentation",
+        lambda *args, **kwargs: _Resp(),
+    )
     data = aescsf.AescsfParser()._fetch_workbook()
     assert data == b"xlsx-bytes"
 
@@ -265,8 +263,8 @@ def test_nist_ai_rmf_loads_explicit_local_pdf_path(
 
     monkeypatch.setattr(nist_ai_rmf, "_PdfReader", _fake_reader)
     monkeypatch.setattr(
-        nist_ai_rmf.requests,
-        "get",
+        nist_ai_rmf,
+        "request_with_instrumentation",
         lambda *args, **kwargs: pytest.fail("requests.get should not be called"),
     )
 
@@ -292,8 +290,8 @@ def test_nist_ai_rmf_loads_default_local_pdf_path_when_present(
     monkeypatch.setattr(nist_ai_rmf, "_DEFAULT_PDF_PATH", default_pdf)
     monkeypatch.setattr(nist_ai_rmf, "_PdfReader", _fake_reader)
     monkeypatch.setattr(
-        nist_ai_rmf.requests,
-        "get",
+        nist_ai_rmf,
+        "request_with_instrumentation",
         lambda *args, **kwargs: pytest.fail("requests.get should not be called"),
     )
 
@@ -322,20 +320,21 @@ def test_nist_ai_rmf_downloads_pdf_when_local_files_absent(
 
     requested: dict[str, object] = {}
 
-    def _fake_get(url: str, timeout: int):
+    def _fake_request(method: str, url: str, **kwargs):
+        requested["method"] = method
         requested["url"] = url
-        requested["timeout"] = timeout
+        requested["timeout"] = kwargs.get("timeout")
         return _Response()
 
     monkeypatch.setattr(nist_ai_rmf, "_DEFAULT_PDF_PATH", tmp_path / "missing-default.pdf")
     monkeypatch.setattr(nist_ai_rmf, "_PdfReader", _fake_reader)
-    monkeypatch.setattr(nist_ai_rmf.requests, "get", _fake_get)
+    monkeypatch.setattr(nist_ai_rmf, "request_with_instrumentation", _fake_request)
 
     parser = nist_ai_rmf.NistAiRmfParser(pdf_path=tmp_path / "missing-explicit.pdf")
     reader = parser._load_pdf_reader()
 
     assert reader == "reader-from-download"
-    assert requested == {"url": nist_ai_rmf.SOURCE_URI, "timeout": 90}
+    assert requested == {"method": "GET", "url": nist_ai_rmf.SOURCE_URI, "timeout": 90}
     assert len(called_with) == 1
     assert isinstance(called_with[0], io.BytesIO)
 

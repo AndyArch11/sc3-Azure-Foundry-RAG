@@ -67,12 +67,12 @@ module "dns" {
 }
 
 module "observability" {
-  source              = "./modules/observability"
-  resource_group_name = module.foundation.resource_group_name
-  location            = var.location
-  workspace_name      = trimspace(var.log_analytics_workspace_name_override) != "" ? var.log_analytics_workspace_name_override : "law-${local.naming_suffix}"
+  source                          = "./modules/observability"
+  resource_group_name             = module.foundation.resource_group_name
+  location                        = var.location
+  workspace_name                  = trimspace(var.log_analytics_workspace_name_override) != "" ? var.log_analytics_workspace_name_override : "law-${local.naming_suffix}"
   monitor_workspace_name_override = var.monitor_workspace_name_override
-  tags                = local.tags
+  tags                            = local.tags
 }
 
 module "data_services" {
@@ -134,17 +134,17 @@ module "private_endpoints" {
 }
 
 module "identity" {
-  source                              = "./modules/identity"
-  resource_group_name                 = module.foundation.resource_group_name
-  location                            = var.location
-  suffix                              = local.naming_suffix
+  source                               = "./modules/identity"
+  resource_group_name                  = module.foundation.resource_group_name
+  location                             = var.location
+  suffix                               = local.naming_suffix
   agent_runtime_identity_name_override = var.agent_runtime_identity_name_override
-  deployment_principal_object_id      = data.azurerm_client_config.current.object_id
-  search_service_principal_id         = module.data_services.search_service_principal_id
-  terraform_state_storage_account_id  = local.use_bootstrap_state_storage ? data.azurerm_storage_account.bootstrap_state[0].id : ""
-  cosmos_database_name                = var.cosmos_database_name
-  cosmos_container_name               = var.cosmos_container_name
-  cosmos_orchestration_container_name = var.cosmos_orchestration_container_name
+  deployment_principal_object_id       = data.azurerm_client_config.current.object_id
+  search_service_principal_id          = module.data_services.search_service_principal_id
+  terraform_state_storage_account_id   = local.use_bootstrap_state_storage ? data.azurerm_storage_account.bootstrap_state[0].id : ""
+  cosmos_database_name                 = var.cosmos_database_name
+  cosmos_container_name                = var.cosmos_container_name
+  cosmos_orchestration_container_name  = var.cosmos_orchestration_container_name
   scope_ids = {
     storage       = module.data_services.storage_account_id
     search        = module.data_services.search_service_id
@@ -223,6 +223,7 @@ module "agent_hosting" {
   delegated_agent_subnet_id                         = local.container_apps_subnet_id
   vnet_id                                           = local.vnet_id
   log_analytics_workspace_id                        = module.observability.log_analytics_workspace_id
+  azure_monitor_data_collection_rule_id             = module.observability.monitor_data_collection_rule_id
   acr_login_server                                  = module.data_services.acr_login_server
   agent_runtime_identity_id                         = module.identity.agent_runtime_identity_id
   agent_runtime_client_id                           = module.identity.agent_runtime_client_id

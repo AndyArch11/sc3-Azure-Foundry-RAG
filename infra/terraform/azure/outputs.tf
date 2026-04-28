@@ -14,6 +14,10 @@ output "openai_endpoint" {
   value = "https://${module.foundry.foundry_account_name}.openai.azure.com"
 }
 
+output "ai_services_endpoint" {
+  value = "https://${module.foundry.foundry_account_name}.cognitiveservices.azure.com"
+}
+
 output "storage_account_name" {
   value = module.data_services.storage_account_name
 }
@@ -24,6 +28,18 @@ output "foundry_project_id" {
 
 output "log_analytics_workspace_id" {
   value = module.observability.log_analytics_workspace_id
+}
+
+output "azure_monitor_workspace_id" {
+  value = module.observability.azure_monitor_workspace_id
+}
+
+output "azure_monitor_data_collection_endpoint_id" {
+  value = module.observability.monitor_data_collection_endpoint_id
+}
+
+output "azure_monitor_data_collection_rule_id" {
+  value = module.observability.monitor_data_collection_rule_id
 }
 
 output "acr_login_server" {

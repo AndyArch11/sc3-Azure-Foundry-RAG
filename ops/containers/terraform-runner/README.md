@@ -19,7 +19,7 @@ docker build -t tf-runner:local ops/containers/terraform-runner
 Install Terraform directly in the current Linux environment:
 
 ```bash
-./ops/scripts/install-terraform-local.sh
+./ops/scripts/local/install-terraform-local.sh
 ```
 
 This allows all Terraform scripts in this repository to run without Docker.

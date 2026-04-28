@@ -4,6 +4,10 @@ import argparse
 import json
 import sys
 
+from runtime.log_config import configure_logging as _configure_logging
+
+_configure_logging("azure-assessment")
+
 from .azure_assessment import run_azure_assessment
 
 

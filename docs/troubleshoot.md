@@ -53,7 +53,7 @@ Most runtime actions require both Azure identity and jumpbox network access.
 See `infra/terraform/outputs.tf` for list of Azure resources that can be obtained from Terraform and the string to use to obtain the resource name
 
 ```bash
-TF_DIR="infra/terraform"
+TF_DIR="infra/terraform/azure"
 RG="rg-ai-platform-${TARGET_ENV}"
 
 terraform -chdir="${TF_DIR}" init \
@@ -64,7 +64,7 @@ COSMOS_ACCOUNT=$(az cosmosdb list -g "${RG}" --query "[0].name" -o tsv)
 SEARCH_ENDPOINT=$(terraform -chdir="${TF_DIR}" output -raw search_endpoint 2>/dev/null || true)
 ```
 
-If docker image has not deployed after running `rollout-agent-hosting.sh` even though the image has been created and deployed to ACR using `build-push-<container>.sh`, make sure that `infra/terraform/environments/<env>/<env>.tfvars` has been updated with the corresponding immutable `<container>-image-tag` value.
+If docker image has not deployed after running `rollout-agent-hosting.sh` even though the image has been created and deployed to ACR using `build-push-<container>.sh`, make sure that `infra/terraform/azure/environments/<env>/<env>.tfvars` has been updated with the corresponding immutable `<container>-image-tag` value.
 
 If unable to auth to the web app or diagnostic pages after deployment, make sure that the web redirect url has been applied. `rollout-agent-hosting.sh` provides the command to apply if it has not been able to detect the presence of the callback on completion of the deployment.
 
@@ -127,6 +127,8 @@ az acr repository show-tags --name "${ACR}" --repository rag-confluence-poller \
 ```
 
 ---
+## Subscription ID
+SUB=$(az account show --query id --output tsv)
 
 ## Container Apps
 
@@ -274,7 +276,7 @@ az keyvault show --name "${KV}" --query "properties.accessPolicies" -o table
 ## Azure Storage
 
 ```bash
-ACCOUNT="stdevaue04or4t4u"   # replace with your storage account
+ACCOUNT=$(terraform -chdir="${TF_DIR}" output -raw storage_account_name)
 CONTAINER="grounding-data"
 
 # Show metadata for a specific blob
@@ -336,7 +338,7 @@ az cosmosdb sql container show \
 
 # Check managed identity role assignment
 az role assignment list \
-  --scope "/subscriptions/<sub>/resourceGroups/${RG}/providers/Microsoft.DocumentDB/databaseAccounts/${COSMOS_ACCOUNT}" \
+  --scope "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.DocumentDB/databaseAccounts/${COSMOS_ACCOUNT}" \
   --query "[?roleDefinitionName=='Cosmos DB Built-in Data Contributor'].{principal:principalName,role:roleDefinitionName}" \
   -o table
 
@@ -361,22 +363,23 @@ az cosmosdb show -g "${RG}" -n "${COSMOS_ACCOUNT}" \
 
 ```bash
 RG="rg-ai-platform-${TARGET_ENV}"
+FOUNDRY_NAME=$(terraform -chdir="${TF_DIR}" output -raw ai_services_endpoint | sed 's|https://||; s|\.cognitiveservices.*||')
 
 # List Foundry accounts
 az cognitiveservices account list -g "${RG}" -o table
 
 # Get Foundry endpoint
-az cognitiveservices account show -g "${RG}" -n "<foundry-account-name>" \
+az cognitiveservices account show -g "${RG}" -n "${FOUNDRY_NAME}" \
   --query "properties.endpoint" -o tsv
 
 # List model deployments
 az cognitiveservices account deployment list \
-  -g "${RG}" -n "<foundry-account-name>" \
+  -g "${RG}" -n "${FOUNDRY_NAME}" \
   --query "[].{name:name,model:properties.model.name,capacity:sku.capacity}" -o table
 
 # Verify managed identity has Cognitive Services User role
 az role assignment list \
-  --scope "/subscriptions/<sub>/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/<foundry-account-name>" \
+  --scope "/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${FOUNDRY_NAME}" \
   --query "[?roleDefinitionName=='Cognitive Services User'].{principal:principalName}" \
   -o table
 ```
@@ -395,14 +398,14 @@ az role assignment list \
 ## Azure AI Search
 
 ```bash
-SEARCH_ENDPOINT="https://srch-${TARGET_ENV}-aue-XXXXXXXX.search.windows.net"
+SEARCH_ENDPOINT=$(terraform -chdir="${TF_DIR}" output -raw search_endpoint)
 
 # List indexes
-az search index list --service-name "srch-${TARGET_ENV}-aue-XXXXXXXX" \
+az search index list --service-name "${SEARCH_ENDPOINT}" \
   --resource-group "${RG}" -o table
 
 # Check indexer status
-az search indexer status --service-name "srch-${TARGET_ENV}-aue-XXXXXXXX" \
+az search indexer status --service-name "${SEARCH_ENDPOINT}" \
   --resource-group "${RG}" --name "grounding-index-indexer"
 ```
 
@@ -411,11 +414,11 @@ az search indexer status --service-name "srch-${TARGET_ENV}-aue-XXXXXXXX" \
 Run from within the project with venv activated, from a host with network access to the private endpoints:
 
 ```bash
-AZURE_SEARCH_ENDPOINT="https://srch-${TARGET_ENV}-aue-XXXXXXXX.search.windows.net" \
-AI_SERVICES_ENDPOINT="https://foundry-${TARGET_ENV}-aue-XXXXXXXX.cognitiveservices.azure.com" \
-AZURE_OPENAI_ENDPOINT="https://foundry-${TARGET_ENV}-aue-XXXXXXXX.openai.azure.com" \
-AZURE_STORAGE_ACCOUNT_NAME="stdevaue04or4t4u" \
-AZURE_STORAGE_RESOURCE_ID="/subscriptions/<sub>/resourceGroups/${RG}/providers/Microsoft.Storage/storageAccounts/stdevaue04or4t4u" \
+SEARCH_ENDPOINT=$(terraform -chdir="${TF_DIR}" output -raw search_endpoint) \
+AI_SERVICES_ENDPOINT=$(terraform -chdir="${TF_DIR}" output -raw ai_services_endpoint) \
+AZURE_OPENAI_ENDPOINT=$(terraform -chdir="${TF_DIR}" output -raw openai_endpoint) \
+AZURE_STORAGE_ACCOUNT_NAME=$(terraform -chdir="${TF_DIR}" output -raw storage_account_name) \
+AZURE_STORAGE_RESOURCE_ID="/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Storage/storageAccounts/$(terraform -chdir="${TF_DIR}" output -raw storage_account_name)" \
 python -m runtime.ingestion.runner --mode reset
 ```
 
@@ -426,7 +429,7 @@ python -m runtime.ingestion.runner --mode reset
 All diagnostic endpoints require `?auth_token=<QUERY_WEB_AUTH_TOKEN>` if auth is enabled and respond with JSON. They are **disabled when `TARGET_ENV=prod`**.
 
 ```bash
-QUERY_FQDN="<your-query-web-fqdn>"
+QUERY_FQDN=$(terraform -chdir="${TF_DIR}" output -raw query_web_fqdn)
 TOKEN="<QUERY_WEB_AUTH_TOKEN>"   # omit if auth not configured
 ```
 
@@ -476,7 +479,7 @@ curl "https://${QUERY_FQDN}/api/diagnostics/storage/metadata-validation?prefix=c
 # Run against a deployed environment (from jumpbox with network access)
 QUERY_WEB_RUN_API_ASK=true \
 QUERY_WEB_REQUIRE_CONVERSATIONS=true \
-./ops/scripts/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
+./ops/scripts/azure/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
 
 # Run unit tests locally
 source runtime/.venv/bin/activate

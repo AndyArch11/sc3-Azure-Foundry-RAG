@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from typing import Any
 
 import requests
+
+from runtime.outbound_instrumentation import request_with_instrumentation
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -75,7 +80,17 @@ def _delete_index_documents(config: AWSResetConfig, session: Any) -> int:
     )
     body = json.dumps({"query": {"match_all": {}}}, ensure_ascii=True)
     headers = _signed_headers(session, "POST", url, body)
-    response = requests.post(url, data=body, headers=headers, timeout=30)
+    response = request_with_instrumentation(
+        "POST",
+        url,
+        logger=logger,
+        data=body,
+        headers=headers,
+        timeout=30,
+        system="aws-opensearch",
+        operation="delete_by_query",
+        request_callable=requests.post,
+    )
 
     if response.status_code == 404:
         return 0

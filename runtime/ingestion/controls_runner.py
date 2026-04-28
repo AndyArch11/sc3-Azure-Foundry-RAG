@@ -7,10 +7,12 @@ from pathlib import Path
 
 from azure.identity import DefaultAzureCredential
 
+from runtime.log_config import configure_logging as _configure_logging
+
 from .controls_index import ControlsIndexConfig, ensure_controls_index
 from .publish_controls import load_controls_jsonl, upload_controls_records
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+_configure_logging("controls-runner")
 logger = logging.getLogger(__name__)
 
 

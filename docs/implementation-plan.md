@@ -7,7 +7,7 @@ Build an end-to-end, private-network Azure AI Agent platform by code only, using
 Operational convention:
 
 - Use `TARGET_ENV` in runbooks and shell examples to refer to the selected environment.
-- Treat `infra/terraform/environments/<env>/<env>.tfvars` as the authoritative environment configuration.
+- Treat `infra/terraform/azure/environments/<env>/<env>.tfvars` as the authoritative environment configuration.
 - Roll out runtime containers with immutable image tags through Terraform, rather than direct Container App image mutation.
 
 ## 2. Assumptions and Constraints
@@ -215,10 +215,10 @@ Operational convention:
   - Add a Cosmos container for orchestration state and optional processed-event markers.
   - Add environment wiring for poll interval, Confluence auth settings, account ID, Cosmos endpoint/database/container names.
   - Suggested touchpoints:
-    - `infra/terraform/modules/agent_hosting/main.tf`.
-    - `infra/terraform/modules/agent_hosting/variables.tf` and outputs.
-    - `infra/terraform/modules/data_services/main.tf` (state container resource).
-    - `infra/terraform/main.tf` and environment tfvars for feature toggles and image tags.
+    - `infra/terraform/azure/modules/agent_hosting/main.tf`.
+    - `infra/terraform/azure/modules/agent_hosting/variables.tf` and outputs.
+    - `infra/terraform/azure/modules/data_services/main.tf` (state container resource).
+    - `infra/terraform/azure/main.tf` and environment tfvars for feature toggles and image tags.
 
 4. Observability and operational controls
   - Emit metrics/log fields for poll latency, events detected, events processed, failures, and watermark lag.

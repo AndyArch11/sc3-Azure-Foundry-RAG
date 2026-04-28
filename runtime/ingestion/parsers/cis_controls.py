@@ -27,13 +27,10 @@ EFFECTIVE_DATE = "May 2021"
 JURISDICTION = "Global"
 SOURCE_URI = "https://www.cisecurity.org/controls/v8"
 
-_DEFAULT_WORKBOOK_PATH = (
-    Path(__file__).resolve().parents[2] / "samples" / "CIS_Controls_Version_8.xlsx"
-)
+_SAMPLES_ROOT = Path(__file__).resolve().parents[2] / "samples"
+_DEFAULT_WORKBOOK_PATH = _SAMPLES_ROOT / "api" / "corpus-a" / "CIS_Controls_Version_8.xlsx"
 _DEFAULT_PDF_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "samples"
-    / "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf"
+    _SAMPLES_ROOT / "api" / "corpus-a" / "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf"
 )
 
 

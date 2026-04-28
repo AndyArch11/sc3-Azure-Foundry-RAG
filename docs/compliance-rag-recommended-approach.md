@@ -112,6 +112,211 @@ Current implementation notes:
 - `validation_mode` supports `hard` (fail request on schema mismatch) and `soft` (return raw output plus validation error details).
 - API responses include markdown and machine-consumable artifacts (`report_markdown`, `report_structured`, `report_findings_csv`).
 
+## Cosmos Schema Evolution Strategy (Rolling Changes)
+
+When Cosmos-backed documents evolve (for example conversation history, polling state, or assessment snapshots), use a compatibility-first strategy so old and new application versions can run concurrently during deployment.
+
+### Design Principles
+
+- Always include a per-document schema marker (for example `schema_version`) in each logical document type.
+- Prefer additive changes first: add new optional fields before removing or renaming old fields.
+- Keep backward compatibility in read paths for at least one full deployment window.
+- Separate API contract versioning from storage schema versioning. They can move independently.
+- Use deterministic IDs/partition keys that do not change across schema versions.
+
+### Recommended Rollout Pattern
+
+1. Expand readers first
+  - Update all readers to support both current (`vN`) and next (`vN+1`) document shapes.
+  - Implement a small upcaster/normaliser layer that converts raw Cosmos payloads into the in-memory canonical model.
+
+2. Enable dual-write (optional but recommended for breaking changes)
+  - During transition, write both old and new fields (or old and new document envelopes) from the same transaction boundary.
+  - Keep writes idempotent (`upsert`) and preserve `_etag` checks where optimistic concurrency is used.
+
+3. Switch default writes to new schema
+  - Once all live clients can read `vN+1`, make `vN+1` the default write format.
+  - Continue accepting `vN` reads until migration completion criteria are met.
+
+4. Run backfill migration
+  - Use a resumable, batched migration job keyed by partition ranges and continuation tokens.
+  - Record migration progress in a dedicated control document collection or migration ledger.
+  - Include dry-run mode and metrics (`scanned`, `updated`, `failed`, `skipped`).
+
+5. Contract cleanup
+  - Remove legacy read/write branches only after migration SLO is met (for example 99.9 percent upgraded + no old writers).
+  - Announce deprecation window and enforce via runtime guardrails.
+
+### Client Impact Management
+
+- Compatibility matrix
+  - Document which app version can read/write each schema version (`vN`, `vN+1`).
+  - Block deployment if a new writer would produce unreadable documents for still-running readers.
+
+- Feature flags
+  - Gate schema-changing write behaviour behind flags to support quick rollback.
+
+- Validation
+  - Validate on write and on read-normalisation; route invalid docs to quarantine diagnostics instead of hard-failing entire workflows.
+
+- Observability
+  - Emit schema counters (documents read by version, write version, upcast path hit rate, migration lag, migration errors).
+
+### Document-Type Specific Guidance
+
+Conversation history documents:
+- Keep message arrays append-only where possible.
+- For field renames, keep old field as alias during transition (`user_id` and `principal_id`, etc.).
+- If message object shape changes, version at message level only when needed; otherwise version at document root.
+
+Polling state documents:
+- Preserve critical lease/lock semantics and watermark fields during migration.
+- Never migrate lock documents in-place while active lease ownership is unknown; let lock docs expire naturally or rotate safely.
+- Keep state transition fields (`last_processed_event_id`, retry counters, error records) backward readable.
+
+Assessment snapshot documents:
+- Keep snapshot identity stable (`source`, `target_id`, `framework_scope`).
+- For new assessment metadata, add nullable fields first and backfill asynchronously.
+- Ensure dedupe keys and content hash semantics are unchanged across schema versions unless explicitly re-baselined.
+
+### Data Migration Safety Checklist
+
+- Backups or point-in-time restore readiness confirmed.
+- Migration idempotency verified (safe to retry same batch).
+- `_etag` conflict strategy defined (retry with bounded backoff).
+- Throughput controls in place to avoid RU starvation of online traffic.
+- Canary migration validated on a small partition subset.
+- Rollback plan documented (reader fallback + writer flag rollback).
+
+### Minimal Metadata to Add to Cosmos Documents
+
+- `schema_version` (storage schema)
+- `created_at`, `updated_at`
+- `migrated_at` (optional)
+- `migration_run_id` (optional)
+
+This metadata enables safe rolling upgrades, faster incident triage, and deterministic migration reporting.
+
+### Example Migration Runbook Template
+
+Use this template for each schema migration. Store completed runbooks alongside the migration ledger.
+
+```yaml
+migration_id: cosmos-conversation-v1-to-v2-2026-05
+schema_type: conversation_history           # conversation_history | polling_state | assessment_snapshot
+from_version: "v1"
+to_version:   "v2"
+target_container: conversations
+partition_key_path: /session_id
+
+change_summary: |
+  Rename user_id -> principal_id.
+  Add optional mfa_verified (bool, default null).
+  Remove deprecated legacy_source field (present in <3 % of docs).
+
+estimated_docs: 180000
+backfill_batch_size: 250
+max_ru_per_second: 1000                     # Stay well below provisioned RU to protect live traffic
+
+phases:
+  - phase: expand-readers
+    gate: all services deployed at >=v2.4.0 before proceeding
+  - phase: dual-write
+    duration: 48h minimum canary window
+    gate: error rate <0.1 %, schema_version_written metric stable at v2
+  - phase: backfill
+    command: python ops/scripts/migrate_cosmos.py --run-id cosmos-conversation-v1-to-v2-2026-05 --dry-run
+    checkpoints: every 10000 docs, checkpoint doc written to migration_ledger container
+    gate: scanned == updated + skipped, failed == 0
+  - phase: cleanup
+    gate: schema_version_read{version="v1"} == 0 for 72h (see Activity Logging below)
+    action: remove v1 read branches, remove legacy_source field handling
+
+rollback_procedure: |
+  1. Re-deploy previous service version (reader falls back to v1 shape automatically via upcaster).
+  2. Flip feature flag `COSMOS_WRITE_SCHEMA_VERSION=v1` to revert write path.
+  3. No document rollback required unless dual-write was disabled prematurely.
+
+contacts:
+  owner: platform-team
+  approver: tech-lead
+  last_updated: 2026-05-01
+```
+
+### Activity Logging for Schema Version Monitoring
+
+**Why this matters:** You cannot safely decommission backward-compatibility code for schema `vN` until you have evidence that no live client is still reading or writing `vN` documents. Activity logging is the prerequisite for that evidence.
+
+Every Cosmos read and write path **must** emit a structured log line that includes:
+
+| Field | Description | Example |
+|---|---|---|
+| `schema_version_read` | Schema version found on the retrieved document | `"v1"` |
+| `schema_version_written` | Schema version stamped on the written document | `"v2"` |
+| `upcasted` | Whether the upcaster ran on this read | `true` |
+| `client_id` | Service identity of the caller (see below) | `"query-web"` |
+| `operation` | `read` / `write` / `upsert` | `"read"` |
+| `container` | Cosmos container name | `"conversations"` |
+| `correlation_id` | Request/job trace ID | `"abc-123"` |
+
+Example Python log call:
+
+```python
+logger.info(
+    "cosmos_schema_access",
+    extra={
+        "schema_version_read": doc.get("schema_version", "unknown"),
+        "schema_version_written": target_version,
+        "upcasted": upcasted,
+        "client_id": settings.SERVICE_NAME,   # e.g. "query-web", "ingestion-worker"
+        "operation": "upsert",
+        "container": container_name,
+        "correlation_id": ctx.correlation_id,
+    },
+)
+```
+
+Recommended monitoring rules (Azure Monitor / Log Analytics):
+
+```kusto
+// Alert: any client still reading v1 documents after cleanup gate
+AppTraces
+| where Message == "cosmos_schema_access"
+| extend schema_version_read = tostring(Properties["schema_version_read"])
+| where schema_version_read == "v1"
+| summarize count() by bin(TimeGenerated, 1h), client_id = tostring(Properties["client_id"])
+| where count_ > 0
+```
+
+- Create a **dashboard tile** per deprecated schema version showing read/write counts over time. A 72-hour zero-count window on `schema_version_read == "vN"` is the cleanup gate signal.
+- Create an **alert** that fires if `schema_version_read == "vN"` count rises after the cleanup gate has been passed (regression detection).
+
+### Identifying Dependent Clients Before Decommissioning
+
+The `client_id` / `service_name` field in every log line enables you to surface *which* services are still coupled to a deprecated schema. Without it, you know *that* old reads are happening but not *who* to contact.
+
+Identification query (run before any cleanup phase):
+
+```kusto
+AppTraces
+| where Message == "cosmos_schema_access"
+| where TimeGenerated > ago(7d)
+| extend schema_version_read = tostring(Properties["schema_version_read"]),
+         client_id            = tostring(Properties["client_id"])
+| where schema_version_read == "v1"
+| summarize last_seen = max(TimeGenerated), access_count = count()
+            by client_id, schema_version_read
+| order by last_seen desc
+```
+
+Use the output as the **dependent-client list** in your runbook's cleanup gate. For each client still appearing:
+
+1. Link the `client_id` to its owning team in your service catalogue.
+2. Raise a migration ticket referencing the runbook `migration_id`.
+3. Block the cleanup phase until the client has shipped and the query above returns no rows for that `client_id` over the monitoring window.
+
+This creates a traceable, evidence-based decommissioning trail and prevents silent breakage of services that were overlooked during the initial migration rollout.
+
 Operational safety notes:
 
 - Corpus clear APIs support dry-run previews before deletion:
@@ -119,7 +324,7 @@ Operational safety notes:
   - `POST /api/corpus-b/clear`
   - `POST /api/corpus-c/clear`
 - Use `dry_run=true` first to verify impact (`would_delete` counters), then execute with `dry_run=false`.
-- Corpus B/C clear can optionally remove source blobs with `clear_blobs=true`.
+- Corpus B (grounding) and Corpus C (evidence) clear operations can optionally remove source blobs with `clear_blobs=true`.
 
 ## Semantic Ranking Configuration Guidance
 

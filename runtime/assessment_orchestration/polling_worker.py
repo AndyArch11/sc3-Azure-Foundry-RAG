@@ -14,6 +14,8 @@ from typing import Any, Callable, Iterable
 
 from azure.identity import DefaultAzureCredential
 
+from runtime.log_config import configure_logging as _configure_logging
+
 from .intake import build_assessment_job_from_provider_event
 from .interfaces import OrchestratorAdapter
 from .mcp.confluence import ConfluenceMCPServer
@@ -23,7 +25,7 @@ from .runtime_wiring import (
 )
 from .state_store import CosmosPollingStateStore, PollingStateStore
 
-logging.basicConfig(level=logging.WARN, format="%(asctime)s %(levelname)s %(message)s")
+_configure_logging("polling-worker", level=logging.WARN)
 
 from ._framework_patterns import ALL_FRAMEWORK_ORDER as _ALL_FRAMEWORK_ORDER
 from ._framework_patterns import DEFAULT_FRAMEWORK as _DEFAULT_FRAMEWORK_SCOPE

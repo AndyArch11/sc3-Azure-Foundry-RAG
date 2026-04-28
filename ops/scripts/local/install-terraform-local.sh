@@ -6,7 +6,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/install-terraform-local.sh [terraform_version]
+  ./ops/scripts/local/install-terraform-local.sh [terraform_version]
 
 Installs Terraform on Linux using the official HashiCorp release archive.
 

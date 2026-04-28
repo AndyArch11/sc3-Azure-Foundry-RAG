@@ -18,7 +18,7 @@ Tests designed to run from jump host or private network context only.
 
 **From jump host:**
 ```bash
-./ops/scripts/run-query-web-integration-tests.sh "https://<query_web_fqdn>"
+./ops/scripts/azure/run-query-web-integration-tests.sh "https://<query_web_fqdn>"
 ```
 
 Optional flags:

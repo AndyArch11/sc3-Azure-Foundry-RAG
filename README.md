@@ -51,12 +51,15 @@ This repository provisions and operates a privately networked Azure AI Foundry s
 
 ## Repository Layout
 
+- `.github/workflows` github actions CI/CD
 - `docs/` architecture, plans, and runbooks
-- `infra/terraform/azure/` canonical Azure Terraform stack
 - `infra/terraform/aws/` AWS Terraform stack
-- `infra/terraform/` multi-cloud container with legacy Azure compatibility entrypoint
+- `infra/terraform/azure/` canonical Azure Terraform stack
 - `ops/containers/terraform-runner/` Terraform execution container
-- `ops/scripts/` shell scripts to bootstrap Terraform build environment, create Azure resources, and deploy and test containers.
+- `ops/observability` instrumentation
+- `ops/scripts/aws` shell scripts to bootstrap Terraform build environment, create AWS resources, and deploy and test containers.
+- `ops/scripts/azure` shell scripts to bootstrap Terraform build environment, create Azure resources, and deploy and test containers.
+- `ops/scripts/local` shell scripts to assist with setting up, troubleshooting local deployments
 - `query_web/` Docker container config for query UI running in an Azure Container App
 - `runtime/` ingestion runtime and Docker container config for the Azure Container App job
 - `tests/` unit and integration tests
@@ -83,25 +86,25 @@ This repository provisions and operates a privately networked Azure AI Foundry s
 ## Operator Checklist
 
 1. Set `TARGET_ENV` and update `infra/terraform/azure/environments/<env>/<env>.tfvars`.
-2. Run `./ops/scripts/phase1-bootstrap.sh <env>`, `./ops/scripts/phase2-network-dns.sh <env> apply`, and `./ops/scripts/phase3-data-ai.sh <env> apply`.
+2. Run `./ops/scripts/azure/phase1-bootstrap.sh <env>`, `./ops/scripts/azure/phase2-network-dns.sh <env> apply`, and `./ops/scripts/azure/phase3-data-ai.sh <env> apply`.
 3. Build and push immutable ingestion and query image tags from a private-network-connected host.
 4. Roll out those image tags through Terraform against `module.agent_hosting`.
 5. Upload or ingest source documents, start the ingestion job, and load control data (for example Essential Eight) into the controls index.
-6. Run `./ops/scripts/run-query-web-integration-tests.sh "https://<query-web-fqdn>" "<optional-auth-token>"` from inside the private network.
+6. Run `./ops/scripts/azure/run-query-web-integration-tests.sh "https://<query-web-fqdn>" "<optional-auth-token>"` from inside the private network.
 
 ## Quick Start
 
 1. Build the Terraform runner image:
    - `docker build -t tf-runner:local ops/containers/terraform-runner`
 2. Or, if Docker is unavailable in your working environment, install Terraform locally:
-   - `./ops/scripts/install-terraform-local.sh`
+   - `./ops/scripts/local/install-terraform-local.sh`
 3. Choose an environment and update its tfvars file:
-   - `infra/terraform/environments/<env>/<env>.tfvars`
+   - `infra/terraform/azure/environments/<env>/<env>.tfvars`
 4. Bootstrap remote state and supporting secrets:
-   - `./ops/scripts/phase1-bootstrap.sh <env>`
+   - `./ops/scripts/azure/phase1-bootstrap.sh <env>`
 5. Apply the core platform phases:
-   - `./ops/scripts/phase2-network-dns.sh <env> apply`
-   - `./ops/scripts/phase3-data-ai.sh <env> apply`
+   - `./ops/scripts/azure/phase2-network-dns.sh <env> apply`
+   - `./ops/scripts/azure/phase3-data-ai.sh <env> apply`
 6. Build, push, and roll out runtime images as described in the Deployment runbook below.
 
 ## Documentation Index
@@ -130,15 +133,18 @@ The query web application runs fully offline against local JSONL data, Ollama, a
 ```bash
 cd runtime
 source .venv/bin/activate
-python -m ingestion.runner --mode local --input-dir ./samples/evidence --output-jsonl ./out/chunks.jsonl
+python -m ingestion.runner --mode local --input-dir ./samples/api/corpus-c --output-jsonl ./out/chunks.jsonl
 cd ..
 ```
 
-For clean Corpus B local evidence, keep framework source reference files (for example CIS/PCI/AESCSF control parser inputs) out of the local evidence input directory. If framework source files are present in `runtime/samples`, they will be chunked into `runtime/out/chunks.jsonl` and appear under Corpus B listings.
+For clean Corpus C local evidence, keep framework source reference files (for example CIS/PCI/AESCSF control parser inputs) out of the local evidence input directory. If framework source files are present in `runtime/samples/api/corpus-a`, they should not be included in Corpus C chunk generation.
 
 Recommended local split:
-- `runtime/samples/evidence/` for Corpus B/C evidence files used by local chunk generation
-- `runtime/samples/` root (or framework-specific subfolders) for Corpus A parser source references only
+- `runtime/samples/api/corpus-a/` for Corpus A parser source references
+- `runtime/samples/api/corpus-b/` for local Corpus B narrative grounding source files
+- `runtime/samples/api/corpus-c/` for Corpus C evidence files used by local chunk generation
+
+Corpus B is grounding data that supports Corpus A grounding and should be managed separately from Corpus C evidence sources.
 
 If no evidence files are available yet, the app and seeder will start with an empty evidence index and log a warning — queries will simply return no grounding documents until the index is populated.
 
@@ -153,14 +159,15 @@ python3 -m ingestion.controls_runner --mode parse --framework essential_eight
 python3 -m ingestion.controls_runner --mode parse --framework aescsf
 python3 -m ingestion.controls_runner --mode parse --framework ism
 python3 -m ingestion.controls_runner --mode parse --framework nist_csf
+python3 -m ingestion.controls_runner --mode parse --framework nist_ai_rmf
 python3 -m ingestion.controls_runner --mode parse --framework pspf
 
 cd ..
 ```
 
-> **Note:** CIS Controls and PCI DSS cannot be fetched automatically due to licensing restrictions. They require operator-supplied source files staged in `runtime/samples/` before parsing:
+> **Note:** CIS Controls and PCI DSS cannot be fetched automatically due to licensing restrictions. They require operator-supplied source files staged in `runtime/samples/api/corpus-a/` before parsing:
 > - CIS Controls: stage the CIS Controls v8 XLSX and PDF files (see [runtime/README.md](runtime/README.md) for required filenames)
-> - PCI DSS: stage `PCI-DSS-v4_0_1.pdf` in `runtime/samples/`
+> - PCI DSS: stage `PCI-DSS-v4_0_1.pdf` in `runtime/samples/api/corpus-a/`
 >
 > Once staged, run `python3 -m ingestion.controls_runner --mode parse --framework cis_controls` and `python3 -m ingestion.controls_runner --mode parse --framework pci_dss` respectively.
 
@@ -186,7 +193,7 @@ LOCAL_VECTOR_BACKEND=inmemory \
 LOCAL_EVIDENCE_JSONL_PATH=./runtime/out/chunks.jsonl \
 LOCAL_CONTROLS_JSONL_PATH=./parsed-controls \
 PRECEDENCE_POLICY_PATH=./query_web/policies/precedence_policy.json \
-OLLAMA_BASE_URL=http://localhost:11434 \
+OLLAMA_BASE_URL=http://host.docker.internal:11434  \
 OLLAMA_MODEL=gemma3:27b \
 QUERY_WEB_AUTH_TOKEN='' \
 uvicorn query_web.app:app --host 0.0.0.0 --port 8080 --reload
@@ -210,14 +217,14 @@ LOCAL_EVIDENCE_JSONL_PATH=./runtime/out/chunks.jsonl \
 LOCAL_CONTROLS_JSONL_PATH=./parsed-controls \
 QDRANT_URL=http://host.docker.internal:6333 \
 OLLAMA_BASE_URL=http://host.docker.internal:11434 \
-python ops/scripts/seed_local.py
+python ops/scripts/local/seed_local.py
 
 # Check indexed counts
 LOCAL_EVIDENCE_JSONL_PATH=./runtime/out/chunks.jsonl \
 LOCAL_CONTROLS_JSONL_PATH=./parsed-controls \
 QDRANT_URL=http://host.docker.internal:6333 \
 OLLAMA_BASE_URL=http://host.docker.internal:11434 \
-python ops/scripts/seed_local.py --check
+python ops/scripts/local/seed_local.py --check
 
 # Start the app
 CLOUD_PROVIDER=local \
@@ -236,18 +243,34 @@ Seeder options: `--force` (re-seed even if populated), `--evidence-only`, `--con
 
 Runs Ollama, Qdrant, the seeder, and query-web together with correct startup ordering.
 
+This path avoids host bind mounts for `runtime/out` and `parsed-controls`.
+Compose seeds those datasets into Docker named volumes via a one-off `local-data-init` service,
+which is resilient in devcontainer/WSL setups where `/workspaces/...` bind mounts can appear empty.
+
 ```bash
 # Copy and customise environment
 cp .env.local.example .env.local
 
+# If Windows already uses localhost:8080, set a different host port
+# e.g. QUERY_WEB_HOST_PORT=18080
+
 # Build and start (model pull + seeding run automatically before query-web starts)
+# N.B. this can take up to 20 minutes or more for all containers to start
 docker compose -f docker-compose.local.yml --env-file .env.local up --build
 
 # Run local Ask end-to-end smoke test
-./ops/scripts/smoke-local-ask.sh
+QUERY_WEB_BASE_URL=http://host.docker.internal:${QUERY_WEB_HOST_PORT:-8080} ./ops/scripts/local/smoke-local-ask.sh
+```
+
+When local evidence or controls source data changes, rebuild and force the init service once to refresh volume contents:
+
+```bash
+docker compose -f docker-compose.local.yml --env-file .env.local up --build --force-recreate local-data-init
 ```
 
 Model names (`OLLAMA_MODEL`, `OLLAMA_EMBEDDING_MODEL`) are read from `.env.local` and used consistently by the model-puller, seeder, and query-web services. Change them in one place only.
+
+`OLLAMA_EMBED_MAX_CHARS` (default `6000`) caps the number of characters sent per embedding request. If Ollama returns a context-length error the input is halved automatically until it fits; lower this value if your embedding model has a smaller context window.
 
 To run the local Confluence poller continuously (and populate **Assess → Confluence Poll Activity**), enable the optional compose profile after setting Confluence credentials in `.env.local`:
 
@@ -257,11 +280,82 @@ docker compose -f docker-compose.local.yml --env-file .env.local --profile confl
 
 The poller and query-web share `LOCAL_STATE_DB_PATH` (`/app/local_state/state.db` in compose), so poll summaries and assessed-page status written by the poller are visible in the Assess tab.
 
-Open [http://localhost:8080](http://localhost:8080).
+Open [http://localhost:${QUERY_WEB_HOST_PORT:-8080}](http://localhost:${QUERY_WEB_HOST_PORT:-8080}).
 
 > **Guidance on backends:**  
 > Use `inmemory` for fast iteration on code (no seeding step, instant startup).  
 > Use `qdrant` when testing query quality or debugging retrieval behaviour.
+
+
+### Option D — Local Observability Stack (Prometheus + Grafana + Loki)
+
+Run this on top of the local compose stack to scrape `query-web`, auto-provision Grafana datasources, and query local Python stdout via Loki. This is a local-only convenience path; Azure and AWS environments should continue using cloud-native logging sinks.
+
+Prometheus, Alertmanager, Loki, and Promtail local configs are generated at container startup (under `/tmp`) so this profile also avoids fragile `/workspaces/...` bind-mounted config paths.
+
+```bash
+# Start app stack + observability profile together
+docker compose \
+  -f docker-compose.local.yml \
+  -f docker-compose.observability.yml \
+  --env-file .env.local \
+  --profile observability \
+  up --build
+```
+
+Endpoints:
+- Query web: [http://localhost:${QUERY_WEB_HOST_PORT:-8080}](http://localhost:${QUERY_WEB_HOST_PORT:-8080})
+- Prometheus: [http://localhost:9090](http://localhost:9090)
+- Grafana: [http://localhost:3000](http://localhost:3000)
+- Loki: [http://localhost:3100](http://localhost:3100)
+- Alertmanager: [http://localhost:9093](http://localhost:9093)
+- Webhook echo (alert sink): [http://localhost:8090](http://localhost:8090)
+
+Grafana starts with anonymous admin enabled and auto-loads the dashboard **Query Web Local Observability**. It also provisions a Loki datasource for local log exploration, and the dashboard now includes a built-in **Recent Query Web Logs** panel. Promtail scrapes Docker stdout for the local Python services (`query-web` and `confluence-poller`, when enabled) and forwards those logs into Loki. Alertmanager receives fired alerts from Prometheus and delivers them to the `webhook-echo` container, whose logs show the full JSON payload.
+
+Quick validation after startup:
+
+```bash
+# Set this if you're running commands from a dev container/WSL shell
+# QUERY_WEB_BASE_URL=http://host.docker.internal:${QUERY_WEB_HOST_PORT:-8080}
+QUERY_WEB_BASE_URL=${QUERY_WEB_BASE_URL:-http://localhost:${QUERY_WEB_HOST_PORT:-8080}}
+
+# Confirm scrape endpoint is exposed by query-web
+curl -s "${QUERY_WEB_BASE_URL}/metrics" | grep -E "http_request_duration_seconds|trace_traceparent_dropped_total|trace_correlation_id_sanitised_total"
+
+# Confirm Prometheus sees query-web target up
+curl -s http://localhost:9090/api/v1/targets | grep -E '"health":"up"|query-web'
+
+# Confirm Loki is reachable
+curl -s http://localhost:3100/ready
+
+# Confirm Promtail is discovering local Python containers
+docker logs rag-promtail-local --tail 40
+
+# Confirm alerting rules are loaded
+curl -s http://localhost:9090/api/v1/rules | grep -E 'QueryWebHighP95Latency|QueryWebHighP99Latency|QueryWebTraceparentDropSpike|QueryWebCorrelationIdSanitisationSpike|QueryWebTargetDown|QueryWebNoTraffic'
+
+# Check currently active alerts
+curl -s http://localhost:9090/api/v1/alerts
+
+# Confirm Alertmanager is healthy
+curl -s http://localhost:9093/-/healthy
+
+# See alerts received by the webhook echo sink
+docker logs rag-webhook-echo-local --tail 40
+```
+
+In Grafana Explore, start with a Loki query like:
+
+```logql
+{service="query-web"} | json | __error__ = "" | correlation_id != ""
+```
+
+Or for the optional local poller:
+
+```logql
+{service="confluence-poller"} | json | __error__ = "" | level = "WARNING"
+```
 
 ## Current State
 
@@ -286,7 +380,7 @@ TARGET_ENV="<env>"   # dev, test, or prod
 
 1. Clone your fork or working repository and run commands from that clone.
 2. Authenticate to Azure with an identity that can provision and update the target environment `az login`.
-3. Use the environment-specific tfvars under `infra/terraform/environments/${TARGET_ENV}/` as the source of truth.
+3. Use the environment-specific tfvars under `infra/terraform/azure/environments/${TARGET_ENV}/` as the source of truth.
 4. Run private-endpoint validation, image builds, and runtime smoke tests from a Docker-capable host with line of sight into the VNet, typically the jumpbox.
 
 ### Provision Infrastructure
@@ -301,7 +395,7 @@ You can either use the Terraform runner container or install Terraform locally:
 - Build Terraform runner container:
   - `docker build -t tf-runner:local ops/containers/terraform-runner`
 - Or install Terraform locally:
-  - `./ops/scripts/install-terraform-local.sh`
+  - `./ops/scripts/azure/l-terraform-local.sh`
 
 Login to Azure
 - `az login`
@@ -312,15 +406,15 @@ Deployment assumes that a target Azure subscription has already been created. Se
 Run the environment build scripts in order (can take over 1 hour to provision the Azure resources):
 
 1. Create Azure resources required to support Terraform:
-  - `./ops/scripts/phase1-bootstrap.sh "${TARGET_ENV}"`
+  - `./ops/scripts/azure/e1-bootstrap.sh "${TARGET_ENV}"`
 2. Create Azure resources required to secure solution by private network (not required if bringing your own network, run phase 3 instead):
-  - `./ops/scripts/phase2-network-dns.sh "${TARGET_ENV}" apply`
+  - `./ops/scripts/azure/phase2-network-dns.sh "${TARGET_ENV}" apply`
 3. Optional Create Foundry related Azure resources (only required if BYOL network resources or wanting the jumpbox/bastion host):
-  - `./ops/scripts/phase3-data-ai.sh "${TARGET_ENV}" apply`
+  - `./ops/scripts/azure/phase3-data-ai.sh "${TARGET_ENV}" apply`
 4. Create private app secrets Key Vault and private endpoint:
-  - `./ops/scripts/phase3c-app-secrets.sh "${TARGET_ENV}" apply`
+  - `./ops/scripts/azure/phase3c-app-secrets.sh "${TARGET_ENV}" apply`
 5. Optional preview-only hosted agent path (ignore this step unless wanting to play with hosted agents - untested code): 
-  - `ENABLE_HOSTED_QUERY_AGENT_PREVIEW=true ./ops/scripts/phase3b-agent-hosting.sh "${TARGET_ENV}" apply`
+  - `ENABLE_HOSTED_QUERY_AGENT_PREVIEW=true ./ops/scripts/azure/phase3b-agent-hosting.sh "${TARGET_ENV}" apply`
 
 #### Optional install verification
 
@@ -354,29 +448,29 @@ On the jumpbox:
   - Subsequent Pull: `git pull --ff-only`
 3. Change directory into downloaded repo: `cd sc3-Azure-Foundry-RAG/`
 4. a) Run the jumpbox bootstrap helper (default path; auto-discovers a single attached UAMI):
-  - `sudo ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --init-terraform-backend "${TARGET_ENV}" --run-unit-tests`
+  - `sudo ./ops/scripts/azure/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --init-terraform-backend "${TARGET_ENV}" --run-unit-tests`
 4. b) If the VM has multiple user-assigned identities, pass the intended client ID explicitly:
-  - `sudo ./ops/scripts/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --az-login-client-id "<agent-runtime-uami-client-id>" --init-terraform-backend "${TARGET_ENV}" --run-unit-tests`
+  - `sudo ./ops/scripts/azure/configure-jumpbox.sh --install-terraform --install-azure-cli --az-login-identity --az-login-client-id "<agent-runtime-uami-client-id>" --init-terraform-backend "${TARGET_ENV}" --run-unit-tests`
 5. If using Entra group-gated query web auth, run the external/admin Entra bootstrap first to create the query web app registration target:
-  - `./ops/scripts/rollout-query-web-entra.sh "${TARGET_ENV}" apply`
+  - `./ops/scripts/azure/rollout-query-web-entra.sh "${TARGET_ENV}" apply`
 6. Before creating/rotating the EasyAuth app credential on jumpbox, verify private Key Vault resolution and path:
-  - `getent ahostsv4 "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name).vault.azure.net"`
+  - `getent ahostsv4 "$(terraform -chdir=infra/terraform/azure output -raw app_secrets_key_vault_name).vault.azure.net"`
   - If resolution is not private or access fails, rerun:
-    - `./ops/scripts/phase2-network-dns.sh "${TARGET_ENV}" apply`
-    - `./ops/scripts/phase3c-app-secrets.sh "${TARGET_ENV}" apply`
+    - `./ops/scripts/azure/phase2-network-dns.sh "${TARGET_ENV}" apply`
+    - `./ops/scripts/azure/phase3c-app-secrets.sh "${TARGET_ENV}" apply`
 7. Then on the jumpbox, create or rotate the EasyAuth app credential and store it in the private app secrets Key Vault:
-  - `sudo ./ops/scripts/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" --secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
+  - `sudo ./ops/scripts/azure/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" --secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
 8. Build and push immutable image tags from the jumpbox (only for images you are rolling out):
   ```bash
-  sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-ingestion.sh
-  sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-query-web.sh
-  sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-confluence-poller.sh
+  sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-ingestion.sh
+  sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-query-web.sh
+  sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-confluence-poller.sh
   ```
-  - Update the corresponding `*_image_tag` values in `infra/terraform/environments/${TARGET_ENV}/${TARGET_ENV}.tfvars` with the immutable tags produced above.
+  - Update the corresponding `*_image_tag` values in `infra/terraform/azure/environments/${TARGET_ENV}/${TARGET_ENV}.tfvars` with the immutable tags produced above.
   - After creating a new container image, you may want to run the optional RBAC reconcilliation command (requires elevated privileges): 
-    - `./ops/scripts/reconcile-rbac-admin.sh ${TARGET_ENV} apply`
+    - `./ops/scripts/azure/reconcile-rbac-admin.sh ${TARGET_ENV} apply`
 9. Roll out the standard agent hosting resources from jumpbox (non-RBAC app resources only):
-  - `sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply --ingestion-tag "<immutable-ingestion-tag>" --query-web-tag "<immutable-query-web-tag>" --confluence-poller-tag "<immutable-confluence-poller-tag>" --enable-confluence-poller --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
+  - `sudo ./ops/scripts/azure/rollout-agent-hosting.sh "${TARGET_ENV}" apply --ingestion-tag "<immutable-ingestion-tag>" --query-web-tag "<immutable-query-web-tag>" --confluence-poller-tag "<immutable-confluence-poller-tag>" --enable-confluence-poller --entra-secret-kv "$(terraform -chdir=infra/terraform/azure output -raw app_secrets_key_vault_name)" --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
 10. After pushing a new query-web container, you may need to remap the web redirect url, with the command provided by the `rollout-agent-hosting.sh` if it is needed (requires elevated privileges).
   - `az ad app update --id <app id GUID> --web-redirect-uris https://<container_name>.<location>.azurecontainerapps.io/.auth/login/aad/callback`
 
@@ -384,9 +478,9 @@ The standard private-network deployment path uses the Container App ingestion an
 
 Use a split operational model for standard private-network deployments:
 
-- External/admin Entra bootstrap (app registration + reply URL when FQDN exists + runtime UAMI app ownership + Microsoft Graph `Application.ReadWrite.OwnedBy`): `./ops/scripts/rollout-query-web-entra.sh "${TARGET_ENV}" apply`
-- Jumpbox rollout (non-RBAC app resources only): `sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply --ingestion-tag "<immutable-ingestion-tag>" --query-web-tag "<immutable-query-web-tag>" --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
-- Admin RBAC reconciliation (privileged identity only, run from admin workstation/CI runner): `./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply`
+- External/admin Entra bootstrap (app registration + reply URL when FQDN exists + runtime UAMI app ownership + Microsoft Graph `Application.ReadWrite.OwnedBy`): `./ops/scripts/azure/rollout-query-web-entra.sh "${TARGET_ENV}" apply`
+- Jumpbox rollout (non-RBAC app resources only): `sudo ./ops/scripts/azure/rollout-agent-hosting.sh "${TARGET_ENV}" apply --ingestion-tag "<immutable-ingestion-tag>" --query-web-tag "<immutable-query-web-tag>" --entra-secret-kv "$(terraform -chdir=infra/terraform/azure output -raw app_secrets_key_vault_name)" --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"`
+- Admin RBAC reconciliation (privileged identity only, run from admin workstation/CI runner): `./ops/scripts/azure/reconcile-rbac-admin.sh "${TARGET_ENV}" apply`
 
 This avoids permission failures when jumpbox identities cannot manage role assignments.
 
@@ -409,22 +503,22 @@ az login --identity
 
 Build and push the ingestion image from a Docker-capable host inside the VNet, typically the jumpbox:
 
-- `sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-ingestion.sh`
-- Update `ingestion_job_image_tag` in `infra/terraform/environments/<env>/<env>.tfvars` with `<immutable-ingestion-tag>` container tag
+- `sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-ingestion.sh`
+- Update `ingestion_job_image_tag` in `infra/terraform/azure/environments/<env>/<env>.tfvars` with `<immutable-ingestion-tag>` container tag
 
 Roll out the new image tag from jumpbox with the standard non-RBAC rollout script:
 
 ```bash
-sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+sudo ./ops/scripts/azure/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --ingestion-tag "<immutable-ingestion-tag>"
 ```
 
 **Important:** If the query-web container has already been deployed (and EasyAuth is configured), you must include the Entra secret arguments even when rolling out only the ingestion container, otherwise the web app's authentication configuration will be removed:
 
 ```bash
-sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+sudo ./ops/scripts/azure/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --ingestion-tag "<immutable-ingestion-tag>" \
-  --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" \
+  --entra-secret-kv "$(terraform -chdir=infra/terraform/azure output -raw app_secrets_key_vault_name)" \
   --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 ```
 
@@ -434,7 +528,7 @@ If RBAC resources need reconciliation after rollout, run:
 
 ```bash
 # Run from admin context (not jumpbox UAMI context)
-./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply
+./ops/scripts/azure/reconcile-rbac-admin.sh "${TARGET_ENV}" apply
 ```
 
 After rollout, use the ingestion workflow described in [runtime/README.md](runtime/README.md) to upload files and start the Container App Job.
@@ -477,7 +571,7 @@ Parser outputs are written to `./parsed-controls` with framework-specific filena
 
 ```bash
 TARGET_ENV="<env>"
-TF_DIR="infra/terraform"
+TF_DIR="infra/terraform/azure"
 
 SEARCH_EP=$(terraform -chdir="${TF_DIR}" output -raw search_endpoint)
 export AZURE_SEARCH_ENDPOINT="${SEARCH_EP}"
@@ -496,7 +590,7 @@ python3 -m ingestion.controls_runner \
   --framework all
 
 # Parse CIS Controls into ./parsed-controls only
-# Requires CIS documents staged in runtime/samples/ first
+# Requires CIS documents staged in runtime/samples/api/corpus-a/ first
 python3 -m ingestion.controls_runner \
   --mode parse \
   --framework cis_controls
@@ -523,7 +617,7 @@ python3 -m ingestion.controls_runner \
   --framework pspf
 
 # Parse PCI DSS controls into ./parsed-controls only
-# Requires PCI-DSS-v4_0_1.pdf staged in runtime/samples/ first
+# Requires PCI-DSS-v4_0_1.pdf staged in runtime/samples/api/corpus-a/ first
 python3 -m ingestion.controls_runner \
   --mode parse \
   --framework pci_dss
@@ -553,7 +647,7 @@ python3 -m ingestion.controls_runner \
   --input-jsonl ../parsed-controls/cis_controls_v8.jsonl
 
 # Parse and publish PCI DSS in one step
-# Requires PCI-DSS-v4_0_1.pdf staged in runtime/samples/ first
+# Requires PCI-DSS-v4_0_1.pdf staged in runtime/samples/api/corpus-a/ first
 python3 -m ingestion.controls_runner \
   --mode parse-and-publish \
   --framework pci_dss
@@ -583,15 +677,15 @@ See [runtime/README.md](runtime/README.md) for the full controls pipeline refere
 
 Build and push the query web image from a Docker-capable host inside the VNet:
 
-- `sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-query-web.sh`
-- Update `query_web_image_tag` in `infra/terraform/environments/<env>/<env>.tfvars` with `<immutable-query-web-tag>` container tag
+- `sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-query-web.sh`
+- Update `query_web_image_tag` in `infra/terraform/azure/environments/<env>/<env>.tfvars` with `<immutable-query-web-tag>` container tag
 
 Roll out the query web image from jumpbox:
 
 ```bash
-sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+sudo ./ops/scripts/azure/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --query-web-tag "<immutable-query-web-tag>" \
-  --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" \
+  --entra-secret-kv "$(terraform -chdir=infra/terraform/azure output -raw app_secrets_key_vault_name)" \
   --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 ```
 
@@ -602,7 +696,7 @@ Use the query web integration test runner from a private-network-connected host:
 ```bash
 QUERY_WEB_RUN_API_ASK=true \
 QUERY_WEB_REQUIRE_CONVERSATIONS=true \
-./ops/scripts/run-query-web-integration-tests.sh "https://<query-web-fqdn>" "<optional-auth-token>"
+./ops/scripts/azure/run-query-web-integration-tests.sh "https://<query-web-fqdn>" "<optional-auth-token>"
 ```
 
 See [runtime/README.md](runtime/README.md) for ingestion execution details and query endpoint usage.
@@ -617,32 +711,32 @@ TARGET_ENV="<env>"
 az login --identity
 
 # Bootstrap and core infra
-./ops/scripts/phase1-bootstrap.sh "${TARGET_ENV}"
-./ops/scripts/phase2-network-dns.sh "${TARGET_ENV}" apply
-./ops/scripts/phase3-data-ai.sh "${TARGET_ENV}" apply
-./ops/scripts/phase3c-app-secrets.sh "${TARGET_ENV}" apply
+./ops/scripts/azure/phase1-bootstrap.sh "${TARGET_ENV}"
+./ops/scripts/azure/phase2-network-dns.sh "${TARGET_ENV}" apply
+./ops/scripts/azure/phase3-data-ai.sh "${TARGET_ENV}" apply
+./ops/scripts/azure/phase3c-app-secrets.sh "${TARGET_ENV}" apply
 
 # Build and push immutable images from a private-network-connected host
-sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-ingestion.sh
-sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-query-web.sh
-sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/build-push-confluence-poller.sh
+sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-ingestion.sh
+sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-query-web.sh
+sudo ENV="${TARGET_ENV}" IMAGE_TAG="$(date +%Y%m%d%H%M)-$(git -C . rev-parse --short HEAD)" ./ops/scripts/azure/build-push-confluence-poller.sh
 
 # External/admin: create the Entra app registration used by query web EasyAuth
 # and grant the least-privilege permission bundle needed for jumpbox credential rotation
-./ops/scripts/rollout-query-web-entra.sh "${TARGET_ENV}" apply
+./ops/scripts/azure/rollout-query-web-entra.sh "${TARGET_ENV}" apply
 # If UAMI auto-discovery fails, pass the object ID explicitly:
-# ./ops/scripts/rollout-query-web-entra.sh "${TARGET_ENV}" apply --runtime-uami-principal-id "<uami-object-id>"
+# ./ops/scripts/azure/rollout-query-web-entra.sh "${TARGET_ENV}" apply --runtime-uami-principal-id "<uami-object-id>"
 
 # Jumpbox: create/rotate EasyAuth app credential and publish to private Key Vault
-sudo ./ops/scripts/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" \
+sudo ./ops/scripts/azure/configure-query-web-easyauth-secret.sh "${TARGET_ENV}" \
   --secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 
 # Roll out app image tags from jumpbox (non-RBAC resources)
 # Confluence args only required if not in env.tfvars file or set in environment variables
-sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
+sudo ./ops/scripts/azure/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --ingestion-tag "<immutable-ingestion-tag>" \
   --query-web-tag "<immutable-query-web-tag>" \
-  --entra-secret-kv "$(terraform -chdir=infra/terraform output -raw app_secrets_key_vault_name)" \
+  --entra-secret-kv "$(terraform -chdir=infra/terraform/azure output -raw app_secrets_key_vault_name)" \
   --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}" \
   --confluence-poller-tag "<immutable-confluence-poller-tag>" \
   --confluence-base-url "https://<org>.atlassian.net" \
@@ -653,7 +747,7 @@ sudo ./ops/scripts/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
 
 # Reconcile RBAC role assignments from admin context (local admin shell or CI)
 # Do not run from jumpbox UAMI context unless that identity can manage role assignments.
-./ops/scripts/reconcile-rbac-admin.sh "${TARGET_ENV}" apply
+./ops/scripts/azure/reconcile-rbac-admin.sh "${TARGET_ENV}" apply
 
 # Register query-web app auth callback for RBAC group membership access
 # Needs to be run with external/admin privileges
@@ -661,8 +755,8 @@ az ad app update --id <00000000-0000-0000-0000-000000000000> --web-redirect-uris
 
 # Parse and publish control data into the controls index (run from inside private network)
 # Supported frameworks: all, aescsf, cis_controls, essential_eight, ism, nist_ai_rmf, nist_csf, pci_dss, pspf
-# cis_controls and pci_dss require staging local reference files in runtime/samples/ first
-SEARCH_EP=$(terraform -chdir=infra/terraform output -raw search_endpoint)
+# cis_controls and pci_dss require staging local reference files in runtime/samples/api/corpus-a/ first
+SEARCH_EP=$(terraform -chdir=infra/terraform/azure output -raw search_endpoint)
 export AZURE_SEARCH_ENDPOINT="${SEARCH_EP}"
 cd runtime && source .venv/bin/activate
 python3 -m ingestion.controls_runner --mode parse-and-publish --framework aescsf
@@ -674,10 +768,10 @@ python3 -m pytest tests/unit -q
 
 # Run query web integration tests from inside the private network
 # N.B. This will fail with auth issues when the query form is secured by a security group and the script is run from the jumpbox.
-QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn)
+QUERY_FQDN=$(terraform -chdir=infra/terraform/azure output -raw query_web_fqdn)
 QUERY_WEB_RUN_API_ASK=true \
 QUERY_WEB_REQUIRE_CONVERSATIONS=true \
-./ops/scripts/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
+./ops/scripts/azure/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
 
 # Quality tools
 

@@ -1,5 +1,6 @@
-AESCSF-Framework-Core.xlsx
-CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf
-CIS_Controls_Version_8.xlsx
-PCI-DSS-v4_0_1.pdf
-PROTECT - Essential Eight Maturity Model (November 2023).pdf
+api/corpus-a/*
+!api/corpus-a/.gitkeep
+api/corpus-b/*
+!api/corpus-b/.gitkeep
+api/corpus-c/*
+!api/corpus-c/.gitkeep

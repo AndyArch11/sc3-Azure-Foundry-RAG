@@ -2,29 +2,29 @@
 # Build and push the query-web image to the environment's ACR.
 #
 # Usage:
-#   ENV=<env> IMAGE_TAG=<immutable-tag> ./ops/scripts/build-push-query-web.sh
+#   ENV=<env> IMAGE_TAG=<immutable-tag> ./ops/scripts/azure/build-push-query-web.sh
 set -euo pipefail
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ENV=<env> IMAGE_TAG=<immutable-tag> ./ops/scripts/build-push-query-web.sh
+  ENV=<env> IMAGE_TAG=<immutable-tag> ./ops/scripts/azure/build-push-query-web.sh
 
 Builds and pushes the query-web image to the target environment ACR.
 
 Recommended follow-up rollout:
-  sudo ./ops/scripts/rollout-agent-hosting.sh <env> apply \
+  sudo ./ops/scripts/azure/rollout-agent-hosting.sh <env> apply \
     --query-web-tag <immutable-tag>
 
 Optional RBAC reconciliation (admin identity):
-  ./ops/scripts/reconcile-rbac-admin.sh <env> apply
+  ./ops/scripts/azure/reconcile-rbac-admin.sh <env> apply
 EOF
   exit 0
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-TF_DIR="${REPO_ROOT}/infra/terraform"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+TF_DIR="${REPO_ROOT}/infra/terraform/azure"
 
 DOCKER_CMD=(docker)
 
@@ -181,6 +181,6 @@ az acr login --name "${ACR_LOGIN_SERVER%%.*}"
 
 echo "==> Done: ${FULL_IMAGE}"
 echo "==> Rollout command:"
-echo "sudo ./ops/scripts/rollout-agent-hosting.sh ${ENV} apply --query-web-tag ${IMAGE_TAG}"
+echo "sudo ./ops/scripts/azure/rollout-agent-hosting.sh ${ENV} apply --query-web-tag ${IMAGE_TAG}"
 echo "# Optional admin RBAC reconciliation:"
-echo "./ops/scripts/reconcile-rbac-admin.sh ${ENV} apply"
+echo "./ops/scripts/azure/reconcile-rbac-admin.sh ${ENV} apply"

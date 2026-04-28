@@ -1,7 +1,7 @@
 # Minimal example for creating an environment-specific tfvars file.
 #
 # Recommended usage:
-# - Copy relevant values into infra/terraform/environments/<env>/<env>.tfvars
+# - Copy relevant values into infra/terraform/azure/environments/<env>/<env>.tfvars
 # - Keep image tags and other rollout-specific values in the environment tfvars
 #   or pass them explicitly on apply.
 # - Rely on defaults from variables.tf where appropriate rather than duplicating them here.

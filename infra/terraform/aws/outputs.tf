@@ -43,6 +43,16 @@ output "ecs_cluster_arn" {
   value       = module.app_hosting.ecs_cluster_arn
 }
 
+output "amp_workspace_id" {
+  description = "Amazon Managed Prometheus workspace ID."
+  value       = module.observability.amp_workspace_id
+}
+
+output "amp_remote_write_url" {
+  description = "Amazon Managed Prometheus remote-write URL for ADOT collectors."
+  value       = module.observability.amp_remote_write_url
+}
+
 output "query_web_service_name" {
   description = "ECS service name for query_web."
   value       = module.app_hosting.query_web_service_name

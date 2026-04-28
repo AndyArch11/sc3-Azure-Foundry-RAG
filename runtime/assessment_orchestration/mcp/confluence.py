@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import time
 from datetime import UTC, datetime, timedelta
@@ -10,6 +11,11 @@ from urllib.parse import urlparse
 import requests  # type: ignore[import-untyped]
 from requests.auth import AuthBase, HTTPBasicAuth  # type: ignore[import-untyped]
 
+from runtime.outbound_instrumentation import (
+    InstrumentedRequestsSession,
+    request_with_instrumentation,
+)
+
 from ..models import (
     AccessDecision,
     AssessedArtifactPackage,
@@ -17,6 +23,8 @@ from ..models import (
     PersonReference,
     ResolvedTarget,
 )
+
+logger = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------- #
 # HTML stripping                                                               #
@@ -278,7 +286,7 @@ class ConfluenceClient:
         else:
             raise ValueError("auth_mode must be basic, bearer, or oauth")
 
-        self._session = requests.Session()
+        self._session = InstrumentedRequestsSession(logger=logger, system="confluence")
         # TODO: Add OAuth 2.0 support for Confluence Cloud (recommended over API tokens).
         if auth_mode == "basic":
             # Narrow optional input after validation above for static type checkers.
@@ -587,7 +595,15 @@ class _OAuthClientCredentialsAuth(AuthBase):
         if self._audience:
             payload["audience"] = self._audience
 
-        resp = requests.post(self._token_url, json=payload, timeout=20)
+        resp = request_with_instrumentation(
+            "POST",
+            self._token_url,
+            logger=logger,
+            json=payload,
+            timeout=20,
+            system="confluence-auth",
+            operation="oauth_token_refresh",
+        )
         resp.raise_for_status()
         token_payload = resp.json()
         access_token = str(token_payload.get("access_token") or "").strip()

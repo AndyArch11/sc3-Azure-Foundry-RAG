@@ -1,8 +1,43 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
+
+logger = logging.getLogger(__name__)
+
+# Storage schema version stamped on every Cosmos document written by the polling/assessment worker.
+# Bump when the document shape changes and follow the rolling migration playbook in
+# docs/compliance-rag-recommended-approach.md.
+COSMOS_STATE_SCHEMA_VERSION = "v1"
+
+# Identity emitted in cosmos_schema_access log lines.
+_SERVICE_NAME = "polling-worker"
+
+
+def _log_cosmos_access(
+    *,
+    operation: str,
+    container: str,
+    schema_version_read: str,
+    schema_version_written: str,
+    upcasted: bool,
+    correlation_id: str = "",
+) -> None:
+    """Emit a structured cosmos_schema_access log line for schema version monitoring."""
+    logger.info(
+        "cosmos_schema_access",
+        extra={
+            "schema_version_read": schema_version_read,
+            "schema_version_written": schema_version_written,
+            "upcasted": upcasted,
+            "client_id": _SERVICE_NAME,
+            "operation": operation,
+            "container": container,
+            "correlation_id": correlation_id,
+        },
+    )
 
 
 def _utc_now_iso() -> str:
@@ -531,6 +566,8 @@ class CosmosPollingStateStore:
     def __init__(self, container_client: Any) -> None:
         """Run init."""
         self._container = container_client
+        # container_client.id is the Cosmos container name in the Azure SDK; fall back gracefully.
+        self._container_name: str = str(getattr(container_client, "id", "state-store"))
 
     def _state_id(self, source: str) -> str:
         """Run state id."""
@@ -563,13 +600,32 @@ class CosmosPollingStateStore:
     def _read(self, source: str, doc_id: str) -> dict[str, Any] | None:
         """Run read."""
         try:
-            return self._container.read_item(item=doc_id, partition_key=source)
+            doc = self._container.read_item(item=doc_id, partition_key=source)
+            doc_schema = str(doc.get("schema_version") or "unknown")
+            upcasted = doc_schema != COSMOS_STATE_SCHEMA_VERSION
+            _log_cosmos_access(
+                operation="read",
+                container=self._container_name,
+                schema_version_read=doc_schema,
+                schema_version_written="",
+                upcasted=upcasted,
+            )
+            return doc
         except Exception:
             return None
 
     def _upsert(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Run upsert."""
-        return self._container.upsert_item(payload)
+        payload.setdefault("schema_version", COSMOS_STATE_SCHEMA_VERSION)
+        result = self._container.upsert_item(payload)
+        _log_cosmos_access(
+            operation="upsert",
+            container=self._container_name,
+            schema_version_read="",
+            schema_version_written=COSMOS_STATE_SCHEMA_VERSION,
+            upcasted=False,
+        )
+        return result
 
     def load_state(self, source: str) -> PollingState:
         """Run load state."""

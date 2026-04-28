@@ -46,20 +46,25 @@ The agent should optimise for secure-by-default changes, deterministic infrastru
 
 ## Terraform Guidance
 
-- Working dir: infra/terraform
-- Typical dev inputs:
+- Prefer cloud-specific working dirs:
+  - infra/terraform/azure/
+  - infra/terraform/aws/
+- Azure typical dev inputs:
   - environments/dev/bootstrap.generated.tfvars
   - environments/dev/dev.tfvars
-- Validate sequence:
-  - terraform fmt
-  - terraform validate
-  - terraform plan (preferred)
-  - terraform apply
+- Azure validate sequence:
+  - terraform -chdir=infra/terraform/azure fmt -recursive modules main.tf
+  - terraform -chdir=infra/terraform/azure validate
+  - terraform -chdir=infra/terraform/azure plan (preferred)
+- AWS validate sequence:
+  - terraform -chdir=infra/terraform/aws fmt -recursive modules main.tf
+  - terraform -chdir=infra/terraform/aws validate
+  - terraform -chdir=infra/terraform/aws plan (preferred)
 - Avoid routine use of -target; use only when recovering from failed applies or isolating a known issue.
 
 ## Container Rollout Guidance
 
-- Build/push query web image via ops/scripts/build-push-query-web.sh from a Docker-capable host.
+- Build/push query web image via ops/scripts/azure/build-push-query-web.sh from a Docker-capable host.
 - If local Docker is unavailable, use the jumpbox workflow.
 - Roll out image tag with Terraform variable query_web_image_tag.
 - Use immutable tags formatted as timestamp-hash (or equivalent).
@@ -69,7 +74,7 @@ The agent should optimise for secure-by-default changes, deterministic infrastru
 - Prefer runtime/.venv when available.
 - Run targeted tests first, then broader suites when risk is medium/high.
 - Integration tests are expected to run from private network context (for example jumpbox):
-  - ops/scripts/run-query-web-integration-tests.sh
+  - ops/scripts/azure/run-query-web-integration-tests.sh
 
 ## Query Web and Cosmos Guardrails
 
@@ -93,10 +98,10 @@ The agent should optimise for secure-by-default changes, deterministic infrastru
 - Avoid creating ad hoc markdown summary files unless explicitly requested.
 - Keep README and testing instructions aligned with actual scripts and deployment flow.
 - Keep Terraform variable availability aligned across:
-  - `infra/terraform/terraform.tfvars.example`
-  - `infra/terraform/environments/dev/dev.tfvars`
-  - `infra/terraform/environments/test/test.tfvars`
-  - `infra/terraform/environments/prod/prod.tfvars`
+  - `infra/terraform/azure/terraform.tfvars.example`
+  - `infra/terraform/azure/environments/dev/dev.tfvars`
+  - `infra/terraform/azure/environments/test/test.tfvars`
+  - `infra/terraform/azure/environments/prod/prod.tfvars`
   Add new variables as comments/defaults where appropriate so operators can discover available knobs consistently.
 
 ## Definition of Done

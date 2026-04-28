@@ -14,6 +14,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _infer_local_corpus(source_path: str, explicit_corpus: str) -> str:
+    """Infer corpus label for local evidence docs.
+
+    Priority:
+    1) Explicit corpus value from payload when provided
+    2) Source path hints for corpus-b / corpus-c
+    3) Default to corpus-c for local evidence chunks
+    """
+    corpus = (explicit_corpus or "").strip().lower()
+    if corpus in {"a", "b", "c"}:
+        return corpus
+
+    normalised_path = (source_path or "").replace("\\", "/").lower()
+    if "/corpus-b/" in normalised_path:
+        return "b"
+    if "/corpus-c/" in normalised_path:
+        return "c"
+
+    return "c"
+
+
 def _resolve_local_jsonl_paths() -> tuple[str, str]:
     """Resolve local evidence/controls JSONL paths with sensible local defaults.
 
@@ -106,6 +127,11 @@ def _load_local_jsonl_documents(path_value: str, *, controls_mode: bool) -> list
                         if not content:
                             continue
                         source_path = str(payload.get("source_path") or "")
+                        corpus = _infer_local_corpus(
+                            source_path,
+                            str(payload.get("corpus") or ""),
+                        )
+                        default_role = "narrative_guidance" if corpus == "b" else "evidence"
                         docs.append(
                             {
                                 "id": payload.get("id")
@@ -116,8 +142,8 @@ def _load_local_jsonl_documents(path_value: str, *, controls_mode: bool) -> list
                                     Path(source_path).name if source_path else file_path.name
                                 ),
                                 "source_path": source_path,
-                                "corpus": payload.get("corpus") or "b",
-                                "corpus_role": payload.get("corpus_role") or "narrative_guidance",
+                                "corpus": corpus,
+                                "corpus_role": payload.get("corpus_role") or default_role,
                                 "upload_source": payload.get("upload_source") or "local",
                                 "uploaded_by": payload.get("uploaded_by") or "local",
                                 "upload_batch": payload.get("upload_batch") or "local",

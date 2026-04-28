@@ -3,23 +3,23 @@ set -euo pipefail
 
 # Run integration smoke tests for query web from a private-network-connected location.
 # Usage:
-#   ./ops/scripts/run-query-web-integration-tests.sh <base_url> [auth_token] [pytest args...]
+#   ./ops/scripts/azure/run-query-web-integration-tests.sh <base_url> [auth_token] [pytest args...]
 # Or via env:
-#   QUERY_WEB_BASE_URL=... QUERY_WEB_AUTH_TOKEN=... ./ops/scripts/run-query-web-integration-tests.sh
+#   QUERY_WEB_BASE_URL=... QUERY_WEB_AUTH_TOKEN=... ./ops/scripts/azure/run-query-web-integration-tests.sh
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "${ROOT_DIR}"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  run-query-web-integration-tests.sh <base_url> [auth_token] [pytest args...]
+  ./ops/scripts/azure/run-query-web-integration-tests.sh <base_url> [auth_token] [pytest args...]
 
 Examples:
-  ./ops/scripts/run-query-web-integration-tests.sh https://<fqdn>
-  ./ops/scripts/run-query-web-integration-tests.sh https://<fqdn> <token> -k lifecycle
-  QUERY_WEB_PREFLIGHT_ONLY=true ./ops/scripts/run-query-web-integration-tests.sh https://<fqdn>
-  QUERY_FQDN=$(terraform -chdir=infra/terraform output -raw query_web_fqdn) && ./ops/scripts/run-query-web-integration-tests.sh "https://${QUERY_FQDN}"
+  ./ops/scripts/azure/run-query-web-integration-tests.sh https://<fqdn>
+  ./ops/scripts/azure/run-query-web-integration-tests.sh https://<fqdn> <token> -k lifecycle
+  QUERY_WEB_PREFLIGHT_ONLY=true ./ops/scripts/azure/run-query-web-integration-tests.sh https://<fqdn>
+  QUERY_FQDN=$(terraform -chdir=infra/terraform/azure output -raw query_web_fqdn) && ./ops/scripts/azure/run-query-web-integration-tests.sh "https://${QUERY_FQDN}"
 
 Env flags:
   QUERY_WEB_PREFLIGHT=true|false        # default: true

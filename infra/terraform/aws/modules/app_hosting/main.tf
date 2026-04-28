@@ -32,7 +32,7 @@ resource "aws_ecs_task_definition" "query_web" {
   execution_role_arn       = var.task_execution_role_arn
   task_role_arn            = var.task_role_arn
 
-  container_definitions = jsonencode([
+  container_definitions = jsonencode(concat([
     {
       name      = "query-web"
       image     = "${var.query_web_repository_url}:${var.query_web_image_tag}"
@@ -78,7 +78,53 @@ resource "aws_ecs_task_definition" "query_web" {
         startPeriod = 15
       }
     }
-  ])
+  ], var.prometheus_remote_write_url != "" ? [
+    {
+      name       = "adot-collector"
+      image      = "public.ecr.aws/aws-observability/aws-otel-collector:v0.40.0"
+      essential  = false
+      entryPoint = ["/bin/sh", "-lc"]
+      command = [<<-EOT
+cat >/tmp/otel-config.yaml <<'YAML'
+receivers:
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: query-web
+          scrape_interval: 15s
+          static_configs:
+            - targets: ['127.0.0.1:8080']
+processors:
+  batch: {}
+extensions:
+  sigv4auth:
+    region: ${var.aws_region}
+exporters:
+  prometheusremotewrite:
+    endpoint: ${var.prometheus_remote_write_url}
+    auth:
+      authenticator: sigv4auth
+service:
+  extensions: [sigv4auth]
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      processors: [batch]
+      exporters: [prometheusremotewrite]
+YAML
+/awscollector --config=/tmp/otel-config.yaml
+EOT
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = var.log_group_name_query_web
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "adot"
+        }
+      }
+    }
+  ] : []))
 
   tags = { Name = "td-query-web-${var.naming_suffix}" }
 }

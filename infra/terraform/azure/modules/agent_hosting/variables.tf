@@ -4,6 +4,11 @@ variable "suffix" { type = string }
 variable "delegated_agent_subnet_id" { type = string }
 variable "vnet_id" { type = string }
 variable "log_analytics_workspace_id" { type = string }
+variable "azure_monitor_data_collection_rule_id" {
+  type        = string
+  description = "Azure Monitor DCR ID used to associate Container Apps Environment Prometheus scrape with AMW."
+  default     = ""
+}
 variable "acr_login_server" { type = string }
 variable "agent_runtime_identity_id" { type = string }
 variable "agent_runtime_client_id" { type = string }

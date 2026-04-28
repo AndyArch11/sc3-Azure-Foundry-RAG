@@ -5,14 +5,14 @@ set -euo pipefail
 # Intended for jumpbox/private-network smoke verification before enabling
 # continuous polling in Container Apps.
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "${ROOT_DIR}"
 RUNTIME_DIR="${ROOT_DIR}/runtime"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ./ops/scripts/run-confluence-poller-smoke.sh [--no-dry-run] [-- <extra args>]
+  ./ops/scripts/azure/run-confluence-poller-smoke.sh [--no-dry-run] [-- <extra args>]
 
 Runs assessment_orchestration.polling_worker_main --once with environment
 preflight checks.
@@ -36,13 +36,13 @@ Auth requirements:
 
 Examples:
   # Safe smoke (default dry-run)
-  ./ops/scripts/run-confluence-poller-smoke.sh
+  ./ops/scripts/azure/run-confluence-poller-smoke.sh
 
   # Explicitly disable dry-run (posts comments if events are detected)
-  ./ops/scripts/run-confluence-poller-smoke.sh --no-dry-run
+  ./ops/scripts/azure/run-confluence-poller-smoke.sh --no-dry-run
 
   # Pass additional worker args
-  ./ops/scripts/run-confluence-poller-smoke.sh -- --once
+  ./ops/scripts/azure/run-confluence-poller-smoke.sh -- --once
 EOF
   exit 0
 fi

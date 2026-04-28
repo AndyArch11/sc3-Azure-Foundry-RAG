@@ -275,7 +275,10 @@ def register_diagnostics_endpoints(
                 "error": None,
             }
         except Exception as exc:
-            logger.exception("Indexer execution history fetch failed: %s", exc)
+            logger.exception(
+                "Indexer execution history fetch failed",
+                extra={"event": "indexer_history_fetch_failed", "exc_type": type(exc).__name__},
+            )
             return {
                 "execution_history": [],
                 "error": _INTERNAL_ERROR_MESSAGE,
@@ -326,7 +329,10 @@ def register_diagnostics_endpoints(
                 "error": None,
             }
         except Exception as exc:
-            logger.exception("Index document sampling failed: %s", exc)
+            logger.exception(
+                "Index document sampling failed",
+                extra={"event": "index_document_sampling_failed", "exc_type": type(exc).__name__},
+            )
             return {
                 "documents": [],
                 "document_count": 0,
@@ -417,7 +423,10 @@ def register_diagnostics_endpoints(
                 "error": None,
             }
         except Exception as exc:
-            logger.exception("Blob metadata completeness validation failed: %s", exc)
+            logger.exception(
+                "Blob metadata completeness validation failed",
+                extra={"event": "blob_metadata_validation_failed", "exc_type": type(exc).__name__},
+            )
             return {
                 "configured": True,
                 "error": _INTERNAL_ERROR_MESSAGE,
@@ -490,7 +499,13 @@ def register_diagnostics_endpoints(
                     blob_enumeration_test["success"] = True
                     blob_enumeration_test["blob_count"] = blob_count
                 except Exception as exc:
-                    logger.exception("Blob enumeration test failed: %s", exc)
+                    logger.exception(
+                        "Blob enumeration test failed",
+                        extra={
+                            "event": "blob_enumeration_test_failed",
+                            "exc_type": type(exc).__name__,
+                        },
+                    )
                     blob_enumeration_test["error"] = _INTERNAL_ERROR_MESSAGE
 
             return {
@@ -503,7 +518,10 @@ def register_diagnostics_endpoints(
                 "error": None,
             }
         except Exception as exc:
-            logger.exception("Data source connectivity test failed: %s", exc)
+            logger.exception(
+                "Data source connectivity test failed",
+                extra={"event": "data_source_connectivity_failed", "exc_type": type(exc).__name__},
+            )
             return {
                 "configured": True,
                 "error": _INTERNAL_ERROR_MESSAGE,
@@ -577,7 +595,10 @@ def register_diagnostics_endpoints(
                 "error": None,
             }
         except Exception as exc:
-            logger.exception("Indexer field mapping validation failed: %s", exc)
+            logger.exception(
+                "Indexer field mapping validation failed",
+                extra={"event": "indexer_field_mapping_failed", "exc_type": type(exc).__name__},
+            )
             return {
                 "configured": True,
                 "error": _INTERNAL_ERROR_MESSAGE,
@@ -627,7 +648,10 @@ def register_diagnostics_endpoints(
             for index in index_client.list_indexes():
                 indexes.append({"name": str(getattr(index, "name", ""))})
         except Exception as exc:
-            logger.exception("Failed to list search indexes: %s", exc)
+            logger.exception(
+                "Failed to list search indexes",
+                extra={"event": "search_indexes_list_failed", "exc_type": type(exc).__name__},
+            )
             errors["indexes"] = _INTERNAL_ERROR_MESSAGE
 
         try:
@@ -666,7 +690,10 @@ def register_diagnostics_endpoints(
                         }
                     )
         except Exception as exc:
-            logger.exception("Failed to retrieve data sources: %s", exc)
+            logger.exception(
+                "Failed to retrieve data sources",
+                extra={"event": "search_data_sources_fetch_failed", "exc_type": type(exc).__name__},
+            )
             errors["data_sources"] = _INTERNAL_ERROR_MESSAGE
 
         try:
@@ -693,7 +720,10 @@ def register_diagnostics_endpoints(
                         }
                     )
         except Exception as exc:
-            logger.exception("Failed to retrieve skillsets: %s", exc)
+            logger.exception(
+                "Failed to retrieve skillsets",
+                extra={"event": "search_skillsets_fetch_failed", "exc_type": type(exc).__name__},
+            )
             errors["skillsets"] = _INTERNAL_ERROR_MESSAGE
 
         try:
@@ -725,7 +755,14 @@ def register_diagnostics_endpoints(
                             "error_message": getattr(run, "error_message", None),
                         }
                 except Exception as exc:
-                    logger.exception("Failed to get indexer status for %r: %s", indexer_name, exc)
+                    logger.exception(
+                        "Failed to get indexer status",
+                        extra={
+                            "event": "indexer_status_fetch_failed",
+                            "indexer_name": indexer_name,
+                            "exc_type": type(exc).__name__,
+                        },
+                    )
                     status_summary["error_message"] = _INTERNAL_ERROR_MESSAGE
 
                 indexers.append(
@@ -738,7 +775,10 @@ def register_diagnostics_endpoints(
                     }
                 )
         except Exception as exc:
-            logger.exception("Failed to retrieve indexers: %s", exc)
+            logger.exception(
+                "Failed to retrieve indexers",
+                extra={"event": "search_indexers_fetch_failed", "exc_type": type(exc).__name__},
+            )
             errors["indexers"] = _INTERNAL_ERROR_MESSAGE
 
         payload: dict[str, Any] = {
@@ -841,7 +881,10 @@ def register_diagnostics_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/diagnostics/storage/blobs request: %s", exc)
+            logger.exception(
+                "Failed storage blobs diagnostics request",
+                extra={"event": "diagnostics_storage_blobs_failed", "exc_type": type(exc).__name__},
+            )
             return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.get("/api/diagnostics/ingestion/overview")
@@ -888,7 +931,10 @@ def register_diagnostics_endpoints(
                 break
             grounding_total = int(pager.get_count() or 0)
         except Exception as exc:
-            logger.warning("Failed to count grounding documents: %s", exc)
+            logger.warning(
+                "Failed to count grounding documents",
+                extra={"event": "grounding_doc_count_failed", "exc_type": type(exc).__name__},
+            )
 
         search_counts = {
             "grounding_total": grounding_total,
@@ -1234,7 +1280,10 @@ def register_diagnostics_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/diagnostics/acr/images request: %s", exc)
+            logger.exception(
+                "Failed ACR images diagnostics request",
+                extra={"event": "diagnostics_acr_images_failed", "exc_type": type(exc).__name__},
+            )
             return JSONResponse(
                 {
                     "mode": "acr-images-diagnostics",
@@ -1314,7 +1363,13 @@ def register_diagnostics_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/diagnostics/search/indexer-history request: %s", exc)
+            logger.exception(
+                "Failed search indexer history diagnostics request",
+                extra={
+                    "event": "diagnostics_indexer_history_failed",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.get("/api/diagnostics/search/index-samples")
@@ -1355,7 +1410,10 @@ def register_diagnostics_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/diagnostics/search/index-samples request: %s", exc)
+            logger.exception(
+                "Failed search index samples diagnostics request",
+                extra={"event": "diagnostics_index_samples_failed", "exc_type": type(exc).__name__},
+            )
             return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.get("/api/diagnostics/storage/metadata-validation")
@@ -1410,7 +1468,13 @@ def register_diagnostics_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/diagnostics/storage/metadata-validation request: %s", exc)
+            logger.exception(
+                "Failed storage metadata validation diagnostics request",
+                extra={
+                    "event": "diagnostics_metadata_validation_failed",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.get("/api/diagnostics/search/datasource-connectivity")
@@ -1446,7 +1510,8 @@ def register_diagnostics_endpoints(
             )
         except Exception as exc:
             logger.exception(
-                "Failed /api/diagnostics/search/datasource-connectivity request: %s", exc
+                "Failed data source connectivity diagnostics request",
+                extra={"event": "diagnostics_data_source_failed", "exc_type": type(exc).__name__},
             )
             return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
 
@@ -1484,5 +1549,11 @@ def register_diagnostics_endpoints(
                 }
             )
         except Exception as exc:
-            logger.exception("Failed /api/diagnostics/search/field-mappings request: %s", exc)
+            logger.exception(
+                "Failed search field mappings diagnostics request",
+                extra={
+                    "event": "diagnostics_field_mappings_failed",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)

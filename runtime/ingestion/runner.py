@@ -9,10 +9,12 @@ from pathlib import Path
 
 from azure.core.credentials import TokenCredential
 
+from runtime.log_config import configure_logging as _configure_logging
+
 from .chunking import chunk_documents
 from .extractors import discover_supported_files, extract_source_document
 
-logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s %(message)s")
+_configure_logging("ingestion-runner")
 logger = logging.getLogger(__name__)
 
 # Bump this when ingestion runtime behaviour changes in ways operators may need
@@ -146,7 +148,7 @@ modes:
     parser.add_argument(
         "--controls-source-prefix",
         default=None,
-        help="(controls mode) blob prefix containing staged framework source documents to download into runtime/samples before parsing",
+        help="(controls mode) blob prefix containing staged framework source documents to download into runtime/samples/api/corpus-a before parsing",
     )
     return parser.parse_args()
 
@@ -179,7 +181,7 @@ def _download_controls_source_files(
     container = client.get_container_client(storage_container_name)
 
     expected_filenames = set(_CONTROLS_SOURCE_TARGET_FILENAMES[framework])
-    samples_dir = Path(__file__).resolve().parents[1] / "samples"
+    samples_dir = Path(__file__).resolve().parents[1] / "samples" / "api" / "corpus-a"
     samples_dir.mkdir(parents=True, exist_ok=True)
 
     downloaded: list[str] = []

@@ -1203,3 +1203,72 @@ def test_corpus_c_list_without_upload_batch_filter() -> None:
     call_kwargs = list_mock.call_args.kwargs
     assert call_kwargs["filter_expr"] == "corpus eq 'c'"
     assert call_kwargs["limit"] == 50
+
+
+def test_ingestion_job_diagnostics_forwards_correlation_headers() -> None:
+    client = _test_client()
+    patched_config = replace(
+        app_module.config,
+        auth_token="",
+        required_group_object_id="",
+        ingestion_job_subscription_id="sub-1",
+        ingestion_job_resource_group="rg-1",
+        ingestion_job_name="job-1",
+    )
+
+    class _FakeCredential:
+        def get_token(self, scope: str):
+            assert scope == "https://management.azure.com/.default"
+            return type("_Token", (), {"token": "fake-token"})()
+
+    class _FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {
+                "value": [
+                    {
+                        "id": "exec-1",
+                        "properties": {
+                            "status": "Succeeded",
+                            "startTime": "2026-01-01T00:00:00Z",
+                            "endTime": "2026-01-01T00:01:00Z",
+                            "detailedStatus": {
+                                "activeReplicaCount": 0,
+                                "failedCount": 0,
+                                "runningCount": 0,
+                                "succeededCount": 1,
+                            },
+                        },
+                    }
+                ]
+            }
+
+    def _fake_get(url: str, headers: dict[str, str], timeout: int):
+        assert "Microsoft.App/jobs/job-1/executions" in url
+        assert headers["Authorization"] == "Bearer fake-token"
+        assert headers["x-correlation-id"] == "corr-corpus-1"
+        assert headers["traceparent"] == "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+        assert timeout == 30
+        return _FakeResponse()
+
+    with (
+        patch.object(app_module, "config", patched_config),
+        patch.object(app_module, "credential", _FakeCredential()),
+        patch.object(app_module, "_is_ingestion_job_trigger_enabled", return_value=True),
+        patch.object(app_module.requests, "get", side_effect=_fake_get),
+    ):
+        response = client.get(
+            "/api/ingestion-job/diagnostics?auth_token=",
+            headers={
+                "x-correlation-id": "corr-corpus-1",
+                "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["configured"] is True
+    assert body["job_name"] == "job-1"
+    assert body["recent_executions"][0]["id"] == "exec-1"

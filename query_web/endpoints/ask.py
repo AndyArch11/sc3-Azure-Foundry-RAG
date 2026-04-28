@@ -13,12 +13,25 @@ from typing import Any
 from fastapi import Form, Request
 from fastapi.responses import HTMLResponse
 
+from query_web.request_context import get_correlation_id
+
 logger = logging.getLogger(__name__)
 
 
 def _has_missing_dependencies(values: list[Any]) -> bool:
     """Return True when at least one required dependency is missing."""
     return any(value is None for value in values)
+
+
+def _user_visible_ask_error(default_message: str, exc: Exception) -> str:
+    """Map internal failures to safe, actionable user-facing ask errors."""
+    message = str(exc).lower()
+    if "ollama" in message and ("timed out" in message or "readtimeout" in message):
+        return (
+            "The local Ollama model timed out while generating the answer. "
+            "Try again, shorten the question, or reduce completion tokens."
+        )
+    return default_message
 
 
 def register_ask_endpoints(
@@ -193,7 +206,11 @@ def register_ask_endpoints(
             )
 
         if session_id and conversation_id and resolved_load_conversation is not None:
-            session = resolved_load_conversation(user_id, conversation_id)
+            session = resolved_load_conversation(
+                user_id,
+                conversation_id,
+                correlation_id=get_correlation_id(request),
+            )
 
         retrieve_k = max(1, min(20, retrieve_k))
         temperature = max(0, min(1.0, temperature))
@@ -247,11 +264,21 @@ def register_ask_endpoints(
                 if resolved_utc_now_iso is not None:
                     session.updated_at = resolved_utc_now_iso()
                 if resolved_save_conversation is not None:
-                    resolved_save_conversation(session)
+                    resolved_save_conversation(
+                        session,
+                        correlation_id=get_correlation_id(request),
+                    )
 
             error = ""
         except Exception as exc:
-            logger.exception("Failed to process /ask request: %s", exc)
+            logger.exception(
+                "Failed to process ask request",
+                extra={
+                    "event": "ask_failed",
+                    "endpoint": "/ask",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             result = {
                 "answer": "",
                 "results": [],
@@ -261,7 +288,7 @@ def register_ask_endpoints(
                 "metrics": None,
                 "iterations": None,
             }
-            error = resolved_internal_error_message
+            error = _user_visible_ask_error(resolved_internal_error_message, exc)
 
         return resolved_templates.TemplateResponse(
             request,
@@ -418,7 +445,14 @@ def register_ask_endpoints(
                 error="",
             )
         except Exception as exc:
-            logger.exception("Failed to process /api/ask request: %s", exc)
+            logger.exception(
+                "Failed to process ask request",
+                extra={
+                    "event": "ask_failed",
+                    "endpoint": "/api/ask",
+                    "exc_type": type(exc).__name__,
+                },
+            )
             return ask_response_model(
                 answer="",
                 results=[],
@@ -428,5 +462,5 @@ def register_ask_endpoints(
                 iterations=None,
                 metrics=None,
                 audit=None,
-                error=resolved_internal_error_message,
+                error=_user_visible_ask_error(resolved_internal_error_message, exc),
             )

@@ -37,7 +37,8 @@ EFFECTIVE_DATE = "June 2024"
 JURISDICTION = "Global"
 SOURCE_URI = "https://docs-prv.pcisecuritystandards.org/PCI%20DSS/Standard/PCI-DSS-v4_0_1.pdf"
 
-_DEFAULT_PDF_PATH = Path(__file__).resolve().parents[2] / "samples" / "PCI-DSS-v4_0_1.pdf"
+_SAMPLES_ROOT = Path(__file__).resolve().parents[2] / "samples"
+_DEFAULT_PDF_PATH = _SAMPLES_ROOT / "api" / "corpus-a" / "PCI-DSS-v4_0_1.pdf"
 
 # Top-level requirement number → (domain family, requirement title)
 _REQUIREMENT_FAMILIES: dict[str, tuple[str, str]] = {

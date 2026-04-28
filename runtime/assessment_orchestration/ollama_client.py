@@ -36,7 +36,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import Any
+
+from runtime.outbound_instrumentation import request_with_instrumentation
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +77,15 @@ def is_ollama_available(base_url: str | None = None) -> bool:
     try:
         import requests  # type: ignore[import-untyped]
 
-        response = requests.get(f"{url}/api/tags", timeout=2)
+        response = request_with_instrumentation(
+            "GET",
+            f"{url}/api/tags",
+            logger=logger,
+            timeout=2,
+            system="ollama",
+            operation="ollama_tags_check",
+            request_callable=requests.get,
+        )
         return response.status_code == 200
     except Exception:
         return False
@@ -119,7 +130,15 @@ def _list_available_models(resolved_url: str, timeout: int) -> list[str]:
     try:
         import requests
 
-        resp = requests.get(f"{resolved_url}/api/tags", timeout=min(timeout, 10))
+        resp = request_with_instrumentation(
+            "GET",
+            f"{resolved_url}/api/tags",
+            logger=logger,
+            timeout=min(timeout, 10),
+            system="ollama",
+            operation="ollama_tags_list",
+            request_callable=requests.get,
+        )
         resp.raise_for_status()
         payload = resp.json()
     except Exception:
@@ -181,7 +200,16 @@ def _chat_or_generate_once(
     if force_json:
         payload["format"] = "json"
 
-    response = requests.post(endpoint, json=payload, timeout=timeout)
+    response = request_with_instrumentation(
+        "POST",
+        endpoint,
+        logger=logger,
+        json=payload,
+        timeout=timeout,
+        system="ollama",
+        operation="ollama_chat",
+        request_callable=requests.post,
+    )
 
     # Older Ollama builds may not implement /api/chat yet.
     # Fallback to /api/generate using a role-labelled prompt.
@@ -200,7 +228,16 @@ def _chat_or_generate_once(
         }
         if force_json:
             generate_payload["format"] = "json"
-        response = requests.post(generate_endpoint, json=generate_payload, timeout=timeout)
+        response = request_with_instrumentation(
+            "POST",
+            generate_endpoint,
+            logger=logger,
+            json=generate_payload,
+            timeout=timeout,
+            system="ollama",
+            operation="ollama_generate",
+            request_callable=requests.post,
+        )
 
     return response
 
@@ -247,19 +284,67 @@ def ollama_chat_completion(
             "On WSL host: OLLAMA_HOST=0.0.0.0 ollama serve"
         )
 
+    timeout_override = os.getenv("OLLAMA_CHAT_TIMEOUT", "").strip()
+    effective_timeout = timeout
+    if timeout_override:
+        try:
+            effective_timeout = max(30, int(timeout_override))
+        except ValueError:
+            logger.warning(
+                "Invalid OLLAMA_CHAT_TIMEOUT value '%s'; using timeout=%ss",
+                timeout_override,
+                timeout,
+            )
+
+    retries_raw = os.getenv("OLLAMA_CHAT_RETRIES", "1").strip()
     try:
-        response = _chat_or_generate_once(
-            requests=requests,
-            resolved_url=resolved_url,
-            messages=messages,
-            model=model,
-            temperature=temperature,
-            timeout=timeout,
-            force_json=force_json,
-            num_ctx=num_ctx,
-        )
-    except requests.exceptions.RequestException as exc:
-        raise RuntimeError(f"Ollama chat request failed: {exc}") from exc
+        max_retries = max(0, min(3, int(retries_raw)))
+    except ValueError:
+        max_retries = 1
+
+    response = None
+    current_num_ctx = num_ctx
+    for attempt in range(max_retries + 1):
+        try:
+            response = _chat_or_generate_once(
+                requests=requests,
+                resolved_url=resolved_url,
+                messages=messages,
+                model=model,
+                temperature=temperature,
+                timeout=effective_timeout,
+                force_json=force_json,
+                num_ctx=current_num_ctx,
+            )
+            break
+        except requests.exceptions.ReadTimeout as exc:
+            if attempt >= max_retries:
+                raise RuntimeError(
+                    "Ollama chat request timed out "
+                    f"after {effective_timeout}s (attempts={max_retries + 1}, model={model})."
+                ) from exc
+
+            # Reduce context window after timeout to improve response latency on constrained hosts.
+            next_num_ctx = max(8192, current_num_ctx // 2)
+            if next_num_ctx < current_num_ctx:
+                current_num_ctx = next_num_ctx
+
+            backoff_s = min(8, 2**attempt)
+            logger.warning(
+                "Ollama read timeout after %ss (attempt %s/%s). Retrying in %ss with num_ctx=%s",
+                effective_timeout,
+                attempt + 1,
+                max_retries + 1,
+                backoff_s,
+                current_num_ctx,
+            )
+            time.sleep(backoff_s)
+            continue
+        except requests.exceptions.RequestException as exc:
+            raise RuntimeError(f"Ollama chat request failed: {exc}") from exc
+
+    if response is None:
+        raise RuntimeError("Ollama chat request failed before receiving a response.")
 
     if _is_model_not_found(response.status_code, _response_error_message(response)):
         available_models = _list_available_models(resolved_url, timeout)
@@ -364,7 +449,16 @@ def ollama_embedding(
     }
 
     try:
-        response = requests.post(endpoint, json=payload, timeout=timeout)
+        response = request_with_instrumentation(
+            "POST",
+            endpoint,
+            logger=logger,
+            json=payload,
+            timeout=timeout,
+            system="ollama",
+            operation="ollama_embed",
+            request_callable=requests.post,
+        )
         response.raise_for_status()
     except requests.exceptions.RequestException as exc:
         raise RuntimeError(f"Ollama embed request failed ({resolved_url}): {exc}") from exc

@@ -1,4 +1,40 @@
 services:
+  local-data-init:
+    build:
+      context: .
+      dockerfile: query_web/Dockerfile
+    container_name: rag-local-data-init
+    user: "0"
+    restart: "no"
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        set -e
+        mkdir -p /seed/runtime/out /seed/parsed-controls
+
+        if [ ! -s /seed/runtime/out/chunks.jsonl ]; then
+          if [ -s /app/runtime/out/chunks.jsonl ]; then
+            cp /app/runtime/out/chunks.jsonl /seed/runtime/out/chunks.jsonl
+            echo "Seeded runtime chunks into named volume"
+          else
+            : > /seed/runtime/out/chunks.jsonl
+            echo "No packaged runtime chunks found; created empty chunks.jsonl"
+          fi
+        else
+          echo "Runtime chunks already present in named volume"
+        fi
+
+        if [ -z "$(ls -A /seed/parsed-controls 2>/dev/null)" ]; then
+          cp -R /app/parsed-controls/. /seed/parsed-controls/
+          echo "Seeded parsed controls into named volume"
+        else
+          echo "Parsed controls already present in named volume"
+        fi
+    volumes:
+      - local_runtime_out:/seed/runtime/out
+      - local_parsed_controls:/seed/parsed-controls
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: rag-qdrant
@@ -12,6 +48,7 @@ services:
     image: ollama/ollama:latest
     container_name: rag-ollama
     restart: unless-stopped
+    gpus: all
     ports:
       - "11434:11434"
     volumes:
@@ -48,11 +85,12 @@ services:
         condition: service_started
       model-puller:
         condition: service_completed_successfully
+      local-data-init:
+        condition: service_completed_successfully
     volumes:
-      - ./runtime/out:/app/runtime/out:ro
-      - ./parsed-controls:/app/parsed-controls:ro
-      - ./ops/scripts/seed_local.py:/app/seed_local.py:ro
-    command: ["python", "/app/seed_local.py"]
+      - local_runtime_out:/app/runtime/out:ro
+      - local_parsed_controls:/app/parsed-controls:ro
+    command: ["python", "/app/local/seed_local.py"]
 
   query-web:
     build:
@@ -61,7 +99,11 @@ services:
     container_name: rag-query-web-local
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - target: 8080
+        published: ${QUERY_WEB_HOST_PORT:-8080}
+        protocol: tcp
+        host_ip: 0.0.0.0
+        mode: host
     env_file:
       - .env.local
     environment:
@@ -76,8 +118,8 @@ services:
       seeder:
         condition: service_completed_successfully
     volumes:
-      - ./runtime/out:/app/runtime/out:ro
-      - ./parsed-controls:/app/parsed-controls:ro
+      - local_runtime_out:/app/runtime/out:ro
+      - local_parsed_controls:/app/parsed-controls:ro
       - local_state:/app/local_state
 
   confluence-poller:
@@ -103,11 +145,13 @@ services:
         condition: service_completed_successfully
     command: []
     volumes:
-      - ./runtime/out:/app/runtime/out:ro
-      - ./parsed-controls:/app/parsed-controls:ro
+      - local_runtime_out:/app/runtime/out:ro
+      - local_parsed_controls:/app/parsed-controls:ro
       - local_state:/app/local_state
 
 volumes:
   ollama_data:
   qdrant_data:
   local_state:
+  local_runtime_out:
+  local_parsed_controls:

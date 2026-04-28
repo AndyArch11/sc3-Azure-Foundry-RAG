@@ -6,6 +6,8 @@ import json
 import time
 from typing import Any
 
+from query_web.metrics import observe_rag_metrics
+
 # Soft budget for grounding context characters (~15 k tokens at 4 chars/token).
 # Per-chunk limits are proportionally reduced when the total would exceed this.
 _EVIDENCE_CONTEXT_BUDGET_CHARS: int = 60_000
@@ -368,6 +370,8 @@ def _run_rag(
     }
     if svc.config.guardrail_metrics_in_response and guardrail_decision.metrics:
         metrics.update(guardrail_decision.metrics)
+
+    observe_rag_metrics(metrics, iterations=iterations)
 
     return {
         "answer": answer,

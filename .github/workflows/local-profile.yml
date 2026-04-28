@@ -54,7 +54,45 @@ jobs:
       - name: Validate local env template exists
         run: test -f .env.local.example
 
-      - name: Run local profile unit tests
+      - name: Run isort check
+        run: |
+          python -m isort --check query_web runtime/assessment_orchestration runtime/ingestion tests
+
+      - name: Run black check
+        run: |
+          python -m black --check query_web runtime/assessment_orchestration runtime/ingestion tests
+
+      - name: Run pylint
+        run: |
+          python -m pylint --errors-only \
+            query_web/endpoints/ask.py \
+            query_web/endpoints/home.py \
+            query_web/local_startup.py \
+            runtime/credentials \
+            runtime/llm \
+            runtime/search \
+            runtime/storage \
+            tests/unit/test_credentials_factory.py \
+            tests/unit/test_search_abstraction.py \
+            tests/unit/test_storage_abstraction.py \
+            tests/unit/test_llm_adapters.py \
+            tests/unit/test_query_web_local_startup.py \
+            tests/unit/test_query_web_ask_module.py \
+            tests/unit/test_query_web_home_module.py
+
+      - name: Run mypy
+        run: |
+          python -m mypy \
+            query_web/endpoints/ask.py \
+            query_web/endpoints/home.py \
+            query_web/local_startup.py \
+            runtime/credentials \
+            runtime/llm \
+            runtime/search \
+            runtime/storage \
+            --ignore-missing-imports
+
+      - name: Run local profile unit tests with coverage gate
         run: |
           pytest -q \
             tests/unit/test_credentials_factory.py \
@@ -63,4 +101,13 @@ jobs:
             tests/unit/test_llm_adapters.py \
             tests/unit/test_query_web_local_startup.py \
             tests/unit/test_query_web_ask_module.py \
-            tests/unit/test_query_web_home_module.py
+            tests/unit/test_query_web_home_module.py \
+            --cov=runtime/credentials \
+            --cov=runtime/search \
+            --cov=runtime/storage \
+            --cov=runtime/llm \
+            --cov=query_web.local_startup \
+            --cov=query_web.endpoints.ask \
+            --cov=query_web.endpoints.home \
+            --cov-report=term-missing \
+            --cov-fail-under=70

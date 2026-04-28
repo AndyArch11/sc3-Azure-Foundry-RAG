@@ -209,3 +209,25 @@ resource "aws_iam_role_policy" "task_logs" {
     ]
   })
 }
+
+resource "aws_iam_role_policy" "task_amp_remote_write" {
+  count = var.amp_workspace_arn != "" ? 1 : 0
+  name  = "amp-remote-write"
+  role  = aws_iam_role.task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "aps:RemoteWrite",
+          "aps:GetSeries",
+          "aps:GetLabels",
+          "aps:GetMetricMetadata",
+        ]
+        Resource = var.amp_workspace_arn
+      }
+    ]
+  })
+}

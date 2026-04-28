@@ -20,9 +20,9 @@ python3 -m pytest ../tests/unit/test_conversation_management.py -q
 ```bash
 cd ..
 TARGET_ENV="<env>"
-IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ENV="${TARGET_ENV}" ./ops/scripts/build-push-query-web.sh
+IMAGE_TAG="$(date +%Y%m%d%H%M)-<gitsha>" ENV="${TARGET_ENV}" ./ops/scripts/azure/build-push-query-web.sh
 
-terraform -chdir=infra/terraform apply \
+terraform -chdir=infra/terraform/azure apply \
   -input=false \
   -var-file="environments/${TARGET_ENV}/bootstrap.generated.tfvars" \
   -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars" \

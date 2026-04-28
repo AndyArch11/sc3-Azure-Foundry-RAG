@@ -21,6 +21,29 @@ resource "azurerm_container_app_environment" "this" {
   }
 }
 
+resource "azapi_resource" "cae_prometheus_scrape" {
+  count                     = var.azure_monitor_data_collection_rule_id != "" ? 1 : 0
+  type                      = "Microsoft.App/managedEnvironments/prometheusConfiguration@2024-03-01"
+  name                      = "default"
+  parent_id                 = azurerm_container_app_environment.this.id
+  schema_validation_enabled = false
+
+  body = {
+    properties = {
+      enabled = true
+    }
+  }
+}
+
+resource "azurerm_monitor_data_collection_rule_association" "cae" {
+  count                   = var.azure_monitor_data_collection_rule_id != "" ? 1 : 0
+  name                    = "dcra-cae-prometheus"
+  target_resource_id      = azurerm_container_app_environment.this.id
+  data_collection_rule_id = var.azure_monitor_data_collection_rule_id
+
+  depends_on = [azapi_resource.cae_prometheus_scrape]
+}
+
 # Private DNS zone is only required for internal (VNet-only) environments.
 # Public environments resolve via Azure-managed public DNS.
 resource "azurerm_private_dns_zone" "container_apps" {
@@ -514,6 +537,63 @@ resource "azurerm_role_assignment" "query_web_contributor" {
   scope                = azurerm_container_app.query_web[0].id
   role_definition_name = "Contributor"
   principal_id         = var.agent_runtime_principal_id
+}
+
+resource "azurerm_monitor_diagnostic_setting" "ingestion" {
+  count                      = var.enable_ingestion_job ? 1 : 0
+  name                       = "diag-ingestion"
+  target_resource_id         = azurerm_container_app_job.ingestion[0].id
+  log_analytics_workspace_id = var.log_analytics_workspace_id
+
+  enabled_log {
+    category = "ContainerAppConsoleLogs"
+  }
+
+  enabled_log {
+    category = "ContainerAppSystemLogs"
+  }
+
+  enabled_metric {
+    category = "AllMetrics"
+  }
+}
+
+resource "azurerm_monitor_diagnostic_setting" "query_web" {
+  count                      = var.enable_query_web_app ? 1 : 0
+  name                       = "diag-query-web"
+  target_resource_id         = azurerm_container_app.query_web[0].id
+  log_analytics_workspace_id = var.log_analytics_workspace_id
+
+  enabled_log {
+    category = "ContainerAppConsoleLogs"
+  }
+
+  enabled_log {
+    category = "ContainerAppSystemLogs"
+  }
+
+  enabled_metric {
+    category = "AllMetrics"
+  }
+}
+
+resource "azurerm_monitor_diagnostic_setting" "confluence_poller" {
+  count                      = var.enable_confluence_poller_app ? 1 : 0
+  name                       = "diag-confluence-poller"
+  target_resource_id         = azurerm_container_app.confluence_poller[0].id
+  log_analytics_workspace_id = var.log_analytics_workspace_id
+
+  enabled_log {
+    category = "ContainerAppConsoleLogs"
+  }
+
+  enabled_log {
+    category = "ContainerAppSystemLogs"
+  }
+
+  enabled_metric {
+    category = "AllMetrics"
+  }
 }
 
 # Container App built-in authentication (EasyAuth) — injects x-ms-client-principal headers

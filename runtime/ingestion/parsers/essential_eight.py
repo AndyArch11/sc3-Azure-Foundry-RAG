@@ -23,6 +23,10 @@ import logging
 import re
 from typing import Dict, List, Optional
 
+import requests  # type: ignore[import-untyped]
+
+from runtime.outbound_instrumentation import request_with_instrumentation
+
 from .base import BaseParser, RequirementRecord, filter_keywords
 
 logger = logging.getLogger(__name__)
@@ -216,7 +220,6 @@ def _normalise_family_name(raw: str) -> Optional[str]:
 def _fetch_soup(url: str):
     """Fetch *url* and return a BeautifulSoup parse tree."""
     try:
-        import requests  # noqa: PLC0415  # type: ignore
         from bs4 import BeautifulSoup  # noqa: PLC0415
     except ImportError as exc:
         raise RuntimeError(
@@ -225,7 +228,16 @@ def _fetch_soup(url: str):
         ) from exc
 
     logger.debug("Fetching %s", url)
-    resp = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+    resp = request_with_instrumentation(
+        "GET",
+        url,
+        logger=logger,
+        timeout=30,
+        headers={"User-Agent": "Mozilla/5.0"},
+        system="cyber-gov-au",
+        operation="fetch_essential_eight_page",
+        request_callable=requests.get,
+    )
     resp.raise_for_status()
     return BeautifulSoup(resp.text, "html.parser")
 

@@ -4,7 +4,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ENABLE_HOSTED_QUERY_AGENT_PREVIEW=true ./ops/scripts/phase3b-agent-hosting.sh <env> [plan|apply]
+  ENABLE_HOSTED_QUERY_AGENT_PREVIEW=true ./ops/scripts/azure/phase3b-agent-hosting.sh <env> [plan|apply]
 
 Runs the optional preview-only hosted query agent deployment path.
 
@@ -22,8 +22,8 @@ fi
 # hosted_query_agent uses a preview API (2025-04-01-preview) that can
 # be slow to respond. Resources here carry 30-minute timeouts.
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TF_DIR="${ROOT_DIR}/infra/terraform"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+TF_DIR="${ROOT_DIR}/infra/terraform/azure"
 
 ENVIRONMENT="${1:-dev}"
 ACTION="${2:-plan}"

@@ -65,12 +65,14 @@ class _Templates:
 def _make_svc() -> SimpleNamespace:
     session_store: dict[str, Any] = {}
     save_calls: list[Any] = []
+    load_calls: list[tuple[str, str, str]] = []
 
-    def _load_conversation(user_id: str, conversation_id: str) -> Any:
+    def _load_conversation(user_id: str, conversation_id: str, *, correlation_id: str = "") -> Any:
+        load_calls.append((user_id, conversation_id, correlation_id))
         return session_store.get(f"{user_id}:{conversation_id}")
 
-    def _save_conversation(session: Any) -> None:
-        save_calls.append(session)
+    def _save_conversation(session: Any, *, correlation_id: str = "") -> None:
+        save_calls.append((session, correlation_id))
 
     svc = SimpleNamespace(
         templates=_Templates(),
@@ -110,6 +112,7 @@ def _make_svc() -> SimpleNamespace:
         _INTERNAL_ERROR_MESSAGE="internal",
         _session_store=session_store,
         _save_calls=save_calls,
+        _load_calls=load_calls,
     )
     return svc
 
@@ -181,6 +184,30 @@ def test_ask_post_authorised_updates_conversation_and_clamps_inputs() -> None:
     assert body["controls_framework"] == "ism"
     assert len(session.messages) == 2
     assert len(svc._save_calls) == 1
+
+
+def test_ask_post_propagates_correlation_id_to_conversation_io() -> None:
+    svc = _make_svc()
+    session = SimpleNamespace(messages=[], updated_at="")
+    svc._session_store["user:s1:c1"] = session
+    client = _make_client(svc)
+
+    response = client.post(
+        "/ask",
+        data={
+            "question": "trace me",
+            "retrieve_k": "3",
+            "temperature": "0.2",
+            "auth_token": "ok",
+            "session_id": "s1",
+            "conversation_id": "c1",
+        },
+        headers={"x-correlation-id": "corr-ask-1"},
+    )
+
+    assert response.status_code == 200
+    assert svc._load_calls[-1] == ("user:s1", "c1", "corr-ask-1")
+    assert svc._save_calls[-1][1] == "corr-ask-1"
 
 
 def test_ask_post_exception_returns_internal_error() -> None:

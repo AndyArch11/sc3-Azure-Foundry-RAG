@@ -73,6 +73,12 @@ variable "aws_region" {
 	type = string
 }
 
+variable "prometheus_remote_write_url" {
+	type        = string
+	default     = ""
+	description = "Amazon Managed Prometheus remote-write URL. Empty disables the ADOT metrics sidecar."
+}
+
 variable "opensearch_endpoint" {
 	type = string
 }

@@ -1,0 +1,17 @@
+{
+  "pythonVersion": "3.12",
+  "venvPath": "runtime",
+  "venv": ".venv",
+  "extraPaths": ["."],
+  "pythonPlatform": "Linux",
+  "typeCheckingMode": "basic",
+  "useLibraryCodeForTypes": true,
+  "exclude": [
+    "**/node_modules",
+    "**/.*",
+    "runtime/.venv",
+    ".venv",
+    "**/__pycache__",
+    ".git"
+  ]
+}

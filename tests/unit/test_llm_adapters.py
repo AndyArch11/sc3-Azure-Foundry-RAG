@@ -12,6 +12,7 @@ from runtime.llm.azure_openai import AzureOpenAILLMClient
 from runtime.llm.bedrock import BedrockLLMClient
 from runtime.llm.ollama import OllamaLLMClient
 from runtime.llm.protocol import LLMClient
+from runtime.trace_context import scoped_trace_context
 
 # ---------------------------------------------------------------------------
 # Protocol structural check
@@ -236,6 +237,30 @@ class TestAzureOpenAILLMClient:
     def test_temperature_clamped(self) -> None:
         client = AzureOpenAILLMClient(credential=MagicMock(), temperature=2.5)
         assert client._temperature == 1.0
+
+    def test_chat_complete_passes_extra_headers_from_runtime_trace_context(self) -> None:
+        client, _ = self._make_client()
+        fake_response = MagicMock()
+        fake_response.choices[0].message.content = "Azure says hi"
+        mock_openai = MagicMock()
+        mock_openai.return_value.chat.completions.create.return_value = fake_response
+
+        with (
+            patch.dict("sys.modules", {"openai": MagicMock(AzureOpenAI=mock_openai)}),
+            scoped_trace_context(
+                correlation_id="corr-llm-1",
+                traceparent="00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+            ),
+        ):
+            result = client.chat_complete([{"role": "user", "content": "test"}])
+
+        assert result == "Azure says hi"
+        called_kwargs = mock_openai.return_value.chat.completions.create.call_args.kwargs
+        assert called_kwargs["extra_headers"]["x-correlation-id"] == "corr-llm-1"
+        assert (
+            called_kwargs["extra_headers"]["traceparent"]
+            == "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ from runtime.assessment_orchestration.models import (
     PersonReference,
     ResolvedTarget,
 )
+from runtime.assessment_orchestration.queue import QueueMessage
 
 
 class FakeContentClient:
@@ -53,9 +54,13 @@ class FakeContentClient:
 
 
 class FakeAssessmentAgent:
+    def __init__(self) -> None:
+        self.last_artifact: AssessedArtifactPackage | None = None
+
     def retrieve_corpus_grounding(
         self, artifact: AssessedArtifactPackage
     ) -> CorpusGroundingPackage:
+        self.last_artifact = artifact
         return CorpusGroundingPackage(
             corpus_a_results=[{"requirement_id": "REQ-1"}],
             corpus_b_results=[{"source": "Guide-1"}],
@@ -108,9 +113,10 @@ class FakeAuditSink:
 
 def test_orchestrator_adapter_runs_resolution_retrieval_and_assessment() -> None:
     audit_sink = FakeAuditSink()
+    assessment_agent = FakeAssessmentAgent()
     adapter = OrchestratorAdapter(
         content_client=FakeContentClient(),
-        assessment_agent=FakeAssessmentAgent(),
+        assessment_agent=assessment_agent,
         delivery_publisher=FakeDeliveryPublisher(),
         audit_sink=audit_sink,
     )
@@ -136,3 +142,42 @@ def test_orchestrator_adapter_runs_resolution_retrieval_and_assessment() -> None
         "corpus_retrieved",
         "assessment_generated",
     ]
+
+
+def test_run_queue_message_propagates_traceparent_into_artifact_metadata() -> None:
+    audit_sink = FakeAuditSink()
+    assessment_agent = FakeAssessmentAgent()
+    adapter = OrchestratorAdapter(
+        content_client=FakeContentClient(),
+        assessment_agent=assessment_agent,
+        delivery_publisher=FakeDeliveryPublisher(),
+        audit_sink=audit_sink,
+    )
+    job = AssessmentJob(
+        job_id="job-1",
+        source_type="manual_request",
+        provider="sharepoint",
+        target_id="page-123",
+        target_url="https://example/page",
+        trigger_type="user_request",
+        request_identity_mode="delegated",
+        delivery_policy="inline_else_email",
+        correlation_id="corr-1",
+    )
+    message = QueueMessage(
+        queue_message_id="msg-1",
+        message_type="assessment_requested",
+        enqueued_at="2026-04-25T00:00:00+00:00",
+        correlation_id="corr-1",
+        job=job,
+        traceparent="00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    )
+
+    adapter.run_queue_message(message)
+
+    assert assessment_agent.last_artifact is not None
+    assert assessment_agent.last_artifact.metadata["correlation_id"] == "corr-1"
+    assert (
+        assessment_agent.last_artifact.metadata["traceparent"]
+        == "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+    )

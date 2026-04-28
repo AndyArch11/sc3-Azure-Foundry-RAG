@@ -17,6 +17,8 @@ from typing import Any, List
 
 import requests  # type: ignore[import-untyped]
 
+from runtime.outbound_instrumentation import request_with_instrumentation
+
 from .base import BaseParser, RequirementRecord, keywordise_values
 
 logger = logging.getLogger(__name__)
@@ -190,7 +192,15 @@ def _clean_page_text(text: str) -> str:
 
 def _download_pdf_bytes(url: str) -> bytes:
     """Run download pdf bytes."""
-    response = requests.get(url, timeout=60)
+    response = request_with_instrumentation(
+        "GET",
+        url,
+        logger=logger,
+        timeout=60,
+        system="protective-security",
+        operation="download_pspf_pdf",
+        request_callable=requests.get,
+    )
     response.raise_for_status()
     return response.content
 

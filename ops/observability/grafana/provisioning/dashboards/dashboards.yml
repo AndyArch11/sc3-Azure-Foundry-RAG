@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: query-web-local
+    orgId: 1
+    folder: "Query Web"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 15
+    options:
+      path: /var/lib/grafana/dashboards
