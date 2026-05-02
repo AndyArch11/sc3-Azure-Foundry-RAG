@@ -250,7 +250,7 @@ POST /ask
 - [x] Created 15 new unit tests (all passing)
 - [x] Added environment variables to Container App via Terraform (`AZURE_COSMOS_ENDPOINT`, `AZURE_COSMOS_DATABASE_NAME`, `AZURE_COSMOS_CONTAINER_NAME`)
 - [x] Added CosmosDB SQL database/container provisioning in Terraform (`rag-conversations` / `conversations`)
-- [ ] **TODO:** Test end-to-end flow in dev environment
+- [x] Test end-to-end flow in dev environment
 - [ ] **TODO:** Monitor perf/cost during ramp-up
 
 ---

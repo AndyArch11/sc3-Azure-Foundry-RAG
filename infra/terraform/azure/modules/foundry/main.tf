@@ -230,8 +230,11 @@ resource "azapi_resource" "connection_cosmosdb" {
   parent_id                 = azapi_resource.foundry_project.id
   schema_validation_enabled = false
 
+  # Serialise project connection operations to avoid parent-project etag races
+  # during destroy when multiple connection deletes run in parallel.
   depends_on = [
     azapi_resource.foundry_project,
+    azapi_resource.connection_storage,
   ]
 
   body = {
@@ -257,6 +260,7 @@ resource "azapi_resource" "connection_search" {
 
   depends_on = [
     azapi_resource.foundry_project,
+    azapi_resource.connection_cosmosdb,
   ]
 
   body = {

@@ -522,7 +522,7 @@ sudo ./ops/scripts/azure/rollout-agent-hosting.sh "${TARGET_ENV}" apply \
   --entra-secret-name "query-web-entra-client-secret-${TARGET_ENV}"
 ```
 
-**TODO:** Decouple ingestion and query-web container deployments so they can be rolled out independently without affecting each other's authentication or configuration state.
+**TODO:** Decouple ingestion, poller, and query-web container deployments so they can be rolled out independently without affecting each other's authentication or configuration state.
 
 If RBAC resources need reconciliation after rollout, run:
 

@@ -42,9 +42,6 @@ services:
         limits_config:
           reject_old_samples: true
           reject_old_samples_max_age: 168h
-          # TODO: Loki 3.x still emits JSONParserErr on plain Uvicorn access lines despite
-          # these flags. Investigate Promtail drop stage for non-JSON lines or a per-stream
-          # Loki structured-metadata override as the correct long-term fix.
           discover_log_levels: false
           allow_structured_metadata: false
 

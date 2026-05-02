@@ -271,6 +271,8 @@ TF_SAFETY_ARGS=(
 
 TARGET_ARGS=(
   "-target=module.agent_hosting.azurerm_container_app_environment.this"
+  "-target=module.agent_hosting.azapi_resource.cae_prometheus_scrape"
+  "-target=module.agent_hosting.azurerm_monitor_data_collection_rule_association.cae"
   "-target=module.agent_hosting.azurerm_private_dns_zone.container_apps"
   "-target=module.agent_hosting.azurerm_private_dns_zone_virtual_network_link.container_apps"
   "-target=module.agent_hosting.azurerm_private_dns_a_record.ingestion_job"
