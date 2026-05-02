@@ -311,26 +311,10 @@ resource "azurerm_monitor_data_collection_rule" "prometheus" {
 
 **2. Associate the DCR to the Container App Environment**
 
+The DCRA is the only resource needed to wire the CAE to the DCR for Azure Monitor Managed Prometheus scraping.
+`openTelemetryConfiguration` is a separate OTLP push-export feature and is not used here.
+
 ```hcl
-# Requires azapi provider — azurerm does not yet expose this association natively
-resource "azapi_resource" "cae_prometheus_scrape" {
-  type                = "Microsoft.App/managedEnvironments@2025-10-02-preview"
-  name                = azurerm_container_app_environment.this.name
-  resource_group_name = var.resource_group_name
-
-  body = jsonencode({
-    location = var.location
-    properties = {
-      openTelemetryConfiguration = {
-        metricsConfiguration = {
-          destinations = [var.azure_monitor_data_collection_rule_id]
-          includeKeda  = true
-        }
-      }
-    }
-  })
-}
-
 resource "azurerm_monitor_data_collection_rule_association" "cae" {
   name                    = "dcra-cae-prometheus"
   target_resource_id      = azurerm_container_app_environment.this.id

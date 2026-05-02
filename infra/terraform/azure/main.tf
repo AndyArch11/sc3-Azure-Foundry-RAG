@@ -224,6 +224,7 @@ module "agent_hosting" {
   vnet_id                                           = local.vnet_id
   log_analytics_workspace_id                        = module.observability.log_analytics_workspace_id
   azure_monitor_data_collection_rule_id             = module.observability.monitor_data_collection_rule_id
+  azure_monitor_data_collection_endpoint_id         = module.observability.monitor_data_collection_endpoint_id
   acr_login_server                                  = module.data_services.acr_login_server
   agent_runtime_identity_id                         = module.identity.agent_runtime_identity_id
   agent_runtime_client_id                           = module.identity.agent_runtime_client_id

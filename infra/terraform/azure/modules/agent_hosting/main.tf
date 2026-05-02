@@ -21,32 +21,19 @@ resource "azurerm_container_app_environment" "this" {
   }
 }
 
-resource "azapi_resource" "cae_prometheus_scrape" {
-  count     = var.azure_monitor_data_collection_rule_id != "" ? 1 : 0
-  type      = "Microsoft.App/managedEnvironments@2025-10-02-preview"
-  name      = azurerm_container_app_environment.this.name
-  parent_id = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}"
-
-  body = {
-    location = var.location
-    properties = {
-      openTelemetryConfiguration = {
-        metricsConfiguration = {
-          destinations = [var.azure_monitor_data_collection_rule_id]
-          includeKeda  = true
-        }
-      }
-    }
-  }
-}
-
 resource "azurerm_monitor_data_collection_rule_association" "cae" {
   count                   = var.azure_monitor_data_collection_rule_id != "" ? 1 : 0
   name                    = "dcra-cae-prometheus"
   target_resource_id      = azurerm_container_app_environment.this.id
   data_collection_rule_id = var.azure_monitor_data_collection_rule_id
+}
 
-  depends_on = [azapi_resource.cae_prometheus_scrape]
+# A separate association is required to link the CAE to the DCE so the environment
+# knows which ingestion endpoint to send scraped Prometheus metrics to.
+resource "azurerm_monitor_data_collection_rule_association" "cae_dce" {
+  count                       = var.azure_monitor_data_collection_endpoint_id != "" ? 1 : 0
+  target_resource_id          = azurerm_container_app_environment.this.id
+  data_collection_endpoint_id = var.azure_monitor_data_collection_endpoint_id
 }
 
 # Private DNS zone is only required for internal (VNet-only) environments.

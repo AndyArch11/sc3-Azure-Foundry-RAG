@@ -9,6 +9,11 @@ variable "azure_monitor_data_collection_rule_id" {
   description = "Azure Monitor DCR ID used to associate Container Apps Environment Prometheus scrape with AMW."
   default     = ""
 }
+variable "azure_monitor_data_collection_endpoint_id" {
+  type        = string
+  description = "Azure Monitor DCE ID used to associate Container Apps Environment with the ingestion endpoint for Prometheus metrics."
+  default     = ""
+}
 variable "acr_login_server" { type = string }
 variable "agent_runtime_identity_id" { type = string }
 variable "agent_runtime_client_id" { type = string }
