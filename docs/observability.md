@@ -314,7 +314,7 @@ resource "azurerm_monitor_data_collection_rule" "prometheus" {
 ```hcl
 # Requires azapi provider — azurerm does not yet expose this association natively
 resource "azapi_resource" "cae_prometheus_scrape" {
-  type      = "Microsoft.App/managedEnvironments/prometheusConfiguration@2024-08-01"
+  type      = "Microsoft.App/managedEnvironments/prometheusConfiguration@2026-01-01"
   name      = "default"
   parent_id = azurerm_container_app_environment.this.id
 
