@@ -609,7 +609,7 @@ resource "azapi_resource" "query_web_auth" {
       }
       globalValidation = {
         unauthenticatedClientAction = "RedirectToLoginPage"
-        excludedPaths               = ["/health"]
+        excludedPaths               = ["/health", "/metrics"]
       }
       identityProviders = {
         azureActiveDirectory = {
