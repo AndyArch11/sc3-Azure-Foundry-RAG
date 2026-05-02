@@ -23,7 +23,7 @@ resource "azurerm_container_app_environment" "this" {
 
 resource "azapi_resource" "cae_prometheus_scrape" {
   count                     = var.azure_monitor_data_collection_rule_id != "" ? 1 : 0
-  type                      = "Microsoft.App/managedEnvironments/prometheusConfiguration@2024-03-01"
+  type                      = "Microsoft.App/managedEnvironments/prometheusConfiguration@2024-08-01"
   name                      = "default"
   parent_id                 = azurerm_container_app_environment.this.id
   schema_validation_enabled = false
