@@ -309,16 +309,25 @@ resource "azurerm_monitor_data_collection_rule" "prometheus" {
 }
 ```
 
-**2. Associate the DCR to the Container App Environment**
+**2. Associate the AMW default DCR and DCE to the Container App Environment**
 
-The DCRA is the only resource needed to wire the CAE to the DCR for Azure Monitor Managed Prometheus scraping.
+For Azure Monitor managed Prometheus on Container Apps, the CAE should use the Azure Monitor Workspace's default ingestion settings.
+That means associating both:
+- the AMW default DCR
+- the AMW default DCE
+
 `openTelemetryConfiguration` is a separate OTLP push-export feature and is not used here.
 
 ```hcl
 resource "azurerm_monitor_data_collection_rule_association" "cae" {
   name                    = "dcra-cae-prometheus"
   target_resource_id      = azurerm_container_app_environment.this.id
-  data_collection_rule_id = azurerm_monitor_data_collection_rule.prometheus.id
+  data_collection_rule_id = azurerm_monitor_workspace.prometheus.default_data_collection_rule_id
+}
+
+resource "azurerm_monitor_data_collection_rule_association" "cae_dce" {
+  target_resource_id          = azurerm_container_app_environment.this.id
+  data_collection_endpoint_id = azurerm_monitor_workspace.prometheus.default_data_collection_endpoint_id
 }
 ```
 

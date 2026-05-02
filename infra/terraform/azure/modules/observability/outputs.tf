@@ -7,9 +7,9 @@ output "azure_monitor_workspace_id" {
 }
 
 output "monitor_data_collection_endpoint_id" {
-  value = azurerm_monitor_data_collection_endpoint.this.id
+  value = azurerm_monitor_workspace.prometheus.default_data_collection_endpoint_id
 }
 
 output "monitor_data_collection_rule_id" {
-  value = azurerm_monitor_data_collection_rule.prometheus.id
+  value = azurerm_monitor_workspace.prometheus.default_data_collection_rule_id
 }
