@@ -314,13 +314,19 @@ resource "azurerm_monitor_data_collection_rule" "prometheus" {
 ```hcl
 # Requires azapi provider — azurerm does not yet expose this association natively
 resource "azapi_resource" "cae_prometheus_scrape" {
-  type      = "Microsoft.App/managedEnvironments/openTelemetryConfiguration@2026-01-01"
-  name      = "default"
-  parent_id = azurerm_container_app_environment.this.id
+  type                = "Microsoft.App/managedEnvironments@2025-10-02-preview"
+  name                = azurerm_container_app_environment.this.name
+  resource_group_name = var.resource_group_name
 
   body = jsonencode({
+    location = var.location
     properties = {
-      enabled = true
+      openTelemetryConfiguration = {
+        metricsConfiguration = {
+          destinations = [var.azure_monitor_data_collection_rule_id]
+          includeKeda  = true
+        }
+      }
     }
   })
 }
