@@ -96,6 +96,54 @@ def _form_bool(value: str | None, default: bool = False) -> bool:
     return text in {"1", "true", "yes", "on"}
 
 
+def _detect_host_resources() -> tuple[float, int]:
+    """Best-effort host resource detection (RAM GiB, CPU cores)."""
+    cpu_count = os.cpu_count() or 1
+
+    try:
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        page_count = os.sysconf("SC_PHYS_PAGES")
+        if (
+            isinstance(page_size, int)
+            and isinstance(page_count, int)
+            and page_size > 0
+            and page_count > 0
+        ):
+            ram_bytes = float(page_size * page_count)
+            return (ram_bytes / (1024**3), cpu_count)
+    except (AttributeError, OSError, ValueError):
+        pass
+
+    # Linux fallback when sysconf does not provide usable values.
+    try:
+        with Path("/proc/meminfo").open("r", encoding="utf-8") as meminfo:
+            for line in meminfo:
+                if line.startswith("MemTotal:"):
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[1].isdigit():
+                        ram_kib = int(parts[1])
+                        return (ram_kib / (1024**2), cpu_count)
+    except OSError:
+        pass
+
+    return (8.0, cpu_count)
+
+
+def _local_completion_token_defaults() -> tuple[int, int]:
+    """Adaptive local defaults for query/evaluator max completion token caps."""
+    ram_gib, cpu_count = _detect_host_resources()
+
+    if ram_gib < 8 or cpu_count <= 4:
+        return (512, 256)
+    if ram_gib < 16 or cpu_count <= 8:
+        return (900, 512)
+    if ram_gib < 32:
+        return (1400, 800)
+    if ram_gib < 64:
+        return (2200, 1000)
+    return (3200, 1400)
+
+
 # ---------------------------------------------------------------------------
 # Dataclasses
 # ---------------------------------------------------------------------------
@@ -272,6 +320,12 @@ def load_config() -> QueryConfig:
 
     provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower()
     is_local = provider in {"local", "dev"}
+    if is_local:
+        local_max_completion_tokens, local_evaluator_max_completion_tokens = (
+            _local_completion_token_defaults()
+        )
+    else:
+        local_max_completion_tokens, local_evaluator_max_completion_tokens = (1400, 800)
 
     return QueryConfig(
         search_endpoint=(
@@ -309,10 +363,18 @@ def load_config() -> QueryConfig:
         default_temperature=float(os.getenv("DEFAULT_TEMPERATURE", "1")),
         evaluator_temperature=float(os.getenv("EVALUATOR_TEMPERATURE", "1.0")),
         evaluation_threshold=float(os.getenv("ACCEPTABLE_SCORE_THRESHOLD", "0.72")),
-        max_completion_tokens=max(256, int(os.getenv("MAX_COMPLETION_TOKENS", "1400"))),
+        max_completion_tokens=max(
+            256,
+            int(os.getenv("MAX_COMPLETION_TOKENS", str(local_max_completion_tokens))),
+        ),
         evaluator_max_completion_tokens=max(
             128,
-            int(os.getenv("EVALUATOR_MAX_COMPLETION_TOKENS", "800")),
+            int(
+                os.getenv(
+                    "EVALUATOR_MAX_COMPLETION_TOKENS",
+                    str(local_evaluator_max_completion_tokens),
+                )
+            ),
         ),
         auth_token=os.getenv("QUERY_WEB_AUTH_TOKEN", "").strip(),
         required_group_object_id=os.getenv("QUERY_WEB_REQUIRED_GROUP_OBJECT_ID", "").strip(),

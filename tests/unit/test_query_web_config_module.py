@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
+import query_web.config as config_module
 from query_web.config import (
     _CANONICAL_FRAMEWORKS,
     _FRAMEWORK_ALIASES,
@@ -315,3 +316,31 @@ def test_load_config_raises_on_missing_required_env() -> None:
     with patch.dict(os.environ, env, clear=True):
         with pytest.raises(RuntimeError, match="AZURE_SEARCH_ENDPOINT"):
             load_config()
+
+
+def test_load_config_local_uses_resource_adaptive_token_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config_module, "_detect_host_resources", lambda: (6.0, 2))
+    with patch.dict(os.environ, {"CLOUD_PROVIDER": "local"}, clear=True):
+        cfg = load_config()
+    assert cfg.max_completion_tokens == 512
+    assert cfg.evaluator_max_completion_tokens == 256
+
+
+def test_load_config_local_allows_env_token_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config_module, "_detect_host_resources", lambda: (6.0, 2))
+    with patch.dict(
+        os.environ,
+        {
+            "CLOUD_PROVIDER": "local",
+            "MAX_COMPLETION_TOKENS": "1700",
+            "EVALUATOR_MAX_COMPLETION_TOKENS": "900",
+        },
+        clear=True,
+    ):
+        cfg = load_config()
+    assert cfg.max_completion_tokens == 1700
+    assert cfg.evaluator_max_completion_tokens == 900

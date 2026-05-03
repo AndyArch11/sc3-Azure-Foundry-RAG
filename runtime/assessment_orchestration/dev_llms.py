@@ -6,7 +6,11 @@ Environment variables:
     OLLAMA_BASE_URL: Alternative endpoint override (OLLAMA_HOST takes precedence if both set)
     OLLAMA_CHAT_MODEL: Ollama chat model (default: gemma3:27b)
     OLLAMA_EMBED_MODEL: Ollama embedding model (default: nomic-embed-text)
-    OLLAMA_NUM_CTX: Context window in tokens (default: 65536)
+    OLLAMA_NUM_CTX: Context window in tokens (default: adaptive by GPU VRAM when
+        available, else host RAM/CPU; approx 4K on constrained hosts up to 128K on
+        high-memory hosts). Adaptive detection probes the local runtime environment;
+        if Ollama is running on a different host (WSL, remote container, etc.) set
+        this explicitly so the context window matches that host's actual resources.
     OLLAMA_FORCE_JSON: Enable Ollama JSON mode (default: true)
 """
 
@@ -14,6 +18,9 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
+import subprocess
+from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
@@ -22,6 +29,173 @@ if TYPE_CHECKING:
     from .assessment_runtime import AssessmentRuntimeConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _detect_host_resources() -> tuple[float, int]:
+    """Best-effort host resource detection (RAM GiB, CPU cores)."""
+    cpu_count = os.cpu_count() or 1
+    try:
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        page_count = os.sysconf("SC_PHYS_PAGES")
+        if (
+            isinstance(page_size, int)
+            and isinstance(page_count, int)
+            and page_size > 0
+            and page_count > 0
+        ):
+            ram_bytes = float(page_size * page_count)
+            return (ram_bytes / (1024**3), cpu_count)
+    except (AttributeError, OSError, ValueError):
+        pass
+
+    try:
+        with open("/proc/meminfo", "r", encoding="utf-8") as meminfo:
+            for line in meminfo:
+                if line.startswith("MemTotal:"):
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[1].isdigit():
+                        ram_kib = int(parts[1])
+                        return (ram_kib / (1024**2), cpu_count)
+    except OSError:
+        pass
+
+    return (8.0, cpu_count)
+
+
+def _detect_gpu_vram_gib() -> float | None:
+    """Best-effort GPU VRAM detection in GiB.
+
+    Returns the largest detected VRAM value across all visible GPUs, or None when
+    no reliable signal is available.
+    """
+
+    values_gib: list[float] = []
+    values_gib.extend(_detect_nvidia_gpu_vram_gibs())
+    values_gib.extend(_detect_linux_drm_gpu_vram_gibs())
+    if not values_gib:
+        return None
+    return max(values_gib)
+
+
+def _detect_nvidia_gpu_vram_gibs() -> list[float]:
+    """Detect NVIDIA GPU VRAM values in GiB using nvidia-smi."""
+    nvidia_smi = shutil.which("nvidia-smi")
+    values_gib: list[float] = []
+    if nvidia_smi:
+        try:
+            result = subprocess.run(
+                [nvidia_smi, "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+                capture_output=True,
+                check=True,
+                text=True,
+                timeout=2,
+            )
+            values_mib: list[int] = []
+            for line in result.stdout.splitlines():
+                token = line.strip().split(" ")[0]
+                if token.isdigit():
+                    values_mib.append(int(token))
+            if values_mib:
+                values_gib.extend([value / 1024.0 for value in values_mib])
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+
+    return values_gib
+
+
+def _detect_linux_drm_gpu_vram_gibs() -> list[float]:
+    """Detect Linux DRM GPU VRAM values in GiB from sysfs when available."""
+    values_gib: list[float] = []
+
+    # Linux AMD path (when sysfs is exposed by the kernel/driver stack).
+    try:
+        values_bytes: list[int] = []
+        for path in Path("/sys/class/drm").glob("card*/device/mem_info_vram_total"):
+            text = path.read_text(encoding="utf-8").strip()
+            if text.isdigit():
+                values_bytes.append(int(text))
+        if values_bytes:
+            values_gib.extend([value / (1024.0**3) for value in values_bytes])
+    except OSError:
+        pass
+
+    return values_gib
+
+
+def _recommended_ollama_num_ctx_from_host(ram_gib: float, cpu_count: int) -> int:
+    """Heuristic context window from host RAM/CPU only."""
+    if ram_gib < 8 or cpu_count <= 4:
+        return 8192
+    if ram_gib < 16 or cpu_count <= 8:
+        return 16384
+    if ram_gib < 32:
+        return 32768
+    if ram_gib < 64:
+        return 65536
+    return 131072
+
+
+def _recommended_ollama_num_ctx_from_gpu(gpu_vram_gib: float) -> int:
+    """Heuristic context window from GPU VRAM only."""
+    if gpu_vram_gib < 6:
+        return 4096
+    if gpu_vram_gib < 10:
+        return 8192
+    if gpu_vram_gib < 16:
+        return 16384
+    if gpu_vram_gib < 24:
+        return 32768
+    if gpu_vram_gib < 40:
+        return 65536
+    return 131072
+
+
+def _is_remote_ollama_url(url: str) -> bool:
+    """Return True when the Ollama URL targets a host other than localhost/loopback.
+
+    Addresses that are considered local:
+      - localhost / 127.x.x.x / ::1
+      - 0.0.0.0  (all-interfaces bind; Ollama itself uses this)
+    Addresses that are considered remote (Ollama runs in a different environment):
+      - host.docker.internal, wsl.localhost, named hosts, external IPs
+    """
+    try:
+        from urllib.parse import urlparse
+
+        host = urlparse(url).hostname or ""
+    except Exception:
+        return False
+    host = host.lower()
+    if host in {"localhost", "0.0.0.0", "[::1]", "::1"}:
+        return False
+    if host.startswith("127."):
+        return False
+    return True
+
+
+def _recommended_ollama_num_ctx(ollama_url: str | None = None) -> int:
+    """Adaptive default context window for Ollama on local/dev hosts."""
+    ram_gib, cpu_count = _detect_host_resources()
+    host_ctx = _recommended_ollama_num_ctx_from_host(ram_gib, cpu_count)
+    gpu_vram_gib = _detect_gpu_vram_gib()
+    if gpu_vram_gib is None:
+        ctx = host_ctx
+    else:
+        gpu_ctx = _recommended_ollama_num_ctx_from_gpu(gpu_vram_gib)
+        # Keep a host-memory guardrail while still preferring GPU capability.
+        host_guardrail = min(131072, max(host_ctx, 16384))
+        ctx = min(gpu_ctx, host_guardrail)
+
+    if ollama_url and _is_remote_ollama_url(ollama_url):
+        logger.warning(
+            "Ollama is running at a remote endpoint (%s) but OLLAMA_NUM_CTX is not set. "
+            "The adaptive context window default (%s tokens) is based on the local runtime "
+            "environment and may not reflect the resources available to Ollama. "
+            "Set OLLAMA_NUM_CTX explicitly to match the Ollama host's capabilities.",
+            ollama_url,
+            ctx,
+        )
+    return ctx
 
 
 def get_llm_backend() -> str:
@@ -73,7 +247,12 @@ def create_chat_completion_fn(
         else:
             logger.info(f"Using Ollama backend: {ollama_model} @ {ollama_url}")
 
-            num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", "65536"))
+            num_ctx_env = os.environ.get("OLLAMA_NUM_CTX", "").strip()
+            if num_ctx_env:
+                num_ctx = max(2048, int(num_ctx_env))
+            else:
+                num_ctx = _recommended_ollama_num_ctx(ollama_url)
+                logger.info("OLLAMA_NUM_CTX not set; using adaptive default: %s", num_ctx)
             force_json = os.environ.get("OLLAMA_FORCE_JSON", "true").lower() not in (
                 "0",
                 "false",
