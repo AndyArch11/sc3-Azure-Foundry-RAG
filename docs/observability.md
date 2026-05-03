@@ -126,7 +126,7 @@ What is documented above versus what is actually wired:
 | Structured logging | ✅ | ✅ Standard Python `logging`; `cosmos_schema_access` structured log added |
 | Per-request timings | ✅ | ✅ `rag_retrieval_s`, `embedding_s`, `search_s`, `total_s` etc. emitted in API response JSON |
 | Log Analytics Workspace | ✅ | ✅ `azurerm_log_analytics_workspace` provisioned; wired to Container App Environment |
-| Azure Monitor Workspace (AMW) | ✅ | ✅ `azurerm_monitor_workspace` provisioned but **not connected** to any service or scrape rule |
+| Azure Monitor Workspace (AMW) | ✅ | ⚠️ `azurerm_monitor_workspace` provisioned and CAE DCR/DCE associations configured, but **no Prometheus samples observed in AMW** |
 | Prometheus scrape endpoint (`/metrics`) | ✅ | ✅ Implemented in query-web with `prometheus_client`; local scrape wired via compose overlay |
 | OTel SDK | ✅ | ❌ Not installed — not in `query_web/requirements.txt` or `runtime/requirements.txt` |
 | Diagnostic settings (LAW → services) | ✅ | ❌ No `azurerm_monitor_diagnostic_setting` resource exists anywhere |
@@ -354,9 +354,22 @@ Repeat for `confluence_poller` and `ingestion` job resources.
 |---|---|---|
 | `azurerm_monitor_data_collection_endpoint` | `modules/observability/main.tf` | ✅ implemented |
 | `azurerm_monitor_data_collection_rule` (Prometheus) | `modules/observability/main.tf` | ✅ implemented |
-| `azapi_resource` CAE Prometheus scrape association | `modules/agent_hosting/main.tf` | ✅ implemented |
-| `azurerm_monitor_data_collection_rule_association` | `modules/agent_hosting/main.tf` | ✅ implemented |
+| `azurerm_monitor_data_collection_rule_association` (CAE -> DCR) | `modules/agent_hosting/main.tf` | ✅ implemented |
+| `azurerm_monitor_data_collection_rule_association` (CAE -> DCE) | `modules/agent_hosting/main.tf` | ✅ implemented |
 | `azurerm_monitor_diagnostic_setting` (ingestion/query_web/confluence_poller) | `modules/agent_hosting/main.tf` | ✅ implemented |
+
+### Current Status (Paused)
+
+Status: **Implementation does not currently produce data in AMW and is paused for now.**
+
+As of 2026-05-02:
+
+- `/metrics` endpoint is reachable and returns valid Prometheus payload.
+- CAE is associated to AMW default DCR and DCE.
+- EasyAuth excludes `/metrics`.
+- AMW Prometheus endpoint queries (`up`, application metric names) return empty vectors.
+
+This indicates the remaining issue is not Terraform wiring syntax but unresolved runtime/service ingestion behavior. Resume later with support-assisted investigation if needed.
 
 ---
 

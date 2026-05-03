@@ -21,11 +21,24 @@ resource "azurerm_container_app_environment" "this" {
   }
 }
 
+locals {
+  amw_managed_resource_group_id = var.azure_monitor_data_collection_endpoint_id != "" ? join("/", slice(split("/", var.azure_monitor_data_collection_endpoint_id), 0, 5)) : ""
+}
+
+resource "azurerm_role_assignment" "amw_managed_monitoring_contributor" {
+  count                = local.amw_managed_resource_group_id != "" ? 1 : 0
+  scope                = local.amw_managed_resource_group_id
+  role_definition_name = "Monitoring Contributor"
+  principal_id         = var.agent_runtime_principal_id
+}
+
 resource "azurerm_monitor_data_collection_rule_association" "cae" {
   count                   = var.azure_monitor_data_collection_rule_id != "" ? 1 : 0
   name                    = "dcra-cae-prometheus"
   target_resource_id      = azurerm_container_app_environment.this.id
   data_collection_rule_id = var.azure_monitor_data_collection_rule_id
+
+  depends_on = [azurerm_role_assignment.amw_managed_monitoring_contributor]
 }
 
 # A separate association is required to link the CAE to the DCE so the environment
@@ -34,6 +47,8 @@ resource "azurerm_monitor_data_collection_rule_association" "cae_dce" {
   count                       = var.azure_monitor_data_collection_endpoint_id != "" ? 1 : 0
   target_resource_id          = azurerm_container_app_environment.this.id
   data_collection_endpoint_id = var.azure_monitor_data_collection_endpoint_id
+
+  depends_on = [azurerm_role_assignment.amw_managed_monitoring_contributor]
 }
 
 # Private DNS zone is only required for internal (VNet-only) environments.

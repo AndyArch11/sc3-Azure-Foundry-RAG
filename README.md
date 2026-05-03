@@ -701,6 +701,20 @@ QUERY_WEB_REQUIRE_CONVERSATIONS=true \
 
 See [runtime/README.md](runtime/README.md) for ingestion execution details and query endpoint usage.
 
+### Uninstall from Azure
+
+If not already initialised in shell/session, run init first:
+
+`terraform -chdir=infra/terraform/azure init -backend-config=infra/terraform/azure/environments/dev/backend.hcl`
+
+For the Azure dev platform stack, run:
+
+`terraform -chdir=infra/terraform/azure destroy -input=false -var-file=environments/dev/bootstrap.generated.tfvars -var-file=environments/dev/dev.tfvars`
+
+After platform destroy completes, destroy bootstrap (if you want full teardown including state backend resources):
+
+`terraform -chdir=infra/terraform/azure/bootstrap destroy -input=false -var-file=terraform.tfvars`
+
 ## Common Commands
 
 ```bash

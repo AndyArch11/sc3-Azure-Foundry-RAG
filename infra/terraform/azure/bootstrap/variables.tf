@@ -16,6 +16,16 @@ variable "key_vault_extra_rbac_principal_object_ids" {
   description = "Optional extra Entra object IDs granted Key Vault Secrets Officer in addition to the current Terraform caller identity."
   default     = []
 }
+variable "state_storage_reader_principal_object_ids" {
+  type        = list(string)
+  description = "Entra object IDs to be granted Reader on the state storage account (e.g. jumpbox UAMI, CI service principal)."
+  default     = []
+}
+variable "state_storage_blob_data_contributor_principal_object_ids" {
+  type        = list(string)
+  description = "Entra object IDs to be granted Storage Blob Data Contributor on the state storage account (e.g. jumpbox UAMI, deploying identity)."
+  default     = []
+}
 variable "tags" {
   type    = map(string)
   default = {}

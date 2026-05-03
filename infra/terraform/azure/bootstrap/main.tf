@@ -11,6 +11,13 @@ locals {
     [data.azurerm_client_config.current.object_id],
     var.key_vault_extra_rbac_principal_object_ids,
   )))
+  state_storage_reader_principal_object_ids = distinct(compact(
+    var.state_storage_reader_principal_object_ids
+  ))
+  state_storage_blob_data_contributor_principal_object_ids = distinct(compact(concat(
+    [data.azurerm_client_config.current.object_id],
+    var.state_storage_blob_data_contributor_principal_object_ids,
+  )))
 }
 
 resource "azurerm_resource_group" "state" {
@@ -64,5 +71,22 @@ resource "azurerm_role_assignment" "key_vault_secrets_officer" {
   for_each             = var.enable_bootstrap_key_vault ? { for id in local.key_vault_rbac_principal_object_ids : id => id } : {}
   scope                = azurerm_key_vault.state[0].id
   role_definition_name = "Key Vault Secrets Officer"
+  principal_id         = each.value
+}
+
+# Backend-state RBAC — managed here (not in the platform stack) so that role
+# assignments are never destroyed mid-platform-run when a deployment identity
+# revokes its own access to write remote state.
+resource "azurerm_role_assignment" "state_storage_reader" {
+  for_each             = { for id in local.state_storage_reader_principal_object_ids : id => id }
+  scope                = azurerm_storage_account.state.id
+  role_definition_name = "Reader"
+  principal_id         = each.value
+}
+
+resource "azurerm_role_assignment" "state_storage_blob_data_contributor" {
+  for_each             = { for id in local.state_storage_blob_data_contributor_principal_object_ids : id => id }
+  scope                = azurerm_storage_account.state.id
+  role_definition_name = "Storage Blob Data Contributor"
   principal_id         = each.value
 }

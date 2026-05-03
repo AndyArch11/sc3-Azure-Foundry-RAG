@@ -155,34 +155,40 @@ fi
 echo "==> Phase 3 ${ACTION} completed for ${ENVIRONMENT}"
 
 if [[ "${ACTION}" == "apply" ]]; then
-  echo "==> Granting agent runtime identity access to Terraform state storage"
-  STATE_RG="rg-tfstate-${ENVIRONMENT}"
-  LOCATION=$(grep '^location ' "${VAR_FILE}" | awk -F'"' '{print $2}')
-  LOCATION_SHORT=$(grep 'location_short' "${VAR_FILE}" | awk -F'"' '{print $2}')
-  INSTANCE=$(grep '^instance ' "${VAR_FILE}" | awk -F'"' '{print $2}' || echo "001")
-  IDENTITY_NAME="id-agent-runtime-${ENVIRONMENT}-${LOCATION_SHORT}-${INSTANCE}"
-  STATE_SA_NAME=$(az storage account list --resource-group "${STATE_RG}" --query "[?starts_with(name, 'sttfstate')].name" -o tsv 2>/dev/null | head -1 || true)
-  
-  if [[ -n "${STATE_SA_NAME}" ]]; then
-    # Look up the identity in the platform resource group (not the tfstate group).
-    # Fall back to the Terraform output when the az identity list scope misses it.
-    PLATFORM_RG="rg-ai-platform-${ENVIRONMENT}"
-    PRINCIPAL_ID=$(az identity show \
-      --resource-group "${PLATFORM_RG}" \
-      --name "${IDENTITY_NAME}" \
-      --query principalId -o tsv 2>/dev/null || true)
-    # Second attempt: pull directly from Terraform output (already computed above)
-    if [[ -z "${PRINCIPAL_ID}" ]]; then
-      PRINCIPAL_ID=$(terraform -chdir="${TF_DIR}" output -raw agent_runtime_principal_id 2>/dev/null || true)
-    fi
-    if [[ -n "${PRINCIPAL_ID}" ]]; then
-      SA_ID="/subscriptions/$(az account show --query id -o tsv)/resourceGroups/${STATE_RG}/providers/Microsoft.Storage/storageAccounts/${STATE_SA_NAME}"
-      echo "Assigning Storage Blob Data Contributor role to ${IDENTITY_NAME} on ${STATE_SA_NAME}"
-      az role assignment create --role "Storage Blob Data Contributor" --assignee-object-id "${PRINCIPAL_ID}" --scope "${SA_ID}" 2>/dev/null || echo "Role assignment already exists"
-    else
-      echo "Warning: Could not find agent runtime identity ${IDENTITY_NAME}"
-    fi
+  echo "==> Re-applying bootstrap stack to grant agent runtime identity access to Terraform state storage"
+  BOOTSTRAP_DIR="${ROOT_DIR}/infra/terraform/azure/bootstrap"
+  AGENT_PRINCIPAL_ID=$(terraform -chdir="${TF_DIR}" output -raw agent_runtime_principal_id 2>/dev/null || true)
+  if [[ -z "${AGENT_PRINCIPAL_ID}" ]]; then
+    echo "Warning: Could not read agent_runtime_principal_id from Terraform outputs; skipping bootstrap re-apply."
   else
-    echo "Warning: Could not find Terraform state storage account in ${STATE_RG}"
+    DEPLOYING_PRINCIPAL_ID=$(az account show --query id -o tsv)
+    LOCATION=$(grep '^location ' "${VAR_FILE}" | awk -F'"' '{print $2}')
+    RESOURCE_GROUP_NAME=$(grep '^resource_group_name ' "${VAR_FILE}" | awk -F'"' '{print $2}' || echo "rg-tfstate-${ENVIRONMENT}")
+    STATE_RG="rg-tfstate-${ENVIRONMENT}"
+    STORAGE_ACCOUNT_PREFIX="sttfstate${ENVIRONMENT}"
+    ENABLE_BOOTSTRAP_KEY_VAULT="${TF_ENABLE_BOOTSTRAP_KEY_VAULT:-true}"
+    KEY_VAULT_PREFIX="${TF_KEY_VAULT_PREFIX:-kvtfstate}"
+    KV_EXTRA_RBAC_JSON="${TF_KEY_VAULT_EXTRA_RBAC_OBJECT_IDS:-}"
+    if [[ -n "${KV_EXTRA_RBAC_JSON}" ]]; then
+      KV_EXTRA_RBAC_JSON="[\"$(echo "${KV_EXTRA_RBAC_JSON}" | sed 's/[[:space:]]*,[[:space:]]*/\",\"/g')\"]"
+    else
+      KV_EXTRA_RBAC_JSON="[]"
+    fi
+    DEPLOYING_OBJECT_ID=$(az ad signed-in-user show --query id -o tsv 2>/dev/null || az account show --query user.name -o tsv)
+    STATE_READER_JSON="[\"${AGENT_PRINCIPAL_ID}\"]"
+    STATE_BLOB_CONTRIBUTOR_JSON="[\"${AGENT_PRINCIPAL_ID}\",\"${DEPLOYING_OBJECT_ID}\"]"
+    terraform -chdir="${BOOTSTRAP_DIR}" apply -auto-approve \
+      -input=false \
+      -parallelism=1 \
+      -lock-timeout=5m \
+      -var="location=${LOCATION}" \
+      -var="resource_group_name=${STATE_RG}" \
+      -var="storage_account_name_prefix=${STORAGE_ACCOUNT_PREFIX}" \
+      -var="enable_bootstrap_key_vault=${ENABLE_BOOTSTRAP_KEY_VAULT}" \
+      -var="key_vault_name_prefix=${KEY_VAULT_PREFIX}" \
+      -var="key_vault_extra_rbac_principal_object_ids=${KV_EXTRA_RBAC_JSON}" \
+      -var="state_storage_reader_principal_object_ids=${STATE_READER_JSON}" \
+      -var="state_storage_blob_data_contributor_principal_object_ids=${STATE_BLOB_CONTRIBUTOR_JSON}"
+    echo "==> Bootstrap re-apply complete; agent runtime identity now has state storage access"
   fi
 fi

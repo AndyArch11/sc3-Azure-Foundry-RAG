@@ -48,6 +48,42 @@ Most runtime actions require both Azure identity and jumpbox network access.
 
 ## Common Quick Checks
 
+## Known Issue (Paused): CAE -> AMW Managed Prometheus Ingestion
+
+Status: **Not working as of 2026-05-02. Implementation is paused for now.**
+
+What is verified:
+
+- `query_web` exposes `/metrics` and returns HTTP 200 with valid Prometheus text payload.
+- Container App Environment (CAE) has both DCR and DCE associations configured.
+- CAE associations were updated to AMW default ingestion settings (`MA_amw-*` managed resource group).
+- EasyAuth excludes `/metrics`.
+- Azure Monitor Workspace (AMW) Prometheus queries still return empty vectors for `up` and application metric names.
+
+Known-good verification commands:
+
+```bash
+# Verify /metrics is reachable
+curl -s -o /tmp/metrics.out -w "%{http_code}\n" "https://<query-fqdn>/metrics" && head -n 8 /tmp/metrics.out
+
+# Verify CAE DCR/DCE associations
+az monitor data-collection rule association list \
+  --resource "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.App/managedEnvironments/<cae-name>" \
+  -o table
+
+# Query AMW Prometheus endpoint
+endpoint=$(az monitor account show -g <rg> -n <amw-name> --query metrics.prometheusQueryEndpoint -o tsv)
+token=$(az account get-access-token --resource https://prometheus.monitor.azure.com --query accessToken -o tsv)
+curl -s -G "$endpoint/api/v1/query" --data-urlencode 'query=up' -H "Authorization: Bearer $token"
+curl -s -G "$endpoint/api/v1/query" --data-urlencode 'query=python_gc_objects_collected_total' -H "Authorization: Bearer $token"
+```
+
+If resuming this work later:
+
+1. Re-run the three checks above.
+2. Confirm CAE associations still point to AMW default DCR/DCE resources.
+3. If vectors remain empty after propagation windows, raise a Microsoft support ticket with collected evidence.
+
 ### Resolve deployment variables
 
 See `infra/terraform/outputs.tf` for list of Azure resources that can be obtained from Terraform and the string to use to obtain the resource name
@@ -198,6 +234,17 @@ az containerapp job stop \
 ```
 
 ### Log Analytics (KQL)
+
+N.B. will need to replace resource names with names used in implementation.
+
+Verify that log data is being written to Log Analytics Workspace
+
+```kql
+law_id=$(az monitor log-analytics workspace show -g rg-ai-platform-dev -n law-dev-aue-04 --query customerId -o tsv)
+az monitor log-analytics query -w "$law_id" --analytics-query "ContainerAppSystemLogs_CL | where TimeGenerated > ago(2h) | where ContainerAppName_s == 'ca-rag-query-dev-aue-20260408' | project TimeGenerated, Reason_s, Log_s | order by TimeGenerated desc | take 20" -o table
+```
+
+If you receive `SEM0100` for `ContainerAppSystemLogs_CL`, verify you are querying the Log Analytics workspace (`az monitor log-analytics query`) and not the AMW Prometheus endpoint.
 
 Broad search across all Container App logs for a job:
 

@@ -41,6 +41,10 @@ GENERATED_BOOTSTRAP_VARS_FILE="${ROOT_DIR}/infra/terraform/azure/environments/${
 ENABLE_BOOTSTRAP_KEY_VAULT="${TF_ENABLE_BOOTSTRAP_KEY_VAULT:-true}"
 KEY_VAULT_PREFIX="${TF_KEY_VAULT_PREFIX:-kvtfstate}"
 KEY_VAULT_EXTRA_RBAC_OBJECT_IDS="${TF_KEY_VAULT_EXTRA_RBAC_OBJECT_IDS:-}"
+# Comma-separated object IDs for state storage RBAC (managed in bootstrap to
+# survive platform destroy without revoking backend write access mid-run).
+STATE_READER_OBJECT_IDS="${TF_STATE_READER_OBJECT_IDS:-}"
+STATE_BLOB_DATA_CONTRIBUTOR_OBJECT_IDS="${TF_STATE_BLOB_DATA_CONTRIBUTOR_OBJECT_IDS:-}"
 
 if ! command -v terraform >/dev/null 2>&1; then
   echo "Terraform is required in PATH."
@@ -75,6 +79,14 @@ if [[ -n "${KEY_VAULT_EXTRA_RBAC_OBJECT_IDS}" ]]; then
   KV_EXTRA_RBAC_JSON="[\"$(echo "${KEY_VAULT_EXTRA_RBAC_OBJECT_IDS}" | sed 's/[[:space:]]*,[[:space:]]*/\",\"/g')\"]"
 fi
 
+_ids_to_json() {
+  local raw="${1:-}"
+  [[ -z "${raw}" ]] && echo "[]" && return
+  echo "[\"$(echo "${raw}" | sed 's/[[:space:]]*,[[:space:]]*/\",\"/g')\"]"
+}
+STATE_READER_JSON="$(_ids_to_json "${STATE_READER_OBJECT_IDS}")"
+STATE_BLOB_CONTRIBUTOR_JSON="$(_ids_to_json "${STATE_BLOB_DATA_CONTRIBUTOR_OBJECT_IDS}")"
+
 terraform -chdir="${BOOTSTRAP_DIR}" apply -auto-approve \
   -input=false \
   "${TF_SAFETY_ARGS[@]}" \
@@ -83,7 +95,9 @@ terraform -chdir="${BOOTSTRAP_DIR}" apply -auto-approve \
   -var="storage_account_name_prefix=${STORAGE_ACCOUNT_PREFIX}" \
   -var="enable_bootstrap_key_vault=${ENABLE_BOOTSTRAP_KEY_VAULT}" \
   -var="key_vault_name_prefix=${KEY_VAULT_PREFIX}" \
-  -var="key_vault_extra_rbac_principal_object_ids=${KV_EXTRA_RBAC_JSON}"
+  -var="key_vault_extra_rbac_principal_object_ids=${KV_EXTRA_RBAC_JSON}" \
+  -var="state_storage_reader_principal_object_ids=${STATE_READER_JSON}" \
+  -var="state_storage_blob_data_contributor_principal_object_ids=${STATE_BLOB_CONTRIBUTOR_JSON}"
 
 echo "==> Cleaning up lock state (if it exists from prior runs)"
 terraform -chdir="${BOOTSTRAP_DIR}" state rm 'azurerm_management_lock.state_storage_account' 2>/dev/null || echo "Lock state already removed or never existed"
@@ -103,8 +117,6 @@ use_azuread_auth     = true
 EOF
 
 cat > "${GENERATED_BOOTSTRAP_VARS_FILE}" <<EOF
-bootstrap_state_storage_account_name = "${STATE_SA}"
-bootstrap_state_storage_account_resource_group_name = "${STATE_RG}"
 EOF
 
 if [[ -n "${STATE_KEY_VAULT}" ]]; then
