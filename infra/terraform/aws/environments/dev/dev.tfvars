@@ -34,7 +34,7 @@ query_web_public_ingress_cidrs = ["101.161.226.47/32"] # required only when quer
 # query_web_tls_ssl_policy      = "ELBSecurityPolicy-TLS13-1-2-2021-06"
 
 ingestion_image_tag = "202605080125-dd46b4b"
-query_web_image_tag = "202605081021-dd46b4"
+query_web_image_tag = "202605081038-618150b"
 confluence_poller_image_tag = "202605070750-dd46b4b"
 
 # Confluence poller settings

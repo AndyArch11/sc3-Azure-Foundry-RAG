@@ -250,8 +250,8 @@
   function newConversation() {
     const s = loadSession() || {};
     saveSession({
-      session_id: s.session_id || crypto.randomUUID(),
-      conversation_id: crypto.randomUUID(),
+      session_id: s.session_id || _randomUUID(),
+      conversation_id: _randomUUID(),
       user_id: s.user_id || '',
       auth_token: s.auth_token || '',
       turns: []
@@ -1313,15 +1313,13 @@
       .catch(err => _renderAzureComplianceReport({ error: String(err) }));
   }
 
-  // Polyfill for crypto.randomUUID if not available (e.g., in some environments)
-  if (!crypto.randomUUID) {
-    crypto.randomUUID = function () {
-      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-        var r = (Math.random() * 16) | 0;
-        var v = c === 'x' ? r : (r & 0x3) | 0x8;
-        return v.toString(16);
-      });
-    };
+  // Cryptographically secure UUID v4 using window.crypto.getRandomValues.
+  function _randomUUID() {
+    var bytes = window.crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant bits
+    var hex = Array.from(bytes).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+    return hex.slice(0,8)+'-'+hex.slice(8,12)+'-'+hex.slice(12,16)+'-'+hex.slice(16,20)+'-'+hex.slice(20);
   }
 
   document.addEventListener('DOMContentLoaded', function () {
@@ -1331,7 +1329,7 @@
 
     let session = loadSession();
     if (!session) {
-      session = { session_id: crypto.randomUUID(), conversation_id: crypto.randomUUID(), user_id: '', auth_token: '', turns: [] };
+      session = { session_id: _randomUUID(), conversation_id: _randomUUID(), user_id: '', auth_token: '', turns: [] };
       saveSession(session);
     }
 

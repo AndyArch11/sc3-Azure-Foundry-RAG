@@ -2,6 +2,7 @@
 
 Supplements test_ingestion_runner.py to push coverage above 50%.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -15,7 +16,6 @@ import pytest
 
 import runtime.ingestion.runner as runner
 
-
 # ---------------------------------------------------------------------------
 # _is_missing_controls_source_error
 # ---------------------------------------------------------------------------
@@ -24,9 +24,14 @@ import runtime.ingestion.runner as runner
 def test_is_missing_controls_source_error_true_for_known_markers() -> None:
     assert runner._is_missing_controls_source_error(ValueError("file not found")) is True
     assert runner._is_missing_controls_source_error(ValueError("no such file or directory")) is True
-    assert runner._is_missing_controls_source_error(ValueError("upload source documents first")) is True
+    assert (
+        runner._is_missing_controls_source_error(ValueError("upload source documents first"))
+        is True
+    )
     assert runner._is_missing_controls_source_error(ValueError("workbook not found")) is True
-    assert runner._is_missing_controls_source_error(ValueError("PDF not found")) is True  # case-insensitive
+    assert (
+        runner._is_missing_controls_source_error(ValueError("PDF not found")) is True
+    )  # case-insensitive
 
 
 def test_is_missing_controls_source_error_false_for_unrelated_errors() -> None:
@@ -41,9 +46,16 @@ def test_is_missing_controls_source_error_false_for_unrelated_errors() -> None:
 
 
 def test_download_controls_source_files_aws_empty_prefix_returns_empty() -> None:
-    assert runner._download_controls_source_files_aws("cis_controls", "", object(), "my-bucket") == []
-    assert runner._download_controls_source_files_aws("cis_controls", "   ", object(), "my-bucket") == []
-    assert runner._download_controls_source_files_aws("cis_controls", "/", object(), "my-bucket") == []
+    assert (
+        runner._download_controls_source_files_aws("cis_controls", "", object(), "my-bucket") == []
+    )
+    assert (
+        runner._download_controls_source_files_aws("cis_controls", "   ", object(), "my-bucket")
+        == []
+    )
+    assert (
+        runner._download_controls_source_files_aws("cis_controls", "/", object(), "my-bucket") == []
+    )
 
 
 def test_download_controls_source_files_aws_unsupported_framework_raises() -> None:
@@ -108,7 +120,11 @@ def _setup_aws_env(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     monkeypatch.setitem(
         sys.modules,
         "runtime.credentials",
-        type("CRED", (), {"get_credential_provider": staticmethod(lambda cloud_provider=None: _FakeCred())}),
+        type(
+            "CRED",
+            (),
+            {"get_credential_provider": staticmethod(lambda cloud_provider=None: _FakeCred())},
+        ),
     )
     monkeypatch.setitem(
         sys.modules,
@@ -305,8 +321,8 @@ def test_run_aws_success_skip_upload(
         content = "Sample document text content for indexing purposes."
         source_type = "pdf"
 
-    import runtime.ingestion.extractors as _extractors
     import runtime.ingestion.chunking as _chunking
+    import runtime.ingestion.extractors as _extractors
     import runtime.ingestion.models as _models
 
     monkeypatch.setattr(_extractors, "extract_source_document", lambda *a, **k: _FakeRawDoc())
@@ -544,9 +560,7 @@ def _setup_controls_aws_modules(monkeypatch: pytest.MonkeyPatch, registry: dict)
             (),
             {
                 "_build_parser_registry": staticmethod(lambda: registry),
-                "_selected_frameworks": staticmethod(
-                    lambda framework, reg: list(reg.keys())
-                ),
+                "_selected_frameworks": staticmethod(lambda framework, reg: list(reg.keys())),
             },
         )(),
     )
@@ -616,9 +630,7 @@ def test_run_controls_aws_skip_missing_source_files(
                 "BadP",
                 (),
                 {
-                    "parse": lambda self: (_ for _ in ()).throw(
-                        RuntimeError("workbook not found")
-                    ),
+                    "parse": lambda self: (_ for _ in ()).throw(RuntimeError("workbook not found")),
                     "to_jsonl": lambda self, recs: "",
                 },
             )(),
@@ -749,9 +761,7 @@ def test_run_controls_aws_upload_failure(
             (),
             {
                 "_build_parser_registry": staticmethod(lambda: registry),
-                "_selected_frameworks": staticmethod(
-                    lambda framework, reg: list(reg.keys())
-                ),
+                "_selected_frameworks": staticmethod(lambda framework, reg: list(reg.keys())),
             },
         )(),
     )
@@ -902,9 +912,7 @@ def _setup_controls_azure_modules(monkeypatch: pytest.MonkeyPatch, registry: dic
             (),
             {
                 "_build_parser_registry": staticmethod(lambda: registry),
-                "_selected_frameworks": staticmethod(
-                    lambda framework, reg: list(reg.keys())
-                ),
+                "_selected_frameworks": staticmethod(lambda framework, reg: list(reg.keys())),
             },
         )(),
     )
@@ -944,9 +952,7 @@ def test_run_controls_azure_skip_missing_source_files(
                 "BadP",
                 (),
                 {
-                    "parse": lambda self: (_ for _ in ()).throw(
-                        RuntimeError("PDF not found")
-                    ),
+                    "parse": lambda self: (_ for _ in ()).throw(RuntimeError("PDF not found")),
                     "to_jsonl": lambda self, recs: "",
                 },
             )(),

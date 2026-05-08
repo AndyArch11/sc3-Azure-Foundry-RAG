@@ -11,7 +11,6 @@ import requests
 from runtime.ingestion import grounding_index_aws as mod
 from runtime.ingestion.grounding_index_aws import AWSGroundingIndexConfig
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

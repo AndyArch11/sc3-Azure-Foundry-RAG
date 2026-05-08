@@ -10,7 +10,6 @@ import requests
 
 from runtime.ingestion import publish_grounding_aws as mod
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -142,7 +141,13 @@ def test_bulk_index_chunks_counts_indexed_and_failed(monkeypatch: pytest.MonkeyP
         "items": [
             {"index": {"_id": "c1", "status": 201}},
             {"index": {"_id": "c2", "status": 200}},
-            {"index": {"_id": "c3", "status": 500, "error": {"type": "mapper_exception", "reason": "bad"}}},
+            {
+                "index": {
+                    "_id": "c3",
+                    "status": 500,
+                    "error": {"type": "mapper_exception", "reason": "bad"},
+                }
+            },
         ]
     }
 
@@ -195,7 +200,9 @@ def test_fetch_existing_dedupe_hashes_returns_empty_when_no_hashes(
 
     monkeypatch.setattr(mod, "request_with_instrumentation", _fake_request)
     # chunks with no dedupe_hash — no request should be made
-    result = mod._fetch_existing_dedupe_hashes(_cfg(), session=SimpleNamespace(), chunks=[{"chunk_id": "c1"}])
+    result = mod._fetch_existing_dedupe_hashes(
+        _cfg(), session=SimpleNamespace(), chunks=[{"chunk_id": "c1"}]
+    )
     assert result == set()
     assert called["post"] is False
 
@@ -204,13 +211,9 @@ def test_fetch_existing_dedupe_hashes_returns_empty_on_404(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(mod, "_signed_headers", lambda *a, **k: {"h": "v"})
-    monkeypatch.setattr(
-        mod, "request_with_instrumentation", lambda *a, **k: _Resp(404)
-    )
+    monkeypatch.setattr(mod, "request_with_instrumentation", lambda *a, **k: _Resp(404))
 
-    result = mod._fetch_existing_dedupe_hashes(
-        _cfg(), session=SimpleNamespace(), chunks=[_chunk()]
-    )
+    result = mod._fetch_existing_dedupe_hashes(_cfg(), session=SimpleNamespace(), chunks=[_chunk()])
     assert result == set()
 
 
@@ -230,9 +233,7 @@ def test_fetch_existing_dedupe_hashes_parses_agg_buckets(
             }
         }
     }
-    monkeypatch.setattr(
-        mod, "request_with_instrumentation", lambda *a, **k: _Resp(200, payload)
-    )
+    monkeypatch.setattr(mod, "request_with_instrumentation", lambda *a, **k: _Resp(200, payload))
 
     result = mod._fetch_existing_dedupe_hashes(
         _cfg(),
@@ -248,17 +249,13 @@ def test_fetch_existing_dedupe_hashes_parses_agg_buckets(
 
 
 def test_upload_grounding_chunks_returns_zero_on_empty(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        mod, "_fetch_existing_dedupe_hashes", lambda *a, **k: set()
-    )
+    monkeypatch.setattr(mod, "_fetch_existing_dedupe_hashes", lambda *a, **k: set())
     result = mod.upload_grounding_chunks_aws(_cfg(), session=SimpleNamespace(), chunks=[])
     assert result == {"records_indexed": 0, "records_skipped": 0, "records_failed": 0}
 
 
 def test_upload_grounding_chunks_skips_already_indexed(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        mod, "_fetch_existing_dedupe_hashes", lambda *a, **k: {"h1"}
-    )
+    monkeypatch.setattr(mod, "_fetch_existing_dedupe_hashes", lambda *a, **k: {"h1"})
     bulk_called = {"n": 0}
 
     def _fake_bulk(config: Any, session: Any, chunks: list) -> tuple[int, int]:
