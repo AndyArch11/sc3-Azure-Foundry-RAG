@@ -369,7 +369,7 @@ As of 2026-05-02:
 - EasyAuth excludes `/metrics`.
 - AMW Prometheus endpoint queries (`up`, application metric names) return empty vectors.
 
-This indicates the remaining issue is not Terraform wiring syntax but unresolved runtime/service ingestion behavior. Resume later with support-assisted investigation if needed.
+This indicates the remaining issue is not Terraform wiring syntax but unresolved runtime/service ingestion behaviour. Resume later with support-assisted investigation if needed.
 
 ---
 

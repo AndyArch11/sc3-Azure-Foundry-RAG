@@ -63,5 +63,10 @@ class AWSS3StorageClient:
             raw["version_id"] = response.get("VersionId")
         return raw
 
+    def get_object(self, bucket_or_container: str, key: str) -> bytes:
+        """Download object content from S3."""
+        response = self._s3.get_object(Bucket=bucket_or_container, Key=key)
+        return response["Body"].read()
+
     def delete_object(self, bucket_or_container: str, key: str) -> None:
         self._s3.delete_object(Bucket=bucket_or_container, Key=key)

@@ -153,6 +153,7 @@ def _local_completion_token_defaults() -> tuple[int, int]:
 class QueryConfig:
     """Runtime configuration for query-web endpoints and helpers."""
 
+    cloud_provider: str
     search_endpoint: str
     search_index_name: str
     controls_index_name: str
@@ -169,10 +170,16 @@ class QueryConfig:
 
     storage_account_name: str
     storage_container_name: str
+    s3_bucket_name: str
 
     ingestion_job_subscription_id: str
     ingestion_job_resource_group: str
     ingestion_job_name: str
+
+    ecs_cluster_name: str
+    ingestion_task_definition_arn: str
+    ecs_sg_id: str
+    ecs_subnet_id: str
 
     default_temperature: float
     evaluator_temperature: float
@@ -319,30 +326,56 @@ def load_config() -> QueryConfig:
     """Load and normalise application configuration from environment variables."""
 
     provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower()
+    is_aws = provider == "aws"
     is_local = provider in {"local", "dev"}
     if is_local:
         local_max_completion_tokens, local_evaluator_max_completion_tokens = (
             _local_completion_token_defaults()
         )
     else:
-        local_max_completion_tokens, local_evaluator_max_completion_tokens = (1400, 800)
+        local_max_completion_tokens, local_evaluator_max_completion_tokens = (4096, 1400)
 
     return QueryConfig(
+        cloud_provider=provider,
         search_endpoint=(
             os.getenv("AZURE_SEARCH_ENDPOINT", "http://local-search")
             if is_local
-            else _require_env("AZURE_SEARCH_ENDPOINT")
+            else (
+                _require_env("OPENSEARCH_ENDPOINT")
+                if is_aws
+                else _require_env("AZURE_SEARCH_ENDPOINT")
+            )
         ),
-        search_index_name=os.getenv("AZURE_SEARCH_INDEX_NAME", "grounding-index"),
-        controls_index_name=os.getenv("AZURE_SEARCH_CONTROLS_INDEX_NAME", "controls-index"),
+        search_index_name=(
+            os.getenv("SEARCH_INDEX_NAME", os.getenv("OPENSEARCH_INDEX", "grounding-index"))
+            if is_aws
+            else os.getenv("AZURE_SEARCH_INDEX_NAME", "grounding-index")
+        ),
+        controls_index_name=(
+            os.getenv("CONTROLS_INDEX_NAME", "controls-index")
+            if is_aws
+            else os.getenv("AZURE_SEARCH_CONTROLS_INDEX_NAME", "controls-index")
+        ),
         openai_endpoint=(
             os.getenv("AZURE_OPENAI_ENDPOINT", "http://local-llm")
             if is_local
-            else _require_env("AZURE_OPENAI_ENDPOINT")
+            else "" if is_aws else _require_env("AZURE_OPENAI_ENDPOINT")
         ),
-        embedding_deployment=os.getenv("EMBEDDING_DEPLOYMENT_NAME", "text-embedding-ada-002"),
-        query_deployment=os.getenv("QUERY_DEPLOYMENT_NAME", "gpt-5.1-chat"),
-        evaluator_deployment=os.getenv("EVALUATOR_DEPLOYMENT_NAME", "gpt-4.1-mini"),
+        embedding_deployment=(
+            os.getenv("BEDROCK_EMBEDDING_MODEL_ID", "")
+            if is_aws
+            else os.getenv("EMBEDDING_DEPLOYMENT_NAME", "text-embedding-ada-002")
+        ),
+        query_deployment=(
+            os.getenv("BEDROCK_MODEL_ID", "")
+            if is_aws
+            else os.getenv("QUERY_DEPLOYMENT_NAME", "gpt-5.1-chat")
+        ),
+        evaluator_deployment=(
+            os.getenv("BEDROCK_MODEL_ID", "")
+            if is_aws
+            else os.getenv("EVALUATOR_DEPLOYMENT_NAME", "gpt-4.1-mini")
+        ),
         search_top_k=int(os.getenv("SEARCH_TOP_K", "5")),
         controls_top_k=int(os.getenv("CONTROLS_TOP_K", "4")),
         controls_semantic_default=_env_bool("CONTROLS_SEMANTIC_DEFAULT", default=False),
@@ -357,9 +390,14 @@ def load_config() -> QueryConfig:
         ).strip(),
         storage_account_name=os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "").strip(),
         storage_container_name=os.getenv("AZURE_STORAGE_CONTAINER_NAME", "grounding-data").strip(),
+        s3_bucket_name=os.getenv("S3_BUCKET_NAME", "").strip(),
         ingestion_job_subscription_id=os.getenv("INGESTION_JOB_SUBSCRIPTION_ID", "").strip(),
         ingestion_job_resource_group=os.getenv("INGESTION_JOB_RESOURCE_GROUP", "").strip(),
         ingestion_job_name=os.getenv("INGESTION_JOB_NAME", "").strip(),
+        ecs_cluster_name=os.getenv("ECS_CLUSTER_NAME", "").strip(),
+        ingestion_task_definition_arn=os.getenv("INGESTION_TASK_DEFINITION_ARN", "").strip(),
+        ecs_sg_id=os.getenv("ECS_SG_ID", "").strip(),
+        ecs_subnet_id=os.getenv("ECS_SUBNET_ID", "").strip(),
         default_temperature=float(os.getenv("DEFAULT_TEMPERATURE", "1")),
         evaluator_temperature=float(os.getenv("EVALUATOR_TEMPERATURE", "1.0")),
         evaluation_threshold=float(os.getenv("ACCEPTABLE_SCORE_THRESHOLD", "0.72")),
@@ -381,17 +419,25 @@ def load_config() -> QueryConfig:
         cosmos_endpoint=(
             os.getenv("AZURE_COSMOS_ENDPOINT", "")
             if is_local
-            else _require_env("AZURE_COSMOS_ENDPOINT")
+            else "" if is_aws else _require_env("AZURE_COSMOS_ENDPOINT")
         ),
         cosmos_database_name=(
             os.getenv("AZURE_COSMOS_DATABASE_NAME", "local-db")
             if is_local
-            else _require_env("AZURE_COSMOS_DATABASE_NAME")
+            else (
+                os.getenv("AZURE_COSMOS_DATABASE_NAME", "")
+                if is_aws
+                else _require_env("AZURE_COSMOS_DATABASE_NAME")
+            )
         ),
         cosmos_container_name=(
             os.getenv("AZURE_COSMOS_CONTAINER_NAME", "local-conversations")
             if is_local
-            else _require_env("AZURE_COSMOS_CONTAINER_NAME")
+            else (
+                os.getenv("AZURE_COSMOS_CONTAINER_NAME", "")
+                if is_aws
+                else _require_env("AZURE_COSMOS_CONTAINER_NAME")
+            )
         ),
         cosmos_orchestration_container_name=os.getenv(
             "AZURE_COSMOS_ORCHESTRATION_CONTAINER_NAME",

@@ -14,6 +14,47 @@ from runtime.outbound_instrumentation import request_with_instrumentation
 logger = logging.getLogger(__name__)
 
 
+def _is_missing_index_error(exc: Exception) -> bool:
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    return isinstance(exc, requests.exceptions.HTTPError) and status_code == 404
+
+
+def _client_search(
+    client: Any,
+    *,
+    query_text: str = "*",
+    filter_expr: str = "",
+    top: int,
+    select: list[str] | None = None,
+    include_total_count: bool = False,
+) -> Any:
+    """Dispatch client.search() with provider-appropriate keyword arguments.
+
+    AWS OpenSearch uses ``query_text`` / ``filters``; Azure SDK uses
+    ``search_text`` / ``filter`` / ``include_total_count``.
+    """
+    try:
+        from runtime.search.opensearch import AWSOpenSearchClient  # noqa: PLC0415
+
+        if isinstance(client, AWSOpenSearchClient):
+            return client.search(
+                query_text=query_text,
+                filters=filter_expr or None,
+                top=top,
+                select=select,
+            )
+    except ImportError:
+        pass
+    # Azure SDK SearchClient
+    kwargs: dict[str, Any] = {"search_text": query_text, "filter": filter_expr, "top": top}
+    if include_total_count:
+        kwargs["include_total_count"] = True
+    if select is not None:
+        kwargs["select"] = select
+    return client.search(**kwargs)
+
+
 def _embed_query(question: str, *, svc: Any) -> list[float]:
     token = svc._cognitive_token()
     url = (
@@ -99,7 +140,7 @@ def _hybrid_search(
 
         provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower()
 
-    if provider in {"local", "dev"}:
+    if provider in {"local", "dev", "aws"}:
         vector = None
         timings["embedding_s"] = 0.0
     else:
@@ -189,12 +230,21 @@ def _delete_search_documents_by_filter(
     rounds = 0
     while rounds < max_rounds:
         rounds += 1
-        pager = client.search(
-            search_text="*",
-            filter=filter_expr,
-            top=page_size,
-            select=[key_field],
-        )
+        try:
+            pager = _client_search(
+                client,
+                filter_expr=filter_expr,
+                top=page_size,
+                select=[key_field],
+            )
+        except Exception as exc:
+            if _is_missing_index_error(exc):
+                logger.info(
+                    "Search index missing while deleting documents for filter %s; treating as empty",
+                    filter_expr,
+                )
+                break
+            raise
         keys: list[str] = []
         for item in pager:
             value = str(item.get(key_field, "")).strip()
@@ -214,16 +264,25 @@ def _count_search_documents_by_filter(
     *,
     filter_expr: str,
 ) -> dict[str, int]:
-    pager = client.search(
-        search_text="*",
-        filter=filter_expr,
-        top=1,
-        include_total_count=True,
-    )
-    for _ in pager:
-        break
-    count = pager.get_count() or 0
-    return {"would_delete": int(count)}
+    try:
+        pager = _client_search(
+            client,
+            filter_expr=filter_expr,
+            top=1,
+            include_total_count=True,
+        )
+        for _ in pager:
+            break
+        count = pager.get_count() or 0
+        return {"would_delete": int(count)}
+    except Exception as exc:
+        if _is_missing_index_error(exc):
+            logger.info(
+                "Search index missing while counting documents for filter %s; treating as empty",
+                filter_expr,
+            )
+            return {"would_delete": 0}
+        raise
 
 
 def _list_search_documents_by_filter(
@@ -234,13 +293,26 @@ def _list_search_documents_by_filter(
     limit: int,
 ) -> dict[str, Any]:
     capped_limit = max(1, min(limit, 200))
-    pager = client.search(
-        search_text="*",
-        filter=filter_expr,
-        top=capped_limit,
-        include_total_count=True,
-        select=select_fields,
-    )
+    try:
+        pager = _client_search(
+            client,
+            filter_expr=filter_expr,
+            top=capped_limit,
+            include_total_count=True,
+            select=select_fields,
+        )
+    except Exception as exc:
+        if _is_missing_index_error(exc):
+            logger.info(
+                "Search index missing while listing documents for filter %s; treating as empty",
+                filter_expr,
+            )
+            return {
+                "total_count": 0,
+                "returned_count": 0,
+                "items": [],
+            }
+        raise
     items: list[dict[str, Any]] = []
     for item in pager:
         row: dict[str, Any] = {}
@@ -257,9 +329,9 @@ def _list_search_documents_by_filter(
 
 def _count_search_documents_total_by_filter(client: Any, *, filter_expr: str) -> int:
     try:
-        pager = client.search(
-            search_text="*",
-            filter=filter_expr,
+        pager = _client_search(
+            client,
+            filter_expr=filter_expr,
             top=1,
             include_total_count=True,
             select=["id"],
@@ -268,5 +340,11 @@ def _count_search_documents_total_by_filter(client: Any, *, filter_expr: str) ->
             break
         return int(pager.get_count() or 0)
     except Exception as exc:
+        if _is_missing_index_error(exc):
+            logger.info(
+                "Search index missing while counting total documents for filter %s; treating as empty",
+                filter_expr,
+            )
+            return 0
         logger.warning("Failed to count search documents for filter %s: %s", filter_expr, exc)
         return 0

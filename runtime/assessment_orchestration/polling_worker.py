@@ -839,12 +839,15 @@ def run_forever(
 
 def create_cosmos_state_store_from_env(
     env: dict[str, str] | None = None,
+    *,
+    aws_session: Any = None,
 ) -> PollingStateStore:
     """Create a poller state store from environment settings.
 
     Modes:
     - local/dev: SQLite-backed state using LOCAL_STATE_DB_PATH when set,
       otherwise defaults to runtime/out/local_state.db.
+    - aws: DynamoDB-backed state using DYNAMODB_TABLE.
     - azure/default: Cosmos-backed state (requires endpoint + database).
     """
     values = dict(os.environ) if env is None else dict(env)
@@ -869,6 +872,19 @@ def create_cosmos_state_store_from_env(
                 )
                 return SqlitePollingStateStore(default_local_path)
             raise
+
+    if provider == "aws":
+        from .dynamo_state_store import DynamoDBPollingStateStore
+
+        table_name = str(values.get("DYNAMODB_TABLE") or "").strip()
+        region_name = str(
+            values.get("AWS_REGION") or values.get("AWS_DEFAULT_REGION") or ""
+        ).strip()
+        return DynamoDBPollingStateStore(
+            table_name=table_name or None,
+            session=aws_session,
+            region_name=region_name or None,
+        )
 
     endpoint = str(values.get("AZURE_COSMOS_ENDPOINT") or "").strip()
     database_name = str(values.get("AZURE_COSMOS_DATABASE_NAME") or "").strip()

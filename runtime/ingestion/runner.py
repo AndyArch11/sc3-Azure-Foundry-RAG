@@ -9,7 +9,11 @@ from pathlib import Path
 
 from azure.core.credentials import TokenCredential
 
-from runtime.log_config import configure_logging as _configure_logging
+try:
+    from runtime.log_config import configure_logging as _configure_logging
+except ModuleNotFoundError:
+    # Runtime container image copies log_config.py to /app (without runtime/ package).
+    from log_config import configure_logging as _configure_logging
 
 from .chunking import chunk_documents
 from .extractors import discover_supported_files, extract_source_document
@@ -31,6 +35,19 @@ _CONTROLS_SOURCE_TARGET_FILENAMES = {
         "PCI-DSS-v4_0_1.pdf",
     },
 }
+
+
+def _is_missing_controls_source_error(exc: Exception) -> bool:
+    """Return True when a parser error indicates missing local source files."""
+    message = str(exc).lower()
+    markers = (
+        "not found",
+        "no such file",
+        "upload source documents first",
+        "workbook not found",
+        "pdf not found",
+    )
+    return any(marker in message for marker in markers)
 
 
 def parse_args() -> argparse.Namespace:
@@ -150,6 +167,15 @@ modes:
         default=None,
         help="(controls mode) blob prefix containing staged framework source documents to download into runtime/samples/api/corpus-a before parsing",
     )
+    parser.add_argument(
+        "--skip-missing-source-files",
+        action="store_true",
+        default=False,
+        help=(
+            "(controls mode) skip frameworks whose parser requires local source files that are "
+            "not present (for example cis_controls/pci_dss)"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -196,6 +222,60 @@ def _download_controls_source_files(
         (samples_dir / filename).write_bytes(data)
         found_filenames.add(filename)
         downloaded.append(filename)
+
+    missing = sorted(expected_filenames - found_filenames)
+    if missing:
+        raise RuntimeError(
+            "Missing staged controls source files for " f"{framework}: {', '.join(missing)}."
+        )
+
+    return sorted(downloaded)
+
+
+def _download_controls_source_files_aws(
+    framework: str,
+    source_prefix: str,
+    aws_session: object,
+    s3_bucket_name: str,
+) -> list[str]:
+    """Download staged controls source documents from S3 into runtime samples dir."""
+    prefix = str(source_prefix or "").strip().strip("/")
+    if not prefix:
+        return []
+    if framework not in _CONTROLS_SOURCE_TARGET_FILENAMES:
+        raise RuntimeError(
+            "--controls-source-prefix is only supported for cis_controls and pci_dss."
+        )
+    bucket = str(s3_bucket_name or "").strip()
+    if not bucket:
+        raise RuntimeError("S3_BUCKET_NAME is required when --controls-source-prefix is provided.")
+
+    expected_filenames = set(_CONTROLS_SOURCE_TARGET_FILENAMES[framework])
+    samples_dir = Path(__file__).resolve().parents[1] / "samples" / "api" / "corpus-a"
+    samples_dir.mkdir(parents=True, exist_ok=True)
+
+    if not hasattr(aws_session, "client") or not callable(getattr(aws_session, "client")):
+        raise RuntimeError("AWS session is not available for S3 source-file download.")
+    import boto3 as _boto3
+
+    _typed_session: _boto3.Session = aws_session  # type: ignore[assignment]
+    s3_client = _typed_session.client("s3")
+
+    downloaded: list[str] = []
+    found_filenames: set[str] = set()
+    paginator = s3_client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=f"{prefix}/"):
+        for obj in page.get("Contents", []) or []:
+            key = str(obj.get("Key") or "")
+            filename = Path(key).name
+            if filename not in expected_filenames:
+                logger.warning("Ignoring unexpected controls source object: %s", key)
+                continue
+
+            data = s3_client.get_object(Bucket=bucket, Key=key)["Body"].read()
+            (samples_dir / filename).write_bytes(data)
+            found_filenames.add(filename)
+            downloaded.append(filename)
 
     missing = sorted(expected_filenames - found_filenames)
     if missing:
@@ -428,14 +508,25 @@ def _run_azure(args: argparse.Namespace) -> int:
 
 
 def _run_aws(args: argparse.Namespace) -> int:
-    """Run ingestion on AWS using S3 storage and OpenSearch indexing.
+    """Run Corpus B ingestion on AWS: upload to S3 then extract, chunk and index into OpenSearch.
 
-    This function handles document upload to S3. OpenSearch indexing is handled by a
-    separate AWS service integration (Phase 3 future work).
+    When ``--skip-upload`` is set the files are already in S3 (e.g. they were previously
+    uploaded via the query-web /api/corpus-b/ingest endpoint) and only the indexing step
+    runs.  The S3 prefix to index is taken from ``--storage-container-query`` (which maps
+    to ``AWS_S3_PREFIX``) or defaults to ``corpus-b/by-dedupe/``.
     """
-    from ..credentials import get_credential_provider
-    from ..storage import get_storage_client
-    from .config import IngestionConfig
+    import tempfile
+
+    try:
+        from ..credentials import get_credential_provider
+        from ..storage import get_storage_client
+    except ImportError:
+        from credentials import get_credential_provider
+        from storage import get_storage_client
+    from .chunking import chunk_documents
+    from .extractors import SUPPORTED_EXTENSIONS, extract_source_document
+    from .grounding_index_aws import AWSGroundingIndexConfig, ensure_grounding_index_aws
+    from .publish_grounding_aws import upload_grounding_chunks_aws
 
     # Allow per-run scoping via environment variable.
     storage_container_query_override = str(
@@ -444,17 +535,28 @@ def _run_aws(args: argparse.Namespace) -> int:
     if storage_container_query_override:
         os.environ["AWS_S3_PREFIX"] = storage_container_query_override
 
-    try:
-        config = IngestionConfig.from_env()
-    except ValueError as exc:
-        print(f"Configuration error: {exc}", file=sys.stderr)
-        return 1
-
     # Step 1: get AWS credentials from abstraction layer
     credential_provider = get_credential_provider(cloud_provider="aws")
     aws_session = credential_provider.get_sdk_credential()
 
+    corpus = os.getenv("INGESTION_CORPUS", "b").strip() or "b"
+    index_prefix = os.getenv("AWS_S3_PREFIX", "").strip() or f"corpus-{corpus}/by-dedupe/"
+    bucket_name = (
+        os.getenv("S3_BUCKET_NAME", "").strip() or os.getenv("AWS_S3_BUCKET_NAME", "").strip()
+    )
+    if not bucket_name:
+        print("S3_BUCKET_NAME or AWS_S3_BUCKET_NAME is required for aws mode", file=sys.stderr)
+        return 1
+
+    s3_client = get_storage_client(
+        cloud_provider="aws", region_name=os.getenv("AWS_REGION"), session=aws_session
+    )
+
     # Step 2: upload source documents to S3 (unless --skip-upload)
+    uploaded_count = 0
+    skipped_count = 0
+    upload_failed_count = 0
+
     if not args.skip_upload:
         if args.input_dir is None:
             print("--input-dir is required unless --skip-upload is set", file=sys.stderr)
@@ -465,19 +567,6 @@ def _run_aws(args: argparse.Namespace) -> int:
             return 2
 
         logger.info("Uploading source documents to AWS S3…")
-        # Get S3 storage client using abstraction factory
-        s3_client = get_storage_client(
-            cloud_provider="aws", region_name=os.getenv("AWS_REGION"), session=aws_session
-        )
-
-        # Build bucket/prefix names
-        bucket_name = config.storage_account_name  # Reuse config for S3 bucket name
-        corpus = os.getenv("INGESTION_CORPUS", "b").strip() or "b"
-        prefix = f"corpus-{corpus}/by-dedupe/"
-
-        uploaded_count = 0
-        skipped_count = 0
-        failed_count = 0
 
         for file_path in input_dir.rglob("*"):
             if not file_path.is_file():
@@ -489,11 +578,9 @@ def _run_aws(args: argparse.Namespace) -> int:
                     skipped_count += 1
                     continue
 
-                # Use relative path as S3 key
                 relative_key = str(file_path.relative_to(input_dir))
-                s3_key = f"{prefix}{relative_key}"
+                s3_key = f"{index_prefix}{relative_key}"
 
-                # Build metadata
                 metadata = {
                     "corpus": corpus,
                     "corpus_role": os.getenv("INGESTION_CORPUS_ROLE", "narrative_guidance")
@@ -514,36 +601,174 @@ def _run_aws(args: argparse.Namespace) -> int:
                 uploaded_count += 1
                 logger.debug("Uploaded: %s", s3_key)
             except Exception as exc:
-                failed_count += 1
+                upload_failed_count += 1
                 logger.error("Failed to upload %s: %s", file_path, exc)
 
         logger.info(
             "S3 upload complete: %d uploaded, %d skipped, %d failed",
             uploaded_count,
             skipped_count,
-            failed_count,
+            upload_failed_count,
         )
 
-        if failed_count > 0:
+        if upload_failed_count > 0:
             return 1
     else:
-        logger.info("Skipping S3 upload (--skip-upload); files must already be in bucket")
+        logger.info(
+            "Skipping S3 upload (--skip-upload); files must already be in bucket at %s",
+            index_prefix,
+        )
 
-    # Step 3: log that OpenSearch indexing would be triggered separately
-    logger.warning(
-        "Document upload to S3 complete. OpenSearch indexing is handled by a separate AWS service. "
-        "Verify AWS OpenSearch indexing pipeline is configured and monitoring the S3 bucket."
+    # Step 3: ensure grounding-index exists in OpenSearch
+    try:
+        grounding_config = AWSGroundingIndexConfig.from_env()
+    except ValueError as exc:
+        print(f"Grounding index configuration error: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        ensure_grounding_index_aws(grounding_config, aws_session)
+    except Exception as exc:
+        print(f"Failed to ensure grounding index: {exc}", file=sys.stderr)
+        return 1
+
+    # Step 4: list all files in S3 under the index prefix, download, extract, chunk, index
+    logger.info("Listing S3 objects under prefix: %s/%s", bucket_name, index_prefix)
+    try:
+        all_keys = s3_client.list_objects(bucket_name, prefix=index_prefix)
+    except Exception as exc:
+        print(f"Failed to list S3 objects: {exc}", file=sys.stderr)
+        return 1
+
+    # Filter to supported file extensions only
+    indexable_keys = [k for k in all_keys if Path(k).suffix.lower() in SUPPORTED_EXTENSIONS]
+    logger.info(
+        "Found %d total objects, %d with supported extensions under prefix",
+        len(all_keys),
+        len(indexable_keys),
     )
+
+    if not indexable_keys:
+        summary = {
+            "status": "success",
+            "mode": "aws",
+            "storage": "s3",
+            "corpus": corpus,
+            "prefix": index_prefix,
+            "s3_objects_found": len(all_keys),
+            "documents_processed": 0,
+            "chunks_indexed": 0,
+            "chunks_failed": 0,
+            "note": "No indexable files found under prefix.",
+        }
+        print(json.dumps(summary, ensure_ascii=True))
+        return 0
+
+    docs_processed = 0
+    docs_failed = 0
+    all_chunk_records: list[dict] = []
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+
+        for s3_key in indexable_keys:
+            try:
+                content = s3_client.get_object(bucket_name, s3_key)
+            except Exception as exc:
+                logger.error("Failed to download %s: %s", s3_key, exc)
+                docs_failed += 1
+                continue
+
+            # Retrieve S3 metadata for provenance fields
+            try:
+                obj_meta = s3_client.get_object_metadata(bucket_name, s3_key)
+            except Exception:
+                obj_meta = {}
+
+            suffix = Path(s3_key).suffix.lower()
+            tmp_file = tmp_path / f"{Path(s3_key).stem}{suffix}"
+            tmp_file.write_bytes(content)
+
+            try:
+                doc_tmp = extract_source_document(tmp_file)
+                # Use S3 key as canonical source_path so chunk_ids are stable across re-runs.
+                from .models import SourceDocument as _SourceDocument
+
+                doc = _SourceDocument(
+                    source_path=s3_key,
+                    source_type=doc_tmp.source_type,
+                    text=doc_tmp.text,
+                )
+            except Exception as exc:
+                logger.warning("Text extraction failed for %s: %s", s3_key, exc)
+                docs_failed += 1
+                continue
+
+            if not doc.text.strip():
+                logger.warning("No text extracted from %s; skipping", s3_key)
+                docs_failed += 1
+                continue
+
+            chunks = chunk_documents([doc])
+            docs_processed += 1
+
+            for chunk in chunks:
+                all_chunk_records.append(
+                    {
+                        "chunk_id": chunk.chunk_id,
+                        "chunk_index": chunk.chunk_index,
+                        "content": chunk.content,
+                        "source_path": s3_key,
+                        "source_name": Path(s3_key).name,
+                        "source_type": chunk.source_type,
+                        "corpus": str(obj_meta.get("corpus") or corpus),
+                        "corpus_role": str(obj_meta.get("corpus_role") or "narrative_guidance"),
+                        "upload_source": str(obj_meta.get("upload_source") or ""),
+                        "uploaded_by": str(obj_meta.get("uploaded_by") or ""),
+                        "upload_batch": str(obj_meta.get("upload_batch") or ""),
+                        "uploaded_at": str(obj_meta.get("uploaded_at") or ""),
+                        "original_filename": str(
+                            obj_meta.get("original_filename") or Path(s3_key).name
+                        ),
+                        "content_sha256": str(obj_meta.get("content_sha256") or ""),
+                        "normalised_text_sha256": str(obj_meta.get("normalised_text_sha256") or ""),
+                        "dedupe_hash": str(obj_meta.get("dedupe_hash") or ""),
+                        "dedupe_method": str(obj_meta.get("dedupe_method") or ""),
+                    }
+                )
+
+    # Step 5: bulk-index all chunks into OpenSearch
+    index_result: dict = {"records_indexed": 0, "records_skipped": 0, "records_failed": 0}
+    if all_chunk_records:
+        try:
+            index_result = upload_grounding_chunks_aws(
+                grounding_config,
+                aws_session,
+                all_chunk_records,
+                replace_existing=bool(getattr(args, "replace_existing", False)),
+            )
+        except Exception as exc:
+            print(f"OpenSearch grounding indexing failed: {exc}", file=sys.stderr)
+            return 1
 
     summary = {
         "status": "success",
         "mode": "aws",
         "storage": "s3",
-        "corpus": os.getenv("INGESTION_CORPUS", "b"),
-        "note": "S3 upload complete. OpenSearch indexing handled by separate service.",
+        "corpus": corpus,
+        "prefix": index_prefix,
+        "s3_objects_found": len(all_keys),
+        "documents_processed": docs_processed,
+        "documents_failed": docs_failed,
+        "chunks_total": len(all_chunk_records),
+        "chunks_indexed": index_result.get("records_indexed", 0),
+        "chunks_skipped": index_result.get("records_skipped", 0),
+        "chunks_failed": index_result.get("records_failed", 0),
+        "s3_uploads": uploaded_count,
+        "s3_upload_failed": upload_failed_count,
     }
     print(json.dumps(summary, ensure_ascii=True))
-    return 0
+    return 0 if docs_failed == 0 and index_result.get("records_failed", 0) == 0 else 1
 
 
 def _run_reset(args: argparse.Namespace) -> int:
@@ -553,8 +778,12 @@ def _run_reset(args: argparse.Namespace) -> int:
         cloud_provider = "azure"
 
     if cloud_provider == "aws":
-        from ..credentials import get_credential_provider
-        from ..storage import get_storage_client
+        try:
+            from ..credentials import get_credential_provider
+            from ..storage import get_storage_client
+        except ImportError:
+            from credentials import get_credential_provider
+            from storage import get_storage_client
         from .reset_aws import AWSResetConfig, reset_loaded_data_aws
 
         try:
@@ -642,18 +871,15 @@ def _run_controls(args: argparse.Namespace) -> int:
     from .controls_runner import _build_parser_registry, _selected_frameworks
 
     source_prefix = str(getattr(args, "controls_source_prefix", "") or "").strip()
+    skip_missing_source_files = bool(getattr(args, "skip_missing_source_files", False))
 
     if cloud_provider == "aws":
-        from ..credentials import get_credential_provider
+        try:
+            from ..credentials import get_credential_provider
+        except ImportError:
+            from credentials import get_credential_provider
         from .controls_index_aws import AWSControlsIndexConfig, ensure_controls_index_aws
         from .publish_controls_aws import upload_controls_records_aws
-
-        if source_prefix:
-            print(
-                "--controls-source-prefix is only supported when CLOUD_PROVIDER=azure",
-                file=sys.stderr,
-            )
-            return 1
 
         try:
             aws_config = AWSControlsIndexConfig.from_env()
@@ -663,7 +889,36 @@ def _run_controls(args: argparse.Namespace) -> int:
 
         credential_provider = get_credential_provider(cloud_provider="aws")
         aws_session = credential_provider.get_sdk_credential()
+
+        if hasattr(aws_session, "client") and callable(getattr(aws_session, "client")):
+            try:
+                caller = aws_session.client("sts").get_caller_identity()
+                logger.info(
+                    "AWS caller identity resolved for controls ingestion",
+                    extra={
+                        "aws_account_id": caller.get("Account", ""),
+                        "aws_principal_arn": caller.get("Arn", ""),
+                        "opensearch_endpoint": aws_config.opensearch_endpoint,
+                        "controls_index_name": aws_config.controls_index_name,
+                    },
+                )
+            except Exception as exc:
+                logger.warning("Unable to resolve AWS caller identity: %s", exc)
+
         ensure_controls_index_aws(aws_config, aws_session)
+
+        downloaded_source_files: list[str] = []
+        if source_prefix:
+            try:
+                downloaded_source_files = _download_controls_source_files_aws(
+                    args.controls_framework,
+                    source_prefix,
+                    aws_session,
+                    os.getenv("S3_BUCKET_NAME", ""),
+                )
+            except Exception as exc:
+                print(f"Controls source staging error: {exc}", file=sys.stderr)
+                return 1
 
         registry = _build_parser_registry()
         selected = _selected_frameworks(args.controls_framework, registry)
@@ -676,6 +931,19 @@ def _run_controls(args: argparse.Namespace) -> int:
                 )
                 records = parser_instance.parse()
             except Exception as exc:
+                if skip_missing_source_files and _is_missing_controls_source_error(exc):
+                    aws_summaries.append(
+                        {
+                            "framework": framework,
+                            "action": "skipped_missing_source",
+                            "reason": str(exc),
+                            "records_total": 0,
+                            "records_uploaded": 0,
+                            "records_failed": 0,
+                            "records_skipped": 0,
+                        }
+                    )
+                    continue
                 aws_summaries.append(
                     {
                         "framework": framework,
@@ -727,8 +995,9 @@ def _run_controls(args: argparse.Namespace) -> int:
             "mode": "controls",
             "cloud_provider": cloud_provider,
             "framework": args.controls_framework,
-            "controls_source_prefix": None,
-            "source_files_downloaded": [],
+            "controls_source_prefix": source_prefix or None,
+            "skip_missing_source_files": skip_missing_source_files,
+            "source_files_downloaded": downloaded_source_files,
             "replace_existing": bool(args.replace_existing),
             "dry_run": bool(args.dry_run),
             "results": aws_summaries,
@@ -767,7 +1036,7 @@ def _run_controls(args: argparse.Namespace) -> int:
     credential = DefaultAzureCredential()
     ensure_controls_index(azure_config, credential)
 
-    downloaded_source_files: list[str] = []
+    downloaded_source_files = []
     if source_prefix:
         try:
             downloaded_source_files = _download_controls_source_files(
@@ -788,6 +1057,19 @@ def _run_controls(args: argparse.Namespace) -> int:
             parser_instance = registry[framework]["factory"](fetch_guidance=(not args.no_guidance))
             records = parser_instance.parse()
         except Exception as exc:
+            if skip_missing_source_files and _is_missing_controls_source_error(exc):
+                azure_summaries.append(
+                    {
+                        "framework": framework,
+                        "action": "skipped_missing_source",
+                        "reason": str(exc),
+                        "records_total": 0,
+                        "records_uploaded": 0,
+                        "records_failed": 0,
+                        "records_skipped": 0,
+                    }
+                )
+                continue
             azure_summaries.append(
                 {
                     "framework": framework,
@@ -840,6 +1122,7 @@ def _run_controls(args: argparse.Namespace) -> int:
         "cloud_provider": cloud_provider,
         "framework": args.controls_framework,
         "controls_source_prefix": source_prefix or None,
+        "skip_missing_source_files": skip_missing_source_files,
         "source_files_downloaded": downloaded_source_files,
         "replace_existing": bool(args.replace_existing),
         "dry_run": bool(args.dry_run),

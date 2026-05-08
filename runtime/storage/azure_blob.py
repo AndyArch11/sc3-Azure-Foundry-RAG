@@ -87,6 +87,21 @@ class AzureBlobStorageClient:
         )
         return raw
 
+    def get_object(self, bucket_or_container: str, key: str) -> bytes:
+        container = sdk_call_with_instrumentation(
+            logger=logger,
+            system="azure-blob",
+            operation="get_container_client",
+            call=lambda: self._service_client.get_container_client(bucket_or_container),
+        )
+        stream = sdk_call_with_instrumentation(
+            logger=logger,
+            system="azure-blob",
+            operation="download_blob",
+            call=lambda: container.download_blob(key),
+        )
+        return stream.readall()  # type: ignore[union-attr]
+
     def delete_object(self, bucket_or_container: str, key: str) -> None:
         container = sdk_call_with_instrumentation(
             logger=logger,

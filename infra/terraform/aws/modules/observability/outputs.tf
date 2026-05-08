@@ -6,6 +6,10 @@ output "ingestion_log_group_name" {
   value = aws_cloudwatch_log_group.this["ingestion"].name
 }
 
+output "confluence_poller_log_group_name" {
+  value = aws_cloudwatch_log_group.this["confluence-poller"].name
+}
+
 output "opensearch_log_group_name" {
   value = aws_cloudwatch_log_group.this["opensearch"].name
 }

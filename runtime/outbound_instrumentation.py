@@ -8,13 +8,23 @@ from urllib.parse import urlparse
 
 import requests
 
-from runtime.outbound_metrics import (
-    OUTBOUND_HTTP_DURATION_SECONDS,
-    OUTBOUND_HTTP_REQUESTS_TOTAL,
-    OUTBOUND_SDK_CALLS_TOTAL,
-    OUTBOUND_SDK_DURATION_SECONDS,
-)
-from runtime.trace_context import outbound_trace_headers as _runtime_outbound_trace_headers
+try:
+    from runtime.outbound_metrics import (
+        OUTBOUND_HTTP_DURATION_SECONDS,
+        OUTBOUND_HTTP_REQUESTS_TOTAL,
+        OUTBOUND_SDK_CALLS_TOTAL,
+        OUTBOUND_SDK_DURATION_SECONDS,
+    )
+except ModuleNotFoundError:
+    from outbound_metrics import OUTBOUND_HTTP_DURATION_SECONDS  # noqa: PLC0415  # type: ignore[no-redef]
+    from outbound_metrics import OUTBOUND_HTTP_REQUESTS_TOTAL  # noqa: PLC0415  # type: ignore[no-redef]
+    from outbound_metrics import OUTBOUND_SDK_CALLS_TOTAL  # noqa: PLC0415  # type: ignore[no-redef]
+    from outbound_metrics import OUTBOUND_SDK_DURATION_SECONDS  # noqa: PLC0415  # type: ignore[no-redef]
+
+try:
+    from runtime.trace_context import outbound_trace_headers as _runtime_outbound_trace_headers
+except ModuleNotFoundError:
+    from trace_context import outbound_trace_headers as _runtime_outbound_trace_headers  # type: ignore[no-redef]
 
 _DEFAULT_EVENT = "outbound_http_call"
 _HTTP_ERROR_EVENT = "outbound_http_error"

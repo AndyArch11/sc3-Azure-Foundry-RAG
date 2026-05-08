@@ -28,6 +28,7 @@ def get_llm_client(
     model_id: str | None = None,
     region_name: str | None = None,
     bedrock_session: Any = None,
+    max_tokens: int | None = None,
     # Local kwargs
     ollama_base_url: str | None = None,
     ollama_model: str | None = None,
@@ -72,12 +73,15 @@ def get_llm_client(
     if provider == "aws":
         from .bedrock import BedrockLLMClient
 
-        return BedrockLLMClient(
-            model_id=model_id,
-            session=bedrock_session,
-            region_name=region_name,
-            temperature=temperature,
-        )
+        client_kwargs: dict[str, Any] = {
+            "model_id": model_id,
+            "session": bedrock_session,
+            "region_name": region_name,
+            "temperature": temperature,
+        }
+        if max_tokens is not None:
+            client_kwargs["max_tokens"] = max_tokens
+        return BedrockLLMClient(**client_kwargs)
 
     if provider == "azure":
         from .azure_openai import AzureOpenAILLMClient

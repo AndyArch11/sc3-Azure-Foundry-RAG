@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import replace
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import requests
@@ -14,6 +15,11 @@ os.environ.setdefault("AZURE_COSMOS_DATABASE_NAME", "rag-conversations")
 os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 
 from query_web import app as app_module
+from query_web.pipeline.search import (
+    _count_search_documents_by_filter,
+    _count_search_documents_total_by_filter,
+    _list_search_documents_by_filter,
+)
 
 
 def _test_client() -> TestClient:
@@ -963,7 +969,7 @@ def test_corpus_a_upload_stages_sources_and_triggers_controls_job() -> None:
         ),
         patch.object(
             app_module,
-            "_trigger_ingestion_job_with_args",
+            "_trigger_ingestion_task_with_args",
             return_value={"status_code": 200, "args_override": []},
         ) as trigger_mock,
     ):
@@ -1005,6 +1011,60 @@ def test_corpus_a_upload_stages_sources_and_triggers_controls_job() -> None:
     assert "--replace-existing" in args_override
     assert "--dry-run" in args_override
     assert "--no-guidance" in args_override
+
+
+def test_corpus_a_upload_aws_does_not_pass_controls_source_prefix() -> None:
+    client = _test_client()
+
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(
+            app_module,
+            "_upload_corpus_a_reference_files",
+            return_value={
+                "framework": "cis_controls",
+                "framework_name": "CIS Controls",
+                "upload_batch_id": "batch-a-1",
+                "source_prefix": "corpus-a/source/cis_controls/batch-a-1",
+                "uploaded": [{"target_filename": "CIS_Controls_Version_8.xlsx"}],
+                "failed": [],
+            },
+        ),
+        patch.object(app_module, "_is_aws_ecs_trigger_enabled", return_value=True),
+        patch.object(
+            app_module,
+            "_trigger_ingestion_task_with_args",
+            return_value={"status_code": 200, "args_override": []},
+        ) as trigger_mock,
+    ):
+        response = client.post(
+            "/api/corpus-a/upload",
+            data={
+                "framework": "cis_controls",
+                "trigger_job": "true",
+                "auth_token": "",
+            },
+            files=[
+                (
+                    "files",
+                    (
+                        "controls.xlsx",
+                        b"xlsx-bytes",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    ),
+                ),
+            ],
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["triggered_job"] is True
+
+    args_override = trigger_mock.call_args.args[0]
+    assert "--controls-framework" in args_override
+    assert "cis_controls" in args_override
+    assert "--controls-source-prefix" in args_override
+    assert "corpus-a/source/cis_controls/batch-a-1" in args_override
 
 
 def test_corpus_a_upload_rejects_unsupported_framework() -> None:
@@ -1059,7 +1119,7 @@ def test_corpus_a_upload_auto_stages_multiple_frameworks_and_triggers_jobs() -> 
         ) as upload_mock,
         patch.object(
             app_module,
-            "_trigger_ingestion_job_with_args",
+            "_trigger_ingestion_task_with_args",
             return_value={"status_code": 200, "args_override": []},
         ) as trigger_mock,
     ):
@@ -1119,7 +1179,7 @@ def test_corpus_a_ingest_skips_frameworks_requiring_source_upload() -> None:
         ),
         patch.object(
             app_module,
-            "_trigger_ingestion_job_with_args",
+            "_trigger_ingestion_task_with_args",
             return_value={"status_code": 200, "args_override": []},
         ) as trigger_mock,
     ):
@@ -1203,6 +1263,116 @@ def test_corpus_c_list_without_upload_batch_filter() -> None:
     call_kwargs = list_mock.call_args.kwargs
     assert call_kwargs["filter_expr"] == "corpus eq 'c'"
     assert call_kwargs["limit"] == 50
+
+
+def test_search_list_helpers_return_empty_when_index_missing() -> None:
+    response = requests.Response()
+    response.status_code = 404
+    error = requests.exceptions.HTTPError(response=response)
+    client = SimpleNamespace(search=lambda **kwargs: (_ for _ in ()).throw(error))
+
+    listing = _list_search_documents_by_filter(
+        client,
+        filter_expr="corpus eq 'b'",
+        select_fields=["id"],
+        limit=10,
+    )
+
+    assert listing == {"total_count": 0, "returned_count": 0, "items": []}
+    assert _count_search_documents_by_filter(client, filter_expr="corpus eq 'b'") == {
+        "would_delete": 0
+    }
+    assert _count_search_documents_total_by_filter(client, filter_expr="corpus eq 'b'") == 0
+
+
+def test_corpus_a_ingest_returns_aws_operator_guidance_when_not_configured() -> None:
+    client = _test_client()
+
+    with patch.object(
+        app_module,
+        "config",
+        replace(
+            _open_auth_config(),
+            cloud_provider="aws",
+            ingestion_job_subscription_id="",
+            ingestion_job_resource_group="",
+            ingestion_job_name="",
+            ecs_cluster_name="",
+            ingestion_task_definition_arn="",
+            ecs_sg_id="",
+            ecs_subnet_id="",
+        ),
+    ):
+        response = client.post(
+            "/api/corpus-a/ingest",
+            json={
+                "frameworks": ["nist_csf"],
+                "replace_existing": False,
+                "dry_run": False,
+                "no_guidance": False,
+                "auth_token": "",
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 500
+    assert "ECS_CLUSTER_NAME" in body["error"]
+
+
+def test_corpus_a_ingest_triggers_ecs_task_on_aws() -> None:
+    """When cloud_provider=aws and ECS params are configured, ingest triggers ECS RunTask."""
+    client = _test_client()
+
+    fake_ecs_response = {
+        "tasks": [{"taskArn": "arn:aws:ecs:ap-southeast-2:123:task/cluster/abc123"}],
+        "failures": [],
+    }
+
+    with (
+        patch.object(
+            app_module,
+            "config",
+            replace(
+                _open_auth_config(),
+                cloud_provider="aws",
+                ecs_cluster_name="ecs-rag-dev",
+                ingestion_task_definition_arn="arn:aws:ecs:ap-southeast-2:123:task-definition/ingestion:1",
+                ecs_sg_id="sg-abc",
+                ecs_subnet_id="subnet-abc",
+            ),
+        ),
+        patch.object(app_module, "_controls_framework_ingestion_status", return_value={}),
+        patch(
+            "query_web.endpoints.ingestion.IngestionService.trigger_ecs_task_with_args"
+        ) as mock_ecs,
+    ):
+        mock_ecs.return_value = {
+            "provider": "aws",
+            "cluster": "ecs-rag-dev",
+            "task_definition_arn": "arn:aws:ecs:ap-southeast-2:123:task-definition/ingestion:1",
+            "task_arn": "arn:aws:ecs:ap-southeast-2:123:task/cluster/abc123",
+            "task_id": "abc123",
+            "framework": "NIST CSF",
+            "args": ["--mode", "controls", "--controls-framework", "NIST CSF"],
+        }
+
+        response = client.post(
+            "/api/corpus-a/ingest",
+            json={
+                "frameworks": ["nist_csf"],
+                "replace_existing": False,
+                "dry_run": False,
+                "no_guidance": False,
+                "auth_token": "",
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["provider"] == "aws"
+    assert body["mode"] == "corpus-a-ingest"
+    assert len(body["triggered"]) > 0
+    assert mock_ecs.called
 
 
 def test_ingestion_job_diagnostics_forwards_correlation_headers() -> None:

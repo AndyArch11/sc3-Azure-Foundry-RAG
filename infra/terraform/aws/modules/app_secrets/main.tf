@@ -12,7 +12,8 @@ resource "aws_secretsmanager_secret" "app" {
 resource "aws_secretsmanager_secret_version" "app" {
   secret_id = aws_secretsmanager_secret.app.id
   secret_string = jsonencode({
-    auth_token = var.initial_auth_token
+    auth_token           = var.initial_auth_token
+    confluence_api_token = var.initial_confluence_api_token
   })
 
   lifecycle {

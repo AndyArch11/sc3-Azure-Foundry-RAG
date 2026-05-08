@@ -304,13 +304,22 @@ def _runtime_context_getter() -> tuple[str, str, str]:
     ``runtime.trace_context`` so that values reaching log records go through
     the same guards as inbound header values.
     """
-    from runtime.trace_context import (  # noqa: PLC0415
-        _CORRELATION_ID,
-        _TRACEPARENT,
-        _TRACESTATE,
-        _sanitise_correlation_id,
-        _sanitise_tracestate,
-    )
+    try:
+        from runtime.trace_context import (  # noqa: PLC0415
+            _CORRELATION_ID,
+            _TRACEPARENT,
+            _TRACESTATE,
+            _sanitise_correlation_id,
+            _sanitise_tracestate,
+        )
+    except ModuleNotFoundError:
+        # Runtime container image may copy modules into /app without the
+        # top-level runtime package path.
+        from trace_context import _CORRELATION_ID  # noqa: PLC0415  # type: ignore[no-redef]
+        from trace_context import _TRACEPARENT  # noqa: PLC0415  # type: ignore[no-redef]
+        from trace_context import _TRACESTATE  # noqa: PLC0415  # type: ignore[no-redef]
+        from trace_context import _sanitise_correlation_id  # noqa: PLC0415  # type: ignore[no-redef]
+        from trace_context import _sanitise_tracestate  # noqa: PLC0415  # type: ignore[no-redef]
 
     cid = _sanitise_correlation_id(_CORRELATION_ID.get())
     tp = _TRACEPARENT.get().strip()

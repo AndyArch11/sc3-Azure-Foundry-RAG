@@ -7,7 +7,11 @@ from pathlib import Path
 
 from azure.identity import DefaultAzureCredential
 
-from runtime.log_config import configure_logging as _configure_logging
+try:
+    from runtime.log_config import configure_logging as _configure_logging
+except ModuleNotFoundError:
+    # Runtime container image copies log_config.py to /app (without runtime/ package).
+    from log_config import configure_logging as _configure_logging
 
 from .controls_index import ControlsIndexConfig, ensure_controls_index
 from .publish_controls import load_controls_jsonl, upload_controls_records

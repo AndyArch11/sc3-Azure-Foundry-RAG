@@ -153,6 +153,16 @@ def test_ask_post_unauthorised_returns_401_template() -> None:
     assert body["auth_token"] == ""
 
 
+def test_ask_get_redirects_to_home() -> None:
+    svc = _make_svc()
+    client = _make_client(svc)
+
+    response = client.get("/ask", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/"
+
+
 def test_ask_post_authorised_updates_conversation_and_clamps_inputs() -> None:
     svc = _make_svc()
     session = SimpleNamespace(messages=[], updated_at="")

@@ -15,4 +15,3 @@ RUN useradd -m -u 1000 appuser
 USER appuser
 
 ENTRYPOINT ["python", "-m", "runtime.assessment_orchestration.polling_worker_main"]
-CMD ["--once"]

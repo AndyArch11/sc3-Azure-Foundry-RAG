@@ -121,7 +121,7 @@ resource "aws_vpc_endpoint" "dynamodb" {
 }
 
 resource "aws_security_group" "vpc_endpoint" {
-  name        = "sg-vpce-${var.naming_suffix}"
+  name        = "vpce-${var.naming_suffix}"
   description = "Allow HTTPS from VPC CIDR to interface VPC endpoints."
   vpc_id      = aws_vpc.this.id
 
@@ -163,7 +163,7 @@ resource "aws_vpc_endpoint" "interface" {
 # ── Security Groups ───────────────────────────────────────────────────────────
 
 resource "aws_security_group" "ecs" {
-  name        = "sg-ecs-${var.naming_suffix}"
+  name        = "ecs-${var.naming_suffix}"
   description = "ECS Fargate tasks."
   vpc_id      = aws_vpc.this.id
 
@@ -179,8 +179,8 @@ resource "aws_security_group" "ecs" {
 }
 
 resource "aws_security_group" "opensearch" {
-  name        = "sg-opensearch-${var.naming_suffix}"
-  description = "OpenSearch Service domain — allow HTTPS from ECS tasks."
+  name        = "opensearch-${var.naming_suffix}"
+  description = "OpenSearch Service domain - allow HTTPS from ECS tasks."
   vpc_id      = aws_vpc.this.id
 
   ingress {

@@ -1,28 +1,24 @@
 #!/usr/bin/env bash
-# Build the query-web image and push it to the environment's ECR repository.
+# Build the Confluence poller image and push it to the environment's ECR repository.
 #
 # Usage:
-#   ENV=<env> IMAGE_TAG=<immutable-tag> ./ops/scripts/aws/build-push-query-web.sh
+#   ENV=<env> IMAGE_TAG=<immutable-tag> ./ops/scripts/aws/build-push-confluence-poller.sh
 #
 # Prerequisites:
 #   - Docker daemon running
 #   - AWS CLI authenticated (aws configure / instance profile / OIDC)
 #   - Terraform state initialised for the target environment (used for ECR URL lookup)
-#
-# ECR has no VPC endpoint requirement for image push from the internet when the
-# repository has public access enabled. If the repository is private-only and
-# you are running from a private network, ensure VPC endpoints for ECR are in place.
 set -euo pipefail
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
-  ENV=<env> IMAGE_TAG=<immutable-tag> ./ops/scripts/aws/build-push-query-web.sh
+  ENV=<env> IMAGE_TAG=<immutable-tag> ./ops/scripts/aws/build-push-confluence-poller.sh
 
-Builds and pushes the query-web image to the target environment ECR repository.
+Builds and pushes the confluence-poller image to the target environment ECR repository.
 
 Recommended follow-up rollout:
-  ./ops/scripts/aws/rollout-app-hosting.sh <env> apply --query-web-tag <immutable-tag>
+  ./ops/scripts/aws/rollout-app-hosting.sh <env> apply --confluence-poller-tag <immutable-tag> --enable-confluence-poller
 
 Environment variable overrides:
   ENV              Target environment (default: dev)
@@ -95,14 +91,12 @@ _read_tfvars_value() {
   sed -nE "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*\"([^\"]+)\"[[:space:]]*$/\1/p" "${file}" | head -n 1
 }
 
-# Resolve ECR repository URL from Terraform outputs when not provided.
 if [[ -z "${ECR_REPO_URL}" ]] && command -v terraform &>/dev/null; then
   pushd "${TF_DIR}" >/dev/null
-  ECR_REPO_URL="$(terraform output -raw query_web_repository_url 2>/dev/null || true)"
+  ECR_REPO_URL="$(terraform output -raw confluence_poller_repository_url 2>/dev/null || true)"
   popd >/dev/null
 fi
 
-# Fall back to current Terraform naming convention: <account>.dkr.ecr.<region>.amazonaws.com/<project>-<env>-<region_short>/query-web
 if [[ -z "${ECR_REPO_URL}" ]]; then
   ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
   TF_PROJECT="${TF_PROJECT:-$(_read_tfvars_value project "${TF_VARS_FILE}" || true)}"
@@ -114,7 +108,7 @@ if [[ -z "${ECR_REPO_URL}" ]]; then
     exit 1
   fi
   NAMING_SUFFIX="${TF_PROJECT}-${ENV}-${AWS_REGION_SHORT}"
-  ECR_REPO_URL="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${NAMING_SUFFIX}/query-web"
+  ECR_REPO_URL="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${NAMING_SUFFIX}/confluence-poller"
   echo "INFO: ECR URL not found in Terraform outputs; using derived URL: ${ECR_REPO_URL}"
 fi
 
@@ -135,7 +129,7 @@ aws ecr get-login-password --region "${AWS_REGION}" \
 echo "==> Building image"
 "${DOCKER_CMD[@]}" build \
   --platform linux/amd64 \
-  --file "${REPO_ROOT}/query_web/Dockerfile" \
+  --file "${REPO_ROOT}/runtime/Dockerfile.poller" \
   --tag "${FULL_IMAGE}" \
   "${REPO_ROOT}"
 
@@ -146,4 +140,4 @@ echo ""
 echo "==> Done: ${FULL_IMAGE}"
 echo ""
 echo "==> Rollout command:"
-echo "    ./ops/scripts/aws/rollout-app-hosting.sh ${ENV} apply --query-web-tag ${IMAGE_TAG}"
+echo "    ./ops/scripts/aws/rollout-app-hosting.sh ${ENV} apply --confluence-poller-tag ${IMAGE_TAG} --enable-confluence-poller"

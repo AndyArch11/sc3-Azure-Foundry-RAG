@@ -287,6 +287,7 @@ def test_load_precedence_policy_rules_not_list_returns_empty(tmp_path: Path) -> 
 # ---------------------------------------------------------------------------
 
 _REQUIRED_ENVS = {
+    "CLOUD_PROVIDER": "azure",
     "AZURE_SEARCH_ENDPOINT": "https://search.example.com",
     "AZURE_OPENAI_ENDPOINT": "https://openai.example.com",
     "AZURE_COSMOS_ENDPOINT": "https://cosmos.example.com",
@@ -299,6 +300,7 @@ def test_load_config_returns_query_config() -> None:
     with patch.dict(os.environ, _REQUIRED_ENVS):
         cfg = load_config()
     assert isinstance(cfg, QueryConfig)
+    assert cfg.cloud_provider == "azure"
     assert cfg.search_endpoint == "https://search.example.com"
     assert cfg.openai_endpoint == "https://openai.example.com"
 
@@ -344,3 +346,33 @@ def test_load_config_local_allows_env_token_override(
         cfg = load_config()
     assert cfg.max_completion_tokens == 1700
     assert cfg.evaluator_max_completion_tokens == 900
+
+
+def test_load_config_aws_uses_aws_envs_and_skips_azure_requirements() -> None:
+    with patch.dict(
+        os.environ,
+        {
+            "CLOUD_PROVIDER": "aws",
+            "OPENSEARCH_ENDPOINT": "https://search-aws.example.com",
+            "SEARCH_INDEX_NAME": "grounding-index",
+            "CONTROLS_INDEX_NAME": "controls-index",
+            "BEDROCK_MODEL_ID": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        },
+        clear=True,
+    ):
+        cfg = load_config()
+
+    assert cfg.cloud_provider == "aws"
+    assert cfg.search_endpoint == "https://search-aws.example.com"
+    assert cfg.search_index_name == "grounding-index"
+    assert cfg.controls_index_name == "controls-index"
+    assert cfg.openai_endpoint == ""
+    assert cfg.query_deployment == "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    assert cfg.evaluator_deployment == "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    assert cfg.cosmos_endpoint == ""
+
+
+def test_load_config_aws_raises_when_opensearch_endpoint_missing() -> None:
+    with patch.dict(os.environ, {"CLOUD_PROVIDER": "aws"}, clear=True):
+        with pytest.raises(RuntimeError, match="OPENSEARCH_ENDPOINT"):
+            load_config()

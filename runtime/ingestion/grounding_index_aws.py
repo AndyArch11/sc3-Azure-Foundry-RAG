@@ -17,23 +17,23 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class AWSControlsIndexConfig:
-    """Controls index configuration for AWS OpenSearch."""
+class AWSGroundingIndexConfig:
+    """Grounding index configuration for AWS OpenSearch."""
 
     opensearch_endpoint: str
-    controls_index_name: str
+    grounding_index_name: str
 
     @classmethod
-    def from_env(cls) -> "AWSControlsIndexConfig":
-        """Build AWS controls index config from environment variables."""
+    def from_env(cls) -> "AWSGroundingIndexConfig":
+        """Build AWS grounding index config from environment variables."""
         endpoint = os.getenv("OPENSEARCH_ENDPOINT", "").strip()
         if not endpoint:
             raise ValueError("Required environment variable not set: OPENSEARCH_ENDPOINT")
 
         return cls(
             opensearch_endpoint=endpoint,
-            controls_index_name=(
-                os.getenv("OPENSEARCH_CONTROLS_INDEX_NAME", "").strip() or "controls-index"
+            grounding_index_name=(
+                os.getenv("OPENSEARCH_GROUNDING_INDEX_NAME", "").strip() or "grounding-index"
             ),
         )
 
@@ -61,9 +61,13 @@ def _signed_headers(session: Any, method: str, url: str, body: str) -> dict[str,
     return dict(request.headers.items())
 
 
-def ensure_controls_index_aws(config: AWSControlsIndexConfig, session: Any) -> None:
-    """Ensure controls index exists in OpenSearch with required mappings."""
-    index_url = f"{config.opensearch_endpoint.rstrip('/')}/{config.controls_index_name}"
+def ensure_grounding_index_aws(config: AWSGroundingIndexConfig, session: Any) -> None:
+    """Ensure grounding index exists in OpenSearch with required mappings.
+
+    Uses text-only mappings (no dense vectors); hybrid search on AWS uses BM25 only.
+    Field set mirrors what _hybrid_search() selects in query_web/pipeline/search.py.
+    """
+    index_url = f"{config.opensearch_endpoint.rstrip('/')}/{config.grounding_index_name}"
 
     head_headers = _signed_headers(session, "HEAD", index_url, "")
     head_response = request_with_instrumentation(
@@ -73,10 +77,11 @@ def ensure_controls_index_aws(config: AWSControlsIndexConfig, session: Any) -> N
         headers=head_headers,
         timeout=30,
         system="aws-opensearch",
-        operation="index_exists",
+        operation="grounding_index_exists",
         request_callable=requests.head,
     )
     if head_response.status_code == 200:
+        logger.info("Grounding index already exists: %s", config.grounding_index_name)
         return
     if head_response.status_code != 404:
         head_response.raise_for_status()
@@ -91,23 +96,29 @@ def ensure_controls_index_aws(config: AWSControlsIndexConfig, session: Any) -> N
             },
             "mappings": {
                 "properties": {
-                    "requirement_id": {"type": "keyword"},
-                    "framework": {"type": "keyword"},
-                    "framework_version": {"type": "keyword"},
-                    "control_family": {"type": "keyword"},
-                    "maturity_level": {"type": "integer"},
-                    "requirement_text": {"type": "text"},
-                    "guidance_text": {"type": "text"},
-                    "keywords": {"type": "keyword"},
-                    "source_uri": {"type": "keyword"},
-                    "source_section": {"type": "keyword"},
-                    "effective_date": {"type": "keyword"},
-                    "jurisdiction_or_scope": {"type": "keyword"},
-                    "ingestion_manifest_hash": {"type": "keyword"},
-                    "ingestion_loaded_at": {"type": "date"},
-                    "control_applicability_scope": {"type": "keyword"},
-                    "applicability_confidence": {"type": "float"},
-                    "applicability_uncertain": {"type": "boolean"},
+                    # Primary searchable text field.
+                    "content": {"type": "text", "analyzer": "english"},
+                    # Chunk provenance.
+                    "chunk_id": {"type": "keyword"},
+                    "chunk_index": {"type": "integer"},
+                    "source_path": {"type": "keyword"},
+                    "source_name": {"type": "keyword"},
+                    "source_type": {"type": "keyword"},
+                    # Corpus metadata (mirrors Azure blob metadata_* projection).
+                    "corpus": {"type": "keyword"},
+                    "corpus_role": {"type": "keyword"},
+                    "upload_source": {"type": "keyword"},
+                    "uploaded_by": {"type": "keyword"},
+                    "upload_batch": {"type": "keyword"},
+                    "uploaded_at": {"type": "keyword"},
+                    "original_filename": {"type": "keyword"},
+                    # Dedupe hashes — useful for filtering/re-indexing.
+                    "content_sha256": {"type": "keyword"},
+                    "normalised_text_sha256": {"type": "keyword"},
+                    "dedupe_hash": {"type": "keyword"},
+                    "dedupe_method": {"type": "keyword"},
+                    # Internal ingestion timestamp.
+                    "ingested_at": {"type": "date"},
                 }
             },
         },
@@ -123,7 +134,8 @@ def ensure_controls_index_aws(config: AWSControlsIndexConfig, session: Any) -> N
         headers=put_headers,
         timeout=30,
         system="aws-opensearch",
-        operation="create_index",
+        operation="create_grounding_index",
         request_callable=requests.put,
     )
     put_response.raise_for_status()
+    logger.info("Grounding index created: %s", config.grounding_index_name)

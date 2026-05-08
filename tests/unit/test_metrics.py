@@ -293,7 +293,7 @@ class TestTraceSalvagedCounter:
         assert _counter_value(TRACE_SALVAGED_TOTAL) == before
 
 
-class TestCorrelationIdSanitizedCounter:
+class TestCorrelationIdSanitisedCounter:
     def test_unsafe_chars_increment_counter(self) -> None:
         from query_web.metrics import CORRELATION_ID_SANITISED_TOTAL
         from query_web.request_context import _sanitise_correlation_id

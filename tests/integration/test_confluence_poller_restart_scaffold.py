@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from runtime.assessment_orchestration.polling_worker import PollerConfig, run_poll_cycle
+from runtime.assessment_orchestration.dynamo_state_store import DynamoDBPollingStateStore
+from runtime.assessment_orchestration.polling_worker import (
+    PollerConfig,
+    create_cosmos_state_store_from_env,
+    run_poll_cycle,
+)
 from runtime.assessment_orchestration.state_store import InMemoryPollingStateStore
 
 
@@ -14,6 +19,28 @@ class _FakeServer:
 
 class _FakeAdapter:
     pass
+
+
+class _FakeDynamoSession:
+    def resource(self, service_name: str):
+        assert service_name == "dynamodb"
+        return self
+
+    def Table(self, table_name: str):
+        return {"table_name": table_name}
+
+
+def test_aws_env_uses_dynamodb_state_store_scaffold() -> None:
+    store = create_cosmos_state_store_from_env(
+        {
+            "CLOUD_PROVIDER": "aws",
+            "DYNAMODB_TABLE": "orchestration-state",
+            "AWS_REGION": "ap-southeast-2",
+        },
+        aws_session=_FakeDynamoSession(),
+    )
+
+    assert isinstance(store, DynamoDBPollingStateStore)
 
 
 def test_restart_mid_backlog_continues_from_first_unprocessed_event_scaffold() -> None:

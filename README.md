@@ -51,18 +51,98 @@ This repository provisions and operates a privately networked Azure AI Foundry s
 
 ## Repository Layout
 
-- `.github/workflows` github actions CI/CD
-- `docs/` architecture, plans, and runbooks
-- `infra/terraform/aws/` AWS Terraform stack
-- `infra/terraform/azure/` canonical Azure Terraform stack
-- `ops/containers/terraform-runner/` Terraform execution container
-- `ops/observability` instrumentation
-- `ops/scripts/aws` shell scripts to bootstrap Terraform build environment, create AWS resources, and deploy and test containers.
-- `ops/scripts/azure` shell scripts to bootstrap Terraform build environment, create Azure resources, and deploy and test containers.
-- `ops/scripts/local` shell scripts to assist with setting up, troubleshooting local deployments
-- `query_web/` Docker container config for query UI running in an Azure Container App
-- `runtime/` ingestion runtime and Docker container config for the Azure Container App job
-- `tests/` unit and integration tests
+```
+sc3-Azure-Foundry-RAG/
+│
+├── .github/
+│   └── workflows/                  # GitHub Actions CI/CD pipelines
+│
+├── .agents/
+│   └── skills/                     # Copilot agent skill definitions (SKILL.md files)
+│
+├── docs/                           # Architecture, plans, ADRs, and runbooks
+│   ├── adr/                        # Architecture decision records
+│   ├── contracts/                  # MCP tool and provider event YAML contracts
+│   └── *.md                        # Implementation plans, observability, phase guides, etc.
+│
+├── infra/
+│   └── terraform/
+│       ├── aws/                    # AWS Terraform stack
+│       │   ├── bootstrap/          # Phase 0: S3 state bucket + DynamoDB lock table
+│       │   ├── environments/       # Per-environment tfvars (dev / test / prod)
+│       │   └── modules/
+│       │       ├── app_hosting/    # ECS Fargate cluster, task definitions, services
+│       │       ├── app_secrets/    # Secrets Manager runtime secrets
+│       │       ├── container_registry/ # ECR repositories
+│       │       ├── data_services/  # S3, OpenSearch Service, DynamoDB
+│       │       ├── identity/       # ECS IAM task role + execution role
+│       │       ├── network/        # VPC, subnets, NAT gateways, VPC endpoints
+│       │       └── observability/  # CloudWatch log groups, AMP workspace
+│       └── azure/                  # Azure Terraform stack (canonical)
+│           ├── bootstrap/          # Phase 0: storage account + Key Vault for tf state
+│           ├── environments/       # Per-environment tfvars (dev / test / prod)
+│           └── modules/
+│               ├── agent_hosting/  # Container Apps environment, ingestion job, query-web app
+│               ├── app_secrets/    # Key Vault for runtime secrets
+│               ├── bastion_jumpbox/# Azure Bastion host + jumpbox VM
+│               ├── data_services/  # Storage account, AI Search, Cosmos DB, ACR
+│               ├── dns/            # Private DNS zones and VNet links
+│               ├── foundation/     # Resource group
+│               ├── foundry/        # Azure AI Foundry hub, project, model deployments
+│               ├── identity/       # User-assigned managed identity + RBAC assignments
+│               ├── network/        # VNet, subnets, NSGs
+│               ├── observability/  # Log Analytics Workspace, diagnostic settings
+│               └── private_endpoints/ # Private endpoints for all data plane services
+│
+├── ops/
+│   ├── ci/                         # Self-hosted CI runner setup notes
+│   ├── containers/
+│   │   └── terraform-runner/       # Deterministic Terraform execution container
+│   ├── observability/              # Local Prometheus, Grafana, Loki, Alertmanager configs
+│   └── scripts/
+│       ├── aws/                    # AWS bootstrap, image build/push, app rollout scripts
+│       ├── azure/                  # Azure bootstrap, image build/push, jumpbox, rollout scripts
+│       └── local/                  # Local dev helpers (Terraform install, Qdrant seeder, smoke test)
+│
+├── parsed-controls/                # Generated JSONL control data (git-ignored; created by controls_runner)
+│
+├── query_web/                      # Query web application (FastAPI, deployed to Container Apps / ECS)
+│   ├── endpoints/                  # Per-route modules: ask, compliance, conversations, corpus, etc.
+│   ├── pipeline/                   # RAG pipeline: search, LLM chat, answer assembly, control retrieval
+│   ├── security/                   # Auth middleware, prompt injection guard
+│   ├── policies/                   # Precedence policy JSON
+│   ├── static/                     # CSS, JS, branding assets
+│   ├── templates/                  # Jinja2 HTML templates
+│   ├── app.py                      # FastAPI application entry point
+│   ├── config.py                   # Environment-driven configuration loader
+│   ├── Dockerfile                  # Container image definition
+│   └── requirements.txt
+│
+├── runtime/                        # Ingestion runtime and assessment orchestration
+│   ├── assessment_orchestration/   # Agent orchestration: worker, poller, MCP clients, LLM factory
+│   │   └── mcp/                    # MCP client adapters (Confluence, SharePoint, email, Azure resource)
+│   ├── credentials/                # Cloud credential factory (Azure, AWS, local)
+│   ├── ingestion/                  # Chunking, extraction, controls runner, search pipeline
+│   │   └── parsers/                # Framework-specific control parsers (Essential Eight, ISM, NIST, etc.)
+│   ├── llm/                        # LLM provider adapters: Azure OpenAI, Bedrock, Ollama (protocol-based)
+│   ├── samples/                    # Sample input files for local development
+│   │   └── api/
+│   │       ├── corpus-a/           # Corpus A parser source references
+│   │       ├── corpus-b/           # Corpus B narrative grounding source files
+│   │       └── corpus-c/           # Corpus C evidence files for local chunk generation
+│   ├── search/                     # Search provider adapters: Azure AI Search, OpenSearch, Qdrant, in-memory
+│   ├── state_store/                # State store abstraction (Cosmos DB, DynamoDB, SQLite)
+│   ├── storage/                    # Blob storage abstraction (Azure Blob, S3, local file)
+│   ├── Dockerfile                  # Ingestion job container
+│   ├── Dockerfile.poller           # Confluence poller container
+│   └── requirements.txt
+│
+└── tests/
+    ├── unit/                       # Fast unit tests (no network, no cloud dependencies)
+    ├── integration/                # Private-network integration tests (run from jumpbox / CI runner)
+    ├── smoke/                      # Lightweight smoke tests (AWS infrastructure, local stack)
+    └── evals/                      # Skill selection evaluation cases and schemas
+```
 
 ## Runtime Functional Targets
 
@@ -115,6 +195,7 @@ This repository provisions and operates a privately networked Azure AI Foundry s
 - Logging and metrics baseline: `docs/observability.md`
 - Foundry setup and deployment prerequisites: `docs/foundry-setup-guide.md`
 - Conversation persistence and feedback flow: `docs/foundry-conversations.md`
+- AWS deployment runbook (service mapping, bootstrap, rollout, teardown): `docs/aws-deployment-guide.md`
 
 ## Local Development
 

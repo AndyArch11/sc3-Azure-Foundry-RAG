@@ -42,9 +42,18 @@ resource "aws_s3_bucket_public_access_block" "grounding_data" {
 
 # ── OpenSearch ─────────────────────────────────────────────────────────────────
 
+resource "aws_iam_service_linked_role" "opensearch" {
+  count = var.ensure_opensearch_service_linked_role ? 1 : 0
+
+  aws_service_name = "opensearchservice.amazonaws.com"
+  description      = "Service-linked role required by Amazon OpenSearch Service for VPC domain management."
+}
+
 resource "aws_opensearch_domain" "this" {
   domain_name    = "rag-${var.naming_suffix}"
   engine_version = var.opensearch_engine_version
+
+  depends_on = [aws_iam_service_linked_role.opensearch]
 
   cluster_config {
     instance_type  = var.opensearch_instance_type
@@ -76,13 +85,7 @@ resource "aws_opensearch_domain" "this" {
   }
 
   advanced_security_options {
-    enabled                        = true
-    internal_user_database_enabled = false
-
-    master_user_options {
-      # IAM-based access; the task role is granted access via the access policy.
-      master_user_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
-    }
+    enabled = false
   }
 
   log_publishing_options {

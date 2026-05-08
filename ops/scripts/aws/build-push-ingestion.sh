@@ -82,18 +82,35 @@ AWS_REGION="${AWS_REGION:-ap-southeast-2}"
 DEFAULT_TAG="$(date +%Y%m%d%H%M)-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo local)"
 IMAGE_TAG="${IMAGE_TAG:-${DEFAULT_TAG}}"
 ECR_REPO_URL="${ECR_REPO_URL:-}"
+TF_VARS_FILE="${TF_DIR}/environments/${ENV}/${ENV}.tfvars"
+
+_read_tfvars_value() {
+  local key="$1"
+  local file="$2"
+  [[ -f "${file}" ]] || return 1
+  sed -nE "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*\"([^\"]+)\"[[:space:]]*$/\1/p" "${file}" | head -n 1
+}
 
 # Resolve ECR repository URL from Terraform outputs when not provided.
 if [[ -z "${ECR_REPO_URL}" ]] && command -v terraform &>/dev/null; then
   pushd "${TF_DIR}" >/dev/null
-  ECR_REPO_URL="$(terraform output -raw ingestion_ecr_repository_url 2>/dev/null || true)"
+  ECR_REPO_URL="$(terraform output -raw ingestion_repository_url 2>/dev/null || true)"
   popd >/dev/null
 fi
 
 # Fall back to naming convention.
 if [[ -z "${ECR_REPO_URL}" ]]; then
   ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-  ECR_REPO_URL="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/rag-ingestion-${ENV}"
+  TF_PROJECT="${TF_PROJECT:-$(_read_tfvars_value project "${TF_VARS_FILE}" || true)}"
+  TF_PROJECT="${TF_PROJECT:-rag}"
+  AWS_REGION_SHORT="${AWS_REGION_SHORT:-$(_read_tfvars_value aws_region_short "${TF_VARS_FILE}" || true)}"
+  if [[ -z "${AWS_REGION_SHORT}" ]]; then
+    echo "ERROR: Could not determine aws_region_short for fallback ECR naming." >&2
+    echo "Set AWS_REGION_SHORT, ECR_REPO_URL, or ensure ${TF_VARS_FILE} exists with aws_region_short." >&2
+    exit 1
+  fi
+  NAMING_SUFFIX="${TF_PROJECT}-${ENV}-${AWS_REGION_SHORT}"
+  ECR_REPO_URL="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${NAMING_SUFFIX}/ingestion"
   echo "INFO: ECR URL not found in Terraform outputs; using derived URL: ${ECR_REPO_URL}"
 fi
 

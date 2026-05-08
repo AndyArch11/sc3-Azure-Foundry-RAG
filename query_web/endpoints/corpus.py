@@ -154,15 +154,16 @@ def register_corpus_endpoints(
                 and (upload_result["uploaded"] or should_trigger_for_reindex)
             ):
                 try:
-                    trigger_result = svc._trigger_ingestion_job_with_args(
-                        [
-                            "--mode",
-                            "azure",
-                            "--skip-upload",
-                            "--storage-container-query",
-                            scope_query,
-                        ]
-                    )
+                    trigger_args_b = [
+                        "--mode",
+                        "azure",
+                        "--skip-upload",
+                        "--storage-container-query",
+                        scope_query,
+                    ]
+                    if should_trigger_for_reindex:
+                        trigger_args_b.append("--replace-existing")
+                    trigger_result = svc._trigger_ingestion_task_with_args(trigger_args_b)
                     effective_scope_query = scope_query
                 except Exception as exc:
                     logger.warning(
@@ -173,6 +174,11 @@ def register_corpus_endpoints(
                             "exc_type": type(exc).__name__,
                         },
                     )
+                    if (
+                        str(getattr(svc.config, "cloud_provider", "") or "").strip().lower()
+                        == "aws"
+                    ):
+                        raise
                     trigger_result = svc._trigger_ingestion_job()
                     effective_scope_query = None
 
@@ -307,7 +313,7 @@ def register_corpus_endpoints(
                 and (upload_result["uploaded"] or should_trigger_for_reindex)
             ):
                 try:
-                    trigger_result = svc._trigger_ingestion_job_with_args(
+                    trigger_result = svc._trigger_ingestion_task_with_args(
                         [
                             "--mode",
                             "azure",
@@ -326,6 +332,11 @@ def register_corpus_endpoints(
                             "exc_type": type(exc).__name__,
                         },
                     )
+                    if (
+                        str(getattr(svc.config, "cloud_provider", "") or "").strip().lower()
+                        == "aws"
+                    ):
+                        raise
                     trigger_result = svc._trigger_ingestion_job()
                     effective_scope_query = None
 
@@ -640,7 +651,7 @@ def register_corpus_endpoints(
                         args_override.append("--dry-run")
                     if no_guidance:
                         args_override.append("--no-guidance")
-                    trigger_result = svc._trigger_ingestion_job_with_args(args_override)
+                    trigger_result = svc._trigger_ingestion_task_with_args(args_override)
                     triggered_jobs.append(
                         {
                             "framework": upload_result["framework"],
@@ -680,7 +691,7 @@ def register_corpus_endpoints(
                     "framework_name": (
                         "Multiple"
                         if auto_mode and len(upload_results) > 1
-                        else primary["framework_name"]
+                        else str(primary.get("framework_name") or primary["framework"])
                     ),
                     "storage_account_name": svc.config.storage_account_name,
                     "storage_container_name": svc.config.storage_container_name,
@@ -800,6 +811,55 @@ def register_corpus_endpoints(
         if not svc._is_authorised_request(auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
+        # AWS ECS path
+        if svc._is_aws_ecs_trigger_enabled():
+            try:
+                executions = svc._get_ecs_recent_executions()
+                if not executions:
+                    return JSONResponse(
+                        {
+                            "configured": True,
+                            "provider": "aws",
+                            "recent_executions": [],
+                            "message": "No recent ECS ingestion tasks found in this cluster.",
+                        }
+                    )
+                return JSONResponse(
+                    {
+                        "configured": True,
+                        "provider": "aws",
+                        "cluster": svc.config.ecs_cluster_name,
+                        "recent_executions": executions,
+                        "note": "ECS Fargate task history for the ingestion task family.",
+                    }
+                )
+            except Exception as exc:
+                if "AccessDenied" in type(exc).__name__:
+                    return JSONResponse(
+                        {
+                            "configured": True,
+                            "provider": "aws",
+                            "cluster": svc.config.ecs_cluster_name,
+                            "recent_executions": [],
+                            "message": (
+                                "ECS diagnostics requires ecs:ListTasks and ecs:DescribeTasks. "
+                                "Ingestion trigger may still work, but task history cannot be read "
+                                "with the current IAM role."
+                            ),
+                            "error": type(exc).__name__,
+                        }
+                    )
+                logger.exception(
+                    "Failed ECS ingestion diagnostics request",
+                    extra={
+                        "event": "ingestion_job_diagnostics_failed",
+                        "provider": "aws",
+                        "exc_type": type(exc).__name__,
+                    },
+                )
+                return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+
+        # Azure Container Apps path
         if not svc._is_ingestion_job_trigger_enabled():
             return JSONResponse(
                 {
@@ -1229,6 +1289,99 @@ def register_corpus_endpoints(
         if not svc._is_authorised_request(payload.auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
+        # AWS path: trigger via ECS RunTask if configured
+        provider = str(getattr(svc.config, "cloud_provider", "") or "").strip().lower()
+        if provider == "aws":
+            if not svc._is_aws_ecs_trigger_enabled():
+                return JSONResponse(
+                    {
+                        "error": (
+                            "AWS ECS ingestion trigger is not configured. "
+                            "Set ECS_CLUSTER_NAME, INGESTION_TASK_DEFINITION_ARN, "
+                            "ECS_SG_ID, and ECS_SUBNET_ID environment variables."
+                        )
+                    },
+                    status_code=500,
+                )
+            try:
+                selected = svc._selected_corpus_a_frameworks(payload.frameworks)
+                status = svc._controls_framework_ingestion_status()
+
+                already_ingested = [fw for fw in selected if status.get(fw, {}).get("ingested")]
+                pending = (
+                    selected
+                    if payload.replace_existing
+                    else [fw for fw in selected if fw not in already_ingested]
+                )
+
+                triggered: list[dict[str, Any]] = []
+                skipped: list[dict[str, Any]] = []
+
+                for fw in selected:
+                    if fw not in pending:
+                        skipped.append(
+                            {
+                                "framework": fw,
+                                "reason": "already_ingested",
+                                "status": status.get(fw, {}),
+                            }
+                        )
+
+                runnable_pending: list[str] = []
+                source_upload_required: list[str] = []
+                for fw in pending:
+                    if fw in svc._CORPUS_A_SOURCE_UPLOAD_REQUIRED_FRAMEWORKS:
+                        source_upload_required.append(fw)
+                        skipped.append(
+                            {
+                                "framework": fw,
+                                "reason": "source_upload_required",
+                                "message": (
+                                    "This framework requires source documents to be staged via "
+                                    "POST /api/corpus-a/upload before ingestion can run."
+                                ),
+                            }
+                        )
+                        continue
+                    runnable_pending.append(fw)
+
+                for fw in runnable_pending:
+                    task_result = svc._trigger_ecs_controls_task(
+                        fw,
+                        replace_existing=payload.replace_existing,
+                        dry_run=payload.dry_run,
+                        no_guidance=payload.no_guidance,
+                    )
+                    triggered.append({"framework": fw, "task": task_result})
+
+                return JSONResponse(
+                    {
+                        "mode": "corpus-a-ingest",
+                        "provider": "aws",
+                        "selected_frameworks": selected,
+                        "already_ingested_frameworks": already_ingested,
+                        "source_upload_required_frameworks": source_upload_required,
+                        "replace_existing": payload.replace_existing,
+                        "dry_run": payload.dry_run,
+                        "no_guidance": payload.no_guidance,
+                        "triggered": triggered,
+                        "skipped": skipped,
+                        "framework_status": status,
+                    }
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Failed corpus ingest request (AWS)",
+                    extra={
+                        "event": "corpus_ingest_failed",
+                        "corpus": "a",
+                        "provider": "aws",
+                        "exc_type": type(exc).__name__,
+                    },
+                )
+                return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+
+        # Azure / local path
         if not svc._is_ingestion_job_trigger_enabled():
             return JSONResponse(
                 {
@@ -1251,8 +1404,8 @@ def register_corpus_endpoints(
                 else [fw for fw in selected if fw not in already_ingested]
             )
 
-            triggered: list[dict[str, Any]] = []
-            skipped: list[dict[str, Any]] = []
+            triggered = []
+            skipped = []
 
             for fw in selected:
                 if fw not in pending:
@@ -1264,8 +1417,8 @@ def register_corpus_endpoints(
                         }
                     )
 
-            runnable_pending: list[str] = []
-            source_upload_required: list[str] = []
+            runnable_pending = []
+            source_upload_required = []
             for fw in pending:
                 if fw in svc._CORPUS_A_SOURCE_UPLOAD_REQUIRED_FRAMEWORKS:
                     source_upload_required.append(fw)
@@ -1296,7 +1449,7 @@ def register_corpus_endpoints(
                 if payload.no_guidance:
                     args_override.append("--no-guidance")
 
-                job_result = svc._trigger_ingestion_job_with_args(args_override)
+                job_result = svc._trigger_ingestion_task_with_args(args_override)
                 triggered.append(
                     {
                         "framework": fw,

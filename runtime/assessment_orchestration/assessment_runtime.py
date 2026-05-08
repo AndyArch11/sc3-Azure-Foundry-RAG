@@ -10,6 +10,7 @@ from typing import Any, Callable, Iterable, Mapping, cast
 import requests  # type: ignore[import-untyped]
 
 from ..credentials import get_credential_provider
+from ..llm import get_llm_client
 from ..search import SearchClient, get_search_client
 from ..trace_context import outbound_trace_headers
 from ._framework_patterns import infer_single_framework as _infer_framework_filter
@@ -87,6 +88,7 @@ class AssessmentRuntimeConfig:
 
     search_endpoint: str
     openai_endpoint: str
+    cloud_provider: str = "azure"
     search_index_name: str = "grounding-index"
     controls_index_name: str = "controls-index"
     embedding_deployment: str = "text-embedding-ada-002"
@@ -183,17 +185,36 @@ def load_assessment_runtime_config_from_env(
 ) -> AssessmentRuntimeConfig:
     """Run load assessment runtime config from env."""
     values = dict(os.environ) if env is None else dict(env)
+    provider = str(values.get("CLOUD_PROVIDER") or "azure").strip().lower() or "azure"
+    is_aws = provider == "aws"
     return AssessmentRuntimeConfig(
-        search_endpoint=_required(values, "AZURE_SEARCH_ENDPOINT"),
-        openai_endpoint=_required(values, "AZURE_OPENAI_ENDPOINT"),
-        search_index_name=(values.get("AZURE_SEARCH_INDEX_NAME") or "grounding-index").strip(),
+        cloud_provider=provider,
+        search_endpoint=(
+            _required(values, "OPENSEARCH_ENDPOINT")
+            if is_aws
+            else _required(values, "AZURE_SEARCH_ENDPOINT")
+        ),
+        openai_endpoint=("" if is_aws else _required(values, "AZURE_OPENAI_ENDPOINT")),
+        search_index_name=(
+            (values.get("SEARCH_INDEX_NAME") or values.get("OPENSEARCH_INDEX") or "grounding-index")
+            if is_aws
+            else (values.get("AZURE_SEARCH_INDEX_NAME") or "grounding-index")
+        ).strip(),
         controls_index_name=(
-            values.get("AZURE_SEARCH_CONTROLS_INDEX_NAME") or "controls-index"
+            (values.get("CONTROLS_INDEX_NAME") or "controls-index")
+            if is_aws
+            else (values.get("AZURE_SEARCH_CONTROLS_INDEX_NAME") or "controls-index")
         ).strip(),
         embedding_deployment=(
-            values.get("EMBEDDING_DEPLOYMENT_NAME") or "text-embedding-ada-002"
+            values.get("BEDROCK_EMBEDDING_MODEL_ID") or ""
+            if is_aws
+            else values.get("EMBEDDING_DEPLOYMENT_NAME") or "text-embedding-ada-002"
         ).strip(),
-        query_deployment=(values.get("QUERY_DEPLOYMENT_NAME") or "gpt-5.1-chat").strip(),
+        query_deployment=(
+            values.get("BEDROCK_MODEL_ID") or ""
+            if is_aws
+            else values.get("QUERY_DEPLOYMENT_NAME") or "gpt-5.1-chat"
+        ).strip(),
         controls_top_k=max(1, int(values.get("CONTROLS_TOP_K") or "4")),
         guidance_top_k=max(
             1, int(values.get("ASSESSMENT_GUIDANCE_TOP_K") or values.get("SEARCH_TOP_K") or "5")
@@ -302,6 +323,9 @@ def _embed_query(
     credential: Any,
 ) -> list[float]:
     """Run embed query."""
+    if config.cloud_provider == "aws":
+        return []
+
     token = _cognitive_token(credential)
     url = (
         f"{config.openai_endpoint}/openai/deployments/"
@@ -331,6 +355,15 @@ def _chat_completion(
     timeout: int = 45,
 ) -> str:
     """Run chat completion."""
+    if config.cloud_provider == "aws":
+        llm = get_llm_client(
+            cloud_provider="aws",
+            model_id=config.query_deployment or None,
+            region_name=os.getenv("AWS_REGION"),
+            temperature=max(0.0, min(1.0, float(config.temperature))),
+        )
+        return llm.chat_complete(messages).strip()
+
     try:
         from openai import AzureOpenAI
     except ImportError as exc:
@@ -941,19 +974,23 @@ class SearchBackedAssessmentAgent:
         """Run init."""
         self._config = config
         if credential is None:
-            provider = get_credential_provider()
+            provider = get_credential_provider(cloud_provider=self._config.cloud_provider)
             self._credential = provider.get_sdk_credential()
         else:
             self._credential = credential
         self._evidence_search_client = evidence_search_client or get_search_client(
+            cloud_provider=self._config.cloud_provider,
             endpoint=config.search_endpoint,
             index_name=config.search_index_name,
             credential=self._credential,
+            region_name=(os.getenv("AWS_REGION") if self._config.cloud_provider == "aws" else None),
         )
         self._controls_search_client = controls_search_client or get_search_client(
+            cloud_provider=self._config.cloud_provider,
             endpoint=config.search_endpoint,
             index_name=config.controls_index_name,
             credential=self._credential,
+            region_name=(os.getenv("AWS_REGION") if self._config.cloud_provider == "aws" else None),
         )
         # Use provided functions or create from LLM_BACKEND (azure|ollama)
         # If neither embed_query nor chat_completion provided, will attempt to use factory
@@ -1335,6 +1372,10 @@ class SearchBackedAssessmentAgent:
             raw = self._chat_completion(messages)
             parsed = _extract_json_object(raw)
         except Exception:
+            _LOGGER.exception(
+                "Per-control LLM assessment failed for requirement_id=%s; using fallback",
+                requirement_id,
+            )
             parsed = {}
 
         fallback: dict[str, Any] = {

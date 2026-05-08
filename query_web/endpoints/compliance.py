@@ -668,6 +668,10 @@ def _assess_control_finding_with_llm(
         )
         parsed = _extract_json_object(raw, svc)
     except Exception:
+        logger.exception(
+            "Per-control LLM assessment failed for requirement_id=%s; using fallback",
+            requirement_id,
+        )
         parsed = {}
 
     fallback = {

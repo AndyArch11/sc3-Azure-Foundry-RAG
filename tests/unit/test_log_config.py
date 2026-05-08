@@ -367,7 +367,7 @@ class TestQueryWebLogConfigIsShim:
 
 
 # ---------------------------------------------------------------------------
-# Runtime log_config — uses _runtime_context_getter (sanitizes via trace_context)
+# Runtime log_config — uses _runtime_context_getter (sanitises via trace_context)
 # ---------------------------------------------------------------------------
 
 
@@ -428,15 +428,15 @@ class TestRuntimeLogConfig:
         assert "correlation_id" not in r
         assert "traceparent" not in r
 
-    def test_runtime_getter_sanitizes_unsafe_correlation_id(self) -> None:
-        """_runtime_context_getter must apply _sanitize_correlation_id."""
+    def test_runtime_getter_sanitises_unsafe_correlation_id(self) -> None:
+        """_runtime_context_getter must apply _sanitise_correlation_id."""
         from runtime.trace_context import reset_trace_context, set_trace_context
 
         # Contains a newline — log-injection character; must be stripped
         tokens = set_trace_context(correlation_id="bad\nid", traceparent="", tracestate="")
         try:
             log, buf = self._make_runtime_filtered_logger()
-            log.info("sanitize check")
+            log.info("sanitise check")
             r = _record(buf)
             assert "\n" not in r.get("correlation_id", "")
         finally:

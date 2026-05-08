@@ -11,7 +11,7 @@ import os
 from typing import Any
 
 from fastapi import Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from query_web.request_context import get_correlation_id
 
@@ -73,6 +73,13 @@ def register_ask_endpoints(
         if svc is None:
             return None
         return getattr(svc, name, None)
+
+    @app.get("/ask", response_class=HTMLResponse)
+    def ask_get(request: Request) -> RedirectResponse:
+        auth_token = str(request.query_params.get("auth_token", "")).strip()
+        if auth_token:
+            return RedirectResponse(url=f"/?auth_token={auth_token}", status_code=307)
+        return RedirectResponse(url="/", status_code=307)
 
     @app.post("/ask", response_class=HTMLResponse)
     def ask(

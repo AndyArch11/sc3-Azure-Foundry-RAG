@@ -92,25 +92,25 @@ def test_validate_traceparent_runtime(value: str, expected: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# _sanitize_correlation_id — log injection / DoS guards
+# _sanitise_correlation_id — log injection / DoS guards
 # ---------------------------------------------------------------------------
 
 
-def test_sanitize_correlation_id_strips_crlf_and_escape() -> None:
+def test_sanitise_correlation_id_strips_crlf_and_escape() -> None:
     assert _sanitise_correlation_id("corr\r\ninjected") == "corrinjected"
     assert _sanitise_correlation_id("id\x1b[31mred") == "id31mred"
     assert _sanitise_correlation_id("safe-id_1.2") == "safe-id_1.2"
 
 
-def test_sanitize_correlation_id_caps_length() -> None:
+def test_sanitise_correlation_id_caps_length() -> None:
     assert len(_sanitise_correlation_id("a" * 200)) == 128
 
 
 # ---------------------------------------------------------------------------
-# _sanitize_tracestate — length cap
+# _sanitise_tracestate — length cap
 # ---------------------------------------------------------------------------
 
 
-def test_sanitize_tracestate_caps_at_512() -> None:
+def test_sanitise_tracestate_caps_at_512() -> None:
     result = _sanitise_tracestate("k=v," * 200)
     assert len(result) <= 512

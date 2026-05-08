@@ -8,7 +8,10 @@ from typing import Any
 
 import requests
 
-from runtime.outbound_instrumentation import request_with_instrumentation
+try:
+    from runtime.outbound_instrumentation import request_with_instrumentation
+except ModuleNotFoundError:
+    from outbound_instrumentation import request_with_instrumentation
 
 logger = logging.getLogger(__name__)
 

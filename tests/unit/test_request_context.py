@@ -211,23 +211,23 @@ def test_middleware_rewrites_future_version_traceparent_as_v00() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _sanitize_correlation_id — log injection / DoS guards
+# _sanitise_correlation_id — log injection / DoS guards
 # ---------------------------------------------------------------------------
 
 
-def test_sanitize_correlation_id_strips_unsafe_chars() -> None:
+def test_sanitise_correlation_id_strips_unsafe_chars() -> None:
     assert _sanitise_correlation_id("corr\r\n123") == "corr123"
     assert _sanitise_correlation_id("abc\x1b[31mred") == "abc31mred"
     assert _sanitise_correlation_id("ok-value_1.2") == "ok-value_1.2"
 
 
-def test_sanitize_correlation_id_truncates_to_max_length() -> None:
+def test_sanitise_correlation_id_truncates_to_max_length() -> None:
     long_id = "a" * 200
     result = _sanitise_correlation_id(long_id)
     assert len(result) == 128
 
 
-def test_middleware_sanitizes_injected_correlation_id() -> None:
+def test_middleware_sanitises_injected_correlation_id() -> None:
     """CRLF header injection is neutralised; safe chars are preserved."""
     client = _make_client()
 
@@ -243,11 +243,11 @@ def test_middleware_sanitizes_injected_correlation_id() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _sanitize_tracestate — length cap
+# _sanitise_tracestate — length cap
 # ---------------------------------------------------------------------------
 
 
-def test_sanitize_tracestate_caps_at_512_chars() -> None:
+def test_sanitise_tracestate_caps_at_512_chars() -> None:
     long_ts = "v=x," * 200  # 800 chars
     result = _sanitise_tracestate(long_ts)
     assert len(result) <= 512

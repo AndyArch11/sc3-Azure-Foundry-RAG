@@ -25,7 +25,10 @@ from typing import Dict, List, Optional
 
 import requests  # type: ignore[import-untyped]
 
-from runtime.outbound_instrumentation import request_with_instrumentation
+try:
+    from runtime.outbound_instrumentation import request_with_instrumentation
+except ImportError:  # Container layout copies modules to /app, not /app/runtime.
+    from outbound_instrumentation import request_with_instrumentation
 
 from .base import BaseParser, RequirementRecord, filter_keywords
 

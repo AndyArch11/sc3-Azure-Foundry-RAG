@@ -40,6 +40,8 @@ def _make_templates(rendered: dict | None = None):
 def _make_request(headers: dict | None = None):
     req = Mock()
     req.headers.get = lambda k, d="": (headers or {}).get(k, d)
+    req.query_params = {}
+    req.cookies = {}
     return req
 
 
@@ -257,3 +259,72 @@ def test_home_svc_resolution_fallback():
     register_home_endpoints(app, svc=svc)
     registered[0](_make_request())
     tpl.TemplateResponse.assert_called_once()
+
+
+def test_home_uses_query_auth_token_for_authorisation():
+    captured: dict[str, str] = {}
+
+    def _is_authorised(token, _request):
+        captured["token"] = token
+        return token == "secret"
+
+    req = _make_request()
+    req.query_params = {"auth_token": "secret"}
+
+    # Re-register endpoint with token-aware auth stub.
+    app = MagicMock()
+    registered: list = []
+
+    def _get(path, **kwargs):
+        def decorator(fn):
+            registered.append(fn)
+            return fn
+
+        return decorator
+
+    app.get = _get
+    register_home_endpoints(
+        app,
+        is_authorised_request=_is_authorised,
+        unauthorised_message=lambda _req: "Unauthorised.",
+        config=_make_config(),
+        templates=_make_templates(),
+        branding_ctx=lambda: {"app_title": "Test", "static_version": "1"},
+    )
+
+    response = registered[0](req)
+    assert response.status_code == 200
+    assert captured["token"] == "secret"
+
+
+def test_home_uses_bearer_authorization_header_for_authorisation():
+    captured: dict[str, str] = {}
+
+    def _is_authorised(token, _request):
+        captured["token"] = token
+        return token == "secret"
+
+    app = MagicMock()
+    registered: list = []
+
+    def _get(path, **kwargs):
+        def decorator(fn):
+            registered.append(fn)
+            return fn
+
+        return decorator
+
+    app.get = _get
+    register_home_endpoints(
+        app,
+        is_authorised_request=_is_authorised,
+        unauthorised_message=lambda _req: "Unauthorised.",
+        config=_make_config(),
+        templates=_make_templates(),
+        branding_ctx=lambda: {"app_title": "Test", "static_version": "1"},
+    )
+
+    req = _make_request(headers={"authorization": "Bearer secret"})
+    response = registered[0](req)
+    assert response.status_code == 200
+    assert captured["token"] == "secret"

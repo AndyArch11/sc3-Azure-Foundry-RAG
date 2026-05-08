@@ -7,10 +7,11 @@ vpc_cidr             = "10.31.0.0/16"
 private_subnet_cidrs = ["10.31.1.0/24", "10.31.2.0/24"]
 public_subnet_cidrs  = ["10.31.101.0/24", "10.31.102.0/24"]
 
-opensearch_engine_version = "OpenSearch_2.13"
-opensearch_instance_type  = "r6g.large.search"
-opensearch_instance_count = 1
-opensearch_volume_size_gb = 20
+opensearch_engine_version             = "OpenSearch_2.13"
+opensearch_instance_type              = "r6g.large.search"
+opensearch_instance_count             = 1
+opensearch_volume_size_gb             = 20
+ensure_opensearch_service_linked_role = false
 
 search_index_name   = "grounding-index"
 controls_index_name = "controls-index"
@@ -26,3 +27,4 @@ enable_ingestion_job    = false
 
 query_web_image_tag = "latest" # Set to an immutable tag during deployment.
 ingestion_image_tag = "latest" # Set to an immutable tag during deployment.
+

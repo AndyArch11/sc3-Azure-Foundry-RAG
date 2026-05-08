@@ -1,5 +1,5 @@
 locals {
-  repositories = ["query-web", "ingestion"]
+  repositories = ["query-web", "ingestion", "confluence-poller"]
 }
 
 resource "aws_ecr_repository" "this" {

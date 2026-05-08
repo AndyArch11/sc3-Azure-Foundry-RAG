@@ -7,8 +7,14 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the ingestion package.
+# Copy the ingestion package and shared logging bootstrap used at runtime.
 COPY ingestion/ ./ingestion/
+COPY credentials/ ./credentials/
+COPY storage/ ./storage/
+COPY log_config.py ./log_config.py
+COPY trace_context.py ./trace_context.py
+COPY outbound_instrumentation.py ./outbound_instrumentation.py
+COPY outbound_metrics.py ./outbound_metrics.py
 
 # Run as a non-root user.
 RUN useradd -m -u 1000 appuser && mkdir -p /app/samples && chown appuser /app/samples

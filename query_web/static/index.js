@@ -1313,6 +1313,17 @@
       .catch(err => _renderAzureComplianceReport({ error: String(err) }));
   }
 
+  // Polyfill for crypto.randomUUID if not available (e.g., in some environments)
+  if (!crypto.randomUUID) {
+    crypto.randomUUID = function () {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+        var r = (Math.random() * 16) | 0;
+        var v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+      });
+    };
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     const sd = JSON.parse(document.getElementById('server-data').textContent);
     const pendingKey = 'rag_pending_question';
@@ -1392,9 +1403,8 @@
     const askResultsSection = document.getElementById('ask-results-section');
     if (askAdvancedToggle && askAdvancedFields) {
       const refreshAdvancedVisibility = function () {
-        const show = askAdvancedToggle.checked ? '' : 'none';
+        const show = askAdvancedToggle.checked ? 'grid' : 'none';
         askAdvancedFields.style.display = show;
-        if (askResultsSection) { askResultsSection.style.display = show; }
       };
       askAdvancedToggle.addEventListener('change', refreshAdvancedVisibility);
       refreshAdvancedVisibility();

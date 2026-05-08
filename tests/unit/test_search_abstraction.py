@@ -293,3 +293,69 @@ class TestAWSOpenSearchClient:
         assert body["size"] == 5
         assert "bool" in body["query"]
         assert "filter" in body["query"]["bool"]
+
+    def test_build_query_body_with_wildcard_uses_match_all(self) -> None:
+        from runtime.search.opensearch import AWSOpenSearchClient
+
+        client = AWSOpenSearchClient(endpoint="https://search.example", index="controls")
+        body = client._build_query_body(
+            query_text="*",
+            top=5,
+            vector_query=None,
+            filters=None,
+        )
+
+        assert body["query"] == {"match_all": {}}
+
+    def test_search_accepts_legacy_search_text_and_filter_kwargs(self) -> None:
+        from runtime.search.opensearch import AWSOpenSearchClient
+
+        response = MagicMock()
+        response.json.return_value = {
+            "hits": {
+                "total": {"value": 3, "relation": "eq"},
+                "hits": [
+                    {"_score": 1.0, "_source": {"id": "a", "content": "alpha"}},
+                    {"_score": 0.9, "_source": {"id": "b", "content": "beta"}},
+                ],
+            }
+        }
+
+        client = AWSOpenSearchClient(endpoint="https://search.example", index="controls")
+        client._signed_headers = MagicMock(return_value={"Authorization": "sig"})
+        client._http.post = MagicMock(return_value=response)
+
+        results = client.search(
+            search_text="*",
+            filter="framework:ISM",
+            include_total_count=True,
+            top=5,
+        )
+
+        assert len(results) == 2
+        assert results.get_count() == 3
+
+    def test_search_raises_when_query_text_missing(self) -> None:
+        from runtime.search.opensearch import AWSOpenSearchClient
+
+        client = AWSOpenSearchClient(endpoint="https://search.example", index="controls")
+
+        with pytest.raises(TypeError, match="query_text"):
+            client.search(top=3)
+
+    def test_translate_filter_expression_eq_and_ne_empty(self) -> None:
+        from runtime.search.opensearch import AWSOpenSearchClient
+
+        translated = AWSOpenSearchClient._translate_filter_expression(
+            "framework eq 'CIS Controls' and corpus ne ''"
+        )
+
+        assert translated == 'framework:"CIS Controls" AND _exists_:corpus'
+
+    def test_translate_filter_expression_preserves_query_string_syntax(self) -> None:
+        from runtime.search.opensearch import AWSOpenSearchClient
+
+        original = 'framework:"NIST CSF" AND corpus:b'
+        translated = AWSOpenSearchClient._translate_filter_expression(original)
+
+        assert translated == original

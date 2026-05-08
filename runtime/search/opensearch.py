@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 import requests
@@ -11,6 +12,17 @@ import requests
 from runtime.outbound_instrumentation import InstrumentedRequestsSession
 
 logger = logging.getLogger(__name__)
+
+
+class _SearchResults(list[dict[str, Any]]):
+    """List-like search results with optional total count metadata."""
+
+    def __init__(self, items: list[dict[str, Any]], total_count: int | None = None) -> None:
+        super().__init__(items)
+        self._total_count = total_count
+
+    def get_count(self) -> int | None:
+        return self._total_count
 
 
 class AWSOpenSearchClient:
@@ -82,6 +94,9 @@ class AWSOpenSearchClient:
         vector_query: list[float] | None,
         filters: str | None,
     ) -> dict[str, Any]:
+        normalised_query = (query_text or "").strip()
+        has_text_query = bool(normalised_query and normalised_query != "*")
+
         if vector_query:
             vector_clause: dict[str, Any] = {
                 "knn": {
@@ -91,13 +106,13 @@ class AWSOpenSearchClient:
                     }
                 }
             }
-            if query_text.strip():
+            if has_text_query:
                 query: dict[str, Any] = {
                     "bool": {
                         "must": [
                             {
                                 "multi_match": {
-                                    "query": query_text,
+                                    "query": normalised_query,
                                     "fields": ["content^3", "title^2", "chunk", "text", "*"],
                                     "type": "best_fields",
                                 }
@@ -108,10 +123,10 @@ class AWSOpenSearchClient:
                 }
             else:
                 query = vector_clause
-        elif query_text.strip():
+        elif has_text_query:
             query = {
                 "multi_match": {
-                    "query": query_text,
+                    "query": normalised_query,
                     "fields": ["content^3", "title^2", "chunk", "text", "*"],
                     "type": "best_fields",
                 }
@@ -132,6 +147,65 @@ class AWSOpenSearchClient:
             "query": query,
         }
 
+    @staticmethod
+    def _escape_query_value(value: str) -> str:
+        escaped = value.replace('"', '\\"')
+        return f'"{escaped}"'
+
+    @classmethod
+    def _translate_filter_expression(cls, filters: str | None) -> str | None:
+        """Translate simple OData filters into OpenSearch query_string syntax.
+
+        Supported forms:
+        - field eq 'value'
+        - field ne 'value'
+        - field ne ''  -> _exists_:field
+        - conjunctions via "and"
+
+        If parsing fails, the original filter string is returned unchanged.
+        """
+        if not filters:
+            return None
+
+        text = str(filters).strip()
+        if not text:
+            return None
+
+        # If caller already provided query_string syntax, pass through as-is.
+        if " eq " not in text and " ne " not in text:
+            return text
+
+        parts = re.split(r"\s+and\s+", text, flags=re.IGNORECASE)
+        translated: list[str] = []
+        pattern = re.compile(
+            r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s+(eq|ne)\s+'((?:[^']|'')*)'\s*$",
+            flags=re.IGNORECASE,
+        )
+
+        for part in parts:
+            match = pattern.match(part)
+            if not match:
+                return text
+            field, operator, raw_value = match.groups()
+            value = raw_value.replace("''", "'")
+            op = operator.lower()
+
+            if op == "eq":
+                if value == "":
+                    # OpenSearch cannot reliably query empty strings; keep broad fallback.
+                    translated.append(f"NOT _exists_:{field}")
+                else:
+                    translated.append(f"{field}:{cls._escape_query_value(value)}")
+                continue
+
+            # ne
+            if value == "":
+                translated.append(f"_exists_:{field}")
+            else:
+                translated.append(f"NOT {field}:{cls._escape_query_value(value)}")
+
+        return " AND ".join(translated) if translated else text
+
     @property
     def index_name(self) -> str:
         return self._index
@@ -139,13 +213,32 @@ class AWSOpenSearchClient:
     def search(
         self,
         *,
-        query_text: str,
+        query_text: str | None = None,
         top: int,
         vector_query: list[float] | None = None,
         filters: str | None = None,
         select: list[str] | None = None,
-        **extra_kwargs: Any,  # noqa: ARG002 – provider hints ignored by OpenSearch
+        **extra_kwargs: Any,
     ) -> list[dict[str, Any]]:
+        # Backward compatibility with older call sites that pass Azure SDK-style
+        # kwargs (search_text/filter/include_total_count).
+        if query_text is None:
+            legacy_query = extra_kwargs.pop("search_text", None)
+            if legacy_query is None:
+                raise TypeError(
+                    "AWSOpenSearchClient.search() missing required keyword argument: "
+                    "'query_text' (or legacy 'search_text')"
+                )
+            query_text = str(legacy_query)
+
+        if filters is None and "filter" in extra_kwargs:
+            filters = extra_kwargs.pop("filter")
+
+        # Provider hint is accepted for parity but not required by OpenSearch.
+        extra_kwargs.pop("include_total_count", None)
+
+        filters = self._translate_filter_expression(filters)
+
         body_payload = self._build_query_body(
             query_text=query_text,
             top=top,
@@ -167,6 +260,14 @@ class AWSOpenSearchClient:
 
         payload = response.json()
         hits = payload.get("hits", {}).get("hits", [])
+        total_raw = payload.get("hits", {}).get("total")
+        total_count: int | None = None
+        if isinstance(total_raw, dict):
+            value = total_raw.get("value")
+            if isinstance(value, (int, float)):
+                total_count = int(value)
+        elif isinstance(total_raw, (int, float)):
+            total_count = int(total_raw)
 
         results: list[dict[str, Any]] = []
         for hit in hits:
@@ -182,7 +283,7 @@ class AWSOpenSearchClient:
                 doc = {field: doc[field] for field in select if field in doc}
             results.append(doc)
 
-        return results
+        return _SearchResults(items=results, total_count=total_count)
 
     def load_documents(self, docs: list[dict[str, Any]]) -> None:
         """Unsupported for cloud backends; retained for protocol compatibility."""

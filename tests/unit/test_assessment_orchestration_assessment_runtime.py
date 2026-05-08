@@ -7,6 +7,8 @@ from azure.core.exceptions import ResourceNotFoundError
 from runtime.assessment_orchestration.assessment_runtime import (
     AssessmentRuntimeConfig,
     SearchBackedAssessmentAgent,
+    _embed_query,
+    load_assessment_runtime_config_from_env,
 )
 from runtime.assessment_orchestration.models import (
     AssessedArtifactPackage,
@@ -71,6 +73,36 @@ def _config() -> AssessmentRuntimeConfig:
         controls_top_k=2,
         guidance_top_k=2,
     )
+
+
+def test_load_assessment_runtime_config_from_env_aws() -> None:
+    cfg = load_assessment_runtime_config_from_env(
+        {
+            "CLOUD_PROVIDER": "aws",
+            "OPENSEARCH_ENDPOINT": "https://search-aws.example.com",
+            "SEARCH_INDEX_NAME": "grounding-index",
+            "CONTROLS_INDEX_NAME": "controls-index",
+            "BEDROCK_MODEL_ID": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        }
+    )
+
+    assert cfg.cloud_provider == "aws"
+    assert cfg.search_endpoint == "https://search-aws.example.com"
+    assert cfg.openai_endpoint == ""
+    assert cfg.search_index_name == "grounding-index"
+    assert cfg.controls_index_name == "controls-index"
+    assert cfg.query_deployment == "anthropic.claude-3-5-sonnet-20241022-v2:0"
+
+
+def test_embed_query_returns_empty_vector_for_aws() -> None:
+    cfg = AssessmentRuntimeConfig(
+        search_endpoint="https://search-aws.example.com",
+        openai_endpoint="",
+        cloud_provider="aws",
+    )
+
+    vector = _embed_query("What controls apply?", config=cfg, credential=object())
+    assert vector == []
 
 
 def _artifact() -> AssessedArtifactPackage:

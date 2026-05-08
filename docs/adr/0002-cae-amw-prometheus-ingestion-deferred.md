@@ -34,7 +34,7 @@ Pause further implementation work on CAE -> AMW managed Prometheus ingestion for
 
 - Keep current configuration and diagnostics artifacts in place.
 - Do not spend additional engineering cycles on speculative configuration changes.
-- Resume only when this capability is re-prioritized, with Microsoft support-assisted investigation if needed.
+- Resume only when this capability is re-prioritised, with Microsoft support-assisted investigation if needed.
 
 ## Rationale
 

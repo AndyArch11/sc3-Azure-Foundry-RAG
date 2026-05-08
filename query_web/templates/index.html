@@ -129,6 +129,7 @@
               <button type="button" class="btn-secondary" style="margin-top:0;font-size:.85rem;padding:6px 14px" onclick="resetAskAdvancedFields()" title="Reset all advanced settings to their configured defaults.">Reset to defaults</button>
             </div>
           </div>
+          <input type="hidden" name="auth_token" id="auth_token" value="{{ auth_token or '' }}" />
           <input type="hidden" name="session_id" id="session_id_field" value="{{ session_id or '' }}" />
           <input type="hidden" name="conversation_id" id="conversation_id_field" value="{{ conversation_id or '' }}" />
           <button type="submit" id="ask-submit-btn" title="Send the question and generate an answer using the current retrieval settings.">Ask</button>

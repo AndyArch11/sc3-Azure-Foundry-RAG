@@ -797,6 +797,29 @@ def _is_ingestion_job_trigger_enabled() -> bool:
     return _ingestion_svc.is_ingestion_job_trigger_enabled()
 
 
+def _is_aws_ecs_trigger_enabled() -> bool:
+    return _ingestion_svc.is_aws_ecs_trigger_enabled()
+
+
+def _get_ecs_recent_executions() -> list[dict[str, Any]]:
+    return _ingestion_svc.get_ecs_recent_executions()
+
+
+def _trigger_ecs_controls_task(
+    framework: str,
+    *,
+    replace_existing: bool = False,
+    dry_run: bool = False,
+    no_guidance: bool = False,
+) -> dict[str, Any]:
+    return _ingestion_svc.trigger_ecs_controls_task(
+        framework,
+        replace_existing=replace_existing,
+        dry_run=dry_run,
+        no_guidance=no_guidance,
+    )
+
+
 def _trigger_ingestion_job() -> dict[str, Any]:
     return _ingestion_svc.trigger_ingestion_job()
 
@@ -819,6 +842,14 @@ def _get_ingestion_job_template_container(token: str) -> dict[str, Any]:
 
 def _trigger_ingestion_job_with_args(args_override: list[str] | None) -> dict[str, Any]:
     return _ingestion_svc.trigger_ingestion_job_with_args(args_override)
+
+
+def _trigger_ecs_task_with_args(args: list[str]) -> dict[str, Any]:
+    return _ingestion_svc.trigger_ecs_task_with_args(args)
+
+
+def _trigger_ingestion_task_with_args(args_override: list[str] | None) -> dict[str, Any]:
+    return _ingestion_svc.trigger_ingestion_task_with_args(args_override)
 
 
 # Re-export the constant so diagnostics registration and other callers keep working.
@@ -974,6 +1005,9 @@ register_corpus_endpoints(
         "_is_allowed_filetype": lambda: _is_allowed_filetype,
         "_is_authorised_request": lambda: _is_authorised_request,
         "_is_ingestion_job_trigger_enabled": lambda: _is_ingestion_job_trigger_enabled,
+        "_is_aws_ecs_trigger_enabled": lambda: _is_aws_ecs_trigger_enabled,
+        "_get_ecs_recent_executions": lambda: _get_ecs_recent_executions,
+        "_trigger_ecs_controls_task": lambda: _trigger_ecs_controls_task,
         "_latest_ingestion_job_execution": lambda: _latest_ingestion_job_execution,
         "_list_search_documents_by_filter": lambda: _list_search_documents_by_filter,
         "_mark_dedupe_blobs_for_reindex": lambda: _mark_dedupe_blobs_for_reindex,
@@ -983,6 +1017,8 @@ register_corpus_endpoints(
         "_selected_corpus_a_frameworks": lambda: _selected_corpus_a_frameworks,
         "_trigger_ingestion_job": lambda: _trigger_ingestion_job,
         "_trigger_ingestion_job_with_args": lambda: _trigger_ingestion_job_with_args,
+        "_trigger_ecs_task_with_args": lambda: _trigger_ecs_task_with_args,
+        "_trigger_ingestion_task_with_args": lambda: _trigger_ingestion_task_with_args,
         "_unauthorised_message": lambda: _unauthorised_message,
         "_upload_corpus_a_reference_files": lambda: _upload_corpus_a_reference_files,
         "_upload_corpus_b_files": lambda: _upload_corpus_b_files,

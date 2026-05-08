@@ -55,6 +55,9 @@ class IngestionService:
     def is_corpus_upload_enabled(self) -> bool:
         """Return whether storage-backed corpus upload is configured."""
 
+        provider = str(os.getenv("CLOUD_PROVIDER", "azure") or "").strip().lower()
+        if provider == "aws":
+            return bool(self.deps.config.s3_bucket_name)
         return bool(self.deps.config.storage_account_name)
 
     def _is_local_provider(self) -> bool:
@@ -243,6 +246,219 @@ class IngestionService:
             and self.deps.config.ingestion_job_resource_group
             and self.deps.config.ingestion_job_name
         )
+
+    def is_aws_ecs_trigger_enabled(self) -> bool:
+        """Return whether AWS ECS run-task parameters are configured."""
+
+        return bool(
+            self.deps.config.ecs_cluster_name
+            and self.deps.config.ingestion_task_definition_arn
+            and self.deps.config.ecs_sg_id
+            and self.deps.config.ecs_subnet_id
+        )
+
+    def get_ecs_recent_executions(self, *, limit: int = 5) -> list[dict[str, Any]]:
+        """Fetch recent ECS ingestion task executions and map them to a portable status shape."""
+
+        if not self.is_aws_ecs_trigger_enabled():
+            return []
+
+        try:
+            import boto3  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise RuntimeError(
+                "boto3 is required for AWS ECS status but is not installed."
+            ) from exc
+
+        aws_region = str(os.getenv("AWS_REGION", "ap-southeast-2")).strip()
+        ecs = boto3.client("ecs", region_name=aws_region)
+        cluster = self.deps.config.ecs_cluster_name
+        task_def_arn = str(self.deps.config.ingestion_task_definition_arn or "")
+        # Extract family from ARN: arn:...:task-definition/family-name:revision
+        family = (
+            task_def_arn.rsplit("/", 1)[-1].split(":")[0] if "/" in task_def_arn else task_def_arn
+        )
+        cluster_suffix = cluster[3:] if cluster.startswith("cl-") else cluster
+        default_log_group = f"/ecs/{cluster_suffix}/ingestion"
+
+        all_arns: list[str] = []
+        for desired_status in ("RUNNING", "STOPPED"):
+            resp = ecs.list_tasks(cluster=cluster, family=family, desiredStatus=desired_status)
+            all_arns.extend(resp.get("taskArns", []))
+
+        if not all_arns:
+            return []
+
+        describe_resp = ecs.describe_tasks(cluster=cluster, tasks=all_arns[:100])
+        tasks: list[dict[str, Any]] = describe_resp.get("tasks", [])
+
+        def _map_status(task: dict[str, Any]) -> str:
+            last = task.get("lastStatus", "UNKNOWN")
+            if last in (
+                "RUNNING",
+                "ACTIVATING",
+                "PROVISIONING",
+                "PENDING",
+                "DEACTIVATING",
+                "STOPPING",
+            ):
+                return "Running"
+            if last == "STOPPED":
+                containers = task.get("containers", [])
+                if any(c.get("exitCode", 1) != 0 for c in containers if "exitCode" in c):
+                    return "Failed"
+                stop_code = task.get("stopCode", "")
+                if stop_code in ("TaskFailedToStart", "ServiceSchedulerInitiated"):
+                    return "Failed"
+                return "Succeeded"
+            return last
+
+        sorted_tasks = sorted(
+            tasks,
+            key=lambda t: str(t.get("startedAt") or t.get("createdAt") or ""),
+            reverse=True,
+        )
+        results: list[dict[str, Any]] = []
+        for task in sorted_tasks[:limit]:
+            task_arn = str(task.get("taskArn") or "")
+            task_id = task_arn.rsplit("/", 1)[-1] if task_arn else task_arn
+            started_at = task.get("startedAt")
+            stopped_at = task.get("stoppedAt")
+            results.append(
+                {
+                    "id": task_id,
+                    "status": _map_status(task),
+                    "startTime": (
+                        started_at.isoformat()  # type: ignore[union-attr]
+                        if hasattr(started_at, "isoformat")
+                        else str(started_at or "")
+                    ),
+                    "endTime": (
+                        stopped_at.isoformat()  # type: ignore[union-attr]
+                        if hasattr(stopped_at, "isoformat")
+                        else (str(stopped_at) if stopped_at else "")
+                    ),
+                    "logGroup": default_log_group,
+                    "logStream": f"ingestion/ingestion/{task_id}" if task_id else "",
+                    "detailedStatus": {
+                        "lastStatus": task.get("lastStatus"),
+                        "stopCode": task.get("stopCode"),
+                        "stoppedReason": task.get("stoppedReason"),
+                        "containers": [
+                            {
+                                "name": c.get("name"),
+                                "exitCode": c.get("exitCode"),
+                                "lastStatus": c.get("lastStatus"),
+                            }
+                            for c in task.get("containers", [])
+                        ],
+                    },
+                }
+            )
+        return results
+
+    def trigger_ecs_task_with_args(self, args: list[str]) -> dict[str, Any]:
+        """Launch an ECS Fargate one-off ingestion task with an explicit args list."""
+
+        if not self.is_aws_ecs_trigger_enabled():
+            raise RuntimeError(
+                "AWS ECS ingestion trigger is not configured. "
+                "Set ECS_CLUSTER_NAME, INGESTION_TASK_DEFINITION_ARN, ECS_SG_ID, and ECS_SUBNET_ID."
+            )
+
+        try:
+            import boto3  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise RuntimeError(
+                "boto3 is required for AWS ECS trigger but is not installed."
+            ) from exc
+
+        aws_region = str(os.getenv("AWS_REGION", "ap-southeast-2")).strip()
+        ecs_client = boto3.client("ecs", region_name=aws_region)
+
+        response = ecs_client.run_task(
+            cluster=self.deps.config.ecs_cluster_name,
+            launchType="FARGATE",
+            taskDefinition=self.deps.config.ingestion_task_definition_arn,
+            networkConfiguration={
+                "awsvpcConfiguration": {
+                    "subnets": [self.deps.config.ecs_subnet_id],
+                    "securityGroups": [self.deps.config.ecs_sg_id],
+                    "assignPublicIp": "DISABLED",
+                }
+            },
+            overrides={
+                "containerOverrides": [
+                    {
+                        "name": "ingestion",
+                        "command": args,
+                    }
+                ]
+            },
+        )
+
+        failures = response.get("failures") or []
+        if failures:
+            reasons = "; ".join(f.get("reason", "unknown") for f in failures)
+            raise RuntimeError(f"ECS run-task returned failures: {reasons}")
+
+        tasks = response.get("tasks") or []
+        task_arn: str | None = None
+        task_id: str | None = None
+        if tasks:
+            task_arn = str(tasks[0].get("taskArn") or "").strip() or None
+            if task_arn:
+                task_id = task_arn.rsplit("/", 1)[-1]
+
+        return {
+            "provider": "aws",
+            "cluster": self.deps.config.ecs_cluster_name,
+            "task_definition_arn": self.deps.config.ingestion_task_definition_arn,
+            "task_arn": task_arn,
+            "task_id": task_id,
+            "args": args,
+        }
+
+    def trigger_ecs_controls_task(
+        self,
+        framework: str,
+        *,
+        replace_existing: bool = False,
+        dry_run: bool = False,
+        no_guidance: bool = False,
+    ) -> dict[str, Any]:
+        """Launch an ECS Fargate one-off task to ingest a controls framework."""
+
+        cmd: list[str] = ["--mode", "controls", "--controls-framework", framework]
+        if replace_existing:
+            cmd.append("--replace-existing")
+        if dry_run:
+            cmd.append("--dry-run")
+        if no_guidance:
+            cmd.append("--no-guidance")
+
+        result = self.trigger_ecs_task_with_args(cmd)
+        result["framework"] = framework
+        return result
+
+    def trigger_ingestion_task_with_args(self, args_override: list[str] | None) -> dict[str, Any]:
+        """Provider-aware wrapper: delegates to Azure or AWS trigger based on CLOUD_PROVIDER.
+
+        On Azure calls ``trigger_ingestion_job_with_args``; on AWS calls
+        ``trigger_ecs_task_with_args``. This lets corpus B/C upload callers stay
+        provider-agnostic.
+        """
+
+        provider = str(os.getenv("CLOUD_PROVIDER", "azure") or "").strip().lower()
+        if provider == "aws":
+            effective_args = list(args_override or [])
+            # Normalise: replace --mode azure with --mode aws when called from generic path
+            if "--mode" in effective_args:
+                idx = effective_args.index("--mode")
+                if idx + 1 < len(effective_args) and effective_args[idx + 1] == "azure":
+                    effective_args[idx + 1] = "aws"
+            return self.trigger_ecs_task_with_args(effective_args)
+        return self.trigger_ingestion_job_with_args(args_override)
 
     def trigger_ingestion_job(self) -> dict[str, Any]:
         """Trigger the ingestion job with its default container arguments."""
@@ -503,6 +719,127 @@ class IngestionService:
             "end_time": props.get("endTime"),
         }
 
+    def _upload_corpus_files_s3(
+        self,
+        files: list[UploadFile],
+        user_id: str,
+        *,
+        corpus: str,
+        corpus_role: str,
+    ) -> dict[str, Any]:
+        """Upload corpus files to S3 with dedupe metadata."""
+
+        from runtime.storage.aws_s3 import AWSS3StorageClient
+
+        aws_region = str(os.getenv("AWS_REGION", "ap-southeast-2")).strip()
+        s3_client = AWSS3StorageClient(region_name=aws_region)
+        bucket = self.deps.config.s3_bucket_name
+
+        uploaded: list[dict[str, Any]] = []
+        skipped: list[str] = []
+        failed: list[str] = []
+
+        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        upload_batch_id: str | None = None
+
+        for file in files:
+            original_name = file.filename or "uploaded.bin"
+            ext = Path(original_name).suffix.lower()
+            if ext not in self.deps.ALLOWED_EXTENSIONS:
+                skipped.append(f"{original_name}: disallowed filetype {ext}")
+                try:
+                    file.file.close()
+                except Exception:
+                    pass
+                continue
+
+            try:
+                content = file.file.read()
+                if not content:
+                    skipped.append(original_name)
+                    continue
+
+                content_sha256 = hashlib.sha256(content).hexdigest()
+                normalised_text_sha256, hash_method = self.deps._compute_normalised_text_hash(
+                    content,
+                    filename=original_name,
+                    content_type=file.content_type or "",
+                )
+                dedupe_hash = normalised_text_sha256 or content_sha256
+                dedupe_method = (
+                    "normalised_text_sha256" if normalised_text_sha256 else "content_sha256"
+                )
+                key = f"corpus-{corpus}/by-dedupe/{dedupe_hash}{ext}"
+
+                existing_keys = s3_client.list_objects(
+                    bucket, prefix=f"corpus-{corpus}/by-dedupe/{dedupe_hash}"
+                )
+                if existing_keys:
+                    existing_metadata = {}
+                    try:
+                        existing_metadata = s3_client.get_object_metadata(bucket, existing_keys[0])
+                    except Exception:
+                        pass
+                    metadata_ok = self.blob_has_required_ingestion_metadata(
+                        {k: str(v) for k, v in existing_metadata.items() if v is not None}
+                    )
+                    existing_ext = Path(existing_keys[0]).suffix.lower()
+                    if metadata_ok and existing_ext == ext:
+                        skipped.append(f"{original_name}: duplicate-{dedupe_method}:{dedupe_hash}")
+                        continue
+
+                if upload_batch_id is None:
+                    upload_batch_id = str(uuid.uuid4())
+
+                metadata: dict[str, str] = {
+                    "corpus": corpus,
+                    "corpus_role": corpus_role,
+                    "upload_source": "query_web",
+                    "uploaded_by": self.deps._sanitise_blob_name_component(user_id or "anonymous"),
+                    "upload_batch": upload_batch_id,
+                    "uploaded_at": ts,
+                    "original_filename": self.deps._sanitise_blob_name_component(original_name),
+                    "content_sha256": content_sha256,
+                    "normalised_text_sha256": normalised_text_sha256 or "",
+                    "dedupe_hash": dedupe_hash,
+                    "dedupe_method": dedupe_method,
+                    "hash_method": hash_method,
+                }
+
+                s3_client.put_object(bucket, key, content, metadata=metadata)
+
+                uploaded.append(
+                    {
+                        "blob_name": key,
+                        "size_bytes": len(content),
+                        "content_type": file.content_type or "application/octet-stream",
+                        "content_sha256": content_sha256,
+                        "normalised_text_sha256": normalised_text_sha256,
+                        "dedupe_hash": dedupe_hash,
+                        "dedupe_method": dedupe_method,
+                        "repaired_existing": False,
+                        "metadata": metadata,
+                    }
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to upload file %s to S3: %s", original_name, exc, exc_info=True
+                )
+                failed.append(f"{original_name}: upload failed")
+            finally:
+                try:
+                    file.file.close()
+                except Exception:
+                    pass
+
+        return {
+            "upload_batch_id": upload_batch_id,
+            "prefix": f"corpus-{corpus}/by-dedupe",
+            "uploaded": uploaded,
+            "skipped": skipped,
+            "failed": failed,
+        }
+
     def upload_corpus_files(
         self,
         files: list[UploadFile],
@@ -522,7 +859,14 @@ class IngestionService:
                     corpus_role=corpus_role,
                 )
             raise RuntimeError(
-                "Corpus upload is not configured. Set AZURE_STORAGE_ACCOUNT_NAME in query web configuration."
+                "Corpus upload is not configured. "
+                "Set AZURE_STORAGE_ACCOUNT_NAME (Azure) or S3_BUCKET_NAME (AWS) in query web configuration."
+            )
+
+        provider = str(os.getenv("CLOUD_PROVIDER", "azure") or "").strip().lower()
+        if provider == "aws":
+            return self._upload_corpus_files_s3(
+                files, user_id, corpus=corpus, corpus_role=corpus_role
             )
 
         account_url = f"https://{self.deps.config.storage_account_name}.blob.core.windows.net"
@@ -691,12 +1035,79 @@ class IngestionService:
 
         if not self.is_corpus_upload_enabled():
             raise RuntimeError(
-                "Corpus upload is not configured. Set AZURE_STORAGE_ACCOUNT_NAME in query web configuration."
+                "Corpus upload is not configured. "
+                "Set AZURE_STORAGE_ACCOUNT_NAME (Azure) or S3_BUCKET_NAME (AWS) in query web configuration."
             )
 
         framework_key, prepared_uploads = self.deps._prepare_corpus_a_reference_uploads(
             framework, files
         )
+
+        provider = str(os.getenv("CLOUD_PROVIDER", "azure") or "").strip().lower()
+        if provider == "aws":
+            from runtime.storage.aws_s3 import AWSS3StorageClient
+
+            aws_region = str(os.getenv("AWS_REGION", "ap-southeast-2")).strip()
+            s3_client = AWSS3StorageClient(region_name=aws_region)
+            bucket = self.deps.config.s3_bucket_name
+
+            uploaded: list[dict[str, Any]] = []
+            failed: list[str] = []
+
+            ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            upload_batch_id = str(uuid.uuid4())
+            source_prefix = f"corpus-a/source/{framework_key}/{upload_batch_id}"
+
+            for file, original_name, target_name in prepared_uploads:
+                try:
+                    content = file.file.read()
+                    if not content:
+                        raise ValueError(f"{original_name} is empty")
+
+                    object_key = f"{source_prefix}/{target_name}"
+                    metadata = {
+                        "corpus": "a",
+                        "framework": framework_key,
+                        "upload_source": "query_web",
+                        "uploaded_by": self.deps._sanitise_blob_name_component(
+                            user_id or "anonymous"
+                        ),
+                        "upload_batch": upload_batch_id,
+                        "uploaded_at": ts,
+                        "original_filename": self.deps._sanitise_blob_name_component(original_name),
+                        "target_filename": target_name,
+                    }
+                    s3_client.put_object(bucket, object_key, content, metadata=metadata)
+                    uploaded.append(
+                        {
+                            "blob_name": object_key,
+                            "size_bytes": len(content),
+                            "content_type": file.content_type or "application/octet-stream",
+                            "metadata": metadata,
+                        }
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to upload Corpus A reference file %s to S3: %s",
+                        original_name,
+                        exc,
+                        exc_info=True,
+                    )
+                    failed.append(f"{original_name}: upload failed")
+                finally:
+                    try:
+                        file.file.close()
+                    except Exception:
+                        pass
+
+            return {
+                "framework": framework_key,
+                "framework_name": self.deps._CORPUS_A_FRAMEWORKS[framework_key],
+                "source_prefix": source_prefix,
+                "upload_batch_id": upload_batch_id,
+                "uploaded": uploaded,
+                "failed": failed,
+            }
 
         account_url = f"https://{self.deps.config.storage_account_name}.blob.core.windows.net"
         blob_service_client_cls = self._dep_attr("BlobServiceClient", BlobServiceClient)
@@ -704,8 +1115,8 @@ class IngestionService:
         client = blob_service_client_cls(account_url=account_url, credential=self.deps.credential)
         container = client.get_container_client(self.deps.config.storage_container_name)
 
-        uploaded: list[dict[str, Any]] = []
-        failed: list[str] = []
+        uploaded = []
+        failed = []
 
         ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         upload_batch_id = str(uuid.uuid4())

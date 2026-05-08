@@ -54,6 +54,12 @@ class LocalFileStorageClient:
             raise FileNotFoundError(f"No object '{key}' in '{bucket_or_container}'")
         return json.loads(meta_path.read_text(encoding="utf-8"))
 
+    def get_object(self, bucket_or_container: str, key: str) -> bytes:
+        target = self._blob_path(bucket_or_container, key)
+        if not target.exists():
+            raise FileNotFoundError(f"No object '{key}' in '{bucket_or_container}'")
+        return target.read_bytes()
+
     def delete_object(self, bucket_or_container: str, key: str) -> None:
         target = self._blob_path(bucket_or_container, key)
         if target.exists():

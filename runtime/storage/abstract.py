@@ -23,5 +23,8 @@ class StorageClient(Protocol):
     def get_object_metadata(self, bucket_or_container: str, key: str) -> dict[str, Any]:
         """Return metadata for a stored object."""
 
+    def get_object(self, bucket_or_container: str, key: str) -> bytes:
+        """Download and return object data from storage."""
+
     def delete_object(self, bucket_or_container: str, key: str) -> None:
         """Delete a stored object."""

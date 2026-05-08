@@ -48,6 +48,110 @@ Most runtime actions require both Azure identity and jumpbox network access.
 
 ## Common Quick Checks
 
+## AWS-Specific Troubleshooting Tips
+
+Use these checks when running the AWS deployment (`infra/terraform/aws`).
+
+### 1) Bedrock calls always return fallback or `insufficient_evidence`
+
+If compliance output repeatedly falls back to deterministic `insufficient_evidence`, check query-web logs for hidden Bedrock errors:
+
+```bash
+aws logs filter-log-events \
+  --log-group-name "/ecs/rag-dev-apse2/query-web" \
+  --region ap-southeast-2 \
+  --start-time $(date -d '10 minutes ago' +%s000) \
+  --query 'events[].message' --output json \
+| python3 -c "import json,sys; [print(x) for x in json.load(sys.stdin)]" \
+| grep -Ei "Per-control LLM assessment|Exception|ERROR|Throttling|AccessDenied|ResourceNotFound"
+```
+
+Common causes:
+
+- `ResourceNotFoundException`: model access/use-case form not completed (common for Anthropic models).
+- `AccessDeniedException`: ECS task role policy does not allow `bedrock:InvokeModel` on the selected model ARN.
+- `ThrottlingException` with `Too many tokens per day`: account-applied Bedrock runtime quota is effectively `0`.
+
+### 2) Verify Bedrock model access and quota state
+
+Check model availability/access state:
+
+```bash
+aws bedrock get-foundation-model-availability \
+  --model-id amazon.nova-pro-v1:0 \
+  --region ap-southeast-2
+```
+
+Compare account-applied quotas vs AWS defaults:
+
+```bash
+# Account-applied quotas
+aws service-quotas list-service-quotas \
+  --service-code bedrock \
+  --region ap-southeast-2 \
+  --query 'Quotas[?contains(QuotaName, `Nova Pro`) && (contains(QuotaName, `tokens`) || contains(QuotaName, `requests`))].[QuotaName,Value,Adjustable]' \
+  --output table
+
+# AWS default quotas
+aws service-quotas list-aws-default-service-quotas \
+  --service-code bedrock \
+  --region ap-southeast-2 \
+  --query 'Quotas[?contains(QuotaName, `Nova Pro`) && (contains(QuotaName, `tokens`) || contains(QuotaName, `requests`))].[QuotaName,Value,Adjustable]' \
+  --output table
+```
+
+If account-applied runtime quotas are `0` while defaults are non-zero, open an AWS Support case to enable/activate Bedrock runtime quota for the account and region.
+
+### 3) Confirm ECS is running the expected task definition and image
+
+```bash
+aws ecs describe-services \
+  --cluster ecs-rag-dev-apse2 \
+  --services svc-query-web-rag-dev-apse2 \
+  --region ap-southeast-2 \
+  --query 'services[0].{taskDefinition:taskDefinition,runningCount:runningCount,desiredCount:desiredCount}'
+
+aws ecs describe-task-definition \
+  --task-definition td-query-web-rag-dev-apse2:31 \
+  --region ap-southeast-2 \
+  --query 'taskDefinition.containerDefinitions[0].image'
+```
+
+If IAM policies changed but behaviour did not, force a service redeploy so new tasks assume updated permissions:
+
+```bash
+aws ecs update-service \
+  --cluster ecs-rag-dev-apse2 \
+  --service svc-query-web-rag-dev-apse2 \
+  --force-new-deployment \
+  --region ap-southeast-2
+```
+
+### 4) Verify the task role policy for Bedrock model ARN
+
+```bash
+aws iam get-role-policy \
+  --role-name role-ecs-task-rag-dev-apse2 \
+  --policy-name bedrock-invoke \
+  --query 'PolicyDocument' --output json
+```
+
+Ensure the selected model ARN is included, for example:
+
+- `arn:aws:bedrock:ap-southeast-2::foundation-model/amazon.nova-pro-v1:0`
+
+### 5) Corpus-B ingestion auth and file-type pitfalls
+
+For `/api/corpus-b/ingest`, auth is expected as multipart form field `auth_token` (not `Authorization` header):
+
+```bash
+curl -s -X POST "$ALB/api/corpus-b/ingest?reindex_on_dedupe=true&trigger_job=true" \
+  -F "auth_token=$TOKEN" \
+  -F "files=@/path/to/file.pdf"
+```
+
+Allowed file types are office/pdf/html families (`.pdf`, `.docx`, `.xlsx`, `.pptx`, `.html`, etc). Markdown (`.md`) is rejected by design.
+
 ## Known Issue (Paused): CAE -> AMW Managed Prometheus Ingestion
 
 Status: **Not working as of 2026-05-02. Implementation is paused for now.**

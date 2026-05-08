@@ -40,6 +40,12 @@ variable "opensearch_log_group_arn" {
   default     = ""
 }
 
+variable "ensure_opensearch_service_linked_role" {
+  type        = bool
+  description = "Create the OpenSearch service-linked role when missing. Disable only if your IAM policy blocks role discovery/creation and the role already exists."
+  default     = true
+}
+
 variable "dynamodb_table_name" {
   type = string
 }

@@ -142,12 +142,26 @@ def _chat_completion(
 ) -> str:
     """Call Azure Foundry chat completion API using the OpenAI Python SDK."""
     provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower()
+    safe_temperature = max(0.0, min(1.0, float(temperature)))
 
     if provider in {"local", "dev"}:
         llm = get_llm_client(
             cloud_provider=provider,
             ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             ollama_model=os.getenv("OLLAMA_MODEL", "llama3.2"),
+        )
+        return llm.chat_complete(messages).strip()
+
+    if provider == "aws":
+        bedrock_max_tokens = max_completion_tokens or int(
+            os.getenv("MAX_COMPLETION_TOKENS", "4096")
+        )
+        llm = get_llm_client(
+            cloud_provider="aws",
+            model_id=deployment or os.getenv("BEDROCK_MODEL_ID"),
+            region_name=os.getenv("AWS_REGION"),
+            temperature=safe_temperature,
+            max_tokens=bedrock_max_tokens,
         )
         return llm.chat_complete(messages).strip()
 
@@ -163,7 +177,6 @@ def _chat_completion(
     )
     typed_messages = cast(list[ChatCompletionMessageParam], messages)
 
-    safe_temperature = max(0.0, min(1.0, float(temperature)))
     token_cap = int(max_completion_tokens or svc.config.max_completion_tokens)
     outbound_headers = outbound_trace_headers()
 

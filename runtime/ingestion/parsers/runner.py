@@ -27,7 +27,11 @@ import logging
 import sys
 from pathlib import Path
 
-from runtime.log_config import configure_logging as _configure_logging
+try:
+    from runtime.log_config import configure_logging as _configure_logging
+except ModuleNotFoundError:
+    # Runtime container image copies log_config.py to /app (without runtime/ package).
+    from log_config import configure_logging as _configure_logging
 
 _configure_logging("parsers-runner")
 logger = logging.getLogger(__name__)

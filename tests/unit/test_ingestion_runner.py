@@ -602,3 +602,114 @@ def test_run_controls_aws(
     assert payload["mode"] == "controls"
     assert payload["cloud_provider"] == "aws"
     assert payload["results"][0]["records_uploaded"] == 1
+
+
+def test_run_controls_aws_downloads_staged_source_files(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("CLOUD_PROVIDER", "aws")
+    monkeypatch.setenv("S3_BUCKET_NAME", "rag-dev-bucket")
+
+    class _AwsCfg:
+        @classmethod
+        def from_env(cls):
+            return type("C", (), {})()
+
+    class _Provider:
+        def get_sdk_credential(self):
+            return object()
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.credentials",
+        type("CRED", (), {"get_credential_provider": lambda cloud_provider=None: _Provider()}),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.ingestion.controls_index_aws",
+        type(
+            "CIA",
+            (),
+            {
+                "AWSControlsIndexConfig": _AwsCfg,
+                "ensure_controls_index_aws": lambda config, session: None,
+            },
+        ),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.ingestion.controls_runner",
+        type(
+            "CR",
+            (),
+            {
+                "_build_parser_registry": lambda: {
+                    "cis_controls": {
+                        "factory": lambda fetch_guidance: type(
+                            "P",
+                            (),
+                            {
+                                "parse": lambda self: [{"id": 1}],
+                                "to_jsonl": lambda self, recs: '{"id":1}\n',
+                            },
+                        )(),
+                    }
+                },
+                "_selected_frameworks": lambda framework, registry: ["cis_controls"],
+            },
+        ),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "runtime.ingestion.publish_controls_aws",
+        type(
+            "PCA",
+            (),
+            {
+                "upload_controls_records_aws": lambda *args, **kwargs: {
+                    "records_failed": 0,
+                    "records_uploaded": 1,
+                }
+            },
+        ),
+    )
+
+    seen: dict[str, object] = {}
+
+    def _fake_download_aws(
+        framework: str,
+        source_prefix: str,
+        aws_session: object,
+        s3_bucket_name: str,
+    ) -> list[str]:
+        seen["framework"] = framework
+        seen["source_prefix"] = source_prefix
+        seen["aws_session"] = aws_session
+        seen["s3_bucket_name"] = s3_bucket_name
+        return [
+            "CIS_Controls_Version_8.xlsx",
+            "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf",
+        ]
+
+    monkeypatch.setattr(runner, "_download_controls_source_files_aws", _fake_download_aws)
+
+    controls_args = argparse.Namespace(
+        controls_framework="cis_controls",
+        controls_source_prefix="corpus-a/source/cis_controls/batch-123",
+        replace_existing=False,
+        dry_run=False,
+        no_guidance=False,
+    )
+
+    code = runner._run_controls(controls_args)
+    payload = json.loads(capsys.readouterr().out.strip())
+
+    assert code == 0
+    assert seen["framework"] == "cis_controls"
+    assert seen["source_prefix"] == "corpus-a/source/cis_controls/batch-123"
+    assert seen["s3_bucket_name"] == "rag-dev-bucket"
+    assert payload["controls_source_prefix"] == "corpus-a/source/cis_controls/batch-123"
+    assert payload["source_files_downloaded"] == [
+        "CIS_Controls_Version_8.xlsx",
+        "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf",
+    ]
