@@ -7,4 +7,4 @@ pypdfium2==4.30.0
 pytesseract==0.3.13
 
 # Local development (CLOUD_PROVIDER=local with LOCAL_VECTOR_BACKEND=qdrant)
-qdrant-client==1.12.1
+qdrant-client==1.17.1
