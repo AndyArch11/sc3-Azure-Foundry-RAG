@@ -271,11 +271,11 @@ class LocalQdrantSearchClient:
         try:
             query_vector = vector_query if vector_query is not None else self._embed_text(effective_query)
             qfilter = self._build_filter(filters)
-            search_fn = cast(Callable[..., Any] | None, getattr(self._client, "search", None))
-            if search_fn is None:
+            search_fn = cast(Any, getattr(self._client, "search", None))
+            if not callable(search_fn):
                 raise AttributeError("QdrantClient.search is unavailable")
 
-            result = search_fn(
+            result = search_fn(  # pylint: disable=not-callable
                 collection_name=self._index,
                 query_vector=query_vector,
                 limit=max(1, top),
