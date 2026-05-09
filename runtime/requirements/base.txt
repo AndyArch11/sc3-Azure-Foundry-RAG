@@ -1,6 +1,6 @@
 # Shared runtime dependencies
 requests>=2.33.1
-beautifulsoup4>=4.12.0
+beautifulsoup4>=4.14.3
 openai==2.36.0
 # openai 2.36.0 is compatible with httpx 0.28.x.
 httpx==0.28.1
