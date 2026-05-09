@@ -4,4 +4,4 @@
 azure-identity==1.21.0
 azure-search-documents==11.7.0b2
 azure-storage-blob==12.25.1
-azure-cosmos==4.8.0
+azure-cosmos==4.15.0
