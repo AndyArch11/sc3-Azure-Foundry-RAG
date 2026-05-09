@@ -6,7 +6,7 @@ import hashlib
 import logging
 import os
 import re
-from typing import Any, cast
+from typing import Any, Callable, cast
 
 logger = logging.getLogger(__name__)
 
@@ -271,7 +271,11 @@ class LocalQdrantSearchClient:
         try:
             query_vector = vector_query if vector_query is not None else self._embed_text(effective_query)
             qfilter = self._build_filter(filters)
-            result = self._client.search(
+            search_fn = cast(Callable[..., Any] | None, getattr(self._client, "search", None))
+            if search_fn is None:
+                raise AttributeError("QdrantClient.search is unavailable")
+
+            result = search_fn(
                 collection_name=self._index,
                 query_vector=query_vector,
                 limit=max(1, top),
