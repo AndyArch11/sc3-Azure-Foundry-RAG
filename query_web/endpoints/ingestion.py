@@ -20,6 +20,8 @@ from azure.search.documents.indexes import SearchIndexerClient
 from azure.storage.blob import BlobServiceClient, ContentSettings
 from fastapi import UploadFile
 
+from runtime.provider_core import normalise_cloud_provider
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,17 +54,26 @@ class IngestionService:
 
         return getattr(self.deps, name, default)
 
+    def _current_provider(self) -> str:
+        """Return canonical cloud provider with safe fallback for invalid env values."""
+
+        try:
+            return normalise_cloud_provider(os.getenv("CLOUD_PROVIDER"))
+        except ValueError:
+            return "azure"
+
+    def _is_aws_provider(self) -> bool:
+        return self._current_provider() == "aws"
+
     def is_corpus_upload_enabled(self) -> bool:
         """Return whether storage-backed corpus upload is configured."""
 
-        provider = str(os.getenv("CLOUD_PROVIDER", "azure") or "").strip().lower()
-        if provider == "aws":
+        if self._is_aws_provider():
             return bool(self.deps.config.s3_bucket_name)
         return bool(self.deps.config.storage_account_name)
 
     def _is_local_provider(self) -> bool:
-        provider = str(os.getenv("CLOUD_PROVIDER", "azure") or "").strip().lower()
-        return provider in {"local", "dev"}
+        return self._current_provider() == "local"
 
     def _persist_local_evidence_docs(self, docs: list[dict[str, Any]]) -> None:
         if not docs:
@@ -449,8 +460,7 @@ class IngestionService:
         provider-agnostic.
         """
 
-        provider = str(os.getenv("CLOUD_PROVIDER", "azure") or "").strip().lower()
-        if provider == "aws":
+        if self._is_aws_provider():
             effective_args = list(args_override or [])
             # Normalise: replace --mode azure with --mode aws when called from generic path
             if "--mode" in effective_args:
@@ -863,8 +873,7 @@ class IngestionService:
                 "Set AZURE_STORAGE_ACCOUNT_NAME (Azure) or S3_BUCKET_NAME (AWS) in query web configuration."
             )
 
-        provider = str(os.getenv("CLOUD_PROVIDER", "azure") or "").strip().lower()
-        if provider == "aws":
+        if self._is_aws_provider():
             return self._upload_corpus_files_s3(
                 files, user_id, corpus=corpus, corpus_role=corpus_role
             )
@@ -1043,8 +1052,7 @@ class IngestionService:
             framework, files
         )
 
-        provider = str(os.getenv("CLOUD_PROVIDER", "azure") or "").strip().lower()
-        if provider == "aws":
+        if self._is_aws_provider():
             from runtime.storage.aws_s3 import AWSS3StorageClient
 
             aws_region = str(os.getenv("AWS_REGION", "ap-southeast-2")).strip()

@@ -13,6 +13,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from runtime.provider_core import DEFAULT_CLOUD_PROVIDER_REGISTRY
+
 from .protocol import LLMClient
 
 
@@ -60,9 +62,9 @@ def get_llm_client(
         Ollama model name (local path, default ``llama3``).
     """
     provider_raw = cloud_provider if cloud_provider is not None else os.getenv("CLOUD_PROVIDER")
-    provider = (provider_raw or "azure").strip().lower()
+    provider = DEFAULT_CLOUD_PROVIDER_REGISTRY.get(provider_raw).provider
 
-    if provider in ("local", "dev"):
+    if provider == "local":
         from .ollama import OllamaLLMClient
 
         return OllamaLLMClient(
@@ -93,7 +95,7 @@ def get_llm_client(
             temperature=temperature,
         )
 
-    raise ValueError(f"Unsupported cloud provider for LLM client: '{provider}'")
+    raise AssertionError(f"Unhandled provider '{provider}'")
 
 
 __all__ = ["LLMClient", "get_llm_client"]

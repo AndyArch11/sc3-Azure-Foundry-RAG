@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from runtime.provider_core import DEFAULT_CLOUD_PROVIDER_REGISTRY
+
 from .abstract import StorageClient
 
 
@@ -20,7 +22,7 @@ def get_storage_client(
     """Return a provider-appropriate StorageClient."""
 
     provider_raw = cloud_provider if cloud_provider is not None else os.getenv("CLOUD_PROVIDER")
-    provider = (provider_raw or "azure").strip().lower()
+    provider = DEFAULT_CLOUD_PROVIDER_REGISTRY.get(provider_raw).provider
 
     if provider == "azure":
         from .azure_blob import AzureBlobStorageClient
@@ -37,14 +39,12 @@ def get_storage_client(
 
         return AWSS3StorageClient(region_name=region_name, session=session)
 
-    if provider in {"local", "dev"}:
+    if provider == "local":
         from .local_file import LocalFileStorageClient
 
         return LocalFileStorageClient(base_dir=base_dir)
 
-    raise ValueError(
-        f"Unsupported cloud provider '{provider}'. Expected one of: azure, aws, local"
-    )
+    raise AssertionError(f"Unhandled provider '{provider}'")
 
 
 __all__ = ["StorageClient", "get_storage_client"]

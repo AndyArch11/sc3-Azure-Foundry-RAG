@@ -19,6 +19,10 @@ Recommended follow-up rollout:
 
 Optional admin RBAC reconciliation:
   ./ops/scripts/azure/reconcile-rbac-admin.sh <env> apply
+
+Environment variable overrides:
+  RUNTIME_REQUIREMENTS_FILE Docker build requirements profile
+                   (default: /app/runtime-requirements/poller.txt)
 EOF
   exit 0
 fi
@@ -149,6 +153,7 @@ DEFAULT_TAG="$(date +%Y%m%d%H%M)-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 
 IMAGE_TAG="${IMAGE_TAG:-${DEFAULT_TAG}}"
 IMAGE_REPOSITORY="confluence-poller"
 ACR_LOGIN_SERVER="${ACR_LOGIN_SERVER:-}"
+RUNTIME_REQUIREMENTS_FILE="${RUNTIME_REQUIREMENTS_FILE:-}"
 ENV_TFVARS_FILE="${TF_DIR}/environments/${ENV}/${ENV}.tfvars"
 
 if [[ -z "${ACR_LOGIN_SERVER}" ]] && command -v terraform &>/dev/null; then
@@ -188,9 +193,15 @@ _assert_private_acr_resolution "${ACR_LOGIN_SERVER}"
 _assert_private_acr_data_endpoint_if_enabled "${ACR_LOGIN_SERVER%%.*}"
 az acr login --name "${ACR_LOGIN_SERVER%%.*}"
 
+BUILD_ARGS=()
+if [[ -n "${RUNTIME_REQUIREMENTS_FILE}" ]]; then
+  BUILD_ARGS+=(--build-arg "RUNTIME_REQUIREMENTS_FILE=${RUNTIME_REQUIREMENTS_FILE}")
+fi
+
 "${DOCKER_CMD[@]}" build \
   --platform linux/amd64 \
   --file "${RUNTIME_DIR}/Dockerfile.poller" \
+  "${BUILD_ARGS[@]}" \
   --tag "${FULL_IMAGE}" \
   "${REPO_ROOT}"
 

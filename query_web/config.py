@@ -9,6 +9,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from runtime.provider_core import (
+    parse_framework_authority_order,
+    resolve_provider_settings,
+    resolve_query_web_provider_settings,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -233,22 +239,12 @@ def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
         "PCI DSS",
         "CIS Controls",
     )
-    if raw_value is None or not raw_value.strip():
-        return default_order
-
-    ordered: list[str] = []
-    seen: set[str] = set()
-    parts = [part.strip().lower() for part in raw_value.split(",") if part.strip()]
-    for part in parts:
-        name = _canonical_framework_name(part)
-        if name and name not in seen:
-            seen.add(name)
-            ordered.append(name)
-
-    if not ordered:
-        return default_order
-
-    return tuple(ordered)
+    return parse_framework_authority_order(
+        raw_value,
+        default_order=default_order,
+        resolve_name=lambda normalised, raw: _canonical_framework_name(normalised),
+        drop_unknown=True,
+    )
 
 
 def _load_precedence_policy(
@@ -325,9 +321,22 @@ def _load_precedence_policy(
 def load_config() -> QueryConfig:
     """Load and normalise application configuration from environment variables."""
 
-    provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower()
-    is_aws = provider == "aws"
-    is_local = provider in {"local", "dev"}
+    values = dict(os.environ)
+    common = resolve_provider_settings(
+        values,
+        missing_error=RuntimeError,
+        local_search_endpoint="http://local-search",
+        local_openai_endpoint="http://local-llm",
+        local_openai_uses_default=True,
+    )
+    query_web_provider = resolve_query_web_provider_settings(
+        values,
+        common=common,
+        missing_error=RuntimeError,
+    )
+    provider = common.cloud_provider
+    is_aws = common.is_aws
+    is_local = common.is_local
     if is_local:
         local_max_completion_tokens, local_evaluator_max_completion_tokens = (
             _local_completion_token_defaults()
@@ -337,45 +346,13 @@ def load_config() -> QueryConfig:
 
     return QueryConfig(
         cloud_provider=provider,
-        search_endpoint=(
-            os.getenv("AZURE_SEARCH_ENDPOINT", "http://local-search")
-            if is_local
-            else (
-                _require_env("OPENSEARCH_ENDPOINT")
-                if is_aws
-                else _require_env("AZURE_SEARCH_ENDPOINT")
-            )
-        ),
-        search_index_name=(
-            os.getenv("SEARCH_INDEX_NAME", os.getenv("OPENSEARCH_INDEX", "grounding-index"))
-            if is_aws
-            else os.getenv("AZURE_SEARCH_INDEX_NAME", "grounding-index")
-        ),
-        controls_index_name=(
-            os.getenv("CONTROLS_INDEX_NAME", "controls-index")
-            if is_aws
-            else os.getenv("AZURE_SEARCH_CONTROLS_INDEX_NAME", "controls-index")
-        ),
-        openai_endpoint=(
-            os.getenv("AZURE_OPENAI_ENDPOINT", "http://local-llm")
-            if is_local
-            else "" if is_aws else _require_env("AZURE_OPENAI_ENDPOINT")
-        ),
-        embedding_deployment=(
-            os.getenv("BEDROCK_EMBEDDING_MODEL_ID", "")
-            if is_aws
-            else os.getenv("EMBEDDING_DEPLOYMENT_NAME", "text-embedding-ada-002")
-        ),
-        query_deployment=(
-            os.getenv("BEDROCK_MODEL_ID", "")
-            if is_aws
-            else os.getenv("QUERY_DEPLOYMENT_NAME", "gpt-5.1-chat")
-        ),
-        evaluator_deployment=(
-            os.getenv("BEDROCK_MODEL_ID", "")
-            if is_aws
-            else os.getenv("EVALUATOR_DEPLOYMENT_NAME", "gpt-4.1-mini")
-        ),
+        search_endpoint=common.search_endpoint,
+        search_index_name=common.search_index_name,
+        controls_index_name=common.controls_index_name,
+        openai_endpoint=common.openai_endpoint,
+        embedding_deployment=common.embedding_deployment,
+        query_deployment=common.query_deployment,
+        evaluator_deployment=query_web_provider.evaluator_deployment,
         search_top_k=int(os.getenv("SEARCH_TOP_K", "5")),
         controls_top_k=int(os.getenv("CONTROLS_TOP_K", "4")),
         controls_semantic_default=_env_bool("CONTROLS_SEMANTIC_DEFAULT", default=False),
@@ -416,33 +393,10 @@ def load_config() -> QueryConfig:
         ),
         auth_token=os.getenv("QUERY_WEB_AUTH_TOKEN", "").strip(),
         required_group_object_id=os.getenv("QUERY_WEB_REQUIRED_GROUP_OBJECT_ID", "").strip(),
-        cosmos_endpoint=(
-            os.getenv("AZURE_COSMOS_ENDPOINT", "")
-            if is_local
-            else "" if is_aws else _require_env("AZURE_COSMOS_ENDPOINT")
-        ),
-        cosmos_database_name=(
-            os.getenv("AZURE_COSMOS_DATABASE_NAME", "local-db")
-            if is_local
-            else (
-                os.getenv("AZURE_COSMOS_DATABASE_NAME", "")
-                if is_aws
-                else _require_env("AZURE_COSMOS_DATABASE_NAME")
-            )
-        ),
-        cosmos_container_name=(
-            os.getenv("AZURE_COSMOS_CONTAINER_NAME", "local-conversations")
-            if is_local
-            else (
-                os.getenv("AZURE_COSMOS_CONTAINER_NAME", "")
-                if is_aws
-                else _require_env("AZURE_COSMOS_CONTAINER_NAME")
-            )
-        ),
-        cosmos_orchestration_container_name=os.getenv(
-            "AZURE_COSMOS_ORCHESTRATION_CONTAINER_NAME",
-            os.getenv("AZURE_COSMOS_CONTAINER_NAME", "orchestration-state"),
-        ).strip(),
+        cosmos_endpoint=query_web_provider.cosmos_endpoint,
+        cosmos_database_name=query_web_provider.cosmos_database_name,
+        cosmos_container_name=query_web_provider.cosmos_container_name,
+        cosmos_orchestration_container_name=query_web_provider.cosmos_orchestration_container_name,
         prompt_injection_validator_enabled=_env_bool(
             "PROMPT_INJECTION_VALIDATOR_ENABLED", default=False
         ),

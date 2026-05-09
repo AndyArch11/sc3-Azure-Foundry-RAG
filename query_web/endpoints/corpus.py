@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from query_web.request_context import outbound_trace_headers
+from runtime.provider_core import normalise_cloud_provider
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,12 @@ def register_corpus_endpoints(
             return getattr(svc, name)
 
     svc = _SvcAdapter()
+
+    def _current_provider() -> str:
+        try:
+            return normalise_cloud_provider(getattr(svc.config, "cloud_provider", None))
+        except ValueError:
+            return "azure"
 
     @app.post("/api/corpus-b/ingest")
     async def upload_corpus_b_and_trigger(
@@ -174,10 +181,7 @@ def register_corpus_endpoints(
                             "exc_type": type(exc).__name__,
                         },
                     )
-                    if (
-                        str(getattr(svc.config, "cloud_provider", "") or "").strip().lower()
-                        == "aws"
-                    ):
+                    if _current_provider() == "aws":
                         raise
                     trigger_result = svc._trigger_ingestion_job()
                     effective_scope_query = None
@@ -332,10 +336,7 @@ def register_corpus_endpoints(
                             "exc_type": type(exc).__name__,
                         },
                     )
-                    if (
-                        str(getattr(svc.config, "cloud_provider", "") or "").strip().lower()
-                        == "aws"
-                    ):
+                    if _current_provider() == "aws":
                         raise
                     trigger_result = svc._trigger_ingestion_job()
                     effective_scope_query = None
@@ -1290,8 +1291,7 @@ def register_corpus_endpoints(
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
         # AWS path: trigger via ECS RunTask if configured
-        provider = str(getattr(svc.config, "cloud_provider", "") or "").strip().lower()
-        if provider == "aws":
+        if _current_provider() == "aws":
             if not svc._is_aws_ecs_trigger_enabled():
                 return JSONResponse(
                     {

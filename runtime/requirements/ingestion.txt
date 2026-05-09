@@ -1,0 +1,3 @@
+-r azure.txt
+-r aws.txt
+-r local.txt

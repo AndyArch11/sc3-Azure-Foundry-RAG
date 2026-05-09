@@ -15,6 +15,7 @@ from typing import Any, Callable, Iterable
 from azure.identity import DefaultAzureCredential
 
 from runtime.log_config import configure_logging as _configure_logging
+from runtime.provider_core import normalise_cloud_provider
 
 from .intake import build_assessment_job_from_provider_event
 from .interfaces import OrchestratorAdapter
@@ -845,15 +846,15 @@ def create_cosmos_state_store_from_env(
     """Create a poller state store from environment settings.
 
     Modes:
-    - local/dev: SQLite-backed state using LOCAL_STATE_DB_PATH when set,
+    - local (including dev alias): SQLite-backed state using LOCAL_STATE_DB_PATH when set,
       otherwise defaults to runtime/out/local_state.db.
     - aws: DynamoDB-backed state using DYNAMODB_TABLE.
     - azure/default: Cosmos-backed state (requires endpoint + database).
     """
     values = dict(os.environ) if env is None else dict(env)
-    provider = str(values.get("CLOUD_PROVIDER") or "azure").strip().lower()
+    provider = normalise_cloud_provider(values.get("CLOUD_PROVIDER"))
 
-    if provider in {"local", "dev"}:
+    if provider == "local":
         from .sqlite_state_store import SqlitePollingStateStore
 
         default_local_path = str(

@@ -1,11 +1,21 @@
+FROM python:3.12-slim AS deps
+
+WORKDIR /build
+
+ARG RUNTIME_REQUIREMENTS_FILE=requirements/ingestion.txt
+
+# Install dependencies into an isolated prefix that can be copied into the runtime image.
+COPY requirements/ ./requirements/
+RUN pip install --no-cache-dir --prefix=/install -r "${RUNTIME_REQUIREMENTS_FILE}"
+
 FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install dependencies in a separate layer so they are cached unless
-# requirements.txt changes.
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+ENV PATH="/install/bin:${PATH}"
+ENV PYTHONPATH="/app:/install/lib/python3.12/site-packages"
+
+COPY --from=deps /install /install
 
 # Copy the ingestion package and shared logging bootstrap used at runtime.
 COPY ingestion/ ./ingestion/

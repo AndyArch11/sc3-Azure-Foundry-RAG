@@ -8,6 +8,9 @@ from runtime.assessment_orchestration.control_applicability import (
     classify_control_applicability,
     enrich_control_with_applicability,
 )
+from runtime.assessment_orchestration.provider_strategies import (
+    azure_control_is_likely_applicable,
+)
 from runtime.assessment_orchestration.validate_control_applicability import (
     review_ambiguous_controls_with_llm,
     validate_controls_applicability,
@@ -119,10 +122,6 @@ def test_enrich_control_with_applicability() -> None:
 
 def test_runtime_filtering_prefers_high_confidence_technical() -> None:
     """Verify that runtime filtering uses pre-computed scores when available."""
-    from runtime.assessment_orchestration.assessment_runtime import (
-        _azure_control_is_likely_applicable,
-    )
-
     control_with_metadata = {
         "requirement_id": "PR.AC-1",
         "control_applicability_scope": "technical",
@@ -130,15 +129,11 @@ def test_runtime_filtering_prefers_high_confidence_technical() -> None:
         "applicability_uncertain": False,
     }
 
-    assert _azure_control_is_likely_applicable(control_with_metadata)
+    assert azure_control_is_likely_applicable(control_with_metadata)
 
 
 def test_runtime_filtering_excludes_high_confidence_process() -> None:
     """Verify that runtime filtering excludes high-confidence process controls."""
-    from runtime.assessment_orchestration.assessment_runtime import (
-        _azure_control_is_likely_applicable,
-    )
-
     control_with_metadata = {
         "requirement_id": "OP-2",
         "control_applicability_scope": "process",
@@ -146,15 +141,11 @@ def test_runtime_filtering_excludes_high_confidence_process() -> None:
         "applicability_uncertain": False,
     }
 
-    assert not _azure_control_is_likely_applicable(control_with_metadata)
+    assert not azure_control_is_likely_applicable(control_with_metadata)
 
 
 def test_runtime_filtering_includes_mixed_control() -> None:
     """Verify that runtime filtering includes mixed-signal controls."""
-    from runtime.assessment_orchestration.assessment_runtime import (
-        _azure_control_is_likely_applicable,
-    )
-
     control_with_metadata = {
         "requirement_id": "AC-5",
         "control_applicability_scope": "mixed",
@@ -162,7 +153,7 @@ def test_runtime_filtering_includes_mixed_control() -> None:
         "applicability_uncertain": True,
     }
 
-    assert _azure_control_is_likely_applicable(control_with_metadata)
+    assert azure_control_is_likely_applicable(control_with_metadata)
 
 
 def test_review_ambiguous_controls_with_llm_reports_agreement() -> None:

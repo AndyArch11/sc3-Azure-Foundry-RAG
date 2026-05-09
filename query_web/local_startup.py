@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from runtime.provider_core import normalise_cloud_provider
+
 if TYPE_CHECKING:
     from runtime.search.abstract import SearchClient
 
@@ -179,8 +181,13 @@ def load_local_documents_if_needed(
     controls_search_client : SearchClient
         Search client for compliance controls. Must support load_documents() method.
     """
-    provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower()
-    if provider not in {"local", "dev"}:
+    raw_provider = os.getenv("CLOUD_PROVIDER")
+    try:
+        provider = normalise_cloud_provider(raw_provider)
+    except ValueError:
+        provider = "azure"
+
+    if provider != "local":
         return
 
     local_evidence_path, local_controls_path = _resolve_local_jsonl_paths()

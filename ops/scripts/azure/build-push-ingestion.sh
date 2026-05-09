@@ -26,6 +26,10 @@ Recommended follow-up rollout:
 
 Optional RBAC reconciliation (admin identity):
   ./ops/scripts/azure/reconcile-rbac-admin.sh <env> apply
+
+Environment variable overrides:
+  RUNTIME_REQUIREMENTS_FILE Docker build requirements profile
+                   (default: requirements/ingestion.txt)
 EOF
   exit 0
 fi
@@ -165,6 +169,7 @@ DEFAULT_TAG="$(date +%Y%m%d%H%M)-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 
 IMAGE_TAG="${IMAGE_TAG:-${DEFAULT_TAG}}"
 IMAGE_REPOSITORY="ingestion-runner"
 RESOURCE_GROUP="${RESOURCE_GROUP:-rg-ai-platform-${ENV}}"
+RUNTIME_REQUIREMENTS_FILE="${RUNTIME_REQUIREMENTS_FILE:-}"
 ENV_TFVARS_FILE="${TF_DIR}/environments/${ENV}/${ENV}.tfvars"
 
 # ---------------------------------------------------------------------------
@@ -238,8 +243,13 @@ az acr login --name "${ACR_LOGIN_SERVER%%.*}"
 # Build (linux/amd64 matches the Container App runtime).
 # ---------------------------------------------------------------------------
 echo "==> Building Docker image (context: ${RUNTIME_DIR})…"
+BUILD_ARGS=()
+if [[ -n "${RUNTIME_REQUIREMENTS_FILE}" ]]; then
+  BUILD_ARGS+=(--build-arg "RUNTIME_REQUIREMENTS_FILE=${RUNTIME_REQUIREMENTS_FILE}")
+fi
 "${DOCKER_CMD[@]}" build \
   --platform linux/amd64 \
+  "${BUILD_ARGS[@]}" \
   --tag "${FULL_IMAGE}" \
   "${RUNTIME_DIR}"
 

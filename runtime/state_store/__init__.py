@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from runtime.provider_core import DEFAULT_CLOUD_PROVIDER_REGISTRY
 from runtime.assessment_orchestration.state_store import (
     CosmosPollingStateStore,
     InMemoryPollingStateStore,
@@ -51,9 +52,10 @@ def get_state_store(
     region_name:
         AWS region (AWS path, ignored when *dynamo_session* is provided).
     """
-    provider = (cloud_provider or os.getenv("CLOUD_PROVIDER", "azure")).strip().lower()
+    provider_raw = cloud_provider if cloud_provider is not None else os.getenv("CLOUD_PROVIDER")
+    provider = DEFAULT_CLOUD_PROVIDER_REGISTRY.get(provider_raw).provider
 
-    if provider in ("local", "dev"):
+    if provider == "local":
         db_path = os.getenv("LOCAL_STATE_DB_PATH", "").strip()
         if db_path:
             from runtime.assessment_orchestration.sqlite_state_store import (
@@ -81,4 +83,4 @@ def get_state_store(
             )
         return CosmosPollingStateStore(cosmos_container)
 
-    raise ValueError(f"Unsupported cloud provider for state store: '{provider}'")
+    raise AssertionError(f"Unhandled provider '{provider}'")

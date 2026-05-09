@@ -1,0 +1,109 @@
+name: Cloud Profile Docker CI
+
+on:
+  pull_request:
+    paths:
+      - query_web/**
+      - runtime/**
+      - ops/scripts/**
+      - .github/workflows/cloud-profile-docker.yml
+  push:
+    branches:
+      - main
+    paths:
+      - query_web/**
+      - runtime/**
+      - ops/scripts/**
+      - .github/workflows/cloud-profile-docker.yml
+
+permissions:
+  contents: read
+
+jobs:
+  cloud-profile-docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build query-web cloud profile image
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            -f query_web/Dockerfile \
+            --build-arg QUERY_WEB_REQUIREMENTS_FILE=/app/query-web-requirements/service-cloud.txt \
+            -t ci-query-web-cloud-profile .
+
+      - name: Build poller profile image
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            -f runtime/Dockerfile.poller \
+            -t ci-runtime-poller-profile .
+
+      - name: Smoke query-web cloud health
+        env:
+          QUERY_WEB_HEALTH_TIMEOUT_SECONDS: "120"
+          QUERY_WEB_HEALTH_POLL_SECONDS: "3"
+        run: |
+          container_name="ci-query-web-cloud-health"
+          cleanup() {
+            docker rm -f "${container_name}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker run -d \
+            --name "${container_name}" \
+            -p 127.0.0.1::8080 \
+            -e CLOUD_PROVIDER=local \
+            -e LOCAL_VECTOR_BACKEND=inmemory \
+            -e PRECEDENCE_POLICY_PATH=/app/policies/precedence_policy.json \
+            -e OLLAMA_MODEL=gemma3:27b \
+            -e OLLAMA_EMBEDDING_MODEL=nomic-embed-text \
+            ci-query-web-cloud-profile >/dev/null
+
+          host_port="$(docker port "${container_name}" 8080/tcp | awk -F: 'NR==1 {print $NF}')"
+          transport="host"
+          start_ts="$(date +%s)"
+          while true; do
+            if [[ "${transport}" == "host" ]]; then
+              if curl -fsS "http://127.0.0.1:${host_port}/health" | grep -q '"status":"ok"'; then
+                break
+              fi
+            else
+              if docker exec "${container_name}" python3 -c "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3); raise SystemExit(0 if r.status==200 else 1)" >/dev/null 2>&1
+              then
+                break
+              fi
+            fi
+
+            if [[ "${transport}" == "host" ]] && docker inspect -f '{{.State.Running}}' "${container_name}" | grep -q '^true$'; then
+              transport="docker"
+              continue
+            fi
+
+            now_ts="$(date +%s)"
+            elapsed="$(( now_ts - start_ts ))"
+            if [[ "${elapsed}" -ge "${QUERY_WEB_HEALTH_TIMEOUT_SECONDS}" ]]; then
+              echo "query-web cloud health check timed out" >&2
+              docker logs "${container_name}" >&2 || true
+              exit 1
+            fi
+            sleep "${QUERY_WEB_HEALTH_POLL_SECONDS}"
+          done
+
+          # Explicit cleanup for readability and defense in depth; trap handles failures.
+          cleanup
+
+      - name: Smoke poller entrypoint help
+        run: |
+          docker run --rm --entrypoint python ci-runtime-poller-profile \
+            -m runtime.assessment_orchestration.polling_worker_main --help >/dev/null
+
+      - name: Report Docker image sizes
+        run: |
+          docker image inspect \
+            ci-query-web-cloud-profile \
+            ci-runtime-poller-profile \
+            --format 'image={{index .RepoTags 0}} size_bytes={{.Size}}'

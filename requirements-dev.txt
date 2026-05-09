@@ -1,5 +1,5 @@
 # Shared local/test dependencies for repository-level pytest runs.
--r runtime/requirements.txt
+-r runtime/requirements/ingestion.txt
 -r query_web/requirements.txt
 
 # Testing

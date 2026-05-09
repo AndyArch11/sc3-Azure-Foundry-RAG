@@ -55,7 +55,7 @@ Added:
 Updated for security:
 - `jinja2==3.1.6` (was 3.1.5)
 - `requests==2.32.4` (was 2.32.3)
-- `pypdf==6.9.1` (was 5.4.0 in runtime/requirements.txt)
+- `pypdf==6.9.1` (was 5.4.0 in runtime/requirements/ingestion.txt)
 
 ---
 

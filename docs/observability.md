@@ -128,7 +128,7 @@ What is documented above versus what is actually wired:
 | Log Analytics Workspace | ✅ | ✅ `azurerm_log_analytics_workspace` provisioned; wired to Container App Environment |
 | Azure Monitor Workspace (AMW) | ✅ | ⚠️ `azurerm_monitor_workspace` provisioned and CAE DCR/DCE associations configured, but **no Prometheus samples observed in AMW** |
 | Prometheus scrape endpoint (`/metrics`) | ✅ | ✅ Implemented in query-web with `prometheus_client`; local scrape wired via compose overlay |
-| OTel SDK | ✅ | ❌ Not installed — not in `query_web/requirements.txt` or `runtime/requirements.txt` |
+| OTel SDK | ✅ | ❌ Not installed — not in `query_web/requirements.txt` or `runtime/requirements/ingestion.txt` |
 | Diagnostic settings (LAW → services) | ✅ | ❌ No `azurerm_monitor_diagnostic_setting` resource exists anywhere |
 | OTel trace propagation | ✅ | ❌ No span creation or context propagation |
 

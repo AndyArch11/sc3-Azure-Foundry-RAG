@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
 
@@ -10,8 +11,18 @@ import requests  # type: ignore[import-untyped]
 
 from query_web.request_context import outbound_trace_headers
 from runtime.outbound_instrumentation import request_with_instrumentation
+from runtime.provider_core import DEFAULT_CLOUD_PROVIDER_REGISTRY
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_provider_adapter(cloud_provider: str | None):
+    """Resolve cloud provider adapter with a safe Azure fallback."""
+
+    try:
+        return DEFAULT_CLOUD_PROVIDER_REGISTRY.get(cloud_provider)
+    except ValueError:
+        return DEFAULT_CLOUD_PROVIDER_REGISTRY.get("azure")
 
 
 def _is_missing_index_error(exc: Exception) -> bool:
@@ -28,30 +39,26 @@ def _client_search(
     top: int,
     select: list[str] | None = None,
     include_total_count: bool = False,
+    cloud_provider: str | None = None,
 ) -> Any:
     """Dispatch client.search() with provider-appropriate keyword arguments.
 
-    AWS OpenSearch uses ``query_text`` / ``filters``; Azure SDK uses
-    ``search_text`` / ``filter`` / ``include_total_count``.
+    Uses provider-core adapter mapping so this function remains provider-neutral.
     """
-    try:
-        from runtime.search.opensearch import AWSOpenSearchClient  # noqa: PLC0415
 
-        if isinstance(client, AWSOpenSearchClient):
-            return client.search(
-                query_text=query_text,
-                filters=filter_expr or None,
-                top=top,
-                select=select,
-            )
-    except ImportError:
-        pass
-    # Azure SDK SearchClient
-    kwargs: dict[str, Any] = {"search_text": query_text, "filter": filter_expr, "top": top}
-    if include_total_count:
-        kwargs["include_total_count"] = True
-    if select is not None:
-        kwargs["select"] = select
+    provider_raw = cloud_provider
+    if provider_raw is None:
+        provider_raw = os.getenv("CLOUD_PROVIDER")
+
+    adapter = _resolve_provider_adapter(provider_raw)
+
+    kwargs = adapter.map_search_request(
+        query_text=query_text,
+        filter_expr=filter_expr,
+        top=top,
+        select=select,
+        include_total_count=include_total_count,
+    )
     return client.search(**kwargs)
 
 
@@ -132,15 +139,18 @@ def _hybrid_search(
         timings["search_s"] = 0.0
         return [], timings
 
-    provider = (
+    provider_raw = (
         str(getattr(getattr(svc, "config", None), "cloud_provider", "") or "").strip().lower()
     )
-    if not provider:
-        import os
+    if not provider_raw:
+        provider_raw = os.getenv("CLOUD_PROVIDER") or ""
 
-        provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower()
+    adapter = _resolve_provider_adapter(provider_raw)
+    should_embed = (
+        adapter.capabilities.supports_embeddings and adapter.capabilities.supports_semantic_search
+    )
 
-    if provider in {"local", "dev", "aws"}:
+    if not should_embed:
         vector = None
         timings["embedding_s"] = 0.0
     else:

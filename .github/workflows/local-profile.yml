@@ -54,6 +54,19 @@ jobs:
       - name: Validate local env template exists
         run: test -f .env.local.example
 
+      - name: Run Docker profile smoke checks
+        run: |
+          bash ./ops/scripts/local/smoke-docker-profiles.sh
+
+      - name: Report Docker image sizes
+        run: |
+          docker image inspect \
+            runtime-profile-smoke-local \
+            poller-profile-smoke-local \
+            queryweb-full-profile-smoke-local \
+            queryweb-cloud-profile-smoke-local \
+            --format 'image={{index .RepoTags 0}} size_bytes={{.Size}}'
+
       - name: Run isort check
         run: |
           python -m isort --check query_web runtime/assessment_orchestration runtime/ingestion tests

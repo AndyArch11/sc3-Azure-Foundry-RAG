@@ -14,6 +14,7 @@ os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 
 from query_web.pipeline.llm_chat import (
     _call_validator,
+    _chat_completion,
     _chat_completion_with_empty_retry,
     _evaluate,
     _is_temperature_unsupported_error,
@@ -364,6 +365,116 @@ def test_call_validator_swallows_exception_returns_empty() -> None:
     )
     result = _call_validator("test", svc=svc)
     assert result == {}
+
+
+def test_chat_completion_dev_alias_routes_to_local_llm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _LocalLLM:
+        def chat_complete(self, messages):  # type: ignore[no-untyped-def]
+            captured["messages"] = messages
+            return "local answer"
+
+    def _fake_get_llm_client(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return _LocalLLM()
+
+    monkeypatch.setenv("CLOUD_PROVIDER", "dev")
+    monkeypatch.setattr("query_web.pipeline.llm_chat.get_llm_client", _fake_get_llm_client)
+
+    svc = SimpleNamespace(config=SimpleNamespace(cloud_provider=""))
+    response = _chat_completion(
+        [{"role": "user", "content": "q"}],
+        deployment="unused",
+        temperature=0.1,
+        svc=svc,
+    )
+
+    assert response == "local answer"
+    assert captured["cloud_provider"] == "local"
+
+
+def test_chat_completion_prefers_config_aws_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _AwsLLM:
+        def chat_complete(self, messages):  # type: ignore[no-untyped-def]
+            captured["messages"] = messages
+            return "aws answer"
+
+    def _fake_get_llm_client(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return _AwsLLM()
+
+    monkeypatch.setenv("CLOUD_PROVIDER", "azure")
+    monkeypatch.setenv("AWS_REGION", "ap-southeast-2")
+    monkeypatch.setattr("query_web.pipeline.llm_chat.get_llm_client", _fake_get_llm_client)
+
+    svc = SimpleNamespace(config=SimpleNamespace(cloud_provider="aws"))
+    response = _chat_completion(
+        [{"role": "user", "content": "q"}],
+        deployment="bedrock-model",
+        temperature=0.2,
+        svc=svc,
+        max_completion_tokens=123,
+    )
+
+    assert response == "aws answer"
+    assert captured["cloud_provider"] == "aws"
+    assert captured["model_id"] == "bedrock-model"
+    assert captured["region_name"] == "ap-southeast-2"
+    assert captured["max_tokens"] == 123
+
+
+def test_chat_completion_unknown_provider_falls_back_to_azure_sdk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeCompletions:
+        @staticmethod
+        def create(**kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="azure answer"))]
+            )
+
+    class _FakeAzureOpenAI:
+        def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+            self.chat = SimpleNamespace(completions=_FakeCompletions())
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "openai",
+        SimpleNamespace(AzureOpenAI=_FakeAzureOpenAI),
+    )
+    monkeypatch.setattr(
+        "query_web.pipeline.llm_chat.sdk_call_with_instrumentation",
+        lambda **kwargs: kwargs["call"](),
+    )
+
+    svc = SimpleNamespace(
+        credential=SimpleNamespace(
+            get_token=lambda scope: SimpleNamespace(token="tok")  # type: ignore[no-untyped-call]
+        ),
+        config=SimpleNamespace(
+            cloud_provider="gcp",
+            openai_endpoint="https://openai.example.com",
+            max_completion_tokens=256,
+        ),
+        logger=Mock(),
+    )
+    response = _chat_completion(
+        [{"role": "user", "content": "q"}],
+        deployment="gpt-4.1",
+        temperature=0.3,
+        svc=svc,
+    )
+
+    assert response == "azure answer"
 
 
 # late import so pytest is in scope for approx

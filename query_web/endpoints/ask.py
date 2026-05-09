@@ -14,6 +14,7 @@ from fastapi import Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from query_web.request_context import get_correlation_id
+from runtime.provider_core import normalise_cloud_provider
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +63,11 @@ def register_ask_endpoints(
     # pylint: disable=too-many-statements
 
     def _query_model_display(resolved_config: Any) -> str:
-        provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower()
-        if provider in {"local", "dev"}:
+        try:
+            provider = normalise_cloud_provider(os.getenv("CLOUD_PROVIDER"))
+        except ValueError:
+            provider = "azure"
+        if provider == "local":
             return os.getenv("OLLAMA_MODEL", "llama3").strip() or "llama3"
         return str(getattr(resolved_config, "query_deployment", "")).strip()
 

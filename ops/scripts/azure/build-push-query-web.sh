@@ -18,6 +18,10 @@ Recommended follow-up rollout:
 
 Optional RBAC reconciliation (admin identity):
   ./ops/scripts/azure/reconcile-rbac-admin.sh <env> apply
+
+Environment variable overrides:
+  QUERY_WEB_REQUIREMENTS_FILE Docker build requirements profile
+                   (default: /app/query-web-requirements/service-full.txt)
 EOF
   exit 0
 fi
@@ -147,6 +151,7 @@ DEFAULT_TAG="$(date +%Y%m%d%H%M)-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 
 IMAGE_TAG="${IMAGE_TAG:-${DEFAULT_TAG}}"
 IMAGE_REPOSITORY="query-web"
 ACR_LOGIN_SERVER="${ACR_LOGIN_SERVER:-}"
+QUERY_WEB_REQUIREMENTS_FILE="${QUERY_WEB_REQUIREMENTS_FILE:-}"
 ENV_TFVARS_FILE="${TF_DIR}/environments/${ENV}/${ENV}.tfvars"
 
 if [[ -z "${ACR_LOGIN_SERVER}" ]] && command -v terraform &>/dev/null; then
@@ -186,9 +191,15 @@ _assert_private_acr_resolution "${ACR_LOGIN_SERVER}"
 _assert_private_acr_data_endpoint_if_enabled "${ACR_LOGIN_SERVER%%.*}"
 az acr login --name "${ACR_LOGIN_SERVER%%.*}"
 
+BUILD_ARGS=()
+if [[ -n "${QUERY_WEB_REQUIREMENTS_FILE}" ]]; then
+  BUILD_ARGS+=(--build-arg "QUERY_WEB_REQUIREMENTS_FILE=${QUERY_WEB_REQUIREMENTS_FILE}")
+fi
+
 "${DOCKER_CMD[@]}" build \
   --platform linux/amd64 \
   --file "${REPO_ROOT}/query_web/Dockerfile" \
+  "${BUILD_ARGS[@]}" \
   --tag "${FULL_IMAGE}" \
   "${REPO_ROOT}"
 "${DOCKER_CMD[@]}" push "${FULL_IMAGE}"

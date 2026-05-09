@@ -8,6 +8,8 @@ from typing import Any
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 
+from runtime.provider_core import normalise_cloud_provider
+
 
 def _extract_auth_token(request: Request) -> str:
     """Best-effort auth token extraction for initial page loads."""
@@ -53,8 +55,11 @@ def register_home_endpoints(
     """Register home page endpoints."""
 
     def _query_model_display(resolved_config: Any) -> str:
-        provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower()
-        if provider in {"local", "dev"}:
+        try:
+            provider = normalise_cloud_provider(os.getenv("CLOUD_PROVIDER"))
+        except ValueError:
+            provider = "azure"
+        if provider == "local":
             return os.getenv("OLLAMA_MODEL", "llama3").strip() or "llama3"
         return str(getattr(resolved_config, "query_deployment", "")).strip()
 

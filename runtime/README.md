@@ -289,7 +289,7 @@ FOUNDRY_EP=$(az cognitiveservices account list \
 cd runtime
 python3 -m venv .venv
 source .venv/bin/activate
-python3 -m pip install -r requirements.txt
+python3 -m pip install -r requirements/ingestion.txt
 
 export AZURE_SEARCH_ENDPOINT="${SEARCH_EP}"
 export AZURE_OPENAI_ENDPOINT="${FOUNDRY_EP}"
@@ -942,7 +942,7 @@ python -m ingestion.runner --mode reset --purge-blobs
 .venv/bin/python -m pytest ../tests/unit -q
 ```
 
-Use `requirements.txt` when you only need the ingestion runtime. Use `../requirements-dev.txt` when you also want to run the repository unit tests from the same environment, because those tests import both `runtime/` and `query_web/` modules.
+Use `requirements/ingestion.txt` when you only need the ingestion runtime. Use `../requirements-dev.txt` when you also want to run the repository unit tests from the same environment, because those tests import both `runtime/` and `query_web/` modules.
 
 If Docker is managed separately or not needed, use:
 

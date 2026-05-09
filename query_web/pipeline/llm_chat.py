@@ -13,6 +13,7 @@ from query_web.request_context import outbound_trace_headers
 from query_web.security.prompt_injection_guard import BLOCKED_PROMPT_INJECTION_MESSAGE
 from runtime.llm import get_llm_client
 from runtime.outbound_instrumentation import sdk_call_with_instrumentation
+from runtime.provider_core import normalise_cloud_provider
 
 if TYPE_CHECKING:
     pass
@@ -141,10 +142,16 @@ def _chat_completion(
     max_completion_tokens: int | None = None,
 ) -> str:
     """Call Azure Foundry chat completion API using the OpenAI Python SDK."""
-    provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower()
+    provider_raw = str(getattr(getattr(svc, "config", None), "cloud_provider", "") or "").strip()
+    if not provider_raw:
+        provider_raw = os.getenv("CLOUD_PROVIDER") or ""
+    try:
+        provider = normalise_cloud_provider(provider_raw)
+    except ValueError:
+        provider = "azure"
     safe_temperature = max(0.0, min(1.0, float(temperature)))
 
-    if provider in {"local", "dev"}:
+    if provider == "local":
         llm = get_llm_client(
             cloud_provider=provider,
             ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),

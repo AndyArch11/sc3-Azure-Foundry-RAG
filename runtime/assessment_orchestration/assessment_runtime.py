@@ -11,10 +11,17 @@ import requests  # type: ignore[import-untyped]
 
 from ..credentials import get_credential_provider
 from ..llm import get_llm_client
+from ..provider_core import parse_framework_authority_order, resolve_provider_settings
 from ..search import SearchClient, get_search_client
 from ..trace_context import outbound_trace_headers
 from ._framework_patterns import infer_single_framework as _infer_framework_filter
 from .models import AssessedArtifactPackage, CorpusGroundingPackage
+from .provider_strategies import (
+    filter_controls_for_artifact,
+    get_assessment_provider_strategy,
+    get_assessment_task_instruction,
+    resolve_aws_region_name,
+)
 
 COMPLIANCE_REPORT_SCHEMA_VERSION = "v1.1"
 COMPLIANCE_REPORT_PROMPT = (
@@ -70,15 +77,6 @@ _DANGEROUS_LINE_RE = re.compile(
     r"ignore.+instruction|system prompt|developer prompt|reveal.+secret|show.+token|run.+shell|execute.+tool",
     re.IGNORECASE,
 )
-_AZURE_TECHNICAL_CONTROL_RE = re.compile(
-    r"\b(mfa|multi-factor|authentication|access control|least privilege|rbac|network|firewall|segment|encrypt|encryption|key management|tls|certificate|logging|monitor|alert|backup|restore|patch|vulnerab|malware|endpoint|hardening|configuration|baseline|disable|enable|restrict|private endpoint|managed identity|secret|key vault|diagnostic|defender|inventory|discover|secure transfer|immutability|retention|deny|auditifnotexists|deployifnotexists|modify)\b",
-    re.IGNORECASE,
-)
-_AZURE_PROCESS_CONTROL_RE = re.compile(
-    r"\b(policy(?!\s+assignment)|policies|procedure|procedures|governance|strategy|roadmap|roles?\s+and\s+responsibilit|training|awareness|exercise|tabletop|legal|regulatory|compliance\s+program|audit\b|vendor|supplier|third[-\s]?party|personnel|workforce|human resources|continuity|recovery plan|communication plan|approve|approval|document(?:ed|ation)?|review cadence|oversight|charter|committee|budget|insurance|procurement)\b",
-    re.IGNORECASE,
-)
-_AZURE_GOVERNANCE_ID_RE = re.compile(r"^(GV(?:\.|-)|ID\.GV\b|AT-\d+|PM-\d+)", re.IGNORECASE)
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -115,14 +113,6 @@ class AssessmentRuntimeConfig:
     control_llm_review_heuristic_threshold: float = 0.75
 
 
-def _required(env: Mapping[str, str], key: str) -> str:
-    """Run required."""
-    value = (env.get(key) or "").strip()
-    if not value:
-        raise ValueError(f"Missing required environment variable: {key}")
-    return value
-
-
 def _env_bool(env: Mapping[str, str], key: str, default: bool = False) -> bool:
     """Run env bool."""
     value = env.get(key)
@@ -142,9 +132,6 @@ def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
         "PCI DSS",
         "CIS Controls",
     )
-    if raw_value is None or not raw_value.strip():
-        return default_order
-
     aliases = {
         "nist": "NIST CSF",
         "nist csf": "NIST CSF",
@@ -168,16 +155,12 @@ def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
         "cis controls": "CIS Controls",
         "cis_controls": "CIS Controls",
     }
-    ordered: list[str] = []
-    for part in raw_value.split(","):
-        item = part.strip().lower()
-        if not item:
-            continue
-        name = aliases.get(item, part.strip())
-        if name not in ordered:
-            ordered.append(name)
-
-    return tuple(ordered or default_order)
+    return parse_framework_authority_order(
+        raw_value,
+        default_order=default_order,
+        resolve_name=lambda normalised, raw: aliases.get(normalised),
+        drop_unknown=False,
+    )
 
 
 def load_assessment_runtime_config_from_env(
@@ -185,36 +168,23 @@ def load_assessment_runtime_config_from_env(
 ) -> AssessmentRuntimeConfig:
     """Run load assessment runtime config from env."""
     values = dict(os.environ) if env is None else dict(env)
-    provider = str(values.get("CLOUD_PROVIDER") or "azure").strip().lower() or "azure"
-    is_aws = provider == "aws"
+    common = resolve_provider_settings(
+        values,
+        missing_error=ValueError,
+        local_search_endpoint="http://local-search",
+        local_openai_endpoint="",
+        local_openai_uses_default=False,
+    )
+    provider = common.cloud_provider
+    is_aws = common.is_aws
     return AssessmentRuntimeConfig(
         cloud_provider=provider,
-        search_endpoint=(
-            _required(values, "OPENSEARCH_ENDPOINT")
-            if is_aws
-            else _required(values, "AZURE_SEARCH_ENDPOINT")
-        ),
-        openai_endpoint=("" if is_aws else _required(values, "AZURE_OPENAI_ENDPOINT")),
-        search_index_name=(
-            (values.get("SEARCH_INDEX_NAME") or values.get("OPENSEARCH_INDEX") or "grounding-index")
-            if is_aws
-            else (values.get("AZURE_SEARCH_INDEX_NAME") or "grounding-index")
-        ).strip(),
-        controls_index_name=(
-            (values.get("CONTROLS_INDEX_NAME") or "controls-index")
-            if is_aws
-            else (values.get("AZURE_SEARCH_CONTROLS_INDEX_NAME") or "controls-index")
-        ).strip(),
-        embedding_deployment=(
-            values.get("BEDROCK_EMBEDDING_MODEL_ID") or ""
-            if is_aws
-            else values.get("EMBEDDING_DEPLOYMENT_NAME") or "text-embedding-ada-002"
-        ).strip(),
-        query_deployment=(
-            values.get("BEDROCK_MODEL_ID") or ""
-            if is_aws
-            else values.get("QUERY_DEPLOYMENT_NAME") or "gpt-5.1-chat"
-        ).strip(),
+        search_endpoint=common.search_endpoint,
+        openai_endpoint=common.openai_endpoint,
+        search_index_name=common.search_index_name,
+        controls_index_name=common.controls_index_name,
+        embedding_deployment=common.embedding_deployment,
+        query_deployment=common.query_deployment,
         controls_top_k=max(1, int(values.get("CONTROLS_TOP_K") or "4")),
         guidance_top_k=max(
             1, int(values.get("ASSESSMENT_GUIDANCE_TOP_K") or values.get("SEARCH_TOP_K") or "5")
@@ -298,17 +268,7 @@ def sanitise_untrusted_text(text: str) -> str:
 
 def _assessment_task_instruction(artifact: AssessedArtifactPackage) -> str:
     """Run assessment task instruction."""
-    if artifact.provider == "azure":
-        return (
-            "Assess the supplied Azure resource configuration and Azure Policy assignment extract for compliance against the requested framework. "
-            "This evidence is posture-focused, not a full operating model or process review.\n\n"
-            "Azure-specific applicability rules:\n"
-            "- Do not mark process, governance, training, incident-response, or operational lifecycle controls as compliant solely from resource configuration or Azure Policy assignment evidence.\n"
-            "- When a control requires procedural or organisational evidence not present in the Azure extract, use status=insufficient_evidence or status=not_applicable, and explain why.\n"
-            "- Microsoft Cloud Security Benchmark mappings can partially address downstream frameworks, but they do not by themselves establish full compliance with those mapped controls.\n"
-            "- Prefer concrete resource and Azure Policy evidence for technical control checks and be explicit about residual evidence gaps."
-        )
-    return "Assess the supplied Confluence page for cyber-security compliance against the most relevant controls."
+    return get_assessment_task_instruction(artifact.provider)
 
 
 def _cognitive_token(credential: Any) -> str:
@@ -323,7 +283,8 @@ def _embed_query(
     credential: Any,
 ) -> list[float]:
     """Run embed query."""
-    if config.cloud_provider == "aws":
+    strategy = get_assessment_provider_strategy(config.cloud_provider)
+    if not strategy.supports_embeddings:
         return []
 
     token = _cognitive_token(credential)
@@ -355,7 +316,8 @@ def _chat_completion(
     timeout: int = 45,
 ) -> str:
     """Run chat completion."""
-    if config.cloud_provider == "aws":
+    strategy = get_assessment_provider_strategy(config.cloud_provider)
+    if strategy.uses_bedrock_chat:
         llm = get_llm_client(
             cloud_provider="aws",
             model_id=config.query_deployment or None,
@@ -533,55 +495,16 @@ def _fetch_controls(
     return items[: config.controls_top_k]
 
 
-def _azure_control_is_likely_applicable(control: dict[str, Any]) -> bool:
-    # If control has pre-computed applicability metadata, use it
-    """Run azure control is likely applicable."""
-    scope = str(control.get("control_applicability_scope") or "").strip()
-    confidence = float(control.get("applicability_confidence") or 0.0)
-    uncertain = bool(control.get("applicability_uncertain", False))
-
-    if scope:
-        # Pre-classified control: exclude clearly process/governance scopes with high confidence
-        if scope == "governance" and confidence >= 0.90:
-            return False
-        if scope == "process" and confidence >= 0.90:
-            return False
-        # Include all others: technical, mixed, and low-confidence classifications
-        return True
-
-    # Fallback to runtime heuristics if no pre-computed metadata
-    requirement_id = str(control.get("requirement_id") or "").strip()
-    if requirement_id and _AZURE_GOVERNANCE_ID_RE.search(requirement_id):
-        return False
-
-    text = "\n".join(
-        str(control.get(field) or "")
-        for field in ("control_family", "requirement_text", "guidance_text")
-    )
-    has_technical_signal = bool(_AZURE_TECHNICAL_CONTROL_RE.search(text))
-    has_process_signal = bool(_AZURE_PROCESS_CONTROL_RE.search(text))
-    if has_process_signal and not has_technical_signal:
-        return False
-    return True
-
-
 def _filter_controls_for_artifact(
     artifact: AssessedArtifactPackage,
     controls: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Run filter controls for artifact."""
-    if artifact.provider != "azure":
-        return controls
-
-    evidence_scope = str(artifact.metadata.get("assessment_evidence_scope") or "").strip().lower()
-    if not evidence_scope.startswith("azure_resource_configuration"):
-        return controls
-
-    retained = [item for item in controls if _azure_control_is_likely_applicable(item)]
-    artifact.metadata["controls_retrieved_before_applicability_filter"] = len(controls)
-    artifact.metadata["controls_filtered_for_applicability"] = len(controls) - len(retained)
-    artifact.metadata["controls_retained_after_applicability_filter"] = len(retained)
-    return retained
+    return filter_controls_for_artifact(
+        artifact_provider=artifact.provider,
+        artifact_metadata=artifact.metadata,
+        controls=controls,
+    )
 
 
 def _hybrid_search(
@@ -983,14 +906,14 @@ class SearchBackedAssessmentAgent:
             endpoint=config.search_endpoint,
             index_name=config.search_index_name,
             credential=self._credential,
-            region_name=(os.getenv("AWS_REGION") if self._config.cloud_provider == "aws" else None),
+            region_name=resolve_aws_region_name(self._config.cloud_provider),
         )
         self._controls_search_client = controls_search_client or get_search_client(
             cloud_provider=self._config.cloud_provider,
             endpoint=config.search_endpoint,
             index_name=config.controls_index_name,
             credential=self._credential,
-            region_name=(os.getenv("AWS_REGION") if self._config.cloud_provider == "aws" else None),
+            region_name=resolve_aws_region_name(self._config.cloud_provider),
         )
         # Use provided functions or create from LLM_BACKEND (azure|ollama)
         # If neither embed_query nor chat_completion provided, will attempt to use factory

@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from typing import Any, cast
 
+from runtime.provider_core import DEFAULT_CLOUD_PROVIDER_REGISTRY
+
 from .abstract import SearchClient
 
 
@@ -20,7 +22,7 @@ def get_search_client(
     """Return a provider-appropriate SearchClient."""
 
     provider_raw = cloud_provider if cloud_provider is not None else os.getenv("CLOUD_PROVIDER")
-    provider = (provider_raw or "azure").strip().lower()
+    provider = DEFAULT_CLOUD_PROVIDER_REGISTRY.get(provider_raw).provider
 
     if provider == "azure":
         from .azure_search import AzureSearchClient
@@ -47,7 +49,7 @@ def get_search_client(
             AWSOpenSearchClient(endpoint=ep, index=idx, region_name=region_name),
         )
 
-    if provider in {"local", "dev"}:
+    if provider == "local":
         backend = os.getenv("LOCAL_VECTOR_BACKEND", "inmemory").strip().lower()
         if backend == "qdrant":
             try:
@@ -65,9 +67,7 @@ def get_search_client(
         idx = index_name or "local-index"
         return LocalInMemorySearchClient(index=idx, documents=documents)
 
-    raise ValueError(
-        f"Unsupported cloud provider '{provider}'. Expected one of: azure, aws, local"
-    )
+    raise AssertionError(f"Unhandled provider '{provider}'")
 
 
 __all__ = ["SearchClient", "get_search_client"]

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+from runtime.provider_core import DEFAULT_CLOUD_PROVIDER_REGISTRY
+
 from .abstract import CredentialProvider
 from .aws_cred import AWSCredentialProvider
 from .azure_cred import AzureCredentialProvider
@@ -14,7 +16,7 @@ def get_credential_provider(cloud_provider: str | None = None) -> CredentialProv
     """Return provider adapter for the requested cloud."""
 
     provider_raw = cloud_provider if cloud_provider is not None else os.getenv("CLOUD_PROVIDER")
-    provider = (provider_raw or "azure").strip().lower()
+    provider = DEFAULT_CLOUD_PROVIDER_REGISTRY.get(provider_raw).provider
 
     if provider == "azure":
         return AzureCredentialProvider()
@@ -25,12 +27,10 @@ def get_credential_provider(cloud_provider: str | None = None) -> CredentialProv
             region_name=os.getenv("AWS_REGION"),
         )
 
-    if provider in {"local", "dev"}:
+    if provider == "local":
         return LocalCredentialProvider()
 
-    raise ValueError(
-        f"Unsupported cloud provider '{provider}'. Expected one of: azure, aws, local"
-    )
+    raise AssertionError(f"Unhandled provider '{provider}'")
 
 
 __all__ = ["CredentialProvider", "get_credential_provider"]

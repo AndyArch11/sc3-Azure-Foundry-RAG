@@ -29,6 +29,8 @@ Environment variable overrides:
   AWS_REGION       AWS region         (default: ap-southeast-2)
   IMAGE_TAG        Image tag          (default: <timestamp>-<gitsha>)
   ECR_REPO_URL     ECR repository URL (default: resolved from terraform output)
+  QUERY_WEB_REQUIREMENTS_FILE Docker build requirements profile
+                   (default: /app/query-web-requirements/service-full.txt)
 EOF
   exit 0
 fi
@@ -86,6 +88,7 @@ AWS_REGION="${AWS_REGION:-ap-southeast-2}"
 DEFAULT_TAG="$(date +%Y%m%d%H%M)-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo local)"
 IMAGE_TAG="${IMAGE_TAG:-${DEFAULT_TAG}}"
 ECR_REPO_URL="${ECR_REPO_URL:-}"
+QUERY_WEB_REQUIREMENTS_FILE="${QUERY_WEB_REQUIREMENTS_FILE:-}"
 TF_VARS_FILE="${TF_DIR}/environments/${ENV}/${ENV}.tfvars"
 
 _read_tfvars_value() {
@@ -133,9 +136,14 @@ aws ecr get-login-password --region "${AWS_REGION}" \
   | "${DOCKER_CMD[@]}" login --username AWS --password-stdin "${ECR_REGISTRY}"
 
 echo "==> Building image"
+BUILD_ARGS=()
+if [[ -n "${QUERY_WEB_REQUIREMENTS_FILE}" ]]; then
+  BUILD_ARGS+=(--build-arg "QUERY_WEB_REQUIREMENTS_FILE=${QUERY_WEB_REQUIREMENTS_FILE}")
+fi
 "${DOCKER_CMD[@]}" build \
   --platform linux/amd64 \
   --file "${REPO_ROOT}/query_web/Dockerfile" \
+  "${BUILD_ARGS[@]}" \
   --tag "${FULL_IMAGE}" \
   "${REPO_ROOT}"
 

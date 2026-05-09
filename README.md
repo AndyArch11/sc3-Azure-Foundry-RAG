@@ -116,7 +116,8 @@ sc3-Azure-Foundry-RAG/
 │   ├── app.py                      # FastAPI application entry point
 │   ├── config.py                   # Environment-driven configuration loader
 │   ├── Dockerfile                  # Container image definition
-│   └── requirements.txt
+│   ├── requirements.txt            # Shared query-web dependency entrypoint
+│   └── requirements/               # Service dependency profiles (cloud/full)
 │
 ├── runtime/                        # Ingestion runtime and assessment orchestration
 │   ├── assessment_orchestration/   # Agent orchestration: worker, poller, MCP clients, LLM factory
@@ -130,12 +131,14 @@ sc3-Azure-Foundry-RAG/
 │   │       ├── corpus-a/           # Corpus A parser source references
 │   │       ├── corpus-b/           # Corpus B narrative grounding source files
 │   │       └── corpus-c/           # Corpus C evidence files for local chunk generation
+│   ├── provider_core/              # Provider registry, protocols, and shared config resolution
 │   ├── search/                     # Search provider adapters: Azure AI Search, OpenSearch, Qdrant, in-memory
 │   ├── state_store/                # State store abstraction (Cosmos DB, DynamoDB, SQLite)
 │   ├── storage/                    # Blob storage abstraction (Azure Blob, S3, local file)
+│   ├── requirements/               # Profile-based runtime dependencies (base/provider/service)
 │   ├── Dockerfile                  # Ingestion job container
 │   ├── Dockerfile.poller           # Confluence poller container
-│   └── requirements.txt
+│   └── README.md
 │
 └── tests/
     ├── unit/                       # Fast unit tests (no network, no cloud dependencies)
@@ -191,6 +194,7 @@ sc3-Azure-Foundry-RAG/
 
 - Detailed implementation sequencing: `docs/implementation-plan.md`
 - Delivery slicing by phase: `docs/phases.md`
+- Provider onboarding and extension workflow: `docs/provider-onboarding-guide.md`
 - Testing policy and private-endpoint test execution: `docs/testing-strategy.md`
 - Logging and metrics baseline: `docs/observability.md`
 - Foundry setup and deployment prerequisites: `docs/foundry-setup-guide.md`

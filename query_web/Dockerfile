@@ -1,12 +1,22 @@
+FROM python:3.12-slim AS deps
+
+WORKDIR /app
+
+ARG QUERY_WEB_REQUIREMENTS_FILE=/app/query-web-requirements/service-full.txt
+
+COPY query_web/requirements.txt /app/query_web/requirements.txt
+COPY query_web/requirements/ /app/query-web-requirements/
+COPY runtime/requirements/ /app/runtime/requirements/
+RUN pip install --no-cache-dir --prefix=/install -r "${QUERY_WEB_REQUIREMENTS_FILE}"
+
 FROM python:3.12-slim
 
 WORKDIR /app
 
-ENV PYTHONPATH=/app
+ENV PATH="/install/bin:${PATH}"
+ENV PYTHONPATH="/app:/install/lib/python3.12/site-packages"
 
-COPY query_web/requirements.txt ./query_web-requirements.txt
-COPY runtime/requirements.txt ./runtime-requirements.txt
-RUN pip install --no-cache-dir -r query_web-requirements.txt -r runtime-requirements.txt
+COPY --from=deps /install /install
 
 COPY query_web/ ./query_web/
 COPY runtime/ ./runtime/

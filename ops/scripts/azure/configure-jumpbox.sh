@@ -64,7 +64,7 @@ Configures an Ubuntu jumpbox for local platform operations by:
 Options:
   --repo-dir <path>         Repository root to configure (default: current repo root)
   --python-version <ver>    Python version to install and use for the venv (default: 3.12)
-  --runtime-only            Install runtime/requirements.txt instead of requirements-dev.txt
+  --runtime-only            Install runtime/requirements/ingestion.txt instead of requirements-dev.txt
   --install-terraform       Run ops/scripts/local/install-terraform-local.sh
   --terraform-version <ver> Terraform version passed to install-terraform-local.sh
   --init-terraform-backend <env>
@@ -185,7 +185,7 @@ VENV_DIR="${RUNTIME_DIR}/.venv"
 PYTHON_BIN="python${PYTHON_VERSION}"
 
 if [[ "${INSTALL_RUNTIME_ONLY}" == "true" ]]; then
-  REQUIREMENTS_FILE="${RUNTIME_DIR}/requirements.txt"
+  REQUIREMENTS_FILE="${RUNTIME_DIR}/requirements/ingestion.txt"
 else
   REQUIREMENTS_FILE="${REPO_DIR}/requirements-dev.txt"
 fi

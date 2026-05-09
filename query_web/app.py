@@ -133,6 +133,7 @@ from runtime.assessment_orchestration.azure_assessment import (
 )
 from runtime.assessment_orchestration.state_store import CosmosPollingStateStore, PollingStateStore
 from runtime.credentials import get_credential_provider
+from runtime.provider_core import normalise_cloud_provider
 from runtime.search import get_search_client
 
 if TYPE_CHECKING:
@@ -295,10 +296,13 @@ cosmos_client: Any | None = None
 cosmos_db: Any | None = None
 conversations_container: _ConversationContainer | None
 _local_state_db_path = os.environ.get("LOCAL_STATE_DB_PATH", "").strip()
-if not _local_state_db_path and (os.environ.get("CLOUD_PROVIDER") or "").strip().lower() in (
-    "local",
-    "dev",
-):
+_is_local_provider = False
+try:
+    _is_local_provider = normalise_cloud_provider(os.getenv("CLOUD_PROVIDER")) == "local"
+except ValueError:
+    _is_local_provider = False
+
+if not _local_state_db_path and _is_local_provider:
     _local_state_db_path = str(
         (Path(__file__).resolve().parent.parent / "runtime" / "out" / "local_state.db")
     )
