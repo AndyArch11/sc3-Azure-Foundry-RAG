@@ -6,7 +6,8 @@ import hashlib
 import logging
 import os
 import re
-from typing import Any, Callable, cast
+from collections.abc import Iterable
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +283,9 @@ class LocalQdrantSearchClient:
                 query_filter=qfilter,
                 with_payload=True,
             )
+            if not isinstance(result, Iterable):
+                raise TypeError("Qdrant search result is not iterable")
+
             items: list[dict[str, Any]] = []
             for point in result:
                 payload = dict(point.payload or {})
