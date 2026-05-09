@@ -1,0 +1,3 @@
+# Dependabot/dependency-graph compatibility entrypoint.
+# Keep this as a thin wrapper to the canonical repo dev requirements.
+-r requirements-dev.txt

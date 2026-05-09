@@ -302,11 +302,42 @@ try:
 except ValueError:
     _is_local_provider = False
 
-if not _local_state_db_path and _is_local_provider:
-    _local_state_db_path = str(
-        (Path(__file__).resolve().parent.parent / "runtime" / "out" / "local_state.db")
-    )
+
+def _resolve_writable_sqlite_path(*candidates: str) -> str | None:
+    """Return first candidate path whose parent directory is writable."""
+    for candidate in candidates:
+        path_text = (candidate or "").strip()
+        if not path_text:
+            continue
+        path = Path(path_text)
+        if str(path) == ":memory:":
+            return str(path)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # Validate write access up-front to avoid startup crashes later.
+            with path.open("a", encoding="utf-8"):
+                pass
+            return str(path)
+        except Exception:
+            continue
+    return None
+
+
 if not config.cosmos_endpoint:
+    runtime_out_db = str(
+        Path(__file__).resolve().parent.parent / "runtime" / "out" / "local_state.db"
+    )
+    tmp_db = str(Path("/tmp") / "query-web" / "local_state.db")
+    if _is_local_provider:
+        resolved_local_state_path = _resolve_writable_sqlite_path(
+            _local_state_db_path,
+            runtime_out_db,
+            tmp_db,
+        )
+    else:
+        resolved_local_state_path = _resolve_writable_sqlite_path(_local_state_db_path)
+    _local_state_db_path = resolved_local_state_path or ""
+
     if _local_state_db_path:
         from query_web.conversation_store import SqliteConversationStore
 
@@ -317,17 +348,14 @@ if not config.cosmos_endpoint:
                 _local_state_db_path,
             )
         except Exception as exc:
-            fallback_path = str(
-                (Path(__file__).resolve().parent.parent / "runtime" / "out" / "local_state.db")
-            )
+            attempted_local_state_path = _local_state_db_path
+            conversations_container = None
+            _local_state_db_path = ""
             logger.warning(
-                "Local conversation store path %s unavailable (%s); falling back to %s",
-                _local_state_db_path,
+                "SQLite conversation store unavailable at %s (%s); running without conversation persistence.",
+                attempted_local_state_path,
                 exc,
-                fallback_path,
             )
-            conversations_container = SqliteConversationStore(fallback_path)
-            _local_state_db_path = fallback_path
     else:
         conversations_container = None
         logger.info(

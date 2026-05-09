@@ -10,6 +10,7 @@ _unauthorised_message, _target_env_name, _diagnostics_enabled.
 from __future__ import annotations
 
 import base64
+import importlib
 import json
 import os
 from types import SimpleNamespace
@@ -183,6 +184,42 @@ def test_decode_client_principal_malformed_base64_returns_none() -> None:
 def test_decode_client_principal_non_dict_json_returns_none() -> None:
     encoded = base64.b64encode(b"[1,2,3]").decode()
     assert app_module._decode_client_principal(encoded) is None
+
+
+# ---------------------------------------------------------------------------
+# _resolve_writable_sqlite_path
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_writable_sqlite_path_prefers_first_writable_candidate(tmp_path) -> None:
+    preferred = str(tmp_path / "a" / "local_state.db")
+    secondary = str(tmp_path / "b" / "local_state.db")
+
+    result = app_module._resolve_writable_sqlite_path(preferred, secondary)
+
+    assert result == preferred
+
+
+def test_resolve_writable_sqlite_path_skips_unwritable_candidate(tmp_path) -> None:
+    unwritable = "/proc/1/query-web-local-state.db"
+    writable = str(tmp_path / "fallback" / "local_state.db")
+
+    result = app_module._resolve_writable_sqlite_path(unwritable, writable)
+
+    assert result == writable
+
+
+def test_resolve_writable_sqlite_path_returns_none_when_no_candidate_writable() -> None:
+    result = app_module._resolve_writable_sqlite_path(
+        "/proc/1/query-web-local-state.db",
+        "/sys/kernel/query-web-local-state.db",
+    )
+
+    assert result is None
+
+
+def test_resolve_writable_sqlite_path_accepts_memory() -> None:
+    assert app_module._resolve_writable_sqlite_path(":memory:") == ":memory:"
 
 
 # ---------------------------------------------------------------------------
@@ -574,3 +611,27 @@ def test_resolve_acr_registry_name_ignores_non_azurecr_login_server() -> None:
 def test_resolve_acr_registry_name_empty_when_nothing_set() -> None:
     with patch.dict(os.environ, _clear_acr_env()):
         assert app_module._resolve_acr_registry_name("") == ""
+
+
+def test_startup_disables_conversation_persistence_when_local_state_unwritable() -> None:
+    tracked_keys = ["AZURE_COSMOS_ENDPOINT", "CLOUD_PROVIDER", "LOCAL_STATE_DB_PATH"]
+    previous = {key: os.environ.get(key) for key in tracked_keys}
+
+    try:
+        os.environ["AZURE_COSMOS_ENDPOINT"] = ""
+        os.environ["CLOUD_PROVIDER"] = "local"
+        os.environ["LOCAL_STATE_DB_PATH"] = "/app/runtime/out/local_state.db"
+
+        with patch("pathlib.Path.mkdir", side_effect=PermissionError("denied")):
+            with patch("pathlib.Path.open", side_effect=PermissionError("denied")):
+                reloaded = importlib.reload(app_module)
+
+        assert reloaded.conversations_container is None
+        assert reloaded._local_state_db_path == ""
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        importlib.reload(app_module)
