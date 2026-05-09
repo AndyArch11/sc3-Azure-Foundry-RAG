@@ -1,0 +1,3 @@
+# Dependabot/dependency-graph compatibility entrypoint for the runtime service.
+# Keep this as a thin wrapper to the canonical runtime ingestion profile.
+-r requirements/ingestion.txt
