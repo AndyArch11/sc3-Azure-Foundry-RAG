@@ -5,7 +5,7 @@
 
   * ``azure`` / unset  → ``AzureOpenAILLMClient``
   * ``aws``            → ``BedrockLLMClient``
-  * ``local`` / ``dev``→ ``OllamaLLMClient`` (dev stub – uses Ollama or echoes)
+  * ``local`` / ``dev``→ ``OllamaLLMClient`` (dev stub - uses Ollama or echoes)
 """
 
 from __future__ import annotations

@@ -21,7 +21,7 @@ Optional RBAC reconciliation (admin identity):
 
 Environment variable overrides:
   QUERY_WEB_REQUIREMENTS_FILE Docker build requirements profile
-                   (default: /app/query-web-requirements/service-full.txt)
+                   (default: /app/query-web-requirements/azure.txt)
 EOF
   exit 0
 fi
@@ -198,7 +198,7 @@ fi
 
 "${DOCKER_CMD[@]}" build \
   --platform linux/amd64 \
-  --file "${REPO_ROOT}/query_web/Dockerfile" \
+  --file "${REPO_ROOT}/query_web/Dockerfile.azure" \
   "${BUILD_ARGS[@]}" \
   --tag "${FULL_IMAGE}" \
   "${REPO_ROOT}"

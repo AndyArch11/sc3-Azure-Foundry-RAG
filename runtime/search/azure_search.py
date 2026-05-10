@@ -86,7 +86,7 @@ class AzureSearchClient:
             kwargs["vector_queries"] = [
                 VectorizedQuery(
                     vector=vector_query,
-                    k=top,
+                    k_nearest_neighbors=top,
                     fields="content_vector",
                 )
             ]
@@ -94,11 +94,15 @@ class AzureSearchClient:
         # Forward provider-specific hints (e.g. query_type, semantic_configuration_name).
         kwargs.update(extra_kwargs)
 
+        search_fn = getattr(self._client, "search", None)
+        if not callable(search_fn):
+            raise AttributeError("SearchClient.search is unavailable")
+
         results = sdk_call_with_instrumentation(
             logger=logger,
             system="azure-search",
             operation="search_documents",
-            call=lambda: self._client.search(**kwargs),
+            call=lambda: search_fn(**kwargs),  # pylint: disable=not-callable
         )
         total_count = results.get_count() if hasattr(results, "get_count") else None
         items = [dict(r) for r in results]

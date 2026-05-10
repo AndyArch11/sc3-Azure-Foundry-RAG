@@ -31,7 +31,7 @@ class BedrockLLMClient:
     region_name:
         AWS region.  Ignored when *session* is provided.
     temperature:
-        Sampling temperature (0 – 1).
+        Sampling temperature (0 - 1).
     max_tokens:
         Maximum tokens in the model reply.
     """

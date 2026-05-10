@@ -1,0 +1,9 @@
+-r base.txt
+
+# Shared HTTP/LLM client deps
+requests>=2.33.1
+openai==2.36.0
+httpx==0.28.1
+
+# AWS SDK
+boto3==1.40.58

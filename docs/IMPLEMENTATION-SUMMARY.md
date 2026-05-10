@@ -46,7 +46,7 @@ Successfully implemented Azure Foundry chat completion API integration with pers
 
 ### 2. Dependencies
 
-#### [query_web/requirements.txt](query_web/requirements.txt)
+#### [query_web/requirements/base.txt](../query_web/requirements/base.txt)
 
 Added:
 - `openai==1.51.0` — Azure OpenAI SDK for Foundry API
@@ -55,7 +55,7 @@ Added:
 Updated for security:
 - `jinja2==3.1.6` (was 3.1.5)
 - `requests==2.32.4` (was 2.32.3)
-- `pypdf==6.9.1` (was 5.4.0 in runtime/requirements/ingestion.txt)
+- `pypdf==6.11.0` (was 5.4.0 in runtime/requirements/local.txt)
 
 ---
 
@@ -237,7 +237,7 @@ POST /ask
 
 ## Deployment Checklist
 
-- [x] Updated `query_web/requirements.txt` with `openai` and `azure-cosmos`
+- [x] Updated query-web requirement profiles with `openai` and `azure-cosmos`
 - [x] Fixed PyPDF vulnerability (updated to 6.9.1)
 - [x] Fixed Jinja2 vulnerability (updated to 3.1.6)
 - [x] Fixed Requests vulnerability (updated to 2.32.4)

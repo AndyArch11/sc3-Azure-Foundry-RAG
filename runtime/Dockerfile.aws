@@ -1,0 +1,53 @@
+FROM python:3.12-slim AS deps
+
+WORKDIR /build
+
+ARG RUNTIME_REQUIREMENTS_FILE=requirements/aws.txt
+
+# Install dependencies into an isolated prefix that can be copied into the runtime image.
+COPY runtime/requirements/ ./requirements/
+RUN pip install --no-cache-dir --prefix=/install -r "${RUNTIME_REQUIREMENTS_FILE}"
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+ENV PATH="/install/bin:${PATH}"
+ENV PYTHONPATH="/app:/install/lib/python3.12/site-packages"
+ENV CLOUD_PROVIDER=aws
+
+COPY --from=deps /install /install
+
+# Copy the ingestion package and shared logging bootstrap used at runtime.
+COPY runtime/ingestion/ ./ingestion/
+COPY runtime/credentials/ ./credentials/
+COPY runtime/storage/ ./storage/
+COPY runtime/log_config.py ./log_config.py
+COPY runtime/trace_context.py ./trace_context.py
+COPY runtime/outbound_instrumentation.py ./outbound_instrumentation.py
+COPY runtime/outbound_metrics.py ./outbound_metrics.py
+
+# Remove non-AWS provider implementations to reduce image size and enforce platform isolation
+RUN rm -f ./ingestion/search/azure_search.py \
+    && rm -f ./ingestion/search/local_qdrant.py \
+    && rm -f ./ingestion/search/local_inmemory.py \
+    && rm -f ./ingestion/llm/azure_openai.py \
+    && rm -f ./ingestion/llm/ollama.py \
+    && rm -f ./credentials/azure_cred.py \
+    && rm -f ./credentials/local_cred.py \
+    && rm -f ./storage/azure_blob.py \
+    && rm -f ./storage/local_file.py \
+    && rm -f ./ingestion/controls_index.py \
+    && rm -f ./ingestion/reset.py \
+    && rm -f ./ingestion/publish_grounding.py \
+    && rm -f ./ingestion/grounding_index.py \
+    && rm -f ./ingestion/publish_controls.py
+
+# Run as a non-root user.
+RUN useradd -m -u 1000 appuser && mkdir -p /app/samples && chown appuser /app/samples
+USER appuser
+
+# ENTRYPOINT is the module; CMD provides default arguments that can be
+# overridden at container runtime or by the Container App Job trigger.
+ENTRYPOINT ["python", "-m", "ingestion.runner"]
+CMD ["--help"]

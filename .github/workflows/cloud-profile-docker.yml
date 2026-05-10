@@ -27,19 +27,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build query-web cloud profile image
+      - name: Build query-web azure profile image
         run: |
           docker build \
             --platform linux/amd64 \
-            -f query_web/Dockerfile \
-            --build-arg QUERY_WEB_REQUIREMENTS_FILE=/app/query-web-requirements/service-cloud.txt \
+            -f query_web/Dockerfile.azure \
             -t ci-query-web-cloud-profile .
 
-      - name: Build poller profile image
+      - name: Build poller azure profile image
         run: |
           docker build \
             --platform linux/amd64 \
-            -f runtime/Dockerfile.poller \
+            -f runtime/Dockerfile.poller.azure \
             -t ci-runtime-poller-profile .
 
       - name: Smoke query-web cloud health
@@ -56,8 +55,12 @@ jobs:
           docker run -d \
             --name "${container_name}" \
             -p 127.0.0.1::8080 \
-            -e CLOUD_PROVIDER=local \
-            -e LOCAL_VECTOR_BACKEND=inmemory \
+            -e CLOUD_PROVIDER=azure \
+            -e AZURE_SEARCH_ENDPOINT=https://example.search.windows.net \
+            -e AZURE_OPENAI_ENDPOINT=https://example.openai.azure.com \
+            -e AZURE_COSMOS_ENDPOINT=https://example.documents.azure.com:443/ \
+            -e AZURE_COSMOS_DATABASE_NAME=ci-db \
+            -e AZURE_COSMOS_CONTAINER_NAME=ci-container \
             -e PRECEDENCE_POLICY_PATH=/app/policies/precedence_policy.json \
             -e OLLAMA_MODEL=gemma3:27b \
             -e OLLAMA_EMBEDDING_MODEL=nomic-embed-text \

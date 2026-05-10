@@ -5,8 +5,12 @@ import json
 import logging
 import os
 import sys
+from typing import TYPE_CHECKING, Any
 
-from azure.core.credentials import TokenCredential
+if TYPE_CHECKING:
+    from azure.core.credentials import TokenCredential
+else:
+    TokenCredential = Any
 
 try:
     from runtime.log_config import configure_logging as _configure_logging

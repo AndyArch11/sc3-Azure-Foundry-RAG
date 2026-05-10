@@ -219,6 +219,7 @@ class TestAzureSearchClient:
         call_kwargs = mock_sdk_client.search.call_args.kwargs
         assert "vector_queries" in call_kwargs
         assert len(call_kwargs["vector_queries"]) == 1
+        assert call_kwargs["vector_queries"][0].k_nearest_neighbors == 5
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +334,7 @@ class TestAWSOpenSearchClient:
         )
 
         assert len(results) == 2
-        assert results.get_count() == 3
+        assert getattr(results, "get_count")() == 3
 
     def test_search_raises_when_query_text_missing(self) -> None:
         from runtime.search.opensearch import AWSOpenSearchClient

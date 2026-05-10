@@ -22,7 +22,7 @@ Optional admin RBAC reconciliation:
 
 Environment variable overrides:
   RUNTIME_REQUIREMENTS_FILE Docker build requirements profile
-                   (default: /app/runtime-requirements/poller.txt)
+                   (default: /app/runtime-requirements/azure.txt)
 EOF
   exit 0
 fi
@@ -200,7 +200,7 @@ fi
 
 "${DOCKER_CMD[@]}" build \
   --platform linux/amd64 \
-  --file "${RUNTIME_DIR}/Dockerfile.poller" \
+  --file "${RUNTIME_DIR}/Dockerfile.poller.azure" \
   "${BUILD_ARGS[@]}" \
   --tag "${FULL_IMAGE}" \
   "${REPO_ROOT}"

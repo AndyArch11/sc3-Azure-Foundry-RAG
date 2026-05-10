@@ -1,3 +1,1 @@
--r ../query_web/requirements.txt
--r ../runtime/requirements/azure.txt
--r ../runtime/requirements/aws.txt
+-r cloud.txt

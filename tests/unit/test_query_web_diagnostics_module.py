@@ -2,14 +2,38 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import patch
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from query_web.endpoints.diagnostics import register_diagnostics_endpoints
+from runtime.search import SearchClient
 
 
-def _build_client(*, search_client=None, storage_enabled: bool = True) -> TestClient:
+class _DefaultSearchClient:
+    @property
+    def index_name(self) -> str:
+        return "grounding-index"
+
+    def search(
+        self,
+        *,
+        query_text: str,
+        top: int,
+        vector_query: list[float] | None = None,
+        filters: str | None = None,
+        select: list[str] | None = None,
+        **extra_kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        del query_text, top, vector_query, filters, select, extra_kwargs
+        return []
+
+    def load_documents(self, docs: list[dict[str, Any]]) -> None:
+        del docs
+
+
+def _build_client(*, search_client: SearchClient | None = None, storage_enabled: bool = True) -> TestClient:
     app = FastAPI()
     config = SimpleNamespace(
         search_endpoint="https://example.search.windows.net",
@@ -22,7 +46,7 @@ def _build_client(*, search_client=None, storage_enabled: bool = True) -> TestCl
         app,
         credential,
         config,
-        search_client or SimpleNamespace(search=lambda **kwargs: []),
+        search_client or _DefaultSearchClient(),
         lambda: storage_enabled,
         lambda: True,
         lambda: {"name": "job-1", "status": "Succeeded"},
@@ -112,6 +136,10 @@ def test_indexer_history_diagnostics_separates_optional_warning_noise() -> None:
 
 def test_index_samples_diagnostics_truncates_content_and_uses_selected_fields() -> None:
     class _FakeSearchClient:
+        @property
+        def index_name(self) -> str:
+            return "grounding-index"
+
         def search(self, **kwargs):
             assert kwargs["top"] == 2
             assert kwargs["select"] == [
@@ -130,6 +158,9 @@ def test_index_samples_diagnostics_truncates_content_and_uses_selected_fields() 
                     "content": "x" * 700,
                 }
             ]
+
+        def load_documents(self, docs: list[dict[str, Any]]) -> None:
+            del docs
 
     client = _build_client(search_client=_FakeSearchClient())
     response = client.get("/api/diagnostics/search/index-samples?limit=2&include_all_fields=false")

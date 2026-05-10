@@ -30,7 +30,7 @@ Environment variable overrides:
   IMAGE_TAG        Image tag          (default: <timestamp>-<gitsha>)
   ECR_REPO_URL     ECR repository URL (default: resolved from terraform output)
   QUERY_WEB_REQUIREMENTS_FILE Docker build requirements profile
-                   (default: /app/query-web-requirements/service-full.txt)
+                   (default: /app/query-web-requirements/aws.txt)
 EOF
   exit 0
 fi
@@ -142,7 +142,7 @@ if [[ -n "${QUERY_WEB_REQUIREMENTS_FILE}" ]]; then
 fi
 "${DOCKER_CMD[@]}" build \
   --platform linux/amd64 \
-  --file "${REPO_ROOT}/query_web/Dockerfile" \
+  --file "${REPO_ROOT}/query_web/Dockerfile.aws" \
   "${BUILD_ARGS[@]}" \
   --tag "${FULL_IMAGE}" \
   "${REPO_ROOT}"

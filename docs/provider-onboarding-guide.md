@@ -73,8 +73,10 @@ Runtime dependency profiles live under `runtime/requirements/`:
 
 Query-web profiles live under `query_web/requirements/`:
 
-- `service-cloud.txt`
-- `service-full.txt`
+- `base.txt` shared query-web deps
+- provider profiles (for example `azure.txt`, `aws.txt`)
+- aggregate profiles (for example `cloud.txt`, `full.txt`)
+- compatibility wrappers (`service-cloud.txt`, `service-full.txt`)
 
 Add any new provider dependencies to the smallest required profile.
 
@@ -90,7 +92,8 @@ This script validates:
 
 - runtime image build and CLI startup
 - poller image build and CLI startup
-- query-web full/cloud profile image build
+- query-web local profile image build
+- query-web azure profile image build
 - query-web health endpoint smoke check
 
 ### 7. Add and Run Tests

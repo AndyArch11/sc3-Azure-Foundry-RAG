@@ -1,0 +1,37 @@
+FROM python:3.12-slim AS deps
+
+WORKDIR /app
+
+ARG QUERY_WEB_REQUIREMENTS_FILE=/app/query-web-requirements/full.txt
+
+COPY query_web/requirements.txt /app/query_web/requirements.txt
+COPY query_web/requirements/ /app/query-web-requirements/
+COPY runtime/requirements/ /app/runtime/requirements/
+RUN pip install --no-cache-dir --prefix=/install -r "${QUERY_WEB_REQUIREMENTS_FILE}"
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+ENV PATH="/install/bin:${PATH}"
+ENV PYTHONPATH="/app:/install/lib/python3.12/site-packages"
+ENV CLOUD_PROVIDER=local
+ENV LOCAL_VECTOR_BACKEND=qdrant
+
+COPY --from=deps /install /install
+
+COPY query_web/ ./query_web/
+COPY runtime/ ./runtime/
+COPY parsed-controls/ ./parsed-controls/
+COPY query_web/policies/precedence_policy.json ./policies/precedence_policy.json
+COPY ops/scripts/local/seed_local.py /app/local/seed_local.py
+
+# Local image includes all providers for testing/dev purposes; no removals
+
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app/local_state && \
+    chown -R appuser:appuser /app/local_state
+USER appuser
+
+EXPOSE 8080
+CMD ["uvicorn", "query_web.app:app", "--host", "0.0.0.0", "--port", "8080"]

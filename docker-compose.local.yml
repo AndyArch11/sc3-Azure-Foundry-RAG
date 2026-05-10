@@ -2,7 +2,7 @@ services:
   local-data-init:
     build:
       context: .
-      dockerfile: query_web/Dockerfile
+      dockerfile: query_web/Dockerfile.local
     container_name: rag-local-data-init
     user: "0"
     restart: "no"
@@ -70,7 +70,7 @@ services:
   seeder:
     build:
       context: .
-      dockerfile: query_web/Dockerfile
+      dockerfile: query_web/Dockerfile.local
     container_name: rag-seeder
     restart: "no"
     env_file:
@@ -95,7 +95,7 @@ services:
   query-web:
     build:
       context: .
-      dockerfile: query_web/Dockerfile
+      dockerfile: query_web/Dockerfile.local
     container_name: rag-query-web-local
     restart: unless-stopped
     ports:
@@ -126,7 +126,7 @@ services:
     profiles: ["confluence-poller"]
     build:
       context: .
-      dockerfile: runtime/Dockerfile.poller
+      dockerfile: runtime/Dockerfile.poller.local
     container_name: rag-confluence-poller-local
     restart: unless-stopped
     env_file:

@@ -119,7 +119,12 @@ terraform -chdir=infra/terraform/azure apply \
   -target=module.agent_hosting
 ```
 
-Query web dependencies of interest are in [query_web/requirements.txt](../query_web/requirements.txt).
+Query web dependencies are profile-based under [query_web/requirements/](../query_web/requirements/):
+
+- [query_web/requirements/base.txt](../query_web/requirements/base.txt)
+- [query_web/requirements/azure.txt](../query_web/requirements/azure.txt)
+- [query_web/requirements/aws.txt](../query_web/requirements/aws.txt)
+- [query_web/requirements/full.txt](../query_web/requirements/full.txt)
 
 ---
 

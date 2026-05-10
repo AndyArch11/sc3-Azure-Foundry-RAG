@@ -29,7 +29,7 @@ Optional RBAC reconciliation (admin identity):
 
 Environment variable overrides:
   RUNTIME_REQUIREMENTS_FILE Docker build requirements profile
-                   (default: requirements/ingestion.txt)
+                   (default: requirements/azure.txt)
 EOF
   exit 0
 fi
@@ -242,16 +242,17 @@ az acr login --name "${ACR_LOGIN_SERVER%%.*}"
 # ---------------------------------------------------------------------------
 # Build (linux/amd64 matches the Container App runtime).
 # ---------------------------------------------------------------------------
-echo "==> Building Docker image (context: ${RUNTIME_DIR})…"
+echo "==> Building Docker image (context: ${REPO_ROOT})…"
 BUILD_ARGS=()
 if [[ -n "${RUNTIME_REQUIREMENTS_FILE}" ]]; then
   BUILD_ARGS+=(--build-arg "RUNTIME_REQUIREMENTS_FILE=${RUNTIME_REQUIREMENTS_FILE}")
 fi
 "${DOCKER_CMD[@]}" build \
   --platform linux/amd64 \
+  --file "${RUNTIME_DIR}/Dockerfile.azure" \
   "${BUILD_ARGS[@]}" \
   --tag "${FULL_IMAGE}" \
-  "${RUNTIME_DIR}"
+  "${REPO_ROOT}"
 
 # ---------------------------------------------------------------------------
 # Push

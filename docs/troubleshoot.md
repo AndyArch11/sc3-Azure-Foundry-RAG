@@ -615,7 +615,7 @@ curl "https://${QUERY_FQDN}/api/diagnostics/storage/metadata-validation?prefix=c
 | `Internal server error; check logs for details.` | API responses | Unhandled exception — details are in container app logs, not the response | Check Log Analytics / `az containerapp logs show` |
 | `CosmosDB unavailable: ...` | App startup log | Cosmos DB unreachable; app fell back to in-memory | Verify private endpoint, managed identity role, and env vars |
 | `RuntimeError: AZURE_COSMOS_ENDPOINT not set` | App startup | Missing env var | Add `AZURE_COSMOS_ENDPOINT` to Container App environment |
-| `openai package is required for Foundry API integration` | LLM calls | `openai` not installed in container image | Verify `query_web/requirements.txt` and rebuild image |
+| `openai package is required for Foundry API integration` | LLM calls | `openai` not installed in container image | Verify `query_web/requirements/base.txt` and provider profile requirements, then rebuild image |
 | `Diagnostics endpoints are disabled when TARGET_ENV is 'prod'` | Diagnostic endpoints | `TARGET_ENV=prod` blocks diagnostic access | Use a non-prod environment or check logs directly |
 | `no space left on device` | Docker build on jumpbox | Docker data directory full | See Docker section above |
 | `401 Unauthorized` on `/ask` or `/api/ask` | Browser / API client | `QUERY_WEB_AUTH_TOKEN` mismatch or missing | Pass correct `auth_token` param; check container app env var |

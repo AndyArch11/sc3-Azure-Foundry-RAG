@@ -1,0 +1,49 @@
+FROM python:3.12-slim AS deps
+
+WORKDIR /app
+
+ARG QUERY_WEB_REQUIREMENTS_FILE=/app/query-web-requirements/aws.txt
+
+COPY query_web/requirements.txt /app/query_web/requirements.txt
+COPY query_web/requirements/ /app/query-web-requirements/
+COPY runtime/requirements/ /app/runtime/requirements/
+RUN pip install --no-cache-dir --prefix=/install -r "${QUERY_WEB_REQUIREMENTS_FILE}"
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+ENV PATH="/install/bin:${PATH}"
+ENV PYTHONPATH="/app:/install/lib/python3.12/site-packages"
+ENV CLOUD_PROVIDER=aws
+
+COPY --from=deps /install /install
+
+COPY query_web/ ./query_web/
+COPY runtime/ ./runtime/
+COPY parsed-controls/ ./parsed-controls/
+COPY query_web/policies/precedence_policy.json ./policies/precedence_policy.json
+
+# Remove non-AWS provider implementations to reduce image size and enforce platform isolation
+RUN rm -f runtime/search/azure_search.py \
+    && rm -f runtime/search/local_qdrant.py \
+    && rm -f runtime/search/local_inmemory.py \
+    && rm -f runtime/llm/azure_openai.py \
+    && rm -f runtime/llm/ollama.py \
+    && rm -f runtime/credentials/azure_cred.py \
+    && rm -f runtime/credentials/local_cred.py \
+    && rm -f runtime/storage/azure_blob.py \
+    && rm -f runtime/storage/local_file.py \
+    && rm -f runtime/ingestion/controls_index.py \
+    && rm -f runtime/ingestion/reset.py \
+    && rm -f runtime/ingestion/publish_grounding.py \
+    && rm -f runtime/ingestion/grounding_index.py \
+    && rm -f runtime/ingestion/publish_controls.py
+
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app/local_state && \
+    chown -R appuser:appuser /app/local_state
+USER appuser
+
+EXPOSE 8080
+CMD ["uvicorn", "query_web.app:app", "--host", "0.0.0.0", "--port", "8080"]

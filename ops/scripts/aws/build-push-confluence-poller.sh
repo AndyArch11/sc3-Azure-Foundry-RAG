@@ -26,7 +26,7 @@ Environment variable overrides:
   IMAGE_TAG        Image tag          (default: <timestamp>-<gitsha>)
   ECR_REPO_URL     ECR repository URL (default: resolved from terraform output)
   RUNTIME_REQUIREMENTS_FILE Docker build requirements profile
-                   (default: /app/runtime-requirements/poller.txt)
+                   (default: /app/runtime-requirements/aws.txt)
 EOF
   exit 0
 fi
@@ -136,7 +136,7 @@ if [[ -n "${RUNTIME_REQUIREMENTS_FILE}" ]]; then
 fi
 "${DOCKER_CMD[@]}" build \
   --platform linux/amd64 \
-  --file "${REPO_ROOT}/runtime/Dockerfile.poller" \
+  --file "${REPO_ROOT}/runtime/Dockerfile.poller.aws" \
   "${BUILD_ARGS[@]}" \
   --tag "${FULL_IMAGE}" \
   "${REPO_ROOT}"

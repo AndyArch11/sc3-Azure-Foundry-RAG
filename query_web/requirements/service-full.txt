@@ -1,2 +1,1 @@
--r service-cloud.txt
--r ../runtime/requirements/local.txt
+-r full.txt

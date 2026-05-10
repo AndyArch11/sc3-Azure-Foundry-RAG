@@ -1,0 +1,34 @@
+FROM python:3.12-slim AS deps
+
+WORKDIR /app
+
+ARG RUNTIME_REQUIREMENTS_FILE=/app/runtime-requirements/aws.txt
+
+COPY runtime/requirements/ /app/runtime-requirements/
+RUN pip install --no-cache-dir --prefix=/install -r "${RUNTIME_REQUIREMENTS_FILE}"
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+ENV PATH="/install/bin:${PATH}"
+ENV PYTHONPATH="/app:/install/lib/python3.12/site-packages"
+ENV CLOUD_PROVIDER=aws
+
+COPY --from=deps /install /install
+
+COPY runtime ./runtime
+COPY query_web/policies/precedence_policy.json /app/query_web/policies/precedence_policy.json
+COPY query_web/policies/precedence_policy.json /app/policies/precedence_policy.json
+
+# Remove local/test implementations to reduce image size; keep both cloud providers for orchestration flexibility
+RUN rm -f runtime/search/local_qdrant.py \
+    && rm -f runtime/search/local_inmemory.py \
+    && rm -f runtime/llm/ollama.py \
+    && rm -f runtime/credentials/local_cred.py \
+    && rm -f runtime/storage/local_file.py
+
+RUN useradd -m -u 1000 appuser
+USER appuser
+
+ENTRYPOINT ["python", "-m", "runtime.assessment_orchestration.polling_worker_main"]

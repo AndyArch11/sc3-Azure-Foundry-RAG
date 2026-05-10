@@ -54,29 +54,28 @@ PY
 echo "[profile-smoke] Building runtime image"
 docker build \
   --platform linux/amd64 \
-  -f "${ROOT_DIR}/runtime/Dockerfile" \
+  -f "${ROOT_DIR}/runtime/Dockerfile.local" \
   -t "${RUNTIME_IMAGE_TAG}" \
-  "${ROOT_DIR}/runtime"
+  "${ROOT_DIR}"
 
 echo "[profile-smoke] Building poller image"
 docker build \
   --platform linux/amd64 \
-  -f "${ROOT_DIR}/runtime/Dockerfile.poller" \
+  -f "${ROOT_DIR}/runtime/Dockerfile.poller.local" \
   -t "${POLLER_IMAGE_TAG}" \
   "${ROOT_DIR}"
 
 echo "[profile-smoke] Building query-web full profile image"
 docker build \
   --platform linux/amd64 \
-  -f "${ROOT_DIR}/query_web/Dockerfile" \
+  -f "${ROOT_DIR}/query_web/Dockerfile.local" \
   -t "${QUERY_WEB_FULL_IMAGE_TAG}" \
   "${ROOT_DIR}"
 
 echo "[profile-smoke] Building query-web cloud profile image"
 docker build \
   --platform linux/amd64 \
-  -f "${ROOT_DIR}/query_web/Dockerfile" \
-  --build-arg QUERY_WEB_REQUIREMENTS_FILE=/app/query-web-requirements/service-cloud.txt \
+  -f "${ROOT_DIR}/query_web/Dockerfile.azure" \
   -t "${QUERY_WEB_CLOUD_IMAGE_TAG}" \
   "${ROOT_DIR}"
 
