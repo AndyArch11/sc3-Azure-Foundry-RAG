@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import importlib
+import sys
 from typing import Any
+from unittest.mock import patch
 
 from runtime.assessment_orchestration.schema_validation import (
     assert_named_schema,
@@ -149,3 +152,12 @@ def test_sample_structured_assessment_report_conforms_to_shared_schema() -> None
         "report_markdown": "# Report",
     }
     assert_schema_value(root, root["schemas"]["structured_assessment_report"], report)
+
+
+def test_schema_validation_module_imports_without_yaml_dependency() -> None:
+    import runtime.assessment_orchestration.schema_validation as schema_validation_module
+
+    with patch.dict(sys.modules, {"yaml": None}):
+        reloaded_module = importlib.reload(schema_validation_module)
+
+    assert hasattr(reloaded_module, "load_yaml_contract")

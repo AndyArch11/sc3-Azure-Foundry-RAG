@@ -42,6 +42,7 @@ def _build_client(
         search_index_name="grounding-index",
         storage_account_name="stdev",
         storage_container_name="grounding-data",
+        ingestion_job_name="ingestion-job-1",
     )
     credential = SimpleNamespace(get_token=lambda scope: SimpleNamespace(token="fake-token"))
     register_diagnostics_endpoints(
@@ -349,3 +350,36 @@ def test_field_mappings_diagnostics_reports_missing_target_fields() -> None:
     assert body["valid_mappings"] == 1
     assert body["validation_passed"] is False
     assert body["quick_flags"]["missing_fields"] is True
+
+
+def test_ingestion_overview_hides_data_source_query_exception_details() -> None:
+    class _FakeSearchIndexerClient:
+        def __init__(self, endpoint: str, credential: object):
+            self.endpoint = endpoint
+            self.credential = credential
+
+        def get_indexer_status(self, name: str):
+            assert name == "grounding-index-indexer"
+            return SimpleNamespace(execution_history=[])
+
+        def get_data_source_connection(self, name: str):
+            assert name == "grounding-index-datasource"
+            raise ValueError("boom")
+
+    with (
+        patch("azure.search.documents.indexes.SearchIndexerClient", _FakeSearchIndexerClient),
+        patch.dict(
+            "os.environ",
+            {"AZURE_SEARCH_DATASOURCE_NAME": "grounding-index-datasource"},
+            clear=False,
+        ),
+    ):
+        client = _build_client(storage_enabled=False)
+        response = client.get("/api/diagnostics/ingestion/overview?include_blob_samples=false")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["scope_query_diagnostics"]["active_data_source_query_error"] == (
+        "Internal server error; check logs for details."
+    )
+    assert "boom" not in response.text

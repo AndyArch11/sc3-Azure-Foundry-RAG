@@ -1121,7 +1121,14 @@ def register_diagnostics_endpoints(
             query_text = str(getattr(container, "query", "") or "").strip()
             active_datasource_query = query_text or None
         except Exception as exc:
-            scope_query_error = str(exc)
+            logger.exception(
+                "Failed to retrieve diagnostics data source query",
+                extra={
+                    "event": "diagnostics_scope_query_failed",
+                    "exc_type": type(exc).__name__,
+                },
+            )
+            scope_query_error = _INTERNAL_ERROR_MESSAGE
 
         risk_level = "unknown"
         risk_reason = "Unable to assess scope bleed risk."

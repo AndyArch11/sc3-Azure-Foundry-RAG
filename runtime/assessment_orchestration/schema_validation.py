@@ -4,8 +4,6 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml  # type: ignore[import-untyped]
-
 
 class SchemaValidationError(ValueError):
     """SchemaValidationError."""
@@ -15,6 +13,8 @@ class SchemaValidationError(ValueError):
 
 def load_yaml_contract(path: str) -> dict[str, Any]:
     """Run load yaml contract."""
+    import yaml  # type: ignore[import-untyped]
+
     with Path(path).open("r", encoding="utf-8") as handle:
         payload = yaml.safe_load(handle)
     if not isinstance(payload, dict):
