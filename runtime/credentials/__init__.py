@@ -7,9 +7,6 @@ import os
 from runtime.provider_core import DEFAULT_CLOUD_PROVIDER_REGISTRY
 
 from .abstract import CredentialProvider
-from .aws_cred import AWSCredentialProvider
-from .azure_cred import AzureCredentialProvider
-from .local_cred import LocalCredentialProvider
 
 
 def get_credential_provider(cloud_provider: str | None = None) -> CredentialProvider:
@@ -19,15 +16,21 @@ def get_credential_provider(cloud_provider: str | None = None) -> CredentialProv
     provider = DEFAULT_CLOUD_PROVIDER_REGISTRY.get(provider_raw).provider
 
     if provider == "azure":
+        from .azure_cred import AzureCredentialProvider
+
         return AzureCredentialProvider()
 
     if provider == "aws":
+        from .aws_cred import AWSCredentialProvider
+
         return AWSCredentialProvider(
             profile_name=os.getenv("AWS_PROFILE"),
             region_name=os.getenv("AWS_REGION"),
         )
 
     if provider == "local":
+        from .local_cred import LocalCredentialProvider
+
         return LocalCredentialProvider()
 
     raise AssertionError(f"Unhandled provider '{provider}'")

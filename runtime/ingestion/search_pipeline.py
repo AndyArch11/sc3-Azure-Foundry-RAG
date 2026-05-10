@@ -108,7 +108,7 @@ def _create_or_update_skillset_via_preview_rest(
     generated operation to preserve null fields.
     """
 
-    payload = cast(dict[str, Any], skillset.as_dict())
+    payload = skillset.as_dict()
     payload["cognitiveServices"] = {
         "@odata.type": "#Microsoft.Azure.Search.AIServicesByIdentity",
         "description": "Bill enrichment against the attached AI Services account via the search service managed identity.",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 from unittest.mock import MagicMock, patch
 
@@ -63,6 +64,14 @@ class TestCredentialFactoryDispatch:
         monkeypatch.setenv("CLOUD_PROVIDER", "  local  ")
         provider = get_credential_provider()
         assert isinstance(provider, LocalCredentialProvider)
+
+    def test_package_import_does_not_require_aws_adapter(self) -> None:
+        import runtime.credentials as credentials_module
+
+        with patch.dict("sys.modules", {"runtime.credentials.aws_cred": None}):
+            reloaded_module = importlib.reload(credentials_module)
+
+        assert hasattr(reloaded_module, "get_credential_provider")
 
 
 class TestAzureCredentialProvider:

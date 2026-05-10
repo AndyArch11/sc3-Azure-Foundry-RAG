@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import patch
 from typing import Any
+from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -33,7 +33,9 @@ class _DefaultSearchClient:
         del docs
 
 
-def _build_client(*, search_client: SearchClient | None = None, storage_enabled: bool = True) -> TestClient:
+def _build_client(
+    *, search_client: SearchClient | None = None, storage_enabled: bool = True
+) -> TestClient:
     app = FastAPI()
     config = SimpleNamespace(
         search_endpoint="https://example.search.windows.net",
