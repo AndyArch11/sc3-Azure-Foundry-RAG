@@ -400,3 +400,50 @@ class TestSdkCallWithInstrumentationEmitsMetrics:
             or 0.0
         )
         assert after_count == before_count + 1.0
+
+    def test_expected_exception_records_expected_miss_not_error(self) -> None:
+        import runtime.outbound_metrics as om
+        from runtime.outbound_instrumentation import sdk_call_with_instrumentation
+
+        logger = logging.getLogger("test.outbound.sdk.expected")
+
+        before_expected = om.OUTBOUND_SDK_CALLS_TOTAL.labels(
+            provider="sdk",
+            system="azure-cosmos",
+            operation="read_item",
+            status="expected_miss",
+        )._value.get()
+        before_error = om.OUTBOUND_SDK_CALLS_TOTAL.labels(
+            provider="sdk",
+            system="azure-cosmos",
+            operation="read_item",
+            status="error",
+        )._value.get()
+
+        def _not_found() -> None:
+            raise KeyError("not found")
+
+        with pytest.raises(KeyError, match="not found"):
+            sdk_call_with_instrumentation(
+                logger=logger,
+                system="azure-cosmos",
+                operation="read_item",
+                call=_not_found,
+                expected_exceptions=(KeyError,),
+            )
+
+        after_expected = om.OUTBOUND_SDK_CALLS_TOTAL.labels(
+            provider="sdk",
+            system="azure-cosmos",
+            operation="read_item",
+            status="expected_miss",
+        )._value.get()
+        after_error = om.OUTBOUND_SDK_CALLS_TOTAL.labels(
+            provider="sdk",
+            system="azure-cosmos",
+            operation="read_item",
+            status="error",
+        )._value.get()
+
+        assert after_expected == before_expected + 1.0
+        assert after_error == before_error

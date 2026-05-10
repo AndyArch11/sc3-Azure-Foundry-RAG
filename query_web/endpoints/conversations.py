@@ -179,6 +179,7 @@ def _load_conversation(
             system="azure-cosmos",
             operation="read_item",
             call=lambda: container.read_item(item=doc_id, partition_key=user_id),
+            expected_exceptions=(CosmosResourceNotFoundError, KeyError),
         )
         doc_schema = str(doc.get("schema_version") or "unknown")
         upcasted = doc_schema != COSMOS_CONVERSATION_SCHEMA_VERSION

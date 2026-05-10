@@ -11,6 +11,42 @@ from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
+_LOCAL_QUERY_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "how",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "the",
+    "to",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "why",
+    "with",
+}
+
+
+def _query_tokens(query: str) -> list[str]:
+    """Extract meaningful query terms for local fallback ranking."""
+
+    tokens = re.findall(r"[a-z0-9][a-z0-9_-]{1,}", query.lower())
+    return [tok for tok in tokens if tok not in _LOCAL_QUERY_STOPWORDS and len(tok) >= 3]
+
 import requests
 
 from runtime.trace_context import outbound_trace_headers
@@ -231,12 +267,27 @@ class LocalQdrantSearchClient:
         select: list[str] | None,
         include_total_count: bool,
     ) -> _SearchResults:
-        query_lower = query_text.lower()
-        matched: list[dict[str, Any]] = []
-        for doc in self._docs:
-            text_blob = " ".join(str(v) for v in doc.values()).lower()
-            if query_lower in text_blob:
-                matched.append(doc)
+        effective_query = str(query_text or "").strip()
+        if effective_query == "*":
+            matched = list(self._docs)
+        else:
+            query_lower = effective_query.lower()
+            tokens = _query_tokens(query_lower)
+            scored: list[tuple[int, dict[str, Any]]] = []
+            for doc in self._docs:
+                text_blob = " ".join(str(v) for v in doc.values()).lower()
+                if query_lower and query_lower in text_blob:
+                    score = 10_000
+                elif tokens:
+                    score = sum(1 for token in tokens if token in text_blob)
+                else:
+                    score = 0
+
+                if score > 0:
+                    scored.append((score, doc))
+
+            scored.sort(key=lambda item: item[0], reverse=True)
+            matched = [doc for _, doc in scored]
 
         if filters:
             m = re.match(r"^\s*([a-zA-Z0-9_]+)\s+eq\s+'([^']*)'\s*$", filters)
@@ -266,8 +317,16 @@ class LocalQdrantSearchClient:
             filters = str(extra_kwargs.get("filter") or "")
         include_total_count = bool(extra_kwargs.get("include_total_count", False))
         effective_query = str(query_text or "").strip()
+        
+        # Handle wildcard query: fall back to text search for "*"
         if effective_query == "*":
-            effective_query = ""
+            return self._fallback_text_search(
+                query_text=effective_query,
+                top=top,
+                filters=filters,
+                select=select,
+                include_total_count=include_total_count,
+            )
 
         try:
             query_vector = vector_query if vector_query is not None else self._embed_text(effective_query)

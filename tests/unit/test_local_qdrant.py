@@ -219,6 +219,8 @@ def test_build_filter_none_for_unsupported_syntax():
 
 
 def test_build_filter_returns_filter_for_eq_expression():
+    from typing import cast
+
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
     client, _ = _make_client()
@@ -226,11 +228,13 @@ def test_build_filter_returns_filter_for_eq_expression():
     assert result is not None
     # Structural check: it's a Filter with one must FieldCondition
     assert isinstance(result, Filter)
+    assert isinstance(result.must, list)
     assert len(result.must) == 1
     cond = result.must[0]
     assert isinstance(cond, FieldCondition)
     assert cond.key == "framework"
-    assert cond.match.value == "ISM"
+    assert cond.match is not None
+    assert cast(MatchValue, cond.match).value == "ISM"
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +296,24 @@ def test_fallback_text_search_applies_select():
         include_total_count=False,
     )
     assert set(results[0].keys()) == {"content", "corpus"}
+
+
+def test_fallback_text_search_matches_key_terms_from_natural_language_query():
+    docs = [
+        {"content": "AESCSF includes guidance for backup and recovery controls."},
+        {"content": "Unrelated endpoint hardening text."},
+    ]
+    client, _ = _make_client(docs=docs)
+
+    results = client._fallback_text_search(
+        query_text="What are the policies on backups for AESCSF?",
+        top=10,
+        filters=None,
+        select=None,
+        include_total_count=False,
+    )
+    assert len(results) == 1
+    assert "AESCSF" in results[0]["content"]
 
 
 def test_fallback_returns_total_count_when_requested():
@@ -356,13 +378,25 @@ def test_search_falls_back_on_qdrant_exception():
 
 
 def test_search_star_query_uses_empty_string():
+    """Wildcard query should be handled by fallback search without attempting embedding."""
     client, mock_qdrant = _make_client()
     mock_qdrant.search.return_value = []
 
-    with patch.object(client, "_embed_text", return_value=[0.0]) as mock_embed:
-        client.search(query_text="*", top=5)
+    client.load_documents(
+        [
+            {"id": "1", "content": "Doc 1"},
+            {"id": "2", "content": "Doc 2"},
+            {"id": "3", "content": "Doc 3"},
+        ]
+    )
 
-    mock_embed.assert_called_once_with("")
+    with patch.object(client, "_embed_text", return_value=[0.0]) as mock_embed:
+        result = client.search(query_text="*", top=5)
+
+    # Wildcard should NOT trigger embedding; instead it goes directly to fallback search
+    mock_embed.assert_not_called()
+    # Wildcard should return all documents
+    assert len(result) == 3
 
 
 def test_search_accepts_search_text_kwarg():

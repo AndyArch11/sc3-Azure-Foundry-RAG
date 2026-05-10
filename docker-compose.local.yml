@@ -99,11 +99,7 @@ services:
     container_name: rag-query-web-local
     restart: unless-stopped
     ports:
-      - target: 8080
-        published: ${QUERY_WEB_HOST_PORT:-8080}
-        protocol: tcp
-        host_ip: 0.0.0.0
-        mode: host
+      - "18080:8080"
     env_file:
       - .env.local
     environment:

@@ -216,6 +216,7 @@ def sdk_call_with_instrumentation(
     system: str,
     operation: str,
     call: Callable[[], Any],
+    expected_exceptions: tuple[type[BaseException], ...] = (),
 ) -> Any:
     """Run one SDK call and emit consistent operation-level telemetry."""
     started = time.perf_counter()
@@ -252,6 +253,39 @@ def sdk_call_with_instrumentation(
         )
         return result
     except Exception as exc:
+        if expected_exceptions and isinstance(exc, expected_exceptions):
+            duration_ms = round((time.perf_counter() - started) * 1000.0, 3)
+            _status = "expected_miss"
+            OUTBOUND_SDK_CALLS_TOTAL.labels(
+                provider="sdk",
+                system=system,
+                operation=operation,
+                status=_status,
+            ).inc()
+            OUTBOUND_SDK_DURATION_SECONDS.labels(
+                provider="sdk",
+                system=system,
+                operation=operation,
+                status=_status,
+            ).observe(duration_ms / 1000.0)
+            logger.info(
+                "Outbound SDK call expected miss",
+                extra={
+                    "event": _SDK_SUCCESS_EVENT,
+                    "direction": "outbound",
+                    "provider": "sdk",
+                    "target": system,
+                    "system": system,
+                    "operation": operation,
+                    "status": _status,
+                    "status_code": 404,
+                    "duration_ms": duration_ms,
+                    "retry_count": 0,
+                    "exc_type": type(exc).__name__,
+                },
+            )
+            raise
+
         duration_ms = round((time.perf_counter() - started) * 1000.0, 3)
         _status = "error"
         OUTBOUND_SDK_CALLS_TOTAL.labels(
