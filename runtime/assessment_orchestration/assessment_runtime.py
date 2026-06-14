@@ -340,7 +340,9 @@ def _embed_query(
         return []
 
     if strategy.provider == "aws":
-        model_id = (config.embedding_deployment or os.getenv("BEDROCK_EMBEDDING_MODEL_ID") or "").strip()
+        model_id = (
+            config.embedding_deployment or os.getenv("BEDROCK_EMBEDDING_MODEL_ID") or ""
+        ).strip()
         if not model_id:
             raise RuntimeError("BEDROCK_EMBEDDING_MODEL_ID is required for AWS embeddings")
         region_name = (os.getenv("AWS_REGION") or "").strip() or None

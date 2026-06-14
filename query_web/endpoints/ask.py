@@ -13,12 +13,12 @@ from typing import Any
 from fastapi import Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from query_web.request_context import get_correlation_id
 from query_web.config import (
     _normalise_thinking_mode,
     _thinking_defaults,
     _thinking_mode_presets_for_ui,
 )
+from query_web.request_context import get_correlation_id
 from runtime.provider_core import normalise_cloud_provider
 
 logger = logging.getLogger(__name__)
@@ -157,21 +157,25 @@ def register_ask_endpoints(
         user_id = resolved_get_user_id(auth_token, session_id)
         session = None
         advanced_mode_enabled = resolved_form_bool(advanced_mode, default=False)
-        
+
         # Apply thinking mode presets if provided, allowing explicit form values to override
-        normalised_thinking_mode = _normalise_thinking_mode(thinking_mode or os.getenv("THINKING_MODE"))
+        normalised_thinking_mode = _normalise_thinking_mode(
+            thinking_mode or os.getenv("THINKING_MODE")
+        )
         mode_defaults = _thinking_defaults(
             mode=normalised_thinking_mode,
             default_max_completion_tokens=getattr(resolved_config, "max_completion_tokens", 1400),
-            default_evaluator_max_completion_tokens=getattr(resolved_config, "evaluator_max_completion_tokens", 800),
+            default_evaluator_max_completion_tokens=getattr(
+                resolved_config, "evaluator_max_completion_tokens", 800
+            ),
         )
-        
+
         # Use mode presets if form values are empty, otherwise use explicit form values
         if not (retrieve_k and retrieve_k != 0):
             retrieve_k = int(mode_defaults.get("search_top_k", 5))
         if temperature is None or temperature == 0.0:
             temperature = float(mode_defaults.get("default_temperature", 1.0))
-        
+
         max_tokens_value = (max_completion_tokens or "").strip()
         evaluator_tokens_value = (evaluator_max_completion_tokens or "").strip()
         try:
@@ -444,9 +448,11 @@ def register_ask_endpoints(
         api_mode_defaults = _thinking_defaults(
             mode=normalised_api_thinking_mode,
             default_max_completion_tokens=getattr(resolved_config, "max_completion_tokens", 1400),
-            default_evaluator_max_completion_tokens=getattr(resolved_config, "evaluator_max_completion_tokens", 800),
+            default_evaluator_max_completion_tokens=getattr(
+                resolved_config, "evaluator_max_completion_tokens", 800
+            ),
         )
-        
+
         # Use mode presets if values are at their defaults, otherwise use explicit values
         api_retrieve_k = parsed_payload.retrieve_k
         api_temperature = parsed_payload.temperature
@@ -496,8 +502,12 @@ def register_ask_endpoints(
                 question=question,
                 retrieve_k=api_retrieve_k,
                 temperature=api_temperature,
-                max_completion_tokens=getattr(parsed_payload, "max_completion_tokens", None) or api_mode_defaults.get("max_completion_tokens"),
-                evaluator_max_completion_tokens=getattr(parsed_payload, "evaluator_max_completion_tokens", None) or api_mode_defaults.get("evaluator_max_completion_tokens"),
+                max_completion_tokens=getattr(parsed_payload, "max_completion_tokens", None)
+                or api_mode_defaults.get("max_completion_tokens"),
+                evaluator_max_completion_tokens=getattr(
+                    parsed_payload, "evaluator_max_completion_tokens", None
+                )
+                or api_mode_defaults.get("evaluator_max_completion_tokens"),
                 controls_semantic=(
                     parsed_payload.controls_semantic
                     if parsed_payload.controls_semantic is not None

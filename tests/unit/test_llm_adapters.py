@@ -258,7 +258,9 @@ class TestBedrockMantleLLMClient:
         assert kwargs["json"]["messages"][0]["role"] == "user"
         assert kwargs["json"]["system"] == "be concise"
 
-    def test_empty_non_system_messages_returns_empty_string(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_empty_non_system_messages_returns_empty_string(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("AWS_REGION", "ap-southeast-2")
         monkeypatch.setenv("BEDROCK_API_KEY", "test-key")
 

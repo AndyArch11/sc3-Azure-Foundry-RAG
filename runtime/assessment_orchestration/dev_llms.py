@@ -239,9 +239,7 @@ def create_chat_completion_fn(
 
         ollama_url = _resolve_base_url(os.environ.get("OLLAMA_BASE_URL") or None)
         ollama_model = (
-            os.environ.get("OLLAMA_CHAT_MODEL")
-            or os.environ.get("OLLAMA_MODEL")
-            or "gemma3:27b"
+            os.environ.get("OLLAMA_CHAT_MODEL") or os.environ.get("OLLAMA_MODEL") or "gemma3:27b"
         )
 
         if not is_ollama_available(ollama_url):

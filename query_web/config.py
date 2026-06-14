@@ -228,9 +228,7 @@ def _thinking_mode_presets_for_ui(
             "controls_top_k": int(defaults["controls_top_k"]),
             "temperature": float(defaults["default_temperature"]),
             "max_completion_tokens": int(defaults["max_completion_tokens"]),
-            "evaluator_max_completion_tokens": int(
-                defaults["evaluator_max_completion_tokens"]
-            ),
+            "evaluator_max_completion_tokens": int(defaults["evaluator_max_completion_tokens"]),
         }
     return presets
 

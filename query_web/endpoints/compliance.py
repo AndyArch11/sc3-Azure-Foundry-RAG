@@ -17,8 +17,8 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from query_web.constants import COMPLIANCE_REPORT_SCHEMA_VERSION
 from query_web.config import _normalise_thinking_mode, _thinking_defaults
+from query_web.constants import COMPLIANCE_REPORT_SCHEMA_VERSION
 from query_web.utils import _utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -905,13 +905,24 @@ def generate_compliance_report_result(
     mode_defaults = _thinking_defaults(
         mode=normalised_thinking_mode,
         default_max_completion_tokens=getattr(svc.config, "max_completion_tokens", 1400),
-        default_evaluator_max_completion_tokens=getattr(svc.config, "evaluator_max_completion_tokens", 800),
+        default_evaluator_max_completion_tokens=getattr(
+            svc.config, "evaluator_max_completion_tokens", 800
+        ),
     )
-    
+
     # Use mode presets if explicit values are not provided
-    report_max_completion_tokens = payload.max_completion_tokens or mode_defaults.get("max_completion_tokens")
-    report_evaluator_max_completion_tokens = payload.evaluator_max_completion_tokens or mode_defaults.get("evaluator_max_completion_tokens")
-    report_temperature = payload.temperature if payload.temperature is not None else mode_defaults.get("default_temperature", 1.0)
+    report_max_completion_tokens = payload.max_completion_tokens or mode_defaults.get(
+        "max_completion_tokens"
+    )
+    report_evaluator_max_completion_tokens = (
+        payload.evaluator_max_completion_tokens
+        or mode_defaults.get("evaluator_max_completion_tokens")
+    )
+    report_temperature = (
+        payload.temperature
+        if payload.temperature is not None
+        else mode_defaults.get("default_temperature", 1.0)
+    )
 
     controls, controls_timings = svc._controls_search(
         effective_question,
@@ -1188,13 +1199,24 @@ def generate_azure_compliance_report_result(
     mode_defaults = _thinking_defaults(
         mode=normalised_thinking_mode,
         default_max_completion_tokens=getattr(svc.config, "max_completion_tokens", 1400),
-        default_evaluator_max_completion_tokens=getattr(svc.config, "evaluator_max_completion_tokens", 800),
+        default_evaluator_max_completion_tokens=getattr(
+            svc.config, "evaluator_max_completion_tokens", 800
+        ),
     )
-    
+
     # Use mode presets if explicit values are not provided
-    report_max_completion_tokens = payload.max_completion_tokens or mode_defaults.get("max_completion_tokens")
-    report_evaluator_max_completion_tokens = payload.evaluator_max_completion_tokens or mode_defaults.get("evaluator_max_completion_tokens")
-    report_temperature = payload.temperature if payload.temperature is not None else mode_defaults.get("default_temperature", 1.0)
+    report_max_completion_tokens = payload.max_completion_tokens or mode_defaults.get(
+        "max_completion_tokens"
+    )
+    report_evaluator_max_completion_tokens = (
+        payload.evaluator_max_completion_tokens
+        or mode_defaults.get("evaluator_max_completion_tokens")
+    )
+    report_temperature = (
+        payload.temperature
+        if payload.temperature is not None
+        else mode_defaults.get("default_temperature", 1.0)
+    )
 
     resolved_env = dict(os.environ)
     resolved_env["CONTROLS_TOP_K"] = str(payload.controls_top_k)

@@ -151,7 +151,9 @@ def test_hybrid_search_unknown_provider_falls_back_to_azure_embedding() -> None:
 
 def test_embed_query_aws_uses_bedrock_runtime(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     svc = SimpleNamespace(
-        config=SimpleNamespace(cloud_provider="aws", embedding_deployment="amazon.titan-embed-text-v2:0"),
+        config=SimpleNamespace(
+            cloud_provider="aws", embedding_deployment="amazon.titan-embed-text-v2:0"
+        ),
         logger=SimpleNamespace(warning=lambda *a, **k: None),
     )
 
