@@ -4,8 +4,10 @@ Environment variables:
     LLM_BACKEND: 'azure' (default) or 'ollama'
     OLLAMA_HOST: Ollama endpoint — Ollama's own env var (e.g. http://host.docker.internal:11434)
     OLLAMA_BASE_URL: Alternative endpoint override (OLLAMA_HOST takes precedence if both set)
-    OLLAMA_CHAT_MODEL: Ollama chat model (default: gemma3:27b)
-    OLLAMA_EMBED_MODEL: Ollama embedding model (default: nomic-embed-text)
+    OLLAMA_MODEL: Ollama chat model (default: gemma3:27b)
+    OLLAMA_CHAT_MODEL: Legacy chat model alias (preferred when both are set)
+    OLLAMA_EMBEDDING_MODEL: Ollama embedding model (default: nomic-embed-text)
+    OLLAMA_EMBED_MODEL: Legacy embedding model alias (used when OLLAMA_EMBEDDING_MODEL is unset)
     OLLAMA_NUM_CTX: Context window in tokens (default: adaptive by GPU VRAM when
         available, else host RAM/CPU; approx 4K on constrained hosts up to 128K on
         high-memory hosts). Adaptive detection probes the local runtime environment;
@@ -236,7 +238,11 @@ def create_chat_completion_fn(
         from .ollama_client import _resolve_base_url, is_ollama_available, ollama_chat_completion
 
         ollama_url = _resolve_base_url(os.environ.get("OLLAMA_BASE_URL") or None)
-        ollama_model = os.environ.get("OLLAMA_CHAT_MODEL", "gemma3:27b")
+        ollama_model = (
+            os.environ.get("OLLAMA_CHAT_MODEL")
+            or os.environ.get("OLLAMA_MODEL")
+            or "gemma3:27b"
+        )
 
         if not is_ollama_available(ollama_url):
             logger.warning(
@@ -324,7 +330,11 @@ def create_embedding_fn(
         from .ollama_client import _resolve_base_url, is_ollama_available, ollama_embedding
 
         ollama_url = _resolve_base_url(os.environ.get("OLLAMA_BASE_URL") or None)
-        ollama_model = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+        ollama_model = (
+            os.environ.get("OLLAMA_EMBEDDING_MODEL")
+            or os.environ.get("OLLAMA_EMBED_MODEL")
+            or "nomic-embed-text"
+        )
 
         if not is_ollama_available(ollama_url):
             logger.warning(

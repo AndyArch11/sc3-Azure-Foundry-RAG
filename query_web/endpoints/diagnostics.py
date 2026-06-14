@@ -1005,7 +1005,14 @@ def register_diagnostics_endpoints(
                             )
                         storage_samples[label] = rows
                 except Exception as exc:
-                    storage_error = str(exc)
+                    logger.exception(
+                        "Failed to load storage samples for ingestion diagnostics",
+                        extra={
+                            "event": "diagnostics_storage_samples_failed",
+                            "exc_type": type(exc).__name__,
+                        },
+                    )
+                    storage_error = _INTERNAL_ERROR_MESSAGE
         else:
             storage_error = "Storage upload integration is not configured for this instance."
 
@@ -1015,7 +1022,14 @@ def register_diagnostics_endpoints(
             try:
                 latest_job = latest_ingestion_job_execution()
             except Exception as exc:
-                latest_job_error = str(exc)
+                logger.exception(
+                    "Failed to fetch latest ingestion job for diagnostics",
+                    extra={
+                        "event": "diagnostics_latest_ingestion_job_failed",
+                        "exc_type": type(exc).__name__,
+                    },
+                )
+                latest_job_error = _INTERNAL_ERROR_MESSAGE
 
         indexer_history_summary: dict[str, Any] | None = None
         indexer_history_error: str | None = None
@@ -1085,7 +1099,14 @@ def register_diagnostics_endpoints(
                 ),
             }
         except Exception as exc:
-            indexer_history_error = str(exc)
+            logger.exception(
+                "Failed to retrieve indexer history for diagnostics",
+                extra={
+                    "event": "diagnostics_indexer_history_failed",
+                    "exc_type": type(exc).__name__,
+                },
+            )
+            indexer_history_error = _INTERNAL_ERROR_MESSAGE
 
         quick_flags = {
             "storage_has_corpus_b_but_search_corpus_b_empty": bool(

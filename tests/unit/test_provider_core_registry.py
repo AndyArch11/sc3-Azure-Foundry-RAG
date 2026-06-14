@@ -111,5 +111,6 @@ class TestBuiltinCapabilities:
 
     def test_aws_capabilities(self) -> None:
         caps = DEFAULT_CLOUD_PROVIDER_REGISTRY.get("aws").capabilities
-        assert caps.supports_embeddings is False
+        assert caps.supports_embeddings is True
+        assert caps.supports_semantic_search is True
         assert caps.supports_background_assessment_worker is True

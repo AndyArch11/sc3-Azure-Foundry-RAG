@@ -11,7 +11,7 @@ resource "azurerm_cognitive_account" "foundry" {
 
   network_acls {
     default_action = "Deny"
-    bypass         = "AzureServices"
+    bypass         = var.foundry_network_acl_bypass_azure_services ? "AzureServices" : "None"
   }
 
   identity {

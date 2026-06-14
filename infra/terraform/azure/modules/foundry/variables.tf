@@ -66,6 +66,11 @@ variable "enable_model_deployments" {
   description = "Whether to create model deployments in the Foundry account. Keep false until model names/quotas are validated for the target region."
   default     = false
 }
+variable "foundry_network_acl_bypass_azure_services" {
+  type        = bool
+  description = "Whether to allow AzureServices bypass on Foundry network ACLs. Keep false for strict private-network posture; set true only as a compatibility fallback."
+  default     = false
+}
 variable "tags" {
   type    = map(string)
   default = {}

@@ -1,4 +1,4 @@
-"""Provider strategies for assessment-runtime specific behavior."""
+"""Provider strategies for assessment-runtime specific behaviour."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ _ASSESSMENT_PROVIDER_STRATEGIES: dict[CloudProvider, AssessmentProviderStrategy]
     ),
     "aws": AssessmentProviderStrategy(
         provider="aws",
-        supports_embeddings=False,
+        supports_embeddings=True,
         uses_bedrock_chat=True,
     ),
     "local": AssessmentProviderStrategy(
