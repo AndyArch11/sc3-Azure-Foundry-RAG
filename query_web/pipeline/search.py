@@ -10,7 +10,6 @@ from typing import Any
 import requests  # type: ignore[import-untyped]
 
 from query_web.request_context import outbound_trace_headers
-from runtime.llm.bedrock import bedrock_embed_text
 from runtime.outbound_instrumentation import request_with_instrumentation
 from runtime.provider_core import DEFAULT_CLOUD_PROVIDER_REGISTRY
 
@@ -72,6 +71,8 @@ def _embed_query(question: str, *, svc: Any) -> list[float]:
 
     adapter = _resolve_provider_adapter(provider_raw)
     if adapter.provider == "aws":
+        from runtime.llm.bedrock import bedrock_embed_text
+
         model_id = str(
             getattr(getattr(svc, "config", None), "embedding_deployment", "")
             or os.getenv("BEDROCK_EMBEDDING_MODEL_ID", "")

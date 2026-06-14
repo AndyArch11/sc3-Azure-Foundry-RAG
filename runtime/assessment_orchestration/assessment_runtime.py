@@ -11,7 +11,6 @@ import requests  # type: ignore[import-untyped]
 
 from ..credentials import get_credential_provider
 from ..llm import get_llm_client
-from ..llm.bedrock import bedrock_embed_text
 from ..provider_core import parse_framework_authority_order, resolve_provider_settings
 from ..search import SearchClient, get_search_client
 from ..trace_context import outbound_trace_headers
@@ -340,6 +339,8 @@ def _embed_query(
         return []
 
     if strategy.provider == "aws":
+        from ..llm.bedrock import bedrock_embed_text
+
         model_id = (
             config.embedding_deployment or os.getenv("BEDROCK_EMBEDDING_MODEL_ID") or ""
         ).strip()
