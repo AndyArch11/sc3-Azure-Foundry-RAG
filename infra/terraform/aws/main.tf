@@ -29,10 +29,11 @@ module "data_services" {
 }
 
 module "app_secrets" {
-  source                       = "./modules/app_secrets"
-  naming_suffix                = local.naming_suffix
-  initial_confluence_api_token = var.initial_confluence_api_token
-  tags                         = local.tags
+  source                         = "./modules/app_secrets"
+  naming_suffix                  = local.naming_suffix
+  initial_confluence_api_token   = var.initial_confluence_api_token
+  initial_bedrock_mantle_api_key = var.initial_bedrock_mantle_api_key
+  tags                           = local.tags
 }
 
 module "identity" {
@@ -111,6 +112,7 @@ module "app_hosting" {
   controls_index_name                = var.controls_index_name
   bedrock_model_id                   = var.bedrock_model_id
   bedrock_embedding_model_id         = var.bedrock_embedding_model_id
+  bedrock_api_mode                   = var.bedrock_api_mode
   app_secrets_secret_arn             = module.app_secrets.secret_arn
 }
 

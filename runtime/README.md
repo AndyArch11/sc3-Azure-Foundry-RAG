@@ -244,6 +244,10 @@ Provision the target environment before running azure mode:
 ./ops/scripts/azure/phase3-data-ai.sh <env> apply
 ```
 
+Optional deployment flag:
+
+- Set `AUTO_APPROVE_PRIVATE_ENDPOINT_CONNECTIONS=true` when running phase 3 scripts to automatically approve pending Storage/Foundry private endpoint connection requests after apply.
+
 For runtime deployment, the environment tfvars usually need:
 
 - `enable_ingestion_job = true`

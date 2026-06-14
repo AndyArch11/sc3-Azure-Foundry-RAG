@@ -77,6 +77,18 @@ az group delete \
 
 - If Foundry project capability host creation intermittently fails after role assignment changes, consider adding an explicit short `time_sleep` dependency between role assignments and capability host resources to absorb AAD/RBAC propagation delay.
 
+## Network And ACL Notes
+
+- Storage account network rules are configured for explicit deny-by-default with bypass set to `None`.
+- Search -> Storage and Search -> Foundry private data-plane access is provided by Search shared private links.
+- Foundry ACL bypass is operator-toggleable via `foundry_network_acl_bypass_azure_services` (default `false`).
+- Keep `foundry_network_acl_bypass_azure_services = false` for strict private-network posture; set `true` only as a temporary compatibility fallback.
+
+## Phase Script Private Endpoint Approval Option
+
+- `ops/scripts/azure/phase3-data-ai.sh` and `ops/scripts/azure/phase3b-agent-hosting.sh` always report pending Storage/Foundry private endpoint connection approvals after apply.
+- Set `AUTO_APPROVE_PRIVATE_ENDPOINT_CONNECTIONS=true` to make those scripts automatically approve pending connections post-apply.
+
 ## Confluence Poller Rollout Inputs
 
 The root module supports a dedicated Confluence polling Container App. Core tfvars inputs:

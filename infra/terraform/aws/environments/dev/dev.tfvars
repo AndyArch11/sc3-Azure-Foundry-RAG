@@ -18,25 +18,24 @@ controls_index_name = "controls-index"
 
 bedrock_model_id           = "amazon.nova-pro-v1:0"
 bedrock_embedding_model_id = "amazon.titan-embed-text-v2:0"
+bedrock_api_mode           = "mantle" # Set to "runtime" for real-time API calls, or "mantle" to use Bedrock Mantle for asynchronous processing (requires initial_bedrock_mantle_api_key to be set).
+# initial_bedrock_mantle_api_key = "<set-me-if-using-mantle>"
 
-query_web_cpu           = 512
-query_web_memory_mb     = 1024
-query_web_desired_count = 1
-confluence_poller_cpu      = 512
-confluence_poller_memory_mb = 1024
-enable_query_web        = true
-enable_ingestion_job    = true
-enable_confluence_poller_service = false
-query_web_ingress_mode     = "public" # auto|none|internal|public ; prod auto resolves to internal
-query_web_public_ingress_cidrs = ["101.161.226.47/32"] # required only when query_web_ingress_mode = "public", allow list of CIDR blocks that can access the service if using public ingress
+enable_query_web                 = true
+query_web_cpu                    = 512
+query_web_memory_mb              = 1024
+query_web_desired_count          = 1
+query_web_ingress_mode           = "public"              # auto|none|internal|public ; prod auto resolves to internal
+query_web_public_ingress_cidrs   = ["101.161.226.47/32"] # required only when query_web_ingress_mode = "public", allow list of CIDR blocks that can access the service if using public ingress
 # query_web_public_ingress_cidrs = ["203.0.113.0/24"] # required only when query_web_ingress_mode = "public", allow list of CIDR blocks that can access the service if using public ingress
 # query_web_tls_certificate_arn = "arn:aws:acm:ap-southeast-2:123456789012:certificate/00000000-0000-0000-0000-000000000000"
 # query_web_tls_ssl_policy      = "ELBSecurityPolicy-TLS13-1-2-2021-06"
 
-ingestion_image_tag = "202605080125-dd46b4b"
-query_web_image_tag = "202605081038-618150b"
-confluence_poller_image_tag = "202605070750-dd46b4b"
+enable_ingestion_job             = true
 
+enable_confluence_poller_service = false
+confluence_poller_cpu            = 512
+confluence_poller_memory_mb      = 1024
 # Confluence poller settings
 # confluence_base_url = "https://<org>.atlassian.net"
 # confluence_auth_mode = "basic"
@@ -51,3 +50,7 @@ confluence_poller_image_tag = "202605070750-dd46b4b"
 # confluence_poll_dry_run = true
 
 # initial_confluence_api_token = "<set-me>"
+
+ingestion_image_tag         = "202605111404-be80d2b"
+query_web_image_tag         = "202605111405-be80d2b"
+confluence_poller_image_tag = "202605111406-be80d2b"

@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 
+from query_web.config import _thinking_mode_presets_for_ui
 from runtime.provider_core import normalise_cloud_provider
 
 
@@ -126,6 +127,17 @@ def register_home_endpoints(
                 "controls_comparison_mode": "auto-detect",
                 "evidence_corpora_include": [],
                 "advanced_mode": False,
+                "thinking_mode": "balanced",
+                "thinking_mode_presets": _thinking_mode_presets_for_ui(
+                    default_max_completion_tokens=getattr(
+                        resolved_config, "max_completion_tokens", 1400
+                    ),
+                    default_evaluator_max_completion_tokens=getattr(
+                        resolved_config,
+                        "evaluator_max_completion_tokens",
+                        800,
+                    ),
+                ),
                 "auth_token": auth_token,
                 "index_name": resolved_config.search_index_name,
                 "embedding_deployment": resolved_config.embedding_deployment,

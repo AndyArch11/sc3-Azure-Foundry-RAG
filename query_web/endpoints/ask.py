@@ -14,6 +14,11 @@ from fastapi import Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from query_web.request_context import get_correlation_id
+from query_web.config import (
+    _normalise_thinking_mode,
+    _thinking_defaults,
+    _thinking_mode_presets_for_ui,
+)
 from runtime.provider_core import normalise_cloud_provider
 
 logger = logging.getLogger(__name__)
@@ -98,6 +103,7 @@ def register_ask_endpoints(
         controls_comparison_mode: str = Form("auto-detect"),
         evidence_corpora_include: list[str] = Form(default=[]),
         advanced_mode: str = Form(""),
+        thinking_mode: str = Form(default=""),
         auth_token: str = Form(""),
         session_id: str = Form(default=""),
         conversation_id: str = Form(default=""),
@@ -151,20 +157,67 @@ def register_ask_endpoints(
         user_id = resolved_get_user_id(auth_token, session_id)
         session = None
         advanced_mode_enabled = resolved_form_bool(advanced_mode, default=False)
+        
+        # Apply thinking mode presets if provided, allowing explicit form values to override
+        normalised_thinking_mode = _normalise_thinking_mode(thinking_mode or os.getenv("THINKING_MODE"))
+        mode_defaults = _thinking_defaults(
+            mode=normalised_thinking_mode,
+            default_max_completion_tokens=getattr(resolved_config, "max_completion_tokens", 1400),
+            default_evaluator_max_completion_tokens=getattr(resolved_config, "evaluator_max_completion_tokens", 800),
+        )
+        
+        # Use mode presets if form values are empty, otherwise use explicit form values
+        if not (retrieve_k and retrieve_k != 0):
+            retrieve_k = int(mode_defaults.get("search_top_k", 5))
+        if temperature is None or temperature == 0.0:
+            temperature = float(mode_defaults.get("default_temperature", 1.0))
+        
         max_tokens_value = (max_completion_tokens or "").strip()
         evaluator_tokens_value = (evaluator_max_completion_tokens or "").strip()
         try:
             max_completion_tokens_int = (
                 max(256, min(8192, int(max_tokens_value))) if max_tokens_value else None
             )
+            if max_completion_tokens_int is None:
+                max_completion_tokens_int = int(
+                    mode_defaults.get(
+                        "max_completion_tokens",
+                        getattr(resolved_config, "max_completion_tokens", 1400),
+                    )
+                )
         except ValueError:
-            max_completion_tokens_int = None
+            max_completion_tokens_int = int(
+                mode_defaults.get(
+                    "max_completion_tokens",
+                    getattr(resolved_config, "max_completion_tokens", 1400),
+                )
+            )
         try:
             evaluator_max_completion_tokens_int = (
                 max(128, min(4096, int(evaluator_tokens_value))) if evaluator_tokens_value else None
             )
+            if evaluator_max_completion_tokens_int is None:
+                evaluator_max_completion_tokens_int = int(
+                    mode_defaults.get(
+                        "evaluator_max_completion_tokens",
+                        getattr(resolved_config, "evaluator_max_completion_tokens", 800),
+                    )
+                )
         except ValueError:
-            evaluator_max_completion_tokens_int = None
+            evaluator_max_completion_tokens_int = int(
+                mode_defaults.get(
+                    "evaluator_max_completion_tokens",
+                    getattr(resolved_config, "evaluator_max_completion_tokens", 800),
+                )
+            )
+        thinking_mode_presets = _thinking_mode_presets_for_ui(
+            default_max_completion_tokens=getattr(resolved_config, "max_completion_tokens", 1400),
+            default_evaluator_max_completion_tokens=getattr(
+                resolved_config,
+                "evaluator_max_completion_tokens",
+                800,
+            ),
+        )
 
         if not resolved_is_authorised_request(auth_token, request):
             return resolved_templates.TemplateResponse(
@@ -202,6 +255,8 @@ def register_ask_endpoints(
                     ),
                     "evidence_corpora_include": evidence_corpora_include,
                     "advanced_mode": advanced_mode_enabled,
+                    "thinking_mode": normalised_thinking_mode,
+                    "thinking_mode_presets": thinking_mode_presets,
                     "auth_token": "",
                     "index_name": resolved_config.search_index_name,
                     "embedding_deployment": resolved_config.embedding_deployment,
@@ -332,6 +387,8 @@ def register_ask_endpoints(
                 "controls_comparison_mode": controls_comparison_mode_value,
                 "evidence_corpora_include": evidence_corpora_include,
                 "advanced_mode": advanced_mode_enabled,
+                "thinking_mode": normalised_thinking_mode,
+                "thinking_mode_presets": thinking_mode_presets,
                 "auth_token": auth_token,
                 "index_name": resolved_config.search_index_name,
                 "embedding_deployment": resolved_config.embedding_deployment,
@@ -381,6 +438,23 @@ def register_ask_endpoints(
                 error="Question must not be empty.",
             )
 
+        # Apply thinking mode presets if provided, allowing explicit values to override
+        api_thinking_mode = getattr(parsed_payload, "thinking_mode", "balanced") or "balanced"
+        normalised_api_thinking_mode = _normalise_thinking_mode(api_thinking_mode)
+        api_mode_defaults = _thinking_defaults(
+            mode=normalised_api_thinking_mode,
+            default_max_completion_tokens=getattr(resolved_config, "max_completion_tokens", 1400),
+            default_evaluator_max_completion_tokens=getattr(resolved_config, "evaluator_max_completion_tokens", 800),
+        )
+        
+        # Use mode presets if values are at their defaults, otherwise use explicit values
+        api_retrieve_k = parsed_payload.retrieve_k
+        api_temperature = parsed_payload.temperature
+        if api_retrieve_k == 5 and api_thinking_mode:
+            api_retrieve_k = int(api_mode_defaults.get("search_top_k", 5))
+        if api_temperature == 1.0 and api_thinking_mode:
+            api_temperature = float(api_mode_defaults.get("default_temperature", 1.0))
+
         required_dependencies = [
             resolved_is_authorised_request,
             resolved_unauthorised_message,
@@ -420,12 +494,10 @@ def register_ask_endpoints(
         try:
             result = resolved_run_rag(
                 question=question,
-                retrieve_k=parsed_payload.retrieve_k,
-                temperature=parsed_payload.temperature,
-                max_completion_tokens=getattr(parsed_payload, "max_completion_tokens", None),
-                evaluator_max_completion_tokens=getattr(
-                    parsed_payload, "evaluator_max_completion_tokens", None
-                ),
+                retrieve_k=api_retrieve_k,
+                temperature=api_temperature,
+                max_completion_tokens=getattr(parsed_payload, "max_completion_tokens", None) or api_mode_defaults.get("max_completion_tokens"),
+                evaluator_max_completion_tokens=getattr(parsed_payload, "evaluator_max_completion_tokens", None) or api_mode_defaults.get("evaluator_max_completion_tokens"),
                 controls_semantic=(
                     parsed_payload.controls_semantic
                     if parsed_payload.controls_semantic is not None

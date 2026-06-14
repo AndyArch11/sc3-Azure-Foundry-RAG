@@ -7,6 +7,7 @@ This repository provisions and operates a privately networked Azure AI Foundry s
 - Uses Azure-hosted AI Agent capabilities, with supporting ingestion/query runtime services deployed on self-managed Azure Container Apps.
 - Deploys all platform resources via Terraform.
 - Secures data plane services by private endpoints with public network access disabled.
+- Uses Search shared private links for Search -> Foundry and Search -> Storage private data-plane access.
 - Supports ingestion and query agent workflows with configurable model defaults.
 
 ## Delivery Principles
@@ -62,8 +63,9 @@ sc3-Azure-Foundry-RAG/
 │
 ├── docs/                           # Architecture, plans, ADRs, and runbooks
 │   ├── adr/                        # Architecture decision records
-│   ├── contracts/                  # MCP tool and provider event YAML contracts
 │   └── *.md                        # Implementation plans, observability, phase guides, etc.
+│
+├── contracts/                      # MCP tool and provider event YAML contracts
 │
 ├── infra/
 │   └── terraform/
@@ -107,7 +109,7 @@ sc3-Azure-Foundry-RAG/
 ├── parsed-controls/                # Generated JSONL control data (git-ignored; created by controls_runner)
 │
 ├── query_web/                      # Query web application (FastAPI, deployed to Container Apps / ECS)
-│   ├── endpoints/                  # Per-route modules: ask, compliance, conversations, corpus, etc.
+│   ├── endpoints/                  # Per-route modules: ask, compliance, conversations, corpus, diagnostics, etc.
 │   ├── pipeline/                   # RAG pipeline: search, LLM chat, answer assembly, control retrieval
 │   ├── security/                   # Auth middleware, prompt injection guard
 │   ├── policies/                   # Precedence policy JSON
@@ -115,7 +117,7 @@ sc3-Azure-Foundry-RAG/
 │   ├── templates/                  # Jinja2 HTML templates
 │   ├── app.py                      # FastAPI application entry point
 │   ├── config.py                   # Environment-driven configuration loader
-│   ├── Dockerfile                  # Container image definition
+│   ├── Dockerfile*                 # Container image definitions (cloud/provider/local variants)
 │   ├── requirements.txt            # Shared query-web dependency entrypoint
 │   └── requirements/               # Service dependency profiles (cloud/full)
 │
@@ -136,8 +138,7 @@ sc3-Azure-Foundry-RAG/
 │   ├── state_store/                # State store abstraction (Cosmos DB, DynamoDB, SQLite)
 │   ├── storage/                    # Blob storage abstraction (Azure Blob, S3, local file)
 │   ├── requirements/               # Profile-based runtime dependencies (base/provider/service)
-│   ├── Dockerfile                  # Ingestion job container
-│   ├── Dockerfile.poller           # Confluence poller container
+│   ├── Dockerfile*                 # Runtime and poller image definitions (cloud/provider/local variants)
 │   └── README.md
 │
 └── tests/
@@ -170,6 +171,7 @@ sc3-Azure-Foundry-RAG/
 
 1. Set `TARGET_ENV` and update `infra/terraform/azure/environments/<env>/<env>.tfvars`.
 2. Run `./ops/scripts/azure/phase1-bootstrap.sh <env>`, `./ops/scripts/azure/phase2-network-dns.sh <env> apply`, and `./ops/scripts/azure/phase3-data-ai.sh <env> apply`.
+  - Optional: set `AUTO_APPROVE_PRIVATE_ENDPOINT_CONNECTIONS=true` to let phase scripts auto-approve pending Storage/Foundry private endpoint connection requests after apply.
 3. Build and push immutable ingestion and query image tags from a private-network-connected host.
 4. Roll out those image tags through Terraform against `module.agent_hosting`.
 5. Upload or ingest source documents, start the ingestion job, and load control data (for example Essential Eight) into the controls index.
@@ -203,7 +205,7 @@ sc3-Azure-Foundry-RAG/
 
 ## Local Development
 
-The query web application runs fully offline against local JSONL data, Ollama, and Qdrant — no Azure subscription required.
+The query web application runs fully offline against local JSONL data, Ollama, and Qdrant — no Azure or AWS subscription required.
 
 ### Prerequisites
 
@@ -355,6 +357,13 @@ docker compose -f docker-compose.local.yml --env-file .env.local up --build --fo
 
 Model names (`OLLAMA_MODEL`, `OLLAMA_EMBEDDING_MODEL`) are read from `.env.local` and used consistently by the model-puller, seeder, and query-web services. Change them in one place only.
 
+`THINKING_MODE` controls default retrieval/generation depth presets across query and assessment paths:
+- `quick`: lower retrieval depth and shorter completions for lower latency/cost
+- `balanced`: current default profile
+- `deep`: higher retrieval depth and larger completion budgets for thorough responses
+
+Explicit environment variable values (for example `SEARCH_TOP_K`, `MAX_COMPLETION_TOKENS`, `ASSESSMENT_TEMPERATURE`) always override the selected mode preset.
+
 `OLLAMA_EMBED_MAX_CHARS` (default `6000`) caps the number of characters sent per embedding request. If Ollama returns a context-length error the input is halved automatically until it fits; lower this value if your embedding model has a smaller context window.
 
 To run the local Confluence poller continuously (and populate **Assess → Confluence Poll Activity**), enable the optional compose profile after setting Confluence credentials in `.env.local`:
@@ -496,10 +505,13 @@ Run the environment build scripts in order (can take over 1 hour to provision th
   - `./ops/scripts/azure/phase2-network-dns.sh "${TARGET_ENV}" apply`
 3. Optional Create Foundry related Azure resources (only required if BYOL network resources or wanting the jumpbox/bastion host):
   - `./ops/scripts/azure/phase3-data-ai.sh "${TARGET_ENV}" apply`
+  - Optional compatibility fallback for Foundry ACLs: set `foundry_network_acl_bypass_azure_services = true` in `infra/terraform/azure/environments/${TARGET_ENV}/${TARGET_ENV}.tfvars`.
+  - Optional post-apply approval automation: run with `AUTO_APPROVE_PRIVATE_ENDPOINT_CONNECTIONS=true`.
 4. Create private app secrets Key Vault and private endpoint:
   - `./ops/scripts/azure/phase3c-app-secrets.sh "${TARGET_ENV}" apply`
 5. Optional preview-only hosted agent path (ignore this step unless wanting to play with hosted agents - untested code): 
   - `ENABLE_HOSTED_QUERY_AGENT_PREVIEW=true ./ops/scripts/azure/phase3b-agent-hosting.sh "${TARGET_ENV}" apply`
+  - Optional post-apply approval automation: include `AUTO_APPROVE_PRIVATE_ENDPOINT_CONNECTIONS=true`.
 
 #### Optional install verification
 

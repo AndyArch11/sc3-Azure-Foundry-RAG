@@ -13,7 +13,7 @@ from runtime.assessment_orchestration.provider_strategies import (
 def test_get_assessment_provider_strategy_aws() -> None:
     strategy = get_assessment_provider_strategy("aws")
     assert strategy.provider == "aws"
-    assert strategy.supports_embeddings is False
+    assert strategy.supports_embeddings is True
     assert strategy.uses_bedrock_chat is True
 
 
