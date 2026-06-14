@@ -11,6 +11,7 @@ import requests  # type: ignore[import-untyped]
 
 from ..credentials import get_credential_provider
 from ..llm import get_llm_client
+from ..llm.bedrock import bedrock_embed_text
 from ..provider_core import parse_framework_authority_order, resolve_provider_settings
 from ..search import SearchClient, get_search_client
 from ..trace_context import outbound_trace_headers
@@ -79,6 +80,19 @@ _DANGEROUS_LINE_RE = re.compile(
 )
 _LOGGER = logging.getLogger(__name__)
 
+_THINKING_MODE_ALIASES: dict[str, str] = {
+    "": "balanced",
+    "balanced": "balanced",
+    "normal": "balanced",
+    "default": "balanced",
+    "quick": "quick",
+    "fast": "quick",
+    "low": "quick",
+    "deep": "deep",
+    "thorough": "deep",
+    "high": "deep",
+}
+
 
 @dataclass(frozen=True)
 class AssessmentRuntimeConfig:
@@ -119,6 +133,35 @@ def _env_bool(env: Mapping[str, str], key: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalise_thinking_mode(raw: str | None) -> str:
+    mode = (raw or "").strip().lower()
+    resolved = _THINKING_MODE_ALIASES.get(mode)
+    if resolved is not None:
+        return resolved
+    _LOGGER.warning("Unknown thinking mode '%s'; falling back to 'balanced'", raw)
+    return "balanced"
+
+
+def _assessment_thinking_defaults(mode: str) -> dict[str, float | int]:
+    if mode == "quick":
+        return {
+            "controls_top_k": 3,
+            "guidance_top_k": 3,
+            "temperature": 0.1,
+        }
+    if mode == "deep":
+        return {
+            "controls_top_k": 6,
+            "guidance_top_k": 8,
+            "temperature": 0.15,
+        }
+    return {
+        "controls_top_k": 4,
+        "guidance_top_k": 5,
+        "temperature": 0.2,
+    }
 
 
 def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
@@ -177,6 +220,10 @@ def load_assessment_runtime_config_from_env(
     )
     provider = common.cloud_provider
     is_aws = common.is_aws
+    thinking_mode = _normalise_thinking_mode(
+        values.get("ASSESSMENT_THINKING_MODE") or values.get("THINKING_MODE")
+    )
+    defaults = _assessment_thinking_defaults(thinking_mode)
     return AssessmentRuntimeConfig(
         cloud_provider=provider,
         search_endpoint=common.search_endpoint,
@@ -185,11 +232,16 @@ def load_assessment_runtime_config_from_env(
         controls_index_name=common.controls_index_name,
         embedding_deployment=common.embedding_deployment,
         query_deployment=common.query_deployment,
-        controls_top_k=max(1, int(values.get("CONTROLS_TOP_K") or "4")),
+        controls_top_k=max(1, int(values.get("CONTROLS_TOP_K") or str(defaults["controls_top_k"]))),
         guidance_top_k=max(
-            1, int(values.get("ASSESSMENT_GUIDANCE_TOP_K") or values.get("SEARCH_TOP_K") or "5")
+            1,
+            int(
+                values.get("ASSESSMENT_GUIDANCE_TOP_K")
+                or values.get("SEARCH_TOP_K")
+                or str(defaults["guidance_top_k"])
+            ),
         ),
-        temperature=float(values.get("ASSESSMENT_TEMPERATURE") or "0.2"),
+        temperature=float(values.get("ASSESSMENT_TEMPERATURE") or str(defaults["temperature"])),
         controls_semantic_default=_env_bool(values, "CONTROLS_SEMANTIC_DEFAULT", default=False),
         controls_semantic_configuration_name=(
             values.get("AZURE_SEARCH_CONTROLS_SEMANTIC_CONFIG") or "controls-semantic"
@@ -286,6 +338,13 @@ def _embed_query(
     strategy = get_assessment_provider_strategy(config.cloud_provider)
     if not strategy.supports_embeddings:
         return []
+
+    if strategy.provider == "aws":
+        model_id = (config.embedding_deployment or os.getenv("BEDROCK_EMBEDDING_MODEL_ID") or "").strip()
+        if not model_id:
+            raise RuntimeError("BEDROCK_EMBEDDING_MODEL_ID is required for AWS embeddings")
+        region_name = (os.getenv("AWS_REGION") or "").strip() or None
+        return bedrock_embed_text(question, model_id=model_id, region_name=region_name)
 
     token = _cognitive_token(credential)
     url = (

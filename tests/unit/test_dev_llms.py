@@ -66,6 +66,30 @@ def test_create_chat_completion_fn_ollama_available(monkeypatch: pytest.MonkeyPa
     assert calls["kwargs"]["num_ctx"] == 8192
 
 
+def test_create_chat_completion_fn_ollama_model_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: dict[str, Any] = {}
+
+    def _chat(messages, **kwargs):
+        calls["kwargs"] = kwargs
+        return "ollama-ok"
+
+    fake_ollama = types.SimpleNamespace(
+        _resolve_base_url=lambda explicit=None: "http://ollama:11434",
+        is_ollama_available=lambda base_url=None: True,
+        ollama_chat_completion=_chat,
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules, "runtime.assessment_orchestration.ollama_client", fake_ollama
+    )
+    monkeypatch.delenv("OLLAMA_CHAT_MODEL", raising=False)
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5:14b")
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "8192")
+
+    fn = dev_llms.create_chat_completion_fn("ollama", config=_CFG, credential=_CRED)
+    assert fn([{"role": "user", "content": "hi"}]) == "ollama-ok"
+    assert calls["kwargs"]["model"] == "qwen2.5:14b"
+
+
 def test_create_chat_completion_fn_ollama_uses_adaptive_num_ctx_when_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -224,6 +248,29 @@ def test_create_embedding_fn_paths(monkeypatch: pytest.MonkeyPatch) -> None:
 
     fn_azure = dev_llms.create_embedding_fn("azure", config=_CFG, credential=_CRED)
     assert fn_azure("x") == [0.3, 0.4]
+
+
+def test_create_embedding_fn_embedding_model_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: dict[str, Any] = {}
+
+    def _embed(text, **kwargs):
+        calls["kwargs"] = kwargs
+        return [0.1, 0.2]
+
+    fake_ollama = types.SimpleNamespace(
+        _resolve_base_url=lambda explicit=None: "http://ollama:11434",
+        is_ollama_available=lambda base_url=None: True,
+        ollama_embedding=_embed,
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules, "runtime.assessment_orchestration.ollama_client", fake_ollama
+    )
+    monkeypatch.delenv("OLLAMA_EMBED_MODEL", raising=False)
+    monkeypatch.setenv("OLLAMA_EMBEDDING_MODEL", "mxbai-embed-large")
+
+    fn = dev_llms.create_embedding_fn("ollama", config=_CFG, credential=_CRED)
+    assert fn("x") == [0.1, 0.2]
+    assert calls["kwargs"]["model"] == "mxbai-embed-large"
 
 
 def test_create_embedding_fn_invalid_backend_raises() -> None:

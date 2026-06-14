@@ -14,6 +14,10 @@ resource "azurerm_storage_account" "this" {
   public_network_access_enabled   = false
   allow_nested_items_to_be_public = false
   min_tls_version                 = "TLS1_2"
+  network_rules {
+    default_action = "Deny"
+    bypass         = ["None"]
+  }
   tags                            = var.tags
 }
 

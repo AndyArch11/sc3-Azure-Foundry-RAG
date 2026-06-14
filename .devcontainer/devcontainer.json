@@ -2,9 +2,6 @@
 	"name": "Azure Terraform Dev",
 	"image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
 	"remoteUser": "vscode",
-	"mounts": [
-		"type=bind,source=/var/run/docker.sock,target=/var/run/docker-host.sock"
-	],
 	"features": {
 		"ghcr.io/devcontainers/features/azure-cli:1": {},
 		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
@@ -20,7 +17,10 @@
 				"ms-azuretools.vscode-azurecli",
 				"ms-vscode.powershell",
 				"hashicorp.terraform"
-			]
+			],
+			"settings": {
+				"dev.containers.mountWaylandSocket": false
+			}
 		}
 	},
 	"portsAttributes": {

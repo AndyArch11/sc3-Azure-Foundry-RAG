@@ -17,6 +17,19 @@ from runtime.provider_core import (
 
 logger = logging.getLogger(__name__)
 
+_THINKING_MODE_ALIASES: dict[str, str] = {
+    "": "balanced",
+    "balanced": "balanced",
+    "normal": "balanced",
+    "default": "balanced",
+    "quick": "quick",
+    "fast": "quick",
+    "low": "quick",
+    "deep": "deep",
+    "thorough": "deep",
+    "high": "deep",
+}
+
 
 # ---------------------------------------------------------------------------
 # Framework name normalisation helpers
@@ -148,6 +161,78 @@ def _local_completion_token_defaults() -> tuple[int, int]:
     if ram_gib < 64:
         return (2200, 1000)
     return (3200, 1400)
+
+
+def _normalise_thinking_mode(raw: str | None) -> str:
+    mode = (raw or "").strip().lower()
+    resolved = _THINKING_MODE_ALIASES.get(mode)
+    if resolved is not None:
+        return resolved
+    logger.warning("Unknown THINKING_MODE '%s'; falling back to 'balanced'", raw)
+    return "balanced"
+
+
+def _thinking_defaults(
+    *,
+    mode: str,
+    default_max_completion_tokens: int,
+    default_evaluator_max_completion_tokens: int,
+) -> dict[str, float | int]:
+    if mode == "quick":
+        return {
+            "search_top_k": 3,
+            "controls_top_k": 3,
+            "default_temperature": 0.1,
+            "evaluator_temperature": 0.1,
+            "evaluation_threshold": 0.70,
+            "max_completion_tokens": min(default_max_completion_tokens, 900),
+            "evaluator_max_completion_tokens": min(default_evaluator_max_completion_tokens, 512),
+        }
+
+    if mode == "deep":
+        return {
+            "search_top_k": 8,
+            "controls_top_k": 6,
+            "default_temperature": 0.2,
+            "evaluator_temperature": 0.15,
+            "evaluation_threshold": 0.78,
+            "max_completion_tokens": max(default_max_completion_tokens, 2200),
+            "evaluator_max_completion_tokens": max(default_evaluator_max_completion_tokens, 1000),
+        }
+
+    return {
+        "search_top_k": 5,
+        "controls_top_k": 4,
+        "default_temperature": 1.0,
+        "evaluator_temperature": 1.0,
+        "evaluation_threshold": 0.72,
+        "max_completion_tokens": default_max_completion_tokens,
+        "evaluator_max_completion_tokens": default_evaluator_max_completion_tokens,
+    }
+
+
+def _thinking_mode_presets_for_ui(
+    *,
+    default_max_completion_tokens: int,
+    default_evaluator_max_completion_tokens: int,
+) -> dict[str, dict[str, float | int]]:
+    presets: dict[str, dict[str, float | int]] = {}
+    for mode in ("quick", "balanced", "deep"):
+        defaults = _thinking_defaults(
+            mode=mode,
+            default_max_completion_tokens=default_max_completion_tokens,
+            default_evaluator_max_completion_tokens=default_evaluator_max_completion_tokens,
+        )
+        presets[mode] = {
+            "retrieve_k": int(defaults["search_top_k"]),
+            "controls_top_k": int(defaults["controls_top_k"]),
+            "temperature": float(defaults["default_temperature"]),
+            "max_completion_tokens": int(defaults["max_completion_tokens"]),
+            "evaluator_max_completion_tokens": int(
+                defaults["evaluator_max_completion_tokens"]
+            ),
+        }
+    return presets
 
 
 # ---------------------------------------------------------------------------
@@ -344,6 +429,13 @@ def load_config() -> QueryConfig:
     else:
         local_max_completion_tokens, local_evaluator_max_completion_tokens = (4096, 1400)
 
+    thinking_mode = _normalise_thinking_mode(os.getenv("THINKING_MODE"))
+    defaults = _thinking_defaults(
+        mode=thinking_mode,
+        default_max_completion_tokens=local_max_completion_tokens,
+        default_evaluator_max_completion_tokens=local_evaluator_max_completion_tokens,
+    )
+
     return QueryConfig(
         cloud_provider=provider,
         search_endpoint=common.search_endpoint,
@@ -353,8 +445,8 @@ def load_config() -> QueryConfig:
         embedding_deployment=common.embedding_deployment,
         query_deployment=common.query_deployment,
         evaluator_deployment=query_web_provider.evaluator_deployment,
-        search_top_k=int(os.getenv("SEARCH_TOP_K", "5")),
-        controls_top_k=int(os.getenv("CONTROLS_TOP_K", "4")),
+        search_top_k=int(os.getenv("SEARCH_TOP_K", str(defaults["search_top_k"]))),
+        controls_top_k=int(os.getenv("CONTROLS_TOP_K", str(defaults["controls_top_k"]))),
         controls_semantic_default=_env_bool("CONTROLS_SEMANTIC_DEFAULT", default=False),
         controls_semantic_configuration_name=os.getenv(
             "AZURE_SEARCH_CONTROLS_SEMANTIC_CONFIG", "controls-semantic"
@@ -375,19 +467,25 @@ def load_config() -> QueryConfig:
         ingestion_task_definition_arn=os.getenv("INGESTION_TASK_DEFINITION_ARN", "").strip(),
         ecs_sg_id=os.getenv("ECS_SG_ID", "").strip(),
         ecs_subnet_id=os.getenv("ECS_SUBNET_ID", "").strip(),
-        default_temperature=float(os.getenv("DEFAULT_TEMPERATURE", "1")),
-        evaluator_temperature=float(os.getenv("EVALUATOR_TEMPERATURE", "1.0")),
-        evaluation_threshold=float(os.getenv("ACCEPTABLE_SCORE_THRESHOLD", "0.72")),
+        default_temperature=float(
+            os.getenv("DEFAULT_TEMPERATURE", str(defaults["default_temperature"]))
+        ),
+        evaluator_temperature=float(
+            os.getenv("EVALUATOR_TEMPERATURE", str(defaults["evaluator_temperature"]))
+        ),
+        evaluation_threshold=float(
+            os.getenv("ACCEPTABLE_SCORE_THRESHOLD", str(defaults["evaluation_threshold"]))
+        ),
         max_completion_tokens=max(
             256,
-            int(os.getenv("MAX_COMPLETION_TOKENS", str(local_max_completion_tokens))),
+            int(os.getenv("MAX_COMPLETION_TOKENS", str(defaults["max_completion_tokens"]))),
         ),
         evaluator_max_completion_tokens=max(
             128,
             int(
                 os.getenv(
                     "EVALUATOR_MAX_COMPLETION_TOKENS",
-                    str(local_evaluator_max_completion_tokens),
+                    str(defaults["evaluator_max_completion_tokens"]),
                 )
             ),
         ),

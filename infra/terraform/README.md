@@ -13,7 +13,7 @@ New documentation and new scripts should prefer the canonical Azure path:
 - `terraform -chdir=infra/terraform/azure plan ...`
 - `terraform -chdir=infra/terraform/azure apply ...`
 
-## Azure layout
+## Azure Layout
 
 - `azure/bootstrap/`: Azure backend bootstrap and prerequisite shared resources
 - `azure/modules/`: reusable Azure modules

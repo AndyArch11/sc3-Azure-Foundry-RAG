@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import logging
 import os
+import logging
 import time
 from typing import Any
 
 import requests  # type: ignore[import-untyped]
 
 from query_web.request_context import outbound_trace_headers
+from runtime.llm.bedrock import bedrock_embed_text
 from runtime.outbound_instrumentation import request_with_instrumentation
 from runtime.provider_core import DEFAULT_CLOUD_PROVIDER_REGISTRY
 
@@ -63,6 +64,24 @@ def _client_search(
 
 
 def _embed_query(question: str, *, svc: Any) -> list[float]:
+    provider_raw = (
+        str(getattr(getattr(svc, "config", None), "cloud_provider", "") or "").strip().lower()
+    )
+    if not provider_raw:
+        provider_raw = os.getenv("CLOUD_PROVIDER") or ""
+
+    adapter = _resolve_provider_adapter(provider_raw)
+    if adapter.provider == "aws":
+        model_id = str(
+            getattr(getattr(svc, "config", None), "embedding_deployment", "")
+            or os.getenv("BEDROCK_EMBEDDING_MODEL_ID", "")
+        ).strip()
+        if not model_id:
+            raise RuntimeError("BEDROCK_EMBEDDING_MODEL_ID is required for AWS embeddings")
+
+        region_name = (os.getenv("AWS_REGION") or "").strip() or None
+        return bedrock_embed_text(question, model_id=model_id, region_name=region_name)
+
     token = svc._cognitive_token()
     url = (
         f"{svc.config.openai_endpoint}/openai/deployments/"

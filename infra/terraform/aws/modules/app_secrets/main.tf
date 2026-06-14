@@ -14,6 +14,7 @@ resource "aws_secretsmanager_secret_version" "app" {
   secret_string = jsonencode({
     auth_token           = var.initial_auth_token
     confluence_api_token = var.initial_confluence_api_token
+    bedrock_api_key      = var.initial_bedrock_mantle_api_key
   })
 
   lifecycle {

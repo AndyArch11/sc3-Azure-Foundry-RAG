@@ -16,6 +16,7 @@
   <div class="wrap">
     <script id="server-data" type="application/json">{"question": {{ question | tojson }}, "answer": {{ answer | tojson }}, "error": {{ error | tojson }}, "user_id": {{ user_id | tojson }}}</script>
     <script id="ask-defaults" type="application/json">{"retrieve_k": {{ retrieve_k | tojson }}, "temperature": {{ temperature | tojson }}, "max_completion_tokens": {{ max_completion_tokens | tojson }}, "evaluator_max_completion_tokens": {{ evaluator_max_completion_tokens | tojson }}, "controls_semantic": {{ (1 if controls_semantic else 0) | tojson }}, "controls_framework": {{ (controls_framework or "") | tojson }}, "controls_comparison_mode": {{ (controls_comparison_mode or "auto-detect") | tojson }}}</script>
+    <script id="ask-thinking-presets" type="application/json">{{ thinking_mode_presets | tojson }}</script>
     <div class="card">
       <div style="margin-bottom:6px">
         <picture id="page-logo" style="display:block;margin-bottom:6px">
@@ -63,6 +64,15 @@
         <form method="post" action="/ask" id="ask-form">
           <label for="question"><strong>Question</strong></label>
           <textarea id="question" name="question" placeholder="Ask about your indexed documents..." title="Enter a question to run against indexed corpora and control guidance.">{{ question or '' }}</textarea>
+
+          <div class="field">
+            <label for="thinking_mode">Thinking Mode</label>
+            <select id="thinking_mode" name="thinking_mode" title="Select a thinking mode: quick (low retrieval depth, faster), balanced (default), or deep (high retrieval depth, thorough).">
+              <option value="quick" {% if thinking_mode == 'quick' %}selected{% endif %}>Quick (fast, surface-level)</option>
+              <option value="balanced" {% if thinking_mode == 'balanced' %}selected{% endif %}>Balanced (default)</option>
+              <option value="deep" {% if thinking_mode == 'deep' %}selected{% endif %}>Deep (thorough, slower)</option>
+            </select>
+          </div>
 
           <div class="field" style="margin-top:10px">
             <label for="advanced_mode" style="display:flex;gap:8px;align-items:center;cursor:pointer">
@@ -266,6 +276,22 @@
               <input id="cr-temperature" type="number" min="0" max="1" step="0.05" value="1" title="Model sampling temperature used when generating report content. Accepted range: 0–1, step 0.05." />
             </div>
             <div class="field">
+              <label for="cr-thinking-mode">Thinking Mode</label>
+              <select id="cr-thinking-mode" title="Select a thinking mode: quick (fast, surface-level), balanced (default), or deep (thorough, slower).">
+                <option value="quick">Quick (fast, surface-level)</option>
+                <option value="balanced" selected>Balanced (default)</option>
+                <option value="deep">Deep (thorough, slower)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="cr-max-completion-tokens">Max Tokens</label>
+              <input id="cr-max-completion-tokens" type="number" min="256" max="8192" step="1" value="1400" title="Maximum completion tokens for report generation. Change Thinking Mode to apply preset values, or override directly. Accepted range: 256–8192." />
+            </div>
+            <div class="field">
+              <label for="cr-evaluator-max-completion-tokens">Evaluator Max Tokens</label>
+              <input id="cr-evaluator-max-completion-tokens" type="number" min="128" max="4096" step="1" value="800" title="Maximum completion tokens for evaluator scoring. Change Thinking Mode to apply preset values, or override directly. Accepted range: 128–4096." />
+            </div>
+            <div class="field">
               <label for="cr-controls-framework">Controls framework</label>
               <select id="cr-controls-framework" title="Restrict Corpus A control retrieval for the report to one framework, or auto-infer.">
                 <option value="">Auto (infer from question)</option>
@@ -352,6 +378,22 @@
             <div class="field">
               <label for="az-temperature">Temperature</label>
               <input id="az-temperature" type="number" min="0" max="1" step="0.05" value="1" title="Model sampling temperature used while generating Azure assessment narrative. Accepted range: 0–1, step 0.05." />
+            </div>
+            <div class="field">
+              <label for="az-thinking-mode">Thinking Mode</label>
+              <select id="az-thinking-mode" title="Select a thinking mode: quick (fast, surface-level), balanced (default), or deep (thorough, slower).">
+                <option value="quick">Quick (fast, surface-level)</option>
+                <option value="balanced" selected>Balanced (default)</option>
+                <option value="deep">Deep (thorough, slower)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="az-max-completion-tokens">Max Tokens</label>
+              <input id="az-max-completion-tokens" type="number" min="256" max="8192" step="1" value="1400" title="Maximum completion tokens for assessment generation. Change Thinking Mode to apply preset values, or override directly. Accepted range: 256–8192." />
+            </div>
+            <div class="field">
+              <label for="az-evaluator-max-completion-tokens">Evaluator Max Tokens</label>
+              <input id="az-evaluator-max-completion-tokens" type="number" min="128" max="4096" step="1" value="800" title="Maximum completion tokens for evaluator scoring. Change Thinking Mode to apply preset values, or override directly. Accepted range: 128–4096." />
             </div>
             <div class="field">
               <label for="az-validation-mode">Schema validation mode</label>

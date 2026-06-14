@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import io
+import json
 from types import SimpleNamespace
 
-from query_web.pipeline.search import _client_search, _hybrid_search
+from query_web.pipeline.search import _client_search, _embed_query, _hybrid_search
 
 
 class _CaptureClient:
@@ -117,14 +119,14 @@ def test_hybrid_search_embeds_for_azure_provider() -> None:
     assert timings["embedding_s"] >= 0.0
 
 
-def test_hybrid_search_skips_embedding_for_aws_provider() -> None:
+def test_hybrid_search_embeds_for_aws_provider() -> None:
     svc = _build_hybrid_svc("aws")
 
     items, timings = _hybrid_search("q", 3, "corpus eq 'b'", svc=svc)
 
     assert len(items) == 1
-    assert svc._embed_calls == 0
-    assert timings["embedding_s"] == 0.0
+    assert svc._embed_calls == 1
+    assert timings["embedding_s"] >= 0.0
 
 
 def test_hybrid_search_skips_embedding_for_local_provider() -> None:
@@ -145,3 +147,31 @@ def test_hybrid_search_unknown_provider_falls_back_to_azure_embedding() -> None:
     assert len(items) == 1
     assert svc._embed_calls == 1
     assert timings["embedding_s"] >= 0.0
+
+
+def test_embed_query_aws_uses_bedrock_runtime(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    svc = SimpleNamespace(
+        config=SimpleNamespace(cloud_provider="aws", embedding_deployment="amazon.titan-embed-text-v2:0"),
+        logger=SimpleNamespace(warning=lambda *a, **k: None),
+    )
+
+    class _Client:
+        def invoke_model(self, **kwargs):  # type: ignore[no-untyped-def]
+            assert kwargs["modelId"] == "amazon.titan-embed-text-v2:0"
+            payload = json.loads(kwargs["body"])
+            assert payload["inputText"] == "what is mfa"
+            return {"body": io.BytesIO(b'{"embedding": [0.11, 0.22]}')}
+
+    class _Session:
+        def __init__(self, region_name=None):  # type: ignore[no-untyped-def]
+            assert region_name == "ap-southeast-2"
+
+        def client(self, name: str):
+            assert name == "bedrock-runtime"
+            return _Client()
+
+    monkeypatch.setenv("AWS_REGION", "ap-southeast-2")
+    monkeypatch.setitem(__import__("sys").modules, "boto3", SimpleNamespace(Session=_Session))
+
+    vector = _embed_query("what is mfa", svc=svc)
+    assert vector == [0.11, 0.22]

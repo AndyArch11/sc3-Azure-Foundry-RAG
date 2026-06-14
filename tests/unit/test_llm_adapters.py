@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import json
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -9,7 +11,7 @@ import pytest
 
 from runtime.llm import get_llm_client
 from runtime.llm.azure_openai import AzureOpenAILLMClient
-from runtime.llm.bedrock import BedrockLLMClient
+from runtime.llm.bedrock import BedrockLLMClient, BedrockMantleLLMClient, bedrock_embed_text
 from runtime.llm.ollama import OllamaLLMClient
 from runtime.llm.protocol import LLMClient
 from runtime.trace_context import scoped_trace_context
@@ -33,6 +35,18 @@ class TestLLMClientProtocol:
 
     def test_ollama_satisfies_protocol(self) -> None:
         client = OllamaLLMClient()
+        assert isinstance(client, LLMClient)
+
+    def test_bedrock_mantle_satisfies_protocol(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "AWS_REGION": "ap-southeast-2",
+                "BEDROCK_API_KEY": "test-key",
+            },
+            clear=False,
+        ):
+            client = BedrockMantleLLMClient()
         assert isinstance(client, LLMClient)
 
 
@@ -63,6 +77,20 @@ class TestLLMClientFactory:
         fake_session = MagicMock()
         client = get_llm_client(bedrock_session=fake_session)
         assert isinstance(client, BedrockLLMClient)
+
+    def test_aws_mantle_mode_returns_mantle_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CLOUD_PROVIDER", "aws")
+        monkeypatch.setenv("BEDROCK_API_MODE", "mantle")
+        monkeypatch.setenv("AWS_REGION", "ap-southeast-2")
+        monkeypatch.setenv("BEDROCK_API_KEY", "mantle-test-key")
+        client = get_llm_client()
+        assert isinstance(client, BedrockMantleLLMClient)
+
+    def test_aws_invalid_mode_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CLOUD_PROVIDER", "aws")
+        monkeypatch.setenv("BEDROCK_API_MODE", "unknown")
+        with pytest.raises(ValueError, match="BEDROCK_API_MODE"):
+            get_llm_client()
 
     def test_local_returns_ollama(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("CLOUD_PROVIDER", "local")
@@ -185,6 +213,95 @@ class TestBedrockLLMClient:
         result = client.chat_complete([{"role": "user", "content": "hi"}])
         assert "Hello" in result
         assert "World" in result
+
+
+class TestBedrockMantleLLMClient:
+    def test_missing_api_key_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AWS_REGION", "ap-southeast-2")
+        monkeypatch.delenv("BEDROCK_API_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="BEDROCK_API_KEY"):
+            BedrockMantleLLMClient()
+
+    def test_missing_region_raises_without_base_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("AWS_REGION", raising=False)
+        monkeypatch.setenv("BEDROCK_API_KEY", "test-key")
+        monkeypatch.delenv("BEDROCK_MANTLE_BASE_URL", raising=False)
+        with pytest.raises(RuntimeError, match="AWS_REGION"):
+            BedrockMantleLLMClient()
+
+    def test_chat_complete_posts_messages_api(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AWS_REGION", "ap-southeast-2")
+        monkeypatch.setenv("BEDROCK_API_KEY", "test-key")
+
+        fake_response = MagicMock()
+        fake_response.json.return_value = {
+            "content": [
+                {"type": "text", "text": "Hello"},
+                {"type": "text", "text": "from mantle"},
+            ]
+        }
+
+        client = BedrockMantleLLMClient(model_id="anthropic.claude-sonnet-4-5")
+        with patch("runtime.llm.bedrock.requests.post", return_value=fake_response) as post_mock:
+            result = client.chat_complete(
+                [
+                    {"role": "system", "content": "be concise"},
+                    {"role": "user", "content": "hi"},
+                ]
+            )
+
+        assert result == "Hello from mantle"
+        assert post_mock.call_args.args[0].endswith("/v1/messages")
+        kwargs = post_mock.call_args.kwargs
+        assert kwargs["headers"]["x-api-key"] == "test-key"
+        assert kwargs["json"]["model"] == "anthropic.claude-sonnet-4-5"
+        assert kwargs["json"]["messages"][0]["role"] == "user"
+        assert kwargs["json"]["system"] == "be concise"
+
+    def test_empty_non_system_messages_returns_empty_string(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AWS_REGION", "ap-southeast-2")
+        monkeypatch.setenv("BEDROCK_API_KEY", "test-key")
+
+        client = BedrockMantleLLMClient()
+        with patch("runtime.llm.bedrock.requests.post") as post_mock:
+            result = client.chat_complete([{"role": "system", "content": "sys"}])
+
+        assert result == ""
+        post_mock.assert_not_called()
+
+
+class TestBedrockEmbedding:
+    def test_bedrock_embed_text_returns_embedding(self) -> None:
+        fake_session = MagicMock()
+        fake_client = MagicMock()
+        fake_client.invoke_model.return_value = {
+            "body": io.BytesIO(json.dumps({"embedding": [0.1, 0.2]}).encode("utf-8"))
+        }
+        fake_session.client.return_value = fake_client
+
+        vector = bedrock_embed_text(
+            "embed this",
+            model_id="amazon.titan-embed-text-v2:0",
+            session=fake_session,
+        )
+        assert vector == [0.1, 0.2]
+
+    def test_bedrock_embed_text_reads_embeddings_by_type(self) -> None:
+        fake_session = MagicMock()
+        fake_client = MagicMock()
+        fake_client.invoke_model.return_value = {
+            "body": io.BytesIO(
+                json.dumps({"embeddingsByType": {"float": [0.3, 0.4]}}).encode("utf-8")
+            )
+        }
+        fake_session.client.return_value = fake_client
+
+        vector = bedrock_embed_text(
+            "embed this",
+            model_id="amazon.titan-embed-text-v2:0",
+            session=fake_session,
+        )
+        assert vector == [0.3, 0.4]
 
 
 # ---------------------------------------------------------------------------

@@ -15,6 +15,7 @@ locals {
   query_web_https_enabled     = local.query_web_ingress_enabled && var.query_web_tls_certificate_arn != ""
   query_web_alb_subnet_ids    = local.query_web_public_ingress ? var.public_subnet_ids : var.private_subnet_ids
   query_web_alb_ingress_cidrs = local.query_web_public_ingress ? var.query_web_public_ingress_cidrs : [var.vpc_cidr]
+  bedrock_uses_mantle         = lower(trimspace(var.bedrock_api_mode)) == "mantle"
 }
 
 resource "aws_ecs_cluster_capacity_providers" "this" {
@@ -195,6 +196,7 @@ resource "aws_ecs_task_definition" "query_web" {
         { name = "DYNAMODB_TABLE", value = var.dynamodb_table_name },
         { name = "BEDROCK_MODEL_ID", value = var.bedrock_model_id },
         { name = "BEDROCK_EMBEDDING_MODEL_ID", value = var.bedrock_embedding_model_id },
+        { name = "BEDROCK_API_MODE", value = var.bedrock_api_mode },
         # ECS run-task parameters so query-web can trigger the ingestion task from the browser
         { name = "ECS_CLUSTER_NAME", value = aws_ecs_cluster.this.name },
         { name = "INGESTION_TASK_DEFINITION_ARN", value = var.enable_ingestion_job ? aws_ecs_task_definition.ingestion[0].arn : "" },
@@ -204,12 +206,17 @@ resource "aws_ecs_task_definition" "query_web" {
 
       # Inject secrets from Secrets Manager at task start via the execution role.
       # The JSON key path format is: <secret-arn>:<json-key>::
-      secrets = var.app_secrets_secret_arn != "" ? [
+      secrets = var.app_secrets_secret_arn != "" ? concat([
         {
           name      = "QUERY_WEB_AUTH_TOKEN"
           valueFrom = "${var.app_secrets_secret_arn}:auth_token::"
         },
-      ] : []
+        ], local.bedrock_uses_mantle ? [
+        {
+          name      = "BEDROCK_API_KEY"
+          valueFrom = "${var.app_secrets_secret_arn}:bedrock_api_key::"
+        },
+      ] : []) : []
 
       logConfiguration = {
         logDriver = "awslogs"
@@ -347,6 +354,7 @@ resource "aws_ecs_task_definition" "confluence_poller" {
         { name = "CONTROLS_INDEX_NAME", value = var.controls_index_name },
         { name = "BEDROCK_MODEL_ID", value = var.bedrock_model_id },
         { name = "BEDROCK_EMBEDDING_MODEL_ID", value = var.bedrock_embedding_model_id },
+        { name = "BEDROCK_API_MODE", value = var.bedrock_api_mode },
         { name = "CONFLUENCE_BASE_URL", value = var.confluence_base_url },
         { name = "CONFLUENCE_AUTH_MODE", value = var.confluence_auth_mode },
         { name = "CONFLUENCE_AUTH_EMAIL", value = var.confluence_auth_email },
@@ -364,12 +372,17 @@ resource "aws_ecs_task_definition" "confluence_poller" {
         { name = "CONFLUENCE_POLL_SPACE_KEYS", value = join(",", var.confluence_poll_space_keys) },
       ] : [])
 
-      secrets = var.app_secrets_secret_arn != "" ? [
+      secrets = var.app_secrets_secret_arn != "" ? concat([
         {
           name      = "CONFLUENCE_API_TOKEN"
           valueFrom = "${var.app_secrets_secret_arn}:confluence_api_token::"
         },
-      ] : []
+        ], local.bedrock_uses_mantle ? [
+        {
+          name      = "BEDROCK_API_KEY"
+          valueFrom = "${var.app_secrets_secret_arn}:bedrock_api_key::"
+        },
+      ] : []) : []
 
       logConfiguration = {
         logDriver = "awslogs"
@@ -439,6 +452,7 @@ resource "aws_ecs_task_definition" "ingestion" {
         { name = "DYNAMODB_TABLE", value = var.dynamodb_table_name },
         { name = "BEDROCK_MODEL_ID", value = var.bedrock_model_id },
         { name = "BEDROCK_EMBEDDING_MODEL_ID", value = var.bedrock_embedding_model_id },
+        { name = "BEDROCK_API_MODE", value = var.bedrock_api_mode },
       ]
 
       logConfiguration = {

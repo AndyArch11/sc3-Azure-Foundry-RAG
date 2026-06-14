@@ -273,6 +273,13 @@ variable "initial_confluence_api_token" {
   sensitive   = true
 }
 
+variable "initial_bedrock_mantle_api_key" {
+  type        = string
+  description = "Initial placeholder value for the Bedrock Mantle API key secret field (bedrock_api_key)."
+  default     = ""
+  sensitive   = true
+}
+
 # ── LLM / Bedrock ─────────────────────────────────────────────────────────────
 
 variable "bedrock_model_id" {
@@ -285,6 +292,12 @@ variable "bedrock_embedding_model_id" {
   type        = string
   description = "Bedrock model ID used for embeddings."
   default     = "amazon.titan-embed-text-v2:0"
+}
+
+variable "bedrock_api_mode" {
+  type        = string
+  description = "Bedrock API mode for ECS services: runtime (default) or mantle."
+  default     = "runtime"
 }
 
 # ── Search ─────────────────────────────────────────────────────────────────────
