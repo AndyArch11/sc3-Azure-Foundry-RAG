@@ -150,6 +150,12 @@ variable "enable_model_deployments" {
   default     = false
 }
 
+variable "foundry_network_acl_bypass_azure_services" {
+  type        = bool
+  description = "Whether to allow AzureServices bypass on Foundry network ACLs. Keep false for strict private-network posture; set true only as a compatibility fallback."
+  default     = false
+}
+
 variable "enable_hosted_query_agent_preview" {
   type        = bool
   description = "Opt-in switch for hosted query agent preview resource. Leave false for standard private-network agent setup."

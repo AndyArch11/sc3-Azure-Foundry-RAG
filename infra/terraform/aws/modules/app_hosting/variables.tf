@@ -172,6 +172,12 @@ variable "bedrock_embedding_model_id" {
   type = string
 }
 
+variable "bedrock_api_mode" {
+  type        = string
+  description = "Bedrock API mode for ECS services: runtime or mantle."
+  default     = "runtime"
+}
+
 variable "app_secrets_secret_arn" {
   type        = string
   description = "ARN of the Secrets Manager secret to inject at task start. Empty string disables injection."

@@ -313,6 +313,28 @@ def test_load_config_applies_env_overrides() -> None:
     assert cfg.controls_top_k == 8
 
 
+def test_load_config_deep_thinking_mode_applies_defaults() -> None:
+    env = {**_REQUIRED_ENVS, "THINKING_MODE": "deep"}
+    with patch.dict(os.environ, env):
+        cfg = load_config()
+    assert cfg.search_top_k == 8
+    assert cfg.controls_top_k == 6
+    assert cfg.max_completion_tokens >= 2200
+
+
+def test_load_config_thinking_mode_keeps_explicit_overrides() -> None:
+    env = {
+        **_REQUIRED_ENVS,
+        "THINKING_MODE": "quick",
+        "SEARCH_TOP_K": "11",
+        "MAX_COMPLETION_TOKENS": "3000",
+    }
+    with patch.dict(os.environ, env):
+        cfg = load_config()
+    assert cfg.search_top_k == 11
+    assert cfg.max_completion_tokens == 3000
+
+
 def test_load_config_raises_on_missing_required_env() -> None:
     env = {k: v for k, v in _REQUIRED_ENVS.items() if k != "AZURE_SEARCH_ENDPOINT"}
     with patch.dict(os.environ, env, clear=True):

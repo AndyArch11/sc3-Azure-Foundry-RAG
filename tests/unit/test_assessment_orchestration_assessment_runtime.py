@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+from types import SimpleNamespace
 
 from azure.core.exceptions import ResourceNotFoundError
 
@@ -94,15 +96,63 @@ def test_load_assessment_runtime_config_from_env_aws() -> None:
     assert cfg.query_deployment == "anthropic.claude-3-5-sonnet-20241022-v2:0"
 
 
-def test_embed_query_returns_empty_vector_for_aws() -> None:
+def test_load_assessment_runtime_config_deep_thinking_mode_defaults() -> None:
+    cfg = load_assessment_runtime_config_from_env(
+        {
+            "CLOUD_PROVIDER": "aws",
+            "OPENSEARCH_ENDPOINT": "https://search-aws.example.com",
+            "THINKING_MODE": "deep",
+        }
+    )
+
+    assert cfg.controls_top_k == 6
+    assert cfg.guidance_top_k == 8
+    assert cfg.temperature == 0.15
+
+
+def test_load_assessment_runtime_config_thinking_mode_keeps_explicit_overrides() -> None:
+    cfg = load_assessment_runtime_config_from_env(
+        {
+            "CLOUD_PROVIDER": "aws",
+            "OPENSEARCH_ENDPOINT": "https://search-aws.example.com",
+            "THINKING_MODE": "quick",
+            "CONTROLS_TOP_K": "9",
+            "ASSESSMENT_TEMPERATURE": "0.33",
+        }
+    )
+
+    assert cfg.controls_top_k == 9
+    assert cfg.temperature == 0.33
+
+
+def test_embed_query_returns_bedrock_vector_for_aws(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     cfg = AssessmentRuntimeConfig(
         search_endpoint="https://search-aws.example.com",
         openai_endpoint="",
         cloud_provider="aws",
+        embedding_deployment="amazon.titan-embed-text-v2:0",
     )
 
+    class _Client:
+        def invoke_model(self, **kwargs):  # type: ignore[no-untyped-def]
+            assert kwargs["modelId"] == "amazon.titan-embed-text-v2:0"
+            body = json.loads(kwargs["body"])
+            assert body["inputText"] == "What controls apply?"
+            return {"body": io.BytesIO(b'{"embedding": [0.4, 0.5, 0.6]}')}
+
+    class _Session:
+        def __init__(self, region_name=None):  # type: ignore[no-untyped-def]
+            assert region_name == "ap-southeast-2"
+
+        def client(self, service: str):
+            assert service == "bedrock-runtime"
+            return _Client()
+
+    monkeypatch.setenv("AWS_REGION", "ap-southeast-2")
+    monkeypatch.setitem(__import__("sys").modules, "boto3", SimpleNamespace(Session=_Session))
+
     vector = _embed_query("What controls apply?", config=cfg, credential=object())
-    assert vector == []
+    assert vector == [0.4, 0.5, 0.6]
 
 
 def _artifact() -> AssessedArtifactPackage:

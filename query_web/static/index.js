@@ -297,6 +297,58 @@
     });
   }
 
+  function applyAskThinkingModePreset(mode) {
+    const presetsEl = document.getElementById('ask-thinking-presets');
+    if (!presetsEl) return;
+
+    let presets;
+    try { presets = JSON.parse(presetsEl.textContent); }
+    catch (_) { return; }
+
+    const preset = presets && (presets[mode] || presets.balanced);
+    if (!preset) return;
+
+    function setVal(id, val, persist) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.value = val != null ? String(val) : '';
+      if (persist) {
+        try { localStorage.setItem('rag_' + id, el.value); } catch (_) {}
+      }
+    }
+
+    setVal('retrieve_k', preset.retrieve_k, false);
+    setVal('temperature', preset.temperature, false);
+    setVal('max_completion_tokens', preset.max_completion_tokens, true);
+    setVal('evaluator_max_completion_tokens', preset.evaluator_max_completion_tokens, true);
+  }
+
+  function applyAssessThinkingModePreset(prefix, mode) {
+    const presetsEl = document.getElementById('ask-thinking-presets');
+    if (!presetsEl) return;
+
+    let presets;
+    try { presets = JSON.parse(presetsEl.textContent); }
+    catch (_) { return; }
+
+    const preset = presets && (presets[mode] || presets.balanced);
+    if (!preset) return;
+
+    function setVal(id, val) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.value = val != null ? String(val) : '';
+    }
+
+    if (prefix === 'cr') {
+      setVal('cr-retrieve-k', preset.retrieve_k);
+    }
+    setVal(prefix + '-controls-top-k', preset.controls_top_k);
+    setVal(prefix + '-temperature', preset.temperature);
+    setVal(prefix + '-max-completion-tokens', preset.max_completion_tokens);
+    setVal(prefix + '-evaluator-max-completion-tokens', preset.evaluator_max_completion_tokens);
+  }
+
   function setRating(btn, turnIdx, stars) {
     const widget = document.querySelector('.rating-widget[data-turn="' + turnIdx + '"]');
     if (!widget) return;
@@ -1233,11 +1285,15 @@
       retrieve_k: Number(document.getElementById('cr-retrieve-k').value || 5),
       controls_top_k: Number(document.getElementById('cr-controls-top-k').value || 4),
       temperature: Number(document.getElementById('cr-temperature').value || 1),
-      controls_framework: document.getElementById('cr-controls-framework').value || null,
-      controls_comparison_mode: document.getElementById('cr-controls-comparison-mode').value || 'auto-detect',
-      corpus_b_upload_batch: document.getElementById('cr-b-upload-batch').value.trim() || null,
-      corpus_c_upload_batch: document.getElementById('cr-upload-batch').value.trim() || null,
-      assessment_strategy: 'per_control',
+    thinking_mode: document.getElementById('cr-thinking-mode').value || 'balanced',
+    max_completion_tokens: (function() {
+      const val = document.getElementById('cr-max-completion-tokens').value.trim();
+      return val ? Number(val) : null;
+    })(),
+           evaluator_max_completion_tokens: (function() {
+             const val = document.getElementById('cr-evaluator-max-completion-tokens').value.trim();
+             return val ? Number(val) : null;
+           })(),
       validation_mode: document.getElementById('cr-validation-mode').value || 'hard',
       auth_token: _currentAuthToken(),
     };
@@ -1287,6 +1343,15 @@
       controls_framework: document.getElementById('az-controls-framework').value || 'NIST CSF',
       controls_top_k: Number(document.getElementById('az-controls-top-k').value || 4),
       temperature: Number(document.getElementById('az-temperature').value || 1),
+      thinking_mode: document.getElementById('az-thinking-mode').value || 'balanced',
+      max_completion_tokens: (function() {
+        const val = document.getElementById('az-max-completion-tokens').value.trim();
+        return val ? Number(val) : null;
+      })(),
+      evaluator_max_completion_tokens: (function() {
+        const val = document.getElementById('az-evaluator-max-completion-tokens').value.trim();
+        return val ? Number(val) : null;
+      })(),
       assessment_strategy: 'per_control',
       validation_mode: document.getElementById('az-validation-mode').value || 'hard',
       auth_token: _currentAuthToken(),
@@ -1423,6 +1488,26 @@
         try { localStorage.setItem('rag_' + id, el.value); } catch (_) {}
       });
     });
+    const askThinkingMode = document.getElementById('thinking_mode');
+    if (askThinkingMode) {
+      askThinkingMode.addEventListener('change', function () {
+        applyAskThinkingModePreset(askThinkingMode.value || 'balanced');
+      });
+    }
+    const complianceThinkingMode = document.getElementById('cr-thinking-mode');
+    if (complianceThinkingMode) {
+      applyAssessThinkingModePreset('cr', complianceThinkingMode.value || 'balanced');
+      complianceThinkingMode.addEventListener('change', function () {
+        applyAssessThinkingModePreset('cr', complianceThinkingMode.value || 'balanced');
+      });
+    }
+    const azureThinkingMode = document.getElementById('az-thinking-mode');
+    if (azureThinkingMode) {
+      applyAssessThinkingModePreset('az', azureThinkingMode.value || 'balanced');
+      azureThinkingMode.addEventListener('change', function () {
+        applyAssessThinkingModePreset('az', azureThinkingMode.value || 'balanced');
+      });
+    }
     if (askForm && askBtn) {
       askForm.addEventListener('submit', function () {
         const questionField = document.getElementById('question');

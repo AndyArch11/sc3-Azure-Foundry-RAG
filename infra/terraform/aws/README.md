@@ -2,7 +2,7 @@
 
 Provisions the AWS infrastructure for the compliance RAG platform using ECS Fargate, OpenSearch, S3, DynamoDB, and Bedrock.
 
-## Layout
+## Repository Layout
 
 ```
 aws/

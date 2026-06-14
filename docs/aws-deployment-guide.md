@@ -26,7 +26,9 @@ AWS counterparts while preserving the same operational model and script conventi
 | Azure Key Vault         | AWS Secrets Manager                     | `module.app_secrets`; bootstrap optionally creates an auth token secret |
 | Terraform state (blob)  | S3 + DynamoDB lock table                | `infra/terraform/aws/bootstrap`                                    |
 
-## Repository Layout (AWS-specific paths)
+## Repository Layout
+
+AWS-specific paths in this repository:
 
 ```
 infra/terraform/aws/
@@ -98,7 +100,7 @@ aws sts get-caller-identity
 
 ## Provision Infrastructure
 
-### Set target environment
+### Set Target Environment
 
 ```bash
 TARGET_ENV="dev"   # dev, test, or prod
@@ -109,7 +111,7 @@ export AWS_SECRET_ACCESS_KEY="ACCESS_KEY"
 export AWS_DEFAULT_REGION="ap-southeast-2"
 ```
 
-### Phase 0 — Bootstrap remote state
+### Phase 0: Bootstrap Remote State
 
 Creates the S3 state bucket and DynamoDB lock table **once per environment**, and writes
 `infra/terraform/aws/environments/${TARGET_ENV}/backend.hcl`:
@@ -127,7 +129,7 @@ Environment variable overrides:
 | `TF_BACKEND_KEY`                      | `aws/<env>/terraform.tfstate`        | S3 key for the main stack state file      |
 | `TF_ENABLE_BOOTSTRAP_SECRETS_MANAGER` | `true`                               | Create a placeholder auth token secret    |
 
-### Phase 1 — Main stack
+### Phase 1: Main Stack
 
 ```bash
 terraform -chdir=infra/terraform/aws init \
@@ -245,6 +247,7 @@ Key variables to review:
 | `query_web_tls_ssl_policy` | `ELBSecurityPolicy-TLS13-1-2-2021-06`       | Optional HTTPS listener SSL policy |
 | `bedrock_model_id`          | `anthropic.claude-3-5-sonnet-20241022-v2:0`     | Inference model — must be enabled in the account|
 | `bedrock_embedding_model_id`| `amazon.titan-embed-text-v2:0`                  | Embedding model                                 |
+| `bedrock_api_mode`          | `runtime`                                       | Bedrock API path: `runtime` (IAM SigV4) or `mantle` (API key) |
 | `query_web_image_tag`       | `latest`                                        | ECR tag; update after each push                 |
 | `ingestion_image_tag`       | `latest`                                        | ECR tag; update after each push                 |
 
@@ -257,6 +260,9 @@ Key variables to review:
 
 `query_web_auth_token` is no longer a Terraform variable. Query-web auth is sourced from
 Secrets Manager (`auth_token` field in `app/<project>-<env>-<aws_region_short>`).
+
+If `bedrock_api_mode = "mantle"`, ECS tasks read `BEDROCK_API_KEY` from the same
+application secret (`bedrock_api_key` field).
 
 Ingress behaviour:
 
@@ -471,6 +477,9 @@ If `echo "$QUERY_WEB_AUTH_TOKEN"` prints `<set-me>`, the secret is still using t
 bootstrap placeholder and must be replaced before browser sign-in or integration
 tests will succeed.
 
+If `bedrock_api_mode = "mantle"`, ensure `bedrock_api_key` is also populated in the
+same secret before restarting services.
+
 Generate and set a real token:
 
 ```bash
@@ -479,6 +488,17 @@ TOKEN="$(openssl rand -base64 32)"
 aws secretsmanager put-secret-value \
   --secret-id "app/rag-${TARGET_ENV}-apse2" \
   --secret-string "{\"auth_token\":\"${TOKEN}\"}"
+```
+
+Set both query-web auth token and Bedrock Mantle API key in one update:
+
+```bash
+AUTH_TOKEN="$(openssl rand -base64 32)"
+BEDROCK_KEY="<your-short-term-bedrock-api-key>"
+
+aws secretsmanager put-secret-value \
+  --secret-id "app/rag-${TARGET_ENV}-apse2" \
+  --secret-string "{\"auth_token\":\"${AUTH_TOKEN}\",\"bedrock_api_key\":\"${BEDROCK_KEY}\"}"
 ```
 
 ECS injects Secrets Manager values only at task start, so restart or roll out the

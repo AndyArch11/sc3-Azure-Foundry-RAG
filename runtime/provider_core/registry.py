@@ -50,8 +50,8 @@ class _AWSAdapter:
     @property
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
-            supports_embeddings=False,
-            supports_semantic_search=False,
+            supports_embeddings=True,
+            supports_semantic_search=True,
             supports_inline_ingestion_trigger=True,
             supports_background_assessment_worker=True,
         )

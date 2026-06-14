@@ -30,6 +30,9 @@ def get_llm_client(
     model_id: str | None = None,
     region_name: str | None = None,
     bedrock_session: Any = None,
+    bedrock_api_mode: str | None = None,
+    bedrock_api_key: str | None = None,
+    bedrock_base_url: str | None = None,
     max_tokens: int | None = None,
     # Local kwargs
     ollama_base_url: str | None = None,
@@ -56,6 +59,15 @@ def get_llm_client(
         AWS region (AWS path).
     bedrock_session:
         ``boto3.Session`` to use (AWS path).
+    bedrock_api_mode:
+        AWS Bedrock API path. ``runtime`` (default) uses boto3 ``bedrock-runtime``;
+        ``mantle`` uses Bedrock Mantle Anthropic-compatible messages endpoint.
+    bedrock_api_key:
+        Optional API key override for Bedrock Mantle path
+        (defaults to ``BEDROCK_API_KEY`` env var).
+    bedrock_base_url:
+        Optional Bedrock Mantle base URL override
+        (defaults to ``BEDROCK_MANTLE_BASE_URL`` env var or region-derived URL).
     ollama_base_url:
         Ollama base URL (local path, default ``http://localhost:11434``).
     ollama_model:
@@ -73,7 +85,27 @@ def get_llm_client(
         )
 
     if provider == "aws":
-        from .bedrock import BedrockLLMClient
+        from .bedrock import BedrockLLMClient, BedrockMantleLLMClient
+
+        mode_raw = (bedrock_api_mode or os.getenv("BEDROCK_API_MODE") or "runtime").strip().lower()
+        mode = mode_raw or "runtime"
+
+        if mode == "mantle":
+            mantle_kwargs: dict[str, Any] = {
+                "model_id": model_id,
+                "region_name": region_name,
+                "temperature": temperature,
+                "api_key": bedrock_api_key,
+                "base_url": bedrock_base_url,
+            }
+            if max_tokens is not None:
+                mantle_kwargs["max_tokens"] = max_tokens
+            return BedrockMantleLLMClient(**mantle_kwargs)
+
+        if mode != "runtime":
+            raise ValueError(
+                f"Unsupported BEDROCK_API_MODE '{mode}'. Expected 'runtime' or 'mantle'."
+            )
 
         client_kwargs: dict[str, Any] = {
             "model_id": model_id,

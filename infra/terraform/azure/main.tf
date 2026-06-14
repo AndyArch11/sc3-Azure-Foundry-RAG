@@ -8,9 +8,9 @@ module "foundation" {
 data "azurerm_client_config" "current" {}
 
 locals {
-  bootstrap_key_vault_resource_group_name             = trimspace(var.bootstrap_key_vault_resource_group_name) != "" ? var.bootstrap_key_vault_resource_group_name : "rg-tfstate-${var.environment}"
-  jumpbox_ssh_public_key_secret_name                  = trimspace(var.jumpbox_ssh_public_key_secret_name) != "" ? var.jumpbox_ssh_public_key_secret_name : "jumpbox-admin-ssh-public-key-${var.environment}"
-  use_key_vault_jumpbox_key                           = (trimspace(var.jumpbox_admin_ssh_public_key) == "" || trimspace(var.jumpbox_admin_ssh_public_key) == "<set-me-ssh-public-key>") && trimspace(var.bootstrap_key_vault_name) != ""
+  bootstrap_key_vault_resource_group_name = trimspace(var.bootstrap_key_vault_resource_group_name) != "" ? var.bootstrap_key_vault_resource_group_name : "rg-tfstate-${var.environment}"
+  jumpbox_ssh_public_key_secret_name      = trimspace(var.jumpbox_ssh_public_key_secret_name) != "" ? var.jumpbox_ssh_public_key_secret_name : "jumpbox-admin-ssh-public-key-${var.environment}"
+  use_key_vault_jumpbox_key               = (trimspace(var.jumpbox_admin_ssh_public_key) == "" || trimspace(var.jumpbox_admin_ssh_public_key) == "<set-me-ssh-public-key>") && trimspace(var.bootstrap_key_vault_name) != ""
   # BYOL (Bring-Your-Own-Network): use provided IDs if supplied, otherwise use module outputs.
   use_byol_network           = trimspace(var.byol_vnet_id) != ""
   vnet_id                    = local.use_byol_network ? var.byol_vnet_id : module.network[0].vnet_id
@@ -82,24 +82,25 @@ module "data_services" {
 }
 
 module "foundry" {
-  source                        = "./modules/foundry"
-  resource_group_name           = module.foundation.resource_group_name
-  location                      = var.location
-  suffix                        = local.naming_suffix
-  foundry_account_name_override = var.foundry_account_name_override
-  delegated_agent_subnet_id     = local.agent_subnet_id
-  storage_account_id            = module.data_services.storage_account_id
-  storage_account_name          = module.data_services.storage_account_name
-  search_service_id             = module.data_services.search_service_id
-  search_service_name           = module.data_services.search_service_name
-  cosmosdb_account_id           = module.data_services.cosmosdb_account_id
-  cosmosdb_account_name         = module.data_services.cosmosdb_account_name
-  embedding_model               = var.embedding_model
-  query_model                   = var.query_model
-  evaluation_model              = var.evaluation_model
-  validator_model               = var.validator_model
-  enable_model_deployments      = var.enable_model_deployments
-  tags                          = local.tags
+  source                                    = "./modules/foundry"
+  resource_group_name                       = module.foundation.resource_group_name
+  location                                  = var.location
+  suffix                                    = local.naming_suffix
+  foundry_account_name_override             = var.foundry_account_name_override
+  delegated_agent_subnet_id                 = local.agent_subnet_id
+  storage_account_id                        = module.data_services.storage_account_id
+  storage_account_name                      = module.data_services.storage_account_name
+  search_service_id                         = module.data_services.search_service_id
+  search_service_name                       = module.data_services.search_service_name
+  cosmosdb_account_id                       = module.data_services.cosmosdb_account_id
+  cosmosdb_account_name                     = module.data_services.cosmosdb_account_name
+  embedding_model                           = var.embedding_model
+  query_model                               = var.query_model
+  evaluation_model                          = var.evaluation_model
+  validator_model                           = var.validator_model
+  enable_model_deployments                  = var.enable_model_deployments
+  foundry_network_acl_bypass_azure_services = var.foundry_network_acl_bypass_azure_services
+  tags                                      = local.tags
 }
 
 resource "azurerm_search_shared_private_link_service" "search_to_foundry_account" {
@@ -108,6 +109,16 @@ resource "azurerm_search_shared_private_link_service" "search_to_foundry_account
   target_resource_id = module.foundry.foundry_account_id
   subresource_name   = "foundry_account"
   request_message    = "probe"
+}
+
+# Private path for Search indexer/data-source access to Blob Storage.
+# This avoids relying on trusted-services bypass for Search -> Storage traffic.
+resource "azurerm_search_shared_private_link_service" "search_to_storage_blob" {
+  name               = "datasource-storage-blob"
+  search_service_id  = module.data_services.search_service_id
+  target_resource_id = module.data_services.storage_account_id
+  subresource_name   = "blob"
+  request_message    = "Search indexer private access to storage blob datasource"
 }
 
 module "private_endpoints" {

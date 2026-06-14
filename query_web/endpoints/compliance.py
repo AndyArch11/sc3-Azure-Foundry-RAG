@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from query_web.constants import COMPLIANCE_REPORT_SCHEMA_VERSION
+from query_web.config import _normalise_thinking_mode, _thinking_defaults
 from query_web.utils import _utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,9 @@ class ComplianceReportRequest(BaseModel):
     retrieve_k: int = Field(default=5, ge=1, le=20)
     controls_top_k: int = Field(default=4, ge=1, le=2000)
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
+    thinking_mode: str = "balanced"
+    max_completion_tokens: int | None = Field(default=None, ge=256, le=8192)
+    evaluator_max_completion_tokens: int | None = Field(default=None, ge=128, le=4096)
     controls_framework: str | None = None
     controls_comparison_mode: str = "auto-detect"
     corpus_b_upload_batch: str | None = None
@@ -55,6 +59,9 @@ class AzureComplianceReportRequest(BaseModel):
     controls_framework: str = "NIST CSF"
     controls_top_k: int = Field(default=4, ge=1, le=2000)
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
+    thinking_mode: str = "balanced"
+    max_completion_tokens: int | None = Field(default=None, ge=256, le=8192)
+    evaluator_max_completion_tokens: int | None = Field(default=None, ge=128, le=4096)
     assessment_strategy: Literal["single_pass", "per_control"] = "single_pass"
     validation_mode: Literal["hard", "soft"] = "hard"
     auth_token: str = ""
@@ -893,6 +900,19 @@ def generate_compliance_report_result(
             f"Corpus A {framework_hint} controls and Corpus B guidance."
         )
 
+    # Apply thinking mode presets if provided, allowing explicit values to override
+    normalised_thinking_mode = _normalise_thinking_mode(payload.thinking_mode or "balanced")
+    mode_defaults = _thinking_defaults(
+        mode=normalised_thinking_mode,
+        default_max_completion_tokens=getattr(svc.config, "max_completion_tokens", 1400),
+        default_evaluator_max_completion_tokens=getattr(svc.config, "evaluator_max_completion_tokens", 800),
+    )
+    
+    # Use mode presets if explicit values are not provided
+    report_max_completion_tokens = payload.max_completion_tokens or mode_defaults.get("max_completion_tokens")
+    report_evaluator_max_completion_tokens = payload.evaluator_max_completion_tokens or mode_defaults.get("evaluator_max_completion_tokens")
+    report_temperature = payload.temperature if payload.temperature is not None else mode_defaults.get("default_temperature", 1.0)
+
     controls, controls_timings = svc._controls_search(
         effective_question,
         retrieve_k=payload.controls_top_k,
@@ -965,7 +985,7 @@ def generate_compliance_report_result(
             controls=controls,
             corpus_b_chunks=corpus_b_chunks,
             corpus_c_chunks=corpus_c_chunks,
-            temperature=payload.temperature,
+            temperature=report_temperature,
             progress_cb=progress_cb,
             corpus_b_indexed_total=corpus_b_indexed_total,
             corpus_c_indexed_total=corpus_c_indexed_total,
@@ -1029,7 +1049,7 @@ def generate_compliance_report_result(
         model_response = svc._chat_completion_with_empty_retry(
             messages,
             deployment=svc.config.query_deployment,
-            temperature=payload.temperature,
+            temperature=report_temperature,
         )
         try:
             report_payload = _extract_json_object(model_response, svc)
@@ -1163,6 +1183,19 @@ def generate_azure_compliance_report_result(
     if framework is None:
         raise ValueError("controls_framework must be a supported framework value")
 
+    # Apply thinking mode presets if provided, allowing explicit values to override
+    normalised_thinking_mode = _normalise_thinking_mode(payload.thinking_mode or "balanced")
+    mode_defaults = _thinking_defaults(
+        mode=normalised_thinking_mode,
+        default_max_completion_tokens=getattr(svc.config, "max_completion_tokens", 1400),
+        default_evaluator_max_completion_tokens=getattr(svc.config, "evaluator_max_completion_tokens", 800),
+    )
+    
+    # Use mode presets if explicit values are not provided
+    report_max_completion_tokens = payload.max_completion_tokens or mode_defaults.get("max_completion_tokens")
+    report_evaluator_max_completion_tokens = payload.evaluator_max_completion_tokens or mode_defaults.get("evaluator_max_completion_tokens")
+    report_temperature = payload.temperature if payload.temperature is not None else mode_defaults.get("default_temperature", 1.0)
+
     resolved_env = dict(os.environ)
     resolved_env["CONTROLS_TOP_K"] = str(payload.controls_top_k)
 
@@ -1201,7 +1234,7 @@ def generate_azure_compliance_report_result(
             controls=controls,
             corpus_b_chunks=corpus_b_chunks,
             corpus_c_chunks=corpus_c_chunks,
-            temperature=payload.temperature,
+            temperature=report_temperature,
             progress_cb=progress_cb,
             corpus_c_scope_label="Live Azure artifacts collected",
         )
