@@ -1,5 +1,5 @@
 fastapi==0.136.1
 uvicorn==0.46.0
 jinja2==3.1.6
-python-multipart>=0.0.29
+python-multipart>=0.0.32
 prometheus-client>=0.25.0
