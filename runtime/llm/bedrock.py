@@ -182,10 +182,10 @@ class BedrockLLMClient:
 
 
 class BedrockMantleLLMClient:
-    """LLMClient backed by Bedrock Mantle Anthropic-compatible Messages API.
+    """LLMClient backed by Bedrock Mantle OpenAI-compatible API.
 
     This path uses the Bedrock Mantle endpoint with API-key authentication:
-    ``https://bedrock-mantle.{region}.api.aws/anthropic/v1/messages``.
+    ``https://bedrock-mantle.{region}.api.aws/v1/chat/completions``.
     """
 
     def __init__(
@@ -210,7 +210,7 @@ class BedrockMantleLLMClient:
                 raise RuntimeError(
                     "AWS_REGION (or explicit region_name/base_url) is required for Bedrock Mantle"
                 )
-            self._base_url = f"https://bedrock-mantle.{region}.api.aws/anthropic"
+            self._base_url = f"https://bedrock-mantle.{region}.api.aws"
 
         self._api_key = (api_key or os.getenv("BEDROCK_API_KEY") or "").strip()
         if not self._api_key:
@@ -219,57 +219,69 @@ class BedrockMantleLLMClient:
             )
 
     def chat_complete(self, messages: list[dict[str, str]]) -> str:
-        """Run a Messages API call and return assistant text."""
-        system_texts: list[str] = []
-        anthropic_messages: list[dict[str, Any]] = []
+        """Run an OpenAI-compatible chat completions call and return assistant text."""
+        openai_messages: list[dict[str, Any]] = []
+        has_non_system = False
 
         for msg in messages:
             role = str(msg.get("role") or "user").strip().lower()
             content = str(msg.get("content") or "")
-            if role == "system":
-                if content.strip():
-                    system_texts.append(content)
-                continue
-
-            if role not in {"user", "assistant"}:
+            if role not in {"system", "user", "assistant"}:
                 role = "user"
-            anthropic_messages.append({"role": role, "content": content})
+            if role != "system":
+                has_non_system = True
+            openai_messages.append({"role": role, "content": content})
 
-        if not anthropic_messages:
+        if not openai_messages or not has_non_system:
             return ""
 
         payload: dict[str, Any] = {
             "model": self._model_id,
-            "messages": anthropic_messages,
+            "messages": openai_messages,
             "max_tokens": self._max_tokens,
             "temperature": self._temperature,
         }
-        if system_texts:
-            payload["system"] = "\n\n".join(system_texts)
 
         response = requests.post(
-            f"{self._base_url}/v1/messages",
+            f"{self._base_url}/v1/chat/completions",
             headers={
-                "x-api-key": self._api_key,
-                "anthropic-version": "2023-06-01",
+                "Authorization": f"Bearer {self._api_key}",
                 "Content-Type": "application/json",
                 **outbound_trace_headers(),
             },
             json=payload,
             timeout=45,
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            status_code = getattr(response, "status_code", None)
+            if status_code == 404:
+                raise RuntimeError(
+                    "Bedrock Mantle returned HTTP 404 for /v1/chat/completions. "
+                    "Verify BEDROCK_MANTLE_BASE_URL/BEDROCK_MODEL_ID and that the model "
+                    "is supported in Bedrock Mantle for this region/account."
+                ) from exc
+            raise
         body = response.json() if hasattr(response, "json") else {}
 
-        content_list = body.get("content") or []
-        texts: list[str] = []
-        for block in content_list:
-            if not isinstance(block, dict):
-                continue
-            text = str(block.get("text") or "").strip()
-            if text:
-                texts.append(text)
-        return " ".join(texts)
+        choices = body.get("choices") if isinstance(body, dict) else None
+        if isinstance(choices, list) and choices:
+            message = choices[0].get("message") if isinstance(choices[0], dict) else None
+            if isinstance(message, dict):
+                text = message.get("content")
+                if isinstance(text, str):
+                    return text.strip()
+                if isinstance(text, list):
+                    texts: list[str] = []
+                    for item in text:
+                        if isinstance(item, dict):
+                            candidate = str(item.get("text") or "").strip()
+                            if candidate:
+                                texts.append(candidate)
+                    if texts:
+                        return " ".join(texts)
+        return ""
 
     def as_callable(self) -> Callable[[list[dict[str, str]]], str]:
         """Return a plain callable wrapping ``chat_complete``."""

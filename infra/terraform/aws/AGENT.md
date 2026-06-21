@@ -26,7 +26,7 @@ terraform init \
   -backend-config="bucket=<state_bucket_name>" \
   -backend-config="key=aws/dev/terraform.tfstate" \
   -backend-config="region=ap-southeast-2" \
-  -backend-config="dynamodb_table=<lock_table_name>"
+  -backend-config="use_lockfile=true"
 ```
 
 ## Validation Before Apply

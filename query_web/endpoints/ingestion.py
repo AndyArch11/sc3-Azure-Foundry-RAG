@@ -15,10 +15,30 @@ from pathlib import Path
 from typing import Any
 
 import requests  # type: ignore[import-untyped]
-from azure.core.exceptions import HttpResponseError
-from azure.search.documents.indexes import SearchIndexerClient
-from azure.storage.blob import BlobServiceClient, ContentSettings
 from fastapi import UploadFile
+
+try:
+    from azure.core.exceptions import HttpResponseError as _AzureHttpResponseError
+    from azure.search.documents.indexes import SearchIndexerClient
+    from azure.storage.blob import BlobServiceClient, ContentSettings
+except Exception:
+    class _MissingAzureSdkClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            raise RuntimeError(
+                "Azure SDK packages are not installed in this runtime. "
+                "Azure-specific ingestion features are unavailable."
+            )
+
+    class _FallbackHttpResponseError(Exception):
+        pass
+
+    _AzureHttpResponseError = _FallbackHttpResponseError
+
+    SearchIndexerClient = _MissingAzureSdkClient  # type: ignore[assignment]
+    BlobServiceClient = _MissingAzureSdkClient  # type: ignore[assignment]
+    ContentSettings = _MissingAzureSdkClient  # type: ignore[assignment]
+
+HttpResponseError: type[Exception] = _AzureHttpResponseError
 
 from runtime.provider_core import normalise_cloud_provider
 
@@ -529,7 +549,8 @@ class IngestionService:
         try:
             client.reset_indexer(indexer_name)
         except HttpResponseError as exc:
-            if exc.status_code != 409:
+            status_code = getattr(exc, "status_code", None)
+            if status_code != 409:
                 raise
 
             logger.warning(

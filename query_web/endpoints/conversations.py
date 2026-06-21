@@ -10,9 +10,18 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from azure.cosmos.exceptions import CosmosResourceNotFoundError
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import JSONResponse
+
+try:
+    from azure.cosmos.exceptions import CosmosResourceNotFoundError as _AzureCosmosResourceNotFoundError
+except Exception:
+    class _FallbackCosmosResourceNotFoundError(Exception):
+        """Fallback used when Azure Cosmos SDK is unavailable."""
+
+    _AzureCosmosResourceNotFoundError = _FallbackCosmosResourceNotFoundError
+
+CosmosResourceNotFoundError: type[Exception] = _AzureCosmosResourceNotFoundError
 
 from query_web.constants import COSMOS_CONVERSATION_SCHEMA_VERSION, SERVICE_NAME
 from query_web.metrics import observe_cosmos_schema_access

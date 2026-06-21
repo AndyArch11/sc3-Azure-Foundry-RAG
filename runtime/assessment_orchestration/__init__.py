@@ -1,9 +1,19 @@
+from typing import Any
+
 from .assessment_runtime import (
     AssessmentRuntimeConfig,
     SearchBackedAssessmentAgent,
     create_search_backed_assessment_agent_from_env,
 )
-from .azure_assessment import run_azure_assessment
+
+try:
+    from .azure_assessment import run_azure_assessment
+except Exception:
+    def run_azure_assessment(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError(
+            "Azure assessment orchestration is unavailable in this runtime."
+        )
+
 from .control_applicability import (
     ControlApplicabilityMetadata,
     classify_control_applicability,
@@ -16,7 +26,17 @@ from .intake import (
     build_queue_message,
 )
 from .interfaces import AssessmentAgent, AuditSink, DeliveryPublisher, MCPContentClient
-from .mcp.azure_resource import AzureMCPServer, build_azure_target_reference
+
+try:
+    from .mcp.azure_resource import AzureMCPServer, build_azure_target_reference
+except Exception:
+    class AzureMCPServer:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("Azure MCP resource integration is unavailable in this runtime.")
+
+    def build_azure_target_reference(*args: Any, **kwargs: Any) -> str:
+        raise RuntimeError("Azure target reference builder is unavailable in this runtime.")
+
 from .models import (
     AccessDecision,
     AssessedArtifactPackage,
@@ -27,7 +47,18 @@ from .models import (
     PersonReference,
     ResolvedTarget,
 )
-from .polling_worker import PollCycleResult, PollerConfig, run_forever, run_poll_cycle
+try:
+    from .polling_worker import PollCycleResult, PollerConfig, run_forever, run_poll_cycle
+except Exception:
+    PollCycleResult = Any  # type: ignore[assignment]
+    PollerConfig = Any  # type: ignore[assignment]
+
+    def run_forever(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("Polling worker is unavailable in this runtime.")
+
+    def run_poll_cycle(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("Polling worker is unavailable in this runtime.")
+
 from .queue import (
     JobRunner,
     QueueMessage,
@@ -35,10 +66,17 @@ from .queue import (
     serialise_queue_message,
     validate_queue_message,
 )
-from .runtime_wiring import (
-    create_confluence_mcp_server_from_env,
-    create_orchestrator_adapter_from_env,
-)
+try:
+    from .runtime_wiring import (
+        create_confluence_mcp_server_from_env,
+        create_orchestrator_adapter_from_env,
+    )
+except Exception:
+    def create_confluence_mcp_server_from_env(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("Confluence MCP server wiring is unavailable in this runtime.")
+
+    def create_orchestrator_adapter_from_env(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("Orchestrator adapter wiring is unavailable in this runtime.")
 from .schema_validation import (
     SchemaValidationError,
     assert_named_schema,

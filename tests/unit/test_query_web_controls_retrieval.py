@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import requests
@@ -99,6 +100,61 @@ def test_question_focus_terms_extracts_generic_keywords() -> None:
     assert "mfa" in terms
     assert "privileged" in terms
     assert "frameworks" not in terms
+
+
+def test_preferred_framework_matches_encrypted_word_form(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        app_module,
+        "precedence_policy",
+        SimpleNamespace(
+            version="test",
+            default_framework_order=("Essential Eight", "ISM"),
+            rules=[
+                {
+                    "rule_id": "encryption-au-priority",
+                    "description": "Prefer ISM for encryption questions.",
+                    "applies_when_keywords": ["encryption"],
+                    "preferred_framework": "ISM",
+                }
+            ],
+        ),
+    )
+
+    preferred = app_module._preferred_framework_for_question(
+        "Should data be encrypted both in transit and at rest?"
+    )
+    assert preferred == "ISM"
+
+
+def test_preferred_framework_context_includes_matched_rule(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        app_module,
+        "precedence_policy",
+        SimpleNamespace(
+            version="test",
+            default_framework_order=("Essential Eight", "ISM"),
+            rules=[
+                {
+                    "rule_id": "encryption-au-priority",
+                    "description": "Prefer ISM for encryption questions.",
+                    "applies_when_keywords": ["encryption"],
+                    "preferred_framework": "ISM",
+                }
+            ],
+        ),
+    )
+
+    context = app_module._preferred_framework_context_for_question(
+        "Should data be encrypted both in transit and at rest?"
+    )
+    assert context is not None
+    assert context["preferred_framework"] == "ISM"
+    assert context["rule_id"] == "encryption-au-priority"
+    assert context["match_type"] == "policy_rule"
 
 
 def test_normalise_controls_comparison_mode_values() -> None:
@@ -461,6 +517,12 @@ def test_summarise_controls_distribution_includes_framework_and_family_counts() 
         controls,
         timings,
         preferred_framework="Essential Eight",
+        preferred_framework_debug={
+            "rule_id": "identity-access-au-priority",
+            "rule_description": "For Australia-focused identity/access control topics, prioritise Essential Eight guidance first.",
+            "matched_keywords": ["privileged", "access"],
+            "match_type": "policy_rule",
+        },
     )
 
     assert summary["total_controls"] == 5
@@ -472,6 +534,8 @@ def test_summarise_controls_distribution_includes_framework_and_family_counts() 
     assert summary["retrieval_modes"]["diversity_mode_enabled"] is True
     assert summary["retrieval_diagnostics"]["preferred_framework_selected"] == "Essential Eight"
     assert summary["retrieval_diagnostics"]["preferred_framework_backfill_used"] is False
+    assert summary["retrieval_diagnostics"]["precedence_rule_id"] == "identity-access-au-priority"
+    assert summary["retrieval_diagnostics"]["precedence_match_type"] == "policy_rule"
 
 
 def test_controls_coverage_disclaimer_for_singular_framework_when_forced() -> None:
@@ -748,6 +812,82 @@ def test_controls_search_backfills_preferred_framework_when_missing() -> None:
     frameworks = {str(item.get("framework")) for item in controls}
     assert "Essential Eight" in frameworks
     assert timings["controls_preferred_framework"] == 1.0
+    assert timings["controls_preferred_framework_backfill_used"] == 1.0
+
+
+def test_controls_search_backfill_guarantees_preferred_framework_slot_when_outranked(
+    monkeypatch,
+) -> None:
+    """Preferred framework must appear in results even when re-ranking cuts it out."""
+    # Inject a real policy so _preferred_framework_for_question returns ISM
+    # for encryption keywords (controls_search calls the module fn with svc, not
+    # the app_module wrapper, so precedence_policy must be set on svc's source).
+    monkeypatch.setattr(
+        app_module,
+        "precedence_policy",
+        SimpleNamespace(
+            version="test",
+            default_framework_order=("Essential Eight", "ISM"),
+            rules=[
+                {
+                    "rule_id": "encryption-au-priority",
+                    "description": "Prefer ISM for encryption questions.",
+                    "applies_when_keywords": ["encryption"],
+                    "preferred_framework": "ISM",
+                }
+            ],
+        ),
+    )
+
+    # All high-scoring non-preferred items that will fill the top-k slice.
+    dominating_items = [
+        {
+            "requirement_id": f"PCI-{i}",
+            "framework": "PCI DSS",
+            "framework_version": "v4",
+            "control_family": "Cryptography",
+            "maturity_level": None,
+            "requirement_text": "Encrypt data in transit with strong cryptography.",
+            "guidance_text": "",
+            "source_uri": f"controls://pci-{i}",
+            "score": 0.99 - i * 0.01,
+        }
+        for i in range(4)
+    ]
+    ism_item = {
+        "requirement_id": "ISM-0001",
+        "framework": "ISM",
+        "framework_version": "2026.03.24",
+        "control_family": "Data Security",
+        "maturity_level": None,
+        "requirement_text": "Encrypt data at rest and in transit using ASD-approved algorithms.",
+        "guidance_text": "",
+        "source_uri": "controls://ism-0001",
+        "score": 0.50,
+    }
+
+    def _fake_fetch(
+        search_text: str,
+        retrieve_k: int,
+        use_semantic: bool,
+        framework_filter: str | None = None,
+    ):
+        if framework_filter == "ISM":
+            return [ism_item]
+        if framework_filter is None:
+            return dominating_items
+        return []
+
+    with patch.object(app_module, "_fetch_controls", side_effect=_fake_fetch):
+        controls, timings = app_module._controls_search(
+            "Should data be encrypted at rest and in transit?",
+            retrieve_k=4,
+            use_semantic=False,
+            framework_filter_override=None,
+        )
+
+    frameworks = {str(item.get("framework")) for item in controls}
+    assert "ISM" in frameworks, f"ISM missing from results: {frameworks}"
     assert timings["controls_preferred_framework_backfill_used"] == 1.0
 
 

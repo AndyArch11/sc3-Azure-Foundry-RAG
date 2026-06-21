@@ -61,7 +61,7 @@ def get_llm_client(
         ``boto3.Session`` to use (AWS path).
     bedrock_api_mode:
         AWS Bedrock API path. ``runtime`` (default) uses boto3 ``bedrock-runtime``;
-        ``mantle`` uses Bedrock Mantle Anthropic-compatible messages endpoint.
+        ``mantle`` uses Bedrock Mantle OpenAI-compatible chat completions endpoint.
     bedrock_api_key:
         Optional API key override for Bedrock Mantle path
         (defaults to ``BEDROCK_API_KEY`` env var).

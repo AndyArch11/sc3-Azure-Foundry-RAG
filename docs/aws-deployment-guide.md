@@ -24,7 +24,7 @@ AWS counterparts while preserving the same operational model and script conventi
 | Azure Container Registry| Amazon ECR                              | `module.container_registry`                                        |
 | Managed Identity (UAMI) | IAM task role + task execution role     | `module.identity`                                                  |
 | Azure Key Vault         | AWS Secrets Manager                     | `module.app_secrets`; bootstrap optionally creates an auth token secret |
-| Terraform state (blob)  | S3 + DynamoDB lock table                | `infra/terraform/aws/bootstrap`                                    |
+| Terraform state (blob)  | S3 + lockfile state locking             | `infra/terraform/aws/bootstrap`                                    |
 
 ## Repository Layout
 
@@ -113,7 +113,7 @@ export AWS_DEFAULT_REGION="ap-southeast-2"
 
 ### Phase 0: Bootstrap Remote State
 
-Creates the S3 state bucket and DynamoDB lock table **once per environment**, and writes
+Creates the S3 state bucket and bootstrap lock-table resources **once per environment**, and writes
 `infra/terraform/aws/environments/${TARGET_ENV}/backend.hcl`:
 
 ```bash
@@ -133,6 +133,7 @@ Environment variable overrides:
 
 ```bash
 terraform -chdir=infra/terraform/aws init \
+  -reconfigure \
   -backend-config="environments/${TARGET_ENV}/backend.hcl"
 
 terraform -chdir=infra/terraform/aws plan -var-file="environments/${TARGET_ENV}/${TARGET_ENV}.tfvars"
@@ -245,7 +246,7 @@ Key variables to review:
 | `query_web_public_ingress_cidrs` | ` ["203.0.113.0/24"] `             | Required only when `query_web_ingress_mode = "public"` |
 | `query_web_tls_certificate_arn` | `arn:aws:acm:...:certificate/...`     | Optional ACM certificate ARN to enable HTTPS on the ALB |
 | `query_web_tls_ssl_policy` | `ELBSecurityPolicy-TLS13-1-2-2021-06`       | Optional HTTPS listener SSL policy |
-| `bedrock_model_id`          | `anthropic.claude-3-5-sonnet-20241022-v2:0`     | Inference model — must be enabled in the account|
+| `bedrock_model_id`          | `anthropic.claude-3-5-sonnet-20241022-v2:0`     | Inference model ID; ensure model is available in the target region |
 | `bedrock_embedding_model_id`| `amazon.titan-embed-text-v2:0`                  | Embedding model                                 |
 | `bedrock_api_mode`          | `runtime`                                       | Bedrock API path: `runtime` (IAM SigV4) or `mantle` (API key) |
 | `query_web_image_tag`       | `latest`                                        | ECR tag; update after each push                 |
@@ -273,8 +274,10 @@ Ingress behaviour:
 - Set `query_web_tls_certificate_arn` to add an HTTPS listener on port 443. When TLS is enabled, the ALB keeps port 80 only to redirect HTTP requests to HTTPS.
 - In an enterprise deployment, treat the ALB as the HTTPS origin behind a WAF. The WAF is expected to own the stable DNS name; this stack does not need to create Route 53 records before HTTPS can be used.
 
-> **Bedrock model access:** Enable the required models in the AWS console under
-> **Amazon Bedrock → Model access** for the target account and region before applying.
+> **Bedrock serverless models:** Manual activation in **Amazon Bedrock → Model access** is retired for AWS commercial regions.
+> Serverless foundation models are enabled on first invocation. Before applying, verify that:
+> 1. your selected model IDs are available in the target region, and
+> 2. your account has non-zero Bedrock runtime quotas in that region.
 
 For AWS runtime issues (Bedrock access/quota, ECS task role permissions, ingestion auth),
 see [AWS-Specific Troubleshooting Tips](troubleshoot.md#aws-specific-troubleshooting-tips).
@@ -450,11 +453,22 @@ QUERY_WEB_AUTH_TOKEN="$(aws secretsmanager get-secret-value \
   --output text | python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("auth_token", ""))')"
 
 QUERY_WEB_RUN_API_ASK=true \
-QUERY_WEB_REQUIRE_CONVERSATIONS=true \
+QUERY_WEB_REQUIRE_CONVERSATIONS=false \
+QUERY_WEB_REQUIRE_API_ASK=false \
 ./ops/scripts/azure/run-query-web-integration-tests.sh \
   "${QUERY_WEB_BASE_URL}" \
   "${QUERY_WEB_AUTH_TOKEN}"
 ```
+
+For AWS deployments, conversation persistence depends on Azure CosmosDB and is
+typically unavailable; keep `QUERY_WEB_REQUIRE_CONVERSATIONS=false` unless you
+have explicitly enabled a compatible persistence backend.
+
+`QUERY_WEB_REQUIRE_API_ASK` controls strictness for `/api/ask` checks:
+
+- `false` (recommended default): skip `/api/ask` assertions when the endpoint
+  returns a deployment-specific internal error.
+- `true`: fail the suite if `/api/ask` returns an error.
 
 > The integration test script is cloud-agnostic, but it still requires a real HTTP
 > base URL that is reachable from the machine running the tests.
@@ -509,11 +523,39 @@ query-web service after changing the secret:
   --query-web-tag "<current-query-web-tag>"
 ```
 
+If query-web `/ask` fails with an internal error and CloudWatch logs show
+`401 Unauthorized` from Bedrock Mantle (for example,
+`https://bedrock-mantle.<region>.api.aws/v1/chat/completions`), treat the
+`bedrock_api_key` as expired/invalid and rotate it in Secrets Manager, then
+roll out query-web so new ECS tasks load the updated value.
+
+For Bedrock Mantle OpenAI-compatible calls, send bearer auth only
+(`Authorization: Bearer <key>`). If a request includes both `Authorization`
+and `x-api-key` headers, Mantle returns `401 invalid_api_key`.
+
 If you open the site in a browser and see a sign-in prompt, that is not asking for
 AWS credentials. The app is rejecting the request because query-web shared-token auth
 is enabled and expects the `auth_token` stored in Secrets Manager. Use the token above
 for integration tests, or update the secret value if the currently configured token is
 not the one you expect.
+
+To open the browser with the auth token pre-filled, URL-encode the token first:
+
+```bash
+ENCODED_TOKEN="$(python3 -c 'import urllib.parse,os; print(urllib.parse.quote(os.environ.get("QUERY_WEB_AUTH_TOKEN", ""), safe=""))')"
+echo "${QUERY_WEB_BASE_URL}/?auth_token=${ENCODED_TOKEN}"
+```
+
+Validate the token works before opening in a browser:
+
+```bash
+curl -sS -o qw_home.html -w "http_code=%{http_code}\n" \
+  --get --data-urlencode "auth_token=${QUERY_WEB_AUTH_TOKEN}" \
+  "${QUERY_WEB_BASE_URL}/"
+```
+
+Expected: `http_code=200` and `qw_home.html` contains the RAG Query Console HTML.
+If you see `http_code=401` and "Unauthorised", the token in Secrets Manager does not match the one you are passing.
 
 ### Confluence Poller Validation
 
@@ -581,7 +623,8 @@ QUERY_WEB_AUTH_TOKEN="$(aws secretsmanager get-secret-value \
   --output text | python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("auth_token", ""))')"
 
 QUERY_WEB_RUN_API_ASK=true \
-QUERY_WEB_REQUIRE_CONVERSATIONS=true \
+QUERY_WEB_REQUIRE_CONVERSATIONS=false \
+QUERY_WEB_REQUIRE_API_ASK=false \
 ./ops/scripts/azure/run-query-web-integration-tests.sh \
   "${QUERY_WEB_BASE_URL}" \
   "${QUERY_WEB_AUTH_TOKEN}"

@@ -40,7 +40,7 @@ terraform init \
   -backend-config="bucket=$(terraform -chdir=bootstrap output -raw state_bucket_name)" \
   -backend-config="key=aws/<environment>/terraform.tfstate" \
   -backend-config="region=<aws_region>" \
-  -backend-config="dynamodb_table=$(terraform -chdir=bootstrap output -raw lock_table_name)"
+  -backend-config="use_lockfile=true"
 ```
 
 ## Teardown

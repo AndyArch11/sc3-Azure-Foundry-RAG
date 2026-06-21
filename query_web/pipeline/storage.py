@@ -5,13 +5,31 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from azure.storage.blob import BlobServiceClient
+from runtime.provider_core import normalise_cloud_provider
+
+try:
+    from azure.storage.blob import BlobServiceClient
+except Exception:
+    class BlobServiceClient:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            raise RuntimeError(
+                "Azure SDK packages are not installed in this runtime. "
+                "Azure blob operations are unavailable."
+            )
 
 logger = logging.getLogger(__name__)
 
 
 def _count_blob_prefix(prefix: str, *, svc: Any) -> dict[str, int]:
     """Count blobs under *prefix* without deleting them (dry-run support)."""
+    try:
+        provider = normalise_cloud_provider(getattr(getattr(svc, "config", None), "cloud_provider", ""))
+    except Exception:
+        provider = "azure"
+
+    if provider != "azure":
+        return {"would_delete": 0}
+
     if not svc._is_corpus_upload_enabled():
         return {"would_delete": 0}
 
@@ -31,6 +49,14 @@ def _count_blob_prefix(prefix: str, *, svc: Any) -> dict[str, int]:
 
 def _delete_blob_prefix(prefix: str, *, svc: Any) -> dict[str, int]:
     """Delete all blobs under *prefix* and return a deletion count."""
+    try:
+        provider = normalise_cloud_provider(getattr(getattr(svc, "config", None), "cloud_provider", ""))
+    except Exception:
+        provider = "azure"
+
+    if provider != "azure":
+        return {"deleted": 0}
+
     if not svc._is_corpus_upload_enabled():
         return {"deleted": 0}
 

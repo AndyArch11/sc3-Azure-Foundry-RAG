@@ -2,6 +2,7 @@ aws_region       = "ap-southeast-2"
 aws_region_short = "apse2"
 project          = "rag"
 environment      = "dev"
+dynamodb_table_name = "rag-state-rag-dev-apse2-v2"
 
 vpc_cidr             = "10.30.0.0/16"
 private_subnet_cidrs = ["10.30.1.0/24", "10.30.2.0/24"]
@@ -16,7 +17,11 @@ ensure_opensearch_service_linked_role = false
 search_index_name   = "grounding-index"
 controls_index_name = "controls-index"
 
-bedrock_model_id           = "amazon.nova-pro-v1:0"
+# Mantle models require using Bedrock Mantle which batches and processes requests asynchronously — this is suitable for longer-running tasks like document ingestion, but not for real-time question answering.
+# bedrock_model_id           = "mistral.mistral-large-3-675b-instruct" # Strong general-purpose model, good for both question answering and document ingestion, but one of the more expensive options.
+bedrock_model_id           = "qwen.qwen3-32b" # for a budget option
+# Runtime models can be used with Bedrock API calls in real-time (e.g. for question answering)
+# bedrock_model_id           = "amazon.nova-pro-v1:0" 
 bedrock_embedding_model_id = "amazon.titan-embed-text-v2:0"
 bedrock_api_mode           = "mantle" # Set to "runtime" for real-time API calls, or "mantle" to use Bedrock Mantle for asynchronous processing (requires initial_bedrock_mantle_api_key to be set).
 # initial_bedrock_mantle_api_key = "<set-me-if-using-mantle>"
@@ -51,6 +56,6 @@ confluence_poller_memory_mb      = 1024
 
 # initial_confluence_api_token = "<set-me>"
 
-ingestion_image_tag         = "202605111404-be80d2b"
-query_web_image_tag         = "202605111405-be80d2b"
+ingestion_image_tag         = "202606211146-2a2de06"
+query_web_image_tag         = "202606211147-2a2de06"
 confluence_poller_image_tag = "202605111406-be80d2b"

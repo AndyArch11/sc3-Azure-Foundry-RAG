@@ -12,12 +12,25 @@ from query_web.log_config import configure_logging as _configure_logging
 _configure_logging("query-web")
 
 import requests  # type: ignore[import-untyped]
-from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
-from azure.storage.blob import BlobServiceClient
 from fastapi import FastAPI, Request, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+
+try:
+    from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
+    from azure.storage.blob import BlobServiceClient
+except Exception:
+    class _MissingAzureSdkClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            raise RuntimeError(
+                "Azure SDK packages are not installed in this runtime. "
+                "Azure-specific features are unavailable for the current cloud provider."
+            )
+
+    SearchIndexClient = _MissingAzureSdkClient  # type: ignore[assignment]
+    SearchIndexerClient = _MissingAzureSdkClient  # type: ignore[assignment]
+    BlobServiceClient = _MissingAzureSdkClient  # type: ignore[assignment]
 
 import query_web.endpoints.compliance as _compliance_module
 import query_web.pipeline.controls as controls
@@ -127,10 +140,22 @@ from query_web.utils import (
 from runtime.assessment_orchestration._framework_patterns import (
     infer_single_framework as _infer_framework_filter,
 )
-from runtime.assessment_orchestration.azure_assessment import (
-    collect_azure_grounding,
-    run_azure_assessment,
-)
+
+try:
+    from runtime.assessment_orchestration.azure_assessment import (
+        collect_azure_grounding,
+        run_azure_assessment,
+    )
+except Exception:
+    def run_azure_assessment(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError(
+            "Azure assessment orchestration is unavailable in this runtime."
+        )
+
+    def collect_azure_grounding(*args: Any, **kwargs: Any) -> tuple[Any, Any]:
+        raise RuntimeError(
+            "Azure grounding collection is unavailable in this runtime."
+        )
 from runtime.assessment_orchestration.state_store import CosmosPollingStateStore, PollingStateStore
 from runtime.credentials import get_credential_provider
 from runtime.provider_core import normalise_cloud_provider
@@ -644,6 +669,10 @@ def _preferred_framework_for_question(question: str) -> str | None:
     return controls._preferred_framework_for_question(question, svc=_svc)
 
 
+def _preferred_framework_context_for_question(question: str) -> dict[str, Any] | None:
+    return controls._preferred_framework_context_for_question(question, svc=_svc)
+
+
 def _precedence_policy_summary() -> str:
     return controls._precedence_policy_summary(svc=_svc)
 
@@ -669,9 +698,13 @@ def _summarise_controls_distribution(
     controls_timings: dict[str, float],
     *,
     preferred_framework: str | None = None,
+    preferred_framework_debug: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return controls._summarise_controls_distribution(
-        controls_list, controls_timings, preferred_framework=preferred_framework
+        controls_list,
+        controls_timings,
+        preferred_framework=preferred_framework,
+        preferred_framework_debug=preferred_framework_debug,
     )
 
 
@@ -1091,12 +1124,17 @@ register_ask_endpoints(
 # Register conversations endpoints
 from query_web.endpoints.conversations import register_conversations_endpoints
 
-register_conversations_endpoints(
-    app,
-    conversations_container,
-    _is_authorised_request,
-    _unauthorised_message,
-)
+if config.cloud_provider != "aws":
+    register_conversations_endpoints(
+        app,
+        conversations_container,
+        _is_authorised_request,
+        _unauthorised_message,
+    )
+else:
+    logger.info(
+        "Conversation endpoints are disabled on AWS deployments because they depend on Azure CosmosDB."
+    )
 
 # Prometheus metrics scrape endpoint — GET /metrics
 register_metrics_endpoint(app)

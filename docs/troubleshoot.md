@@ -68,13 +68,13 @@ aws logs filter-log-events \
 
 Common causes:
 
-- `ResourceNotFoundException`: model access/use-case form not completed (common for Anthropic models).
+- `ResourceNotFoundException`: model ID unavailable in the selected region, or an incorrect model ID was configured.
 - `AccessDeniedException`: ECS task role policy does not allow `bedrock:InvokeModel` on the selected model ARN.
 - `ThrottlingException` with `Too many tokens per day`: account-applied Bedrock runtime quota is effectively `0`.
 
-### 2) Verify Bedrock model access and quota state
+### 2) Verify Bedrock model availability and quota state
 
-Check model availability/access state:
+Check model availability state:
 
 ```bash
 aws bedrock get-foundation-model-availability \

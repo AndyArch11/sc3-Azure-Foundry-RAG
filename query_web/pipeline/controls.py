@@ -108,6 +108,17 @@ _QUERY_FRAMEWORK_TOKENS = {
 
 _QUERY_SHORT_KEEP = {"mfa", "2fa", "iam", "sso"}
 
+# Domain-specific expansion terms for policy-rule keywords.
+# When a preferred framework is selected by rule, these terms augment the
+# backfill query variants so framework controls using different phrasing are
+# also retrieved.
+_POLICY_KEYWORD_EXPANSION: dict[str, tuple[str, ...]] = {
+    "encryption": ("encrypt", "encrypted", "cryptographic", "cryptography", "cipher", "tls", "aes", "rsa", "key management", "data at rest", "data in transit"),
+    "access": ("access control", "authentication", "authorisation", "authorization", "privileged access", "least privilege"),
+    "privileged": ("privileged access", "privileged user", "administrator", "admin", "elevated", "superuser"),
+    "backup": ("backup", "restore", "recovery", "retention", "resilience"),
+}
+
 
 # ---------------------------------------------------------------------------
 # Evidence Corpus Helpers
@@ -218,9 +229,56 @@ def _framework_authority_rank(framework_name: str, svc: Any) -> int:
 
 
 def _preferred_framework_for_question(question: str, svc: Any) -> str | None:
+    context = _preferred_framework_context_for_question(question, svc)
+    if not context:
+        return None
+    preferred = context.get("preferred_framework")
+    if isinstance(preferred, str) and preferred.strip():
+        return preferred
+    return None
+
+
+def _preferred_framework_context_for_question(question: str, svc: Any) -> dict[str, Any] | None:
     text = question.strip().lower()
     if not text:
         return None
+
+    text_tokens = re.findall(r"[a-z0-9]+", text)
+
+    def _stem(token: str) -> str:
+        value = token.strip().lower()
+        for suffix in ("ions", "ion", "ing", "ed", "es", "s"):
+            if value.endswith(suffix) and len(value) > len(suffix) + 2:
+                return value[: -len(suffix)]
+        return value
+
+    text_stems = {_stem(token) for token in text_tokens}
+
+    def _keyword_matches_text(keyword: str) -> bool:
+        key = keyword.strip().lower()
+        if not key:
+            return False
+        if key in text:
+            return True
+
+        key_tokens = re.findall(r"[a-z0-9]+", key)
+        if not key_tokens:
+            return False
+        if len(key_tokens) > 1:
+            return all(_keyword_matches_text(part) for part in key_tokens)
+
+        key_token = key_tokens[0]
+        key_stem = _stem(key_token)
+
+        if key_token in text_tokens or key_stem in text_stems:
+            return True
+
+        if len(key_stem) >= 5:
+            for stem in text_stems:
+                if stem.startswith(key_stem) or key_stem.startswith(stem):
+                    return True
+
+        return False
 
     for rule in svc.precedence_policy.rules:
         keywords = rule.get("applies_when_keywords")
@@ -231,14 +289,26 @@ def _preferred_framework_for_question(question: str, svc: Any) -> str | None:
         if not normalised_keywords:
             continue
 
-        if all(keyword in text for keyword in normalised_keywords):
+        if all(_keyword_matches_text(keyword) for keyword in normalised_keywords):
             preferred = svc._canonical_framework_name(str(rule.get("preferred_framework", "")))
             if preferred:
-                return preferred
+                return {
+                    "preferred_framework": preferred,
+                    "rule_id": str(rule.get("rule_id") or "").strip() or None,
+                    "rule_description": str(rule.get("description") or "").strip() or None,
+                    "matched_keywords": normalised_keywords,
+                    "match_type": "policy_rule",
+                }
 
     # Heuristic fallback when policy rules do not explicitly cover common intents.
     if any(term in text for term in ("backup", "backups", "recovery", "restore", "restoration")):
-        return "Essential Eight"
+        return {
+            "preferred_framework": "Essential Eight",
+            "rule_id": None,
+            "rule_description": "Heuristic fallback for backup/recovery intent.",
+            "matched_keywords": ["backup", "recovery"],
+            "match_type": "heuristic",
+        }
 
     return None
 
@@ -582,6 +652,7 @@ def _summarise_controls_distribution(
     controls_timings: dict[str, float],
     *,
     preferred_framework: str | None = None,
+    preferred_framework_debug: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     framework_counts: dict[str, int] = {}
     family_counts: dict[str, int] = {}
@@ -617,6 +688,26 @@ def _summarise_controls_distribution(
             "preferred_framework_selected": preferred_framework,
             "preferred_framework_backfill_used": bool(
                 controls_timings.get("controls_preferred_framework_backfill_used", 0.0) >= 0.5
+            ),
+            "precedence_rule_id": (
+                preferred_framework_debug.get("rule_id")
+                if isinstance(preferred_framework_debug, dict)
+                else None
+            ),
+            "precedence_rule_description": (
+                preferred_framework_debug.get("rule_description")
+                if isinstance(preferred_framework_debug, dict)
+                else None
+            ),
+            "precedence_rule_keywords": (
+                preferred_framework_debug.get("matched_keywords")
+                if isinstance(preferred_framework_debug, dict)
+                else None
+            ),
+            "precedence_match_type": (
+                preferred_framework_debug.get("match_type")
+                if isinstance(preferred_framework_debug, dict)
+                else None
             ),
         },
     }
@@ -801,7 +892,23 @@ def controls_search(
     ):
         per_framework_k = max(2, min(5, retrieve_k))
         backfill_items: list[dict[str, Any]] = []
-        for variant in query_variants:
+
+        # Build expanded query variants for the preferred-framework search.
+        # When a policy rule fires its keywords may not match the framework's
+        # own phrasing (e.g. "encrypted" vs ISM's "ASD-approved cryptographic
+        # algorithm").  Augment with domain synonyms from the expansion table.
+        backfill_variants = list(query_variants)
+        preferred_fw_context = _preferred_framework_context_for_question(question, svc)
+        if isinstance(preferred_fw_context, dict):
+            matched_kws: list[str] = preferred_fw_context.get("matched_keywords") or []
+            expansion_terms: list[str] = []
+            for kw in matched_kws:
+                expansion_terms.extend(_POLICY_KEYWORD_EXPANSION.get(kw, ()))
+            if expansion_terms:
+                backfill_variants.append(" ".join(expansion_terms[:8]))
+                backfill_variants.append(" ".join(expansion_terms[:8]) + " control requirement")
+
+        for variant in backfill_variants:
             framework_items = _fetch_controls_with_fallback(
                 variant,
                 top_k=per_framework_k,
@@ -816,6 +923,27 @@ def controls_search(
                 question=question,
             )
             items = re_ranked[:retrieve_k]
+
+            # Hard-guarantee: if the preferred framework still has no
+            # representation after re-ranking, replace the last item in the
+            # slice with the best preferred-framework candidate so the policy
+            # rule is always reflected in the returned set.
+            if items and not any(
+                str(item.get("framework") or "") == preferred_framework for item in items
+            ):
+                best_preferred = next(
+                    (
+                        item
+                        for item in re_ranked
+                        if str(item.get("framework") or "") == preferred_framework
+                    ),
+                    None,
+                )
+                if best_preferred is None and backfill_items:
+                    best_preferred = backfill_items[0]
+                if best_preferred is not None:
+                    items[-1] = best_preferred
+
         timings["controls_preferred_framework_backfill_used"] = 1.0
 
     timings["controls_search_s"] = round(time.perf_counter() - t0, 3)

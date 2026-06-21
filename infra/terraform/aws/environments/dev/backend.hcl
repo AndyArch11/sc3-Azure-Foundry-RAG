@@ -2,5 +2,5 @@
 bucket         = "tfstate-rag-dev-253b2b03"
 key            = "aws/dev/terraform.tfstate"
 region         = "ap-southeast-2"
-dynamodb_table = "tfstate-lock-rag-dev"
+use_lockfile   = true
 encrypt        = true

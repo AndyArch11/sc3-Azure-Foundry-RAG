@@ -1,5 +1,6 @@
 locals {
   naming_suffix = "${var.project}-${var.environment}"
+  lock_table_name = coalesce(var.lock_table_name, "tfstate-lock-${local.naming_suffix}")
   default_tags = merge(var.tags, {
     project     = var.project
     environment = var.environment
@@ -74,7 +75,7 @@ resource "aws_s3_bucket_policy" "state_https_only" {
 # Hash key must be "LockID" — this is mandated by the Terraform S3 backend.
 
 resource "aws_dynamodb_table" "lock" {
-  name         = "tfstate-lock-${local.naming_suffix}"
+  name         = local.lock_table_name
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "LockID"
 

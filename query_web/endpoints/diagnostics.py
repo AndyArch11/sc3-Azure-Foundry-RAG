@@ -6,10 +6,35 @@ from typing import Any, cast
 from urllib.parse import quote
 
 import requests
-from azure.search.documents.indexes import SearchIndexClient
-from azure.search.documents.indexes.models import IndexerStatus
 from fastapi import Request
 from fastapi.responses import JSONResponse
+
+try:
+    from azure.search.documents.indexes import SearchIndexClient as _SearchIndexClient
+    from azure.search.documents.indexes import SearchIndexerClient as _SearchIndexerClient
+    from azure.search.documents.indexes.models import IndexerStatus as _IndexerStatus
+    from azure.storage.blob import BlobServiceClient as _BlobServiceClient
+
+    SearchIndexClient: Any = _SearchIndexClient
+    SearchIndexerClient: Any = _SearchIndexerClient
+    IndexerStatus: Any = _IndexerStatus
+    BlobServiceClient: Any = _BlobServiceClient
+except Exception:
+    class _MissingAzureSdkClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            raise RuntimeError(
+                "Azure SDK packages are not installed in this runtime. "
+                "Azure diagnostics are unavailable for the current cloud provider."
+            )
+
+    IndexerStatus: Any = type(
+        "IndexerStatusFallback",
+        (),
+        {"IN_PROGRESS": "inProgress", "RUNNING": "running"},
+    )
+    SearchIndexClient: Any = _MissingAzureSdkClient
+    SearchIndexerClient: Any = _MissingAzureSdkClient
+    BlobServiceClient: Any = _MissingAzureSdkClient
 
 from runtime.search import SearchClient
 
@@ -150,8 +175,13 @@ def register_diagnostics_endpoints(
     deps: dict | None = None,
 ) -> None:
     """Register all diagnostics endpoints with the FastAPI app."""
-    from azure.search.documents.indexes import SearchIndexerClient
-    from azure.storage.blob import BlobServiceClient
+
+    def _resolve_sdk_class(module_path: str, attr: str, fallback: Any) -> Any:
+        try:
+            module = __import__(module_path, fromlist=[attr])
+            return getattr(module, attr)
+        except Exception:
+            return fallback
 
     def _svc_attr(name: str, default: Any) -> Any:
         if isinstance(deps, dict) and name in deps:
@@ -197,7 +227,15 @@ def register_diagnostics_endpoints(
         limit: int = 10,
     ) -> dict[str, Any]:
         """Fetch recent indexer execution history with error and warning counts."""
-        client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
+        search_indexer_client_cls = _svc_attr(
+            "SearchIndexerClient",
+            _resolve_sdk_class(
+                "azure.search.documents.indexes",
+                "SearchIndexerClient",
+                SearchIndexerClient,
+            ),
+        )
+        client = search_indexer_client_cls(endpoint=config.search_endpoint, credential=credential)
         try:
             status = client.get_indexer_status(indexer_name)
             execution_history: list[dict[str, Any]] = []
@@ -353,7 +391,15 @@ def register_diagnostics_endpoints(
 
         try:
             account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
-            client = BlobServiceClient(account_url=account_url, credential=credential)
+            blob_service_client_cls = _svc_attr(
+                "BlobServiceClient",
+                _resolve_sdk_class(
+                    "azure.storage.blob",
+                    "BlobServiceClient",
+                    BlobServiceClient,
+                ),
+            )
+            client = blob_service_client_cls(account_url=account_url, credential=credential)
             container = client.get_container_client(config.storage_container_name)
 
             prefix_value = prefix.strip() or None
@@ -437,7 +483,15 @@ def register_diagnostics_endpoints(
     ) -> dict[str, Any]:
         """Test data source connection and enumerate blobs."""
         try:
-            idxr_client = SearchIndexerClient(
+            search_indexer_client_cls = _svc_attr(
+                "SearchIndexerClient",
+                _resolve_sdk_class(
+                    "azure.search.documents.indexes",
+                    "SearchIndexerClient",
+                    SearchIndexerClient,
+                ),
+            )
+            idxr_client = search_indexer_client_cls(
                 endpoint=config.search_endpoint, credential=credential
             )
 
@@ -487,7 +541,15 @@ def register_diagnostics_endpoints(
                 try:
                     blob_enumeration_test["attempted"] = True
                     account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
-                    client = BlobServiceClient(account_url=account_url, credential=credential)
+                    blob_service_client_cls = _svc_attr(
+                        "BlobServiceClient",
+                        _resolve_sdk_class(
+                            "azure.storage.blob",
+                            "BlobServiceClient",
+                            BlobServiceClient,
+                        ),
+                    )
+                    client = blob_service_client_cls(account_url=account_url, credential=credential)
                     container = client.get_container_client(config.storage_container_name)
 
                     blob_count = 0
@@ -532,8 +594,17 @@ def register_diagnostics_endpoints(
     ) -> dict[str, Any]:
         """Validate that indexer field mappings exist and match index schema."""
         try:
-            idx_client = SearchIndexClient(endpoint=config.search_endpoint, credential=credential)
-            idxr_client = SearchIndexerClient(
+            search_index_client_cls = _svc_attr("SearchIndexClient", SearchIndexClient)
+            search_indexer_client_cls = _svc_attr(
+                "SearchIndexerClient",
+                _resolve_sdk_class(
+                    "azure.search.documents.indexes",
+                    "SearchIndexerClient",
+                    SearchIndexerClient,
+                ),
+            )
+            idx_client = search_index_client_cls(endpoint=config.search_endpoint, credential=credential)
+            idxr_client = search_indexer_client_cls(
                 endpoint=config.search_endpoint, credential=credential
             )
 

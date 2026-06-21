@@ -216,6 +216,12 @@ class TestBedrockLLMClient:
 
 
 class TestBedrockMantleLLMClient:
+    def test_non_anthropic_model_allowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("AWS_REGION", "ap-southeast-2")
+        monkeypatch.setenv("BEDROCK_API_KEY", "test-key")
+        client = BedrockMantleLLMClient(model_id="qwen.qwen3-32b")
+        assert client._model_id == "qwen.qwen3-32b"
+
     def test_missing_api_key_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("AWS_REGION", "ap-southeast-2")
         monkeypatch.delenv("BEDROCK_API_KEY", raising=False)
@@ -229,19 +235,16 @@ class TestBedrockMantleLLMClient:
         with pytest.raises(RuntimeError, match="AWS_REGION"):
             BedrockMantleLLMClient()
 
-    def test_chat_complete_posts_messages_api(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_chat_complete_posts_openai_chat_api(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("AWS_REGION", "ap-southeast-2")
         monkeypatch.setenv("BEDROCK_API_KEY", "test-key")
 
         fake_response = MagicMock()
         fake_response.json.return_value = {
-            "content": [
-                {"type": "text", "text": "Hello"},
-                {"type": "text", "text": "from mantle"},
-            ]
+            "choices": [{"message": {"content": "Hello from mantle"}}]
         }
 
-        client = BedrockMantleLLMClient(model_id="anthropic.claude-sonnet-4-5")
+        client = BedrockMantleLLMClient(model_id="qwen.qwen3-32b")
         with patch("runtime.llm.bedrock.requests.post", return_value=fake_response) as post_mock:
             result = client.chat_complete(
                 [
@@ -251,12 +254,12 @@ class TestBedrockMantleLLMClient:
             )
 
         assert result == "Hello from mantle"
-        assert post_mock.call_args.args[0].endswith("/v1/messages")
+        assert post_mock.call_args.args[0].endswith("/v1/chat/completions")
         kwargs = post_mock.call_args.kwargs
-        assert kwargs["headers"]["x-api-key"] == "test-key"
-        assert kwargs["json"]["model"] == "anthropic.claude-sonnet-4-5"
-        assert kwargs["json"]["messages"][0]["role"] == "user"
-        assert kwargs["json"]["system"] == "be concise"
+        assert kwargs["headers"]["Authorization"] == "Bearer test-key"
+        assert "x-api-key" not in kwargs["headers"]
+        assert kwargs["json"]["model"] == "qwen.qwen3-32b"
+        assert kwargs["json"]["messages"][0]["role"] == "system"
 
     def test_empty_non_system_messages_returns_empty_string(
         self, monkeypatch: pytest.MonkeyPatch

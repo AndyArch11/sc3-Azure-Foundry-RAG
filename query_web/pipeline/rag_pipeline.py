@@ -101,11 +101,31 @@ def _run_rag(
         )
     else:
         controls, controls_timings = [], {}
-    controls_debug = svc._summarise_controls_distribution(
-        controls,
-        controls_timings,
-        preferred_framework=svc._preferred_framework_for_question(question),
+
+    preferred_framework_debug = None
+    if hasattr(svc, "_preferred_framework_context_for_question"):
+        preferred_framework_debug = svc._preferred_framework_context_for_question(question)
+
+    preferred_framework = (
+        preferred_framework_debug.get("preferred_framework")
+        if isinstance(preferred_framework_debug, dict)
+        else svc._preferred_framework_for_question(question)
     )
+    try:
+        controls_debug = svc._summarise_controls_distribution(
+            controls,
+            controls_timings,
+            preferred_framework=preferred_framework,
+            preferred_framework_debug=preferred_framework_debug,
+        )
+    except TypeError:
+        # Backward compatibility for tests/service doubles that still expose the
+        # previous signature without preferred_framework_debug.
+        controls_debug = svc._summarise_controls_distribution(
+            controls,
+            controls_timings,
+            preferred_framework=preferred_framework,
+        )
     controls_disclaimer = svc._controls_coverage_disclaimer(
         controls_debug=controls_debug,
         comparison_detected=bool(controls_timings.get("controls_comparison_detected", 0.0) >= 0.5),
