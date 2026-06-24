@@ -15,7 +15,7 @@
 <body>
   <div class="wrap">
     <script id="server-data" type="application/json">{"question": {{ question | tojson }}, "answer": {{ answer | tojson }}, "error": {{ error | tojson }}, "user_id": {{ user_id | tojson }}}</script>
-    <script id="ask-defaults" type="application/json">{"retrieve_k": {{ retrieve_k | tojson }}, "controls_context_cap": {{ controls_context_cap | default(4) | tojson }}, "temperature": {{ temperature | tojson }}, "max_completion_tokens": {{ max_completion_tokens | tojson }}, "evaluator_max_completion_tokens": {{ evaluator_max_completion_tokens | tojson }}, "controls_semantic": {{ (1 if controls_semantic else 0) | tojson }}, "controls_framework": {{ (controls_framework or "") | tojson }}, "controls_comparison_mode": {{ (controls_comparison_mode or "auto-detect") | tojson }}}</script>
+    <script id="ask-defaults" type="application/json">{"retrieve_k": {{ retrieve_k | tojson }}, "controls_context_cap": {{ controls_context_cap | default(4) | tojson }}, "temperature": {{ temperature | tojson }}, "top_p": {{ top_p | default(1.0) | tojson }}, "max_completion_tokens": {{ max_completion_tokens | tojson }}, "evaluator_max_completion_tokens": {{ evaluator_max_completion_tokens | tojson }}, "controls_semantic": {{ (1 if controls_semantic else 0) | tojson }}, "controls_framework": {{ (controls_framework or "") | tojson }}, "controls_comparison_mode": {{ (controls_comparison_mode or "auto-detect") | tojson }}}</script>
     <script id="ask-thinking-presets" type="application/json">{{ thinking_mode_presets | tojson }}</script>
     <div class="card">
       <div style="margin-bottom:6px">
@@ -93,6 +93,10 @@
             <div class="field">
               <label for="temperature">Temperature</label>
               <input id="temperature" name="temperature" type="number" min="0" max="1" step="0.05" value="{{ temperature }}" title="Model sampling temperature for answer generation; higher values are more variable. Accepted range: 0–1, step 0.05." />
+            </div>
+            <div class="field">
+              <label for="top_p">Top-p</label>
+              <input id="top_p" name="top_p" type="number" min="0" max="1" step="0.05" value="{{ top_p | default(1.0) }}" title="Top-p (nucleus sampling) works with temperature: lower values narrow the candidate token pool before temperature is applied, while 1.0 keeps the full distribution. Use this as an advanced control." />
             </div>
             <div class="field">
               <label for="max_completion_tokens">Query max tokens</label>
@@ -280,6 +284,10 @@
               <input id="cr-temperature" type="number" min="0" max="1" step="0.05" value="1" title="Model sampling temperature used when generating report content. Accepted range: 0–1, step 0.05." />
             </div>
             <div class="field">
+              <label for="cr-top-p">Top-p</label>
+              <input id="cr-top-p" type="number" min="0" max="1" step="0.05" value="1" title="Top-p (nucleus sampling) works with temperature: lower values narrow the candidate token pool before temperature is applied, while 1.0 keeps the full distribution. Use this as an advanced control." />
+            </div>
+            <div class="field">
               <label for="cr-thinking-mode">Thinking Mode</label>
               <select id="cr-thinking-mode" title="Select a thinking mode: quick (fast, surface-level), balanced (default), or deep (thorough, slower).">
                 <option value="quick">Quick (fast, surface-level)</option>
@@ -389,6 +397,10 @@
               <input id="aws-temperature" type="number" min="0" max="1" step="0.05" value="1" title="Model sampling temperature used while generating AWS assessment narrative. Accepted range: 0–1, step 0.05." />
             </div>
             <div class="field">
+              <label for="aws-top-p">Top-p</label>
+              <input id="aws-top-p" type="number" min="0" max="1" step="0.05" value="1" title="Top-p (nucleus sampling) works with temperature: lower values narrow the candidate token pool before temperature is applied, while 1.0 keeps the full distribution. Use this as an advanced control." />
+            </div>
+            <div class="field">
               <label for="aws-thinking-mode">Thinking Mode</label>
               <select id="aws-thinking-mode" title="Select a thinking mode: quick (fast, surface-level), balanced (default), or deep (thorough, slower).">
                 <option value="quick">Quick (fast, surface-level)</option>
@@ -457,6 +469,10 @@
             <div class="field">
               <label for="az-temperature">Temperature</label>
               <input id="az-temperature" type="number" min="0" max="1" step="0.05" value="1" title="Model sampling temperature used while generating Azure assessment narrative. Accepted range: 0–1, step 0.05." />
+            </div>
+            <div class="field">
+              <label for="az-top-p">Top-p</label>
+              <input id="az-top-p" type="number" min="0" max="1" step="0.05" value="1" title="Top-p (nucleus sampling) works with temperature: lower values narrow the candidate token pool before temperature is applied, while 1.0 keeps the full distribution. Use this as an advanced control." />
             </div>
             <div class="field">
               <label for="az-thinking-mode">Thinking Mode</label>

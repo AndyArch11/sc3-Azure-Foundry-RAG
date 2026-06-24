@@ -20,6 +20,7 @@ from __future__ import annotations
 import io
 import logging
 import re
+import warnings
 from typing import Dict, List, Optional
 
 import requests  # type: ignore[import-untyped]
@@ -218,7 +219,14 @@ class AescsfParser(BaseParser):
                 "openpyxl is required for AESCSF parsing. " "Install with: pip install openpyxl"
             ) from exc
 
-        wb = openpyxl.load_workbook(io.BytesIO(workbook_bytes), read_only=True, data_only=True)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Unknown extension is not supported and will be removed",
+                category=UserWarning,
+                module=r"openpyxl\\..*",
+            )
+            wb = openpyxl.load_workbook(io.BytesIO(workbook_bytes), read_only=True, data_only=True)
 
         if not wb.sheetnames:
             raise RuntimeError("AESCSF workbook has no sheets")

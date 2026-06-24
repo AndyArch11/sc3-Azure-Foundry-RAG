@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -297,6 +298,40 @@ class TestAWSOpenSearchClient:
         results = client.search(query_text="alpha", top=2, select=["title"])
 
         assert results == [{"title": "Doc A"}]
+
+    def test_search_retries_without_vector_on_knn_mapping_error(self) -> None:
+        from runtime.search.opensearch import AWSOpenSearchClient
+
+        response_400 = MagicMock()
+        response_400.status_code = 400
+        response_400.json.return_value = {
+            "error": {"root_cause": [{"reason": "Field 'embedding' is not knn_vector type."}]},
+            "status": 400,
+        }
+
+        response_200 = MagicMock()
+        response_200.status_code = 200
+        response_200.json.return_value = {
+            "hits": {"hits": [{"_score": 0.8, "_source": {"title": "Doc B", "content": "beta"}}]}
+        }
+
+        client = AWSOpenSearchClient(endpoint="https://search.example", index="grounding")
+        client._signed_headers = MagicMock(return_value={"Authorization": "sig"})
+        client._http.post = MagicMock(side_effect=[response_400, response_200])
+
+        results = client.search(query_text="secure design", top=3, vector_query=[0.1, 0.2])
+
+        assert len(results) == 1
+        assert results[0]["title"] == "Doc B"
+        assert client._http.post.call_count == 2
+
+        first_body = json.loads(client._http.post.call_args_list[0].kwargs["data"])
+        second_body = json.loads(client._http.post.call_args_list[1].kwargs["data"])
+
+        first_payload = json.dumps(first_body)
+        second_payload = json.dumps(second_body)
+        assert '"knn"' in first_payload
+        assert '"knn"' not in second_payload
 
     def test_build_query_body_with_filter_and_vector(self) -> None:
         from runtime.search.opensearch import AWSOpenSearchClient

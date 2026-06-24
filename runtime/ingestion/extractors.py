@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from pathlib import Path
 
 from .models import SourceDocument
@@ -23,7 +24,7 @@ def _extract_pdf_text_ocr(path: Path) -> str:
         for idx in range(len(document)):
             page = document[idx]
             # Scale up for better OCR quality on scanned PDFs.
-            image = page.render(scale=2.0).to_pil()
+            image = page.render(scale=2).to_pil()
             text = pytesseract.image_to_string(image) or ""
             if text.strip():
                 pages.append(text)
@@ -74,7 +75,16 @@ def _extract_excel_text(path: Path) -> str:
     except ImportError as exc:
         raise RuntimeError("openpyxl is required for Excel ingestion") from exc
 
-    workbook = load_workbook(path, data_only=True, read_only=True)
+    with warnings.catch_warnings():
+        # Some vendor workbooks include optional OOXML extensions that openpyxl
+        # ignores safely; suppress the noisy warning in ingestion logs.
+        warnings.filterwarnings(
+            "ignore",
+            message="Unknown extension is not supported and will be removed",
+            category=UserWarning,
+            module=r"openpyxl\\..*",
+        )
+        workbook = load_workbook(path, data_only=True, read_only=True)
     lines: list[str] = []
     for sheet in workbook.worksheets:
         lines.append(f"# Sheet: {sheet.title}")

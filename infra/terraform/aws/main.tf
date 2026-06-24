@@ -110,6 +110,9 @@ module "app_hosting" {
   dynamodb_table_name                = module.data_services.dynamodb_table_name
   search_index_name                  = var.search_index_name
   controls_index_name                = var.controls_index_name
+  opensearch_grounding_index_knn_enabled = var.opensearch_grounding_index_knn_enabled
+  opensearch_grounding_embedding_dimensions = var.opensearch_grounding_embedding_dimensions
+  grounding_embed_on_ingest          = var.grounding_embed_on_ingest
   bedrock_model_id                   = var.bedrock_model_id
   bedrock_embedding_model_id         = var.bedrock_embedding_model_id
   bedrock_api_mode                   = var.bedrock_api_mode

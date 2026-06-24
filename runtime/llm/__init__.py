@@ -26,6 +26,7 @@ def get_llm_client(
     deployment: str | None = None,
     credential: Any = None,
     temperature: float = 0.0,
+    top_p: float = 1.0,
     # AWS kwargs
     model_id: str | None = None,
     region_name: str | None = None,
@@ -82,6 +83,7 @@ def get_llm_client(
         return OllamaLLMClient(
             base_url=ollama_base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             model=ollama_model or os.getenv("OLLAMA_MODEL", "llama3"),
+            top_p=top_p,
         )
 
     if provider == "aws":
@@ -95,6 +97,7 @@ def get_llm_client(
                 "model_id": model_id,
                 "region_name": region_name,
                 "temperature": temperature,
+                "top_p": top_p,
                 "api_key": bedrock_api_key,
                 "base_url": bedrock_base_url,
             }
@@ -112,6 +115,7 @@ def get_llm_client(
             "session": bedrock_session,
             "region_name": region_name,
             "temperature": temperature,
+            "top_p": top_p,
         }
         if max_tokens is not None:
             client_kwargs["max_tokens"] = max_tokens
@@ -125,6 +129,7 @@ def get_llm_client(
             deployment=deployment or os.getenv("AZURE_OPENAI_DEPLOYMENT", ""),
             credential=credential,
             temperature=temperature,
+            top_p=top_p,
         )
 
     raise AssertionError(f"Unhandled provider '{provider}'")

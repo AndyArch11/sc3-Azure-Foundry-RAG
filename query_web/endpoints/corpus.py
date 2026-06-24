@@ -215,7 +215,9 @@ def register_corpus_endpoints(
                     )
 
             status_code = 207 if upload_result["failed"] else 200
-            reindex_strategy = "blob_metadata_touch" if _current_provider() != "aws" else "scope_rerun"
+            reindex_strategy = (
+                "blob_metadata_touch" if _current_provider() != "aws" else "scope_rerun"
+            )
 
             return JSONResponse(
                 {
@@ -371,7 +373,9 @@ def register_corpus_endpoints(
                     )
 
             status_code = 207 if upload_result["failed"] else 200
-            reindex_strategy = "blob_metadata_touch" if _current_provider() != "aws" else "scope_rerun"
+            reindex_strategy = (
+                "blob_metadata_touch" if _current_provider() != "aws" else "scope_rerun"
+            )
 
             return JSONResponse(
                 {

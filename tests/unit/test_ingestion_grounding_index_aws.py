@@ -41,18 +41,26 @@ def _install_fake_botocore(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class _Resp:
-    def __init__(self, status_code: int) -> None:
+    def __init__(self, status_code: int, payload: Any | None = None) -> None:
         self.status_code = status_code
+        self._payload = payload
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
             raise requests.HTTPError(f"http {self.status_code}")
+
+    def json(self) -> Any:
+        if self._payload is None:
+            raise ValueError("no json")
+        return self._payload
 
 
 def _cfg() -> AWSGroundingIndexConfig:
     return AWSGroundingIndexConfig(
         opensearch_endpoint="https://os.example",
         grounding_index_name="grounding-index",
+        knn_enabled=False,
+        embedding_dimensions=1024,
     )
 
 
@@ -80,6 +88,37 @@ def test_from_env_uses_custom_index_name(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("OPENSEARCH_GROUNDING_INDEX_NAME", "my-grounding")
     cfg = AWSGroundingIndexConfig.from_env()
     assert cfg.grounding_index_name == "my-grounding"
+
+
+def test_from_env_knn_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENSEARCH_ENDPOINT", "https://os.example")
+    monkeypatch.delenv("OPENSEARCH_GROUNDING_INDEX_KNN_ENABLED", raising=False)
+    monkeypatch.delenv("OPENSEARCH_GROUNDING_EMBEDDING_DIMENSIONS", raising=False)
+    monkeypatch.delenv("BEDROCK_EMBEDDING_DIMENSIONS", raising=False)
+
+    cfg = AWSGroundingIndexConfig.from_env()
+
+    assert cfg.knn_enabled is False
+    assert cfg.embedding_dimensions == 1024
+
+
+def test_from_env_knn_enabled_with_custom_dimensions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENSEARCH_ENDPOINT", "https://os.example")
+    monkeypatch.setenv("OPENSEARCH_GROUNDING_INDEX_KNN_ENABLED", "true")
+    monkeypatch.setenv("OPENSEARCH_GROUNDING_EMBEDDING_DIMENSIONS", "1536")
+
+    cfg = AWSGroundingIndexConfig.from_env()
+
+    assert cfg.knn_enabled is True
+    assert cfg.embedding_dimensions == 1536
+
+
+def test_from_env_knn_dimensions_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENSEARCH_ENDPOINT", "https://os.example")
+    monkeypatch.setenv("OPENSEARCH_GROUNDING_EMBEDDING_DIMENSIONS", "bad")
+
+    with pytest.raises(ValueError, match="OPENSEARCH_GROUNDING_EMBEDDING_DIMENSIONS"):
+        AWSGroundingIndexConfig.from_env()
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +183,76 @@ def test_ensure_index_noop_when_index_already_exists(monkeypatch: pytest.MonkeyP
     assert calls == ["HEAD"]
 
 
+def test_ensure_index_existing_mapping_valid_when_knn_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mod, "_signed_headers", lambda *a, **k: {"h": "v"})
+    calls: list[str] = []
+
+    def _fake_request(method: str, url: str, **kwargs: Any) -> _Resp:
+        calls.append(method)
+        if method == "HEAD":
+            return _Resp(200)
+        if method == "GET":
+            return _Resp(
+                200,
+                {
+                    "grounding-index": {
+                        "mappings": {
+                            "properties": {"embedding": {"type": "knn_vector", "dimension": 1024}}
+                        }
+                    }
+                },
+            )
+        return _Resp(500)
+
+    monkeypatch.setattr(mod, "request_with_instrumentation", _fake_request)
+
+    cfg = AWSGroundingIndexConfig(
+        opensearch_endpoint="https://os.example",
+        grounding_index_name="grounding-index",
+        knn_enabled=True,
+        embedding_dimensions=1024,
+    )
+    mod.ensure_grounding_index_aws(cfg, session=SimpleNamespace())
+
+    assert calls == ["HEAD", "GET"]
+
+
+def test_ensure_index_existing_mapping_invalid_when_knn_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mod, "_signed_headers", lambda *a, **k: {"h": "v"})
+
+    def _fake_request(method: str, url: str, **kwargs: Any) -> _Resp:
+        if method == "HEAD":
+            return _Resp(200)
+        if method == "GET":
+            return _Resp(
+                200,
+                {
+                    "grounding-index": {
+                        "mappings": {
+                            "properties": {"embedding": {"type": "dense_vector", "dimension": 1024}}
+                        }
+                    }
+                },
+            )
+        return _Resp(500)
+
+    monkeypatch.setattr(mod, "request_with_instrumentation", _fake_request)
+
+    cfg = AWSGroundingIndexConfig(
+        opensearch_endpoint="https://os.example",
+        grounding_index_name="grounding-index",
+        knn_enabled=True,
+        embedding_dimensions=1024,
+    )
+
+    with pytest.raises(RuntimeError, match="incompatible with KNN settings"):
+        mod.ensure_grounding_index_aws(cfg, session=SimpleNamespace())
+
+
 def test_ensure_index_creates_index_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(mod, "_signed_headers", lambda *a, **k: {"h": "v"})
     calls: list[str] = []
@@ -191,6 +300,30 @@ def test_ensure_index_put_body_contains_required_mappings(monkeypatch: pytest.Mo
     assert "grounding-index" in captured["url"]
     for field in ("content", "chunk_id", "dedupe_hash", "source_path", "ingested_at"):
         assert field in captured["data"]
+
+
+def test_ensure_index_knn_enabled_adds_embedding_mapping(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mod, "_signed_headers", lambda *a, **k: {"h": "v"})
+    captured: dict[str, Any] = {}
+
+    def _fake_request(method: str, url: str, **kwargs: Any) -> _Resp:
+        if method == "HEAD":
+            return _Resp(404)
+        captured["data"] = kwargs.get("data", "")
+        return _Resp(200)
+
+    monkeypatch.setattr(mod, "request_with_instrumentation", _fake_request)
+
+    cfg = AWSGroundingIndexConfig(
+        opensearch_endpoint="https://os.example",
+        grounding_index_name="grounding-index",
+        knn_enabled=True,
+        embedding_dimensions=1536,
+    )
+    mod.ensure_grounding_index_aws(cfg, session=SimpleNamespace())
+
+    assert '"knn": true' in captured["data"]
+    assert '"embedding": {"type": "knn_vector", "dimension": 1536}' in captured["data"]
 
 
 def test_ensure_index_raises_when_put_fails(monkeypatch: pytest.MonkeyPatch) -> None:

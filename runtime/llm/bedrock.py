@@ -99,6 +99,8 @@ class BedrockLLMClient:
         AWS region.  Ignored when *session* is provided.
     temperature:
         Sampling temperature (0 - 1).
+    top_p:
+        Nucleus sampling probability mass (0 - 1).
     max_tokens:
         Maximum tokens in the model reply.
     """
@@ -110,6 +112,7 @@ class BedrockLLMClient:
         session: Any = None,
         region_name: str | None = None,
         temperature: float = 0.0,
+        top_p: float = 1.0,
         max_tokens: int = 1400,
     ) -> None:
         self._model_id = (
@@ -118,6 +121,7 @@ class BedrockLLMClient:
             or _DEFAULT_MODEL
         )
         self._temperature = max(0.0, min(1.0, float(temperature)))
+        self._top_p = max(0.0, min(1.0, float(top_p)))
         self._max_tokens = max(1, int(max_tokens))
 
         if session is None:
@@ -164,15 +168,23 @@ class BedrockLLMClient:
             "inferenceConfig": {
                 "maxTokens": self._max_tokens,
                 "temperature": self._temperature,
+                "topP": self._top_p,
             },
         }
         if system_parts:
             kwargs["system"] = system_parts
 
-        response = self._client.converse(**kwargs)
+        try:
+            response = self._client.converse(**kwargs)
+        except Exception as exc:
+            err_text = str(exc).lower()
+            if self._top_p == 1.0 or "top" not in err_text:
+                raise
+            kwargs["inferenceConfig"].pop("topP", None)
+            response = self._client.converse(**kwargs)
         output = response.get("output") or {}
-        message = output.get("message") or {}
-        content_list = message.get("content") or []
+        message_obj = output.get("message") or {}
+        content_list = message_obj.get("content") or []
         texts = [block.get("text") or "" for block in content_list if isinstance(block, dict)]
         return " ".join(t.strip() for t in texts if t.strip())
 
@@ -194,12 +206,14 @@ class BedrockMantleLLMClient:
         *,
         region_name: str | None = None,
         temperature: float = 0.0,
+        top_p: float = 1.0,
         max_tokens: int = 1400,
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> None:
         self._model_id = model_id or os.getenv("BEDROCK_MODEL_ID") or _DEFAULT_MODEL
         self._temperature = max(0.0, min(1.0, float(temperature)))
+        self._top_p = max(0.0, min(1.0, float(top_p)))
         self._max_tokens = max(1, int(max_tokens))
 
         region = (region_name or os.getenv("AWS_REGION") or "").strip()
@@ -240,6 +254,7 @@ class BedrockMantleLLMClient:
             "messages": openai_messages,
             "max_tokens": self._max_tokens,
             "temperature": self._temperature,
+            "top_p": self._top_p,
         }
 
         response = requests.post(

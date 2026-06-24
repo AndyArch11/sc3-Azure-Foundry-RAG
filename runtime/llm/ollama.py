@@ -32,11 +32,13 @@ class OllamaLLMClient:
         base_url: str | None = None,
         *,
         model: str | None = None,
+        top_p: float = 1.0,
     ) -> None:
         env_base_url = os.getenv("OLLAMA_BASE_URL")
         env_model = os.getenv("OLLAMA_MODEL")
         self._base_url = (base_url or env_base_url or "http://localhost:11434").strip()
         self._model = (model or env_model or "llama3").strip()
+        self._top_p = max(0.0, min(1.0, float(top_p)))
 
     def chat_complete(self, messages: list[dict[str, str]]) -> str:
         """Run chat completion via Ollama or return an echo stub."""
@@ -56,6 +58,7 @@ class OllamaLLMClient:
             messages,
             model=self._model,
             base_url=self._base_url,
+            top_p=self._top_p,
             force_json=False,
         )
 

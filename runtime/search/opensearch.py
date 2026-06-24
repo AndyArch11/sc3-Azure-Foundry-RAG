@@ -192,14 +192,14 @@ class AWSOpenSearchClient:
 
             if op == "eq":
                 if value == "":
-                    # OpenSearch cannot reliably query empty strings; use negation syntax.
-                    return f"(-_exists_:{field})"
+                    # OpenSearch cannot reliably query empty strings; keep broad fallback.
+                    return f"(NOT _exists_:{field})"
                 return f"({field}:{cls._escape_query_value(value)})"
 
             # ne
             if value == "":
                 return f"(_exists_:{field})"
-            return f"(-{field}:{cls._escape_query_value(value)})"
+            return f"(NOT {field}:{cls._escape_query_value(value)})"
 
         translated = pattern.sub(_replacement, text)
         if not replaced_any:
@@ -217,6 +217,56 @@ class AWSOpenSearchClient:
     @property
     def index_name(self) -> str:
         return self._index
+
+    @staticmethod
+    def _parse_status_code(response: requests.Response) -> int:
+        try:
+            return int(getattr(response, "status_code", 200) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _parse_error_body(response: requests.Response) -> Any:
+        try:
+            return response.json()
+        except (ValueError, AttributeError):
+            return getattr(response, "text", "")
+
+    @staticmethod
+    def _is_knn_vector_mapping_error(error_body: Any) -> bool:
+        text = str(error_body).lower()
+        return "not knn_vector type" in text or "is not knn_vector type" in text
+
+    def _log_search_error(
+        self,
+        *,
+        status_code: int,
+        filters: str | None,
+        body_payload: dict[str, Any],
+        error_body: Any,
+    ) -> None:
+        error_body_text = str(error_body)
+        if len(error_body_text) > 2000:
+            error_body_text = error_body_text[:2000] + "...<truncated>"
+        query_payload_text = json.dumps(body_payload, ensure_ascii=True)
+        if len(query_payload_text) > 2000:
+            query_payload_text = query_payload_text[:2000] + "...<truncated>"
+        logger.error(
+            (
+                "OpenSearch search error: status=%s filter=%r "
+                "error=%s query_payload=%s"
+            ),
+            status_code,
+            filters,
+            error_body_text,
+            query_payload_text,
+            extra={
+                "status_code": status_code,
+                "error_body": error_body,
+                "filter_expression": filters,
+                "query_body": body_payload,
+            },
+        )
 
     def search(
         self,
@@ -264,6 +314,7 @@ class AWSOpenSearchClient:
             timeout=self._timeout_seconds,
             operation="search_documents",
         )
+        status_code = self._parse_status_code(response)
 
         # Log translated filter for debugging
         if filters:
@@ -271,24 +322,53 @@ class AWSOpenSearchClient:
                 "OpenSearch search filter",
                 extra={
                     "filter_expression": filters,
-                    "status_code": response.status_code,
+                    "status_code": status_code,
                 },
             )
 
-        if response.status_code >= 400:
-            try:
-                error_body = response.json()
-            except (ValueError, AttributeError):
-                error_body = response.text
-            logger.error(
-                "OpenSearch search error",
-                extra={
-                    "status_code": response.status_code,
-                    "error_body": error_body,
-                    "filter_expression": filters,
-                    "query_body": body_payload,
-                },
+        if status_code >= 400:
+            error_body = self._parse_error_body(response)
+            self._log_search_error(
+                status_code=status_code,
+                filters=filters,
+                body_payload=body_payload,
+                error_body=error_body,
             )
+
+            # Some OpenSearch domains have an 'embedding' field that is not
+            # mapped as knn_vector. Fall back to lexical retrieval so evidence
+            # retrieval remains available instead of failing hard.
+            if vector_query and self._is_knn_vector_mapping_error(error_body):
+                logger.warning(
+                    "OpenSearch KNN unsupported for index %s; retrying search without vector query",
+                    self._index,
+                    extra={"status_code": status_code, "filter_expression": filters},
+                )
+                body_payload = self._build_query_body(
+                    query_text=query_text,
+                    top=top,
+                    vector_query=None,
+                    filters=filters,
+                )
+                body = json.dumps(body_payload)
+                headers = self._signed_headers("POST", url, body)
+                response = self._http.post(
+                    url,
+                    data=body,
+                    headers=headers,
+                    timeout=self._timeout_seconds,
+                    operation="search_documents",
+                )
+                status_code = self._parse_status_code(response)
+
+                if status_code >= 400:
+                    error_body = self._parse_error_body(response)
+                    self._log_search_error(
+                        status_code=status_code,
+                        filters=filters,
+                        body_payload=body_payload,
+                        error_body=error_body,
+                    )
 
         response.raise_for_status()
 

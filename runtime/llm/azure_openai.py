@@ -30,7 +30,11 @@ class AzureOpenAILLMClient:
         Azure credential object (e.g. ``DefaultAzureCredential``).  When
         *None*, a ``DefaultAzureCredential`` is created lazily.
     temperature:
-        Sampling temperature (0 – 1).
+        Sampling temperature (0 - 1).
+    top_p:
+        Nucleus sampling probability mass (0 - 1).  When set below 1, the model
+        samples only from the smallest token set whose cumulative probability
+        reaches ``top_p``.
     timeout:
         HTTP timeout in seconds for each completion request.
     """
@@ -42,6 +46,7 @@ class AzureOpenAILLMClient:
         deployment: str | None = None,
         credential: Any = None,
         temperature: float = 0.0,
+        top_p: float = 1.0,
         timeout: int = 45,
     ) -> None:
         env_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -50,6 +55,7 @@ class AzureOpenAILLMClient:
         self._deployment = (deployment or env_deployment or "").strip()
         self._credential = credential
         self._temperature = max(0.0, min(1.0, float(temperature)))
+        self._top_p = max(0.0, min(1.0, float(top_p)))
         self._timeout = max(1, int(timeout))
 
     def _get_credential(self) -> Any:
@@ -104,6 +110,7 @@ class AzureOpenAILLMClient:
                 "messages": cast(Any, messages),
                 "max_completion_tokens": 1400,
                 "temperature": temp,
+                "top_p": self._top_p,
                 "timeout": self._timeout,
             }
             if outbound_headers:
@@ -122,9 +129,21 @@ class AzureOpenAILLMClient:
                     for kw in ("must be 1", "only supports", "unsupported", "not supported", "invalid")
                 )
             )
-            if not should_retry:
+            should_retry_top_p = (
+                self._top_p != 1.0
+                and ("top_p" in message or "top p" in message or "topp" in message)
+            )
+            if not should_retry and not should_retry_top_p:
                 raise
-            response = _do_create(1.0)
+            if should_retry:
+                response = _do_create(1.0)
+            else:
+                original_top_p = self._top_p
+                self._top_p = 1.0
+                try:
+                    response = _do_create(safe_temperature)
+                finally:
+                    self._top_p = original_top_p
 
         return str(response.choices[0].message.content or "").strip()
 

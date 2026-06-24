@@ -60,6 +60,7 @@ def _run_rag(
     controls_semantic: bool,
     *,
     svc: Any,
+    top_p: float = 1.0,
     controls_context_cap: int | None = None,
     controls_framework: str | None = None,
     controls_comparison_mode: str = "auto-detect",
@@ -145,21 +146,11 @@ def _run_rag(
         if isinstance(preferred_framework_debug, dict)
         else svc._preferred_framework_for_question(question)
     )
-    try:
-        controls_debug = svc._summarise_controls_distribution(
-            controls,
-            controls_timings,
-            preferred_framework=preferred_framework,
-            preferred_framework_debug=preferred_framework_debug,
-        )
-    except TypeError:
-        # Backward compatibility for tests/service doubles that still expose the
-        # previous signature without preferred_framework_debug.
-        controls_debug = svc._summarise_controls_distribution(
-            controls,
-            controls_timings,
-            preferred_framework=preferred_framework,
-        )
+    controls_debug = svc._summarise_controls_distribution(
+        controls,
+        controls_timings,
+        preferred_framework=preferred_framework,
+    )
     controls_disclaimer = svc._controls_coverage_disclaimer(
         controls_debug=controls_debug,
         comparison_detected=bool(controls_timings.get("controls_comparison_detected", 0.0) >= 0.5),
@@ -328,14 +319,25 @@ def _run_rag(
     completion_kwargs: dict[str, Any] = {}
     if max_completion_tokens is not None:
         completion_kwargs["max_completion_tokens"] = max_completion_tokens
-    answer = svc._clean_markdown_whitespace(
-        svc._chat_completion_with_empty_retry(
-            messages,
-            deployment=svc.config.query_deployment,
-            temperature=temperature,
-            **completion_kwargs,
+    try:
+        answer = svc._clean_markdown_whitespace(
+            svc._chat_completion_with_empty_retry(
+                messages,
+                deployment=svc.config.query_deployment,
+                temperature=temperature,
+                top_p=top_p,
+                **completion_kwargs,
+            )
         )
-    )
+    except TypeError:
+        answer = svc._clean_markdown_whitespace(
+            svc._chat_completion_with_empty_retry(
+                messages,
+                deployment=svc.config.query_deployment,
+                temperature=temperature,
+                **completion_kwargs,
+            )
+        )
     answer = svc._ensure_visible_answer(answer)
     if "No answer text was generated for this request" in answer:
         answer = svc._build_retrieval_based_fallback_answer(
@@ -377,14 +379,25 @@ def _run_rag(
         )
 
         t_retry = time.perf_counter()
-        answer = svc._clean_markdown_whitespace(
-            svc._chat_completion_with_empty_retry(
-                messages,
-                deployment=svc.config.query_deployment,
-                temperature=temperature,
-                **completion_kwargs,
+        try:
+            answer = svc._clean_markdown_whitespace(
+                svc._chat_completion_with_empty_retry(
+                    messages,
+                    deployment=svc.config.query_deployment,
+                    temperature=temperature,
+                    top_p=top_p,
+                    **completion_kwargs,
+                )
             )
-        )
+        except TypeError:
+            answer = svc._clean_markdown_whitespace(
+                svc._chat_completion_with_empty_retry(
+                    messages,
+                    deployment=svc.config.query_deployment,
+                    temperature=temperature,
+                    **completion_kwargs,
+                )
+            )
         answer = svc._ensure_visible_answer(answer)
         if "No answer text was generated for this request" in answer:
             answer = svc._build_retrieval_based_fallback_answer(

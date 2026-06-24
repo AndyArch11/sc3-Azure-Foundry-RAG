@@ -281,6 +281,7 @@
     setVal('retrieve_k', defaults.retrieve_k);
     setVal('controls_context_cap', defaults.controls_context_cap);
     setVal('temperature', defaults.temperature);
+    setVal('top_p', defaults.top_p);
     setVal('max_completion_tokens', defaults.max_completion_tokens);
     setVal('evaluator_max_completion_tokens', defaults.evaluator_max_completion_tokens);
     setVal('controls_semantic', defaults.controls_semantic);
@@ -502,6 +503,35 @@
     const allChecked = document.getElementById('ca-all').checked;
     if (allChecked) return ['all'];
     return Array.from(document.querySelectorAll('.ca-fw:checked')).map(el => el.value);
+  }
+
+  function _syncCorpusAFrameworkCheckboxes() {
+    const allEl = document.getElementById('ca-all');
+    const frameworkEls = Array.from(document.querySelectorAll('.ca-fw'));
+    if (!allEl || !frameworkEls.length) return;
+
+    const applyAllState = function (checked) {
+      frameworkEls.forEach(function (el) {
+        el.checked = checked;
+      });
+    };
+
+    allEl.addEventListener('change', function () {
+      if (allEl.checked) {
+        applyAllState(true);
+      }
+    });
+
+    frameworkEls.forEach(function (el) {
+      el.addEventListener('change', function () {
+        const allFrameworksChecked = frameworkEls.every(function (fw) { return fw.checked; });
+        allEl.checked = allFrameworksChecked;
+      });
+    });
+
+    // Normalise initial state on load.
+    const allFrameworksChecked = frameworkEls.every(function (fw) { return fw.checked; });
+    allEl.checked = allFrameworksChecked;
   }
 
   function _renderCorpusAStatus(payload) {
@@ -1337,6 +1367,7 @@
       retrieve_k: Number(document.getElementById('cr-retrieve-k').value || 5),
       controls_top_k: Number(document.getElementById('cr-controls-top-k').value || 4),
       temperature: Number(document.getElementById('cr-temperature').value || 1),
+      top_p: Number(document.getElementById('cr-top-p').value || 1),
     thinking_mode: document.getElementById('cr-thinking-mode').value || 'balanced',
     max_completion_tokens: (function() {
       const val = document.getElementById('cr-max-completion-tokens').value.trim();
@@ -1395,6 +1426,7 @@
       controls_framework: document.getElementById('az-controls-framework').value || 'NIST CSF',
       controls_top_k: Number(document.getElementById('az-controls-top-k').value || 4),
       temperature: Number(document.getElementById('az-temperature').value || 1),
+      top_p: Number(document.getElementById('az-top-p').value || 1),
       thinking_mode: document.getElementById('az-thinking-mode').value || 'balanced',
       max_completion_tokens: (function() {
         const val = document.getElementById('az-max-completion-tokens').value.trim();
@@ -1455,6 +1487,7 @@
       controls_top_k: Number(document.getElementById('aws-controls-top-k').value || 4),
       retrieve_k: Number(document.getElementById('aws-retrieve-k').value || 5),
       temperature: Number(document.getElementById('aws-temperature').value || 1),
+      top_p: Number(document.getElementById('aws-top-p').value || 1),
       thinking_mode: document.getElementById('aws-thinking-mode').value || 'balanced',
       max_completion_tokens: (function() {
         const val = document.getElementById('aws-max-completion-tokens').value.trim();
@@ -1561,6 +1594,7 @@
       if (fallback) fallback.style.display = '';
     }
     refreshCorpusAStatus();
+    _syncCorpusAFrameworkCheckboxes();
 
     // Restore last-used tab; keep Ask if server rendered a result this load
     var savedTab = '';

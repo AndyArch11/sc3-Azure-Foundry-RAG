@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 from typing import Any
 
-from runtime.provider_core import DEFAULT_CLOUD_PROVIDER_REGISTRY
+try:
+    _provider_core = importlib.import_module("runtime.provider_core")
+except ModuleNotFoundError:
+    # In ingestion images modules are copied to /app/* without runtime/ prefix.
+    _provider_core = importlib.import_module("provider_core")
+
+DEFAULT_CLOUD_PROVIDER_REGISTRY = _provider_core.DEFAULT_CLOUD_PROVIDER_REGISTRY
 
 from .abstract import StorageClient
 

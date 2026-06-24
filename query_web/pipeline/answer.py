@@ -91,6 +91,7 @@ def _chunk_reference_label(chunk: dict[str, Any], *, fallback: str = "(unknown s
 
     return fallback
 
+
 # TODO: Refactor so only using a single format for corpus / corpus_role and avoid this dual normalisation logic.
 def _normalise_corpus_value(raw_value: Any) -> str:
     return str(raw_value or "").strip().lower().replace("_", "-")

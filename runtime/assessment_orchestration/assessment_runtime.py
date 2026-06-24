@@ -107,6 +107,7 @@ class AssessmentRuntimeConfig:
     controls_top_k: int = 4
     guidance_top_k: int = 5
     temperature: float = 0.2
+    top_p: float = 1.0
     controls_semantic_default: bool = False
     controls_semantic_configuration_name: str = "controls-semantic"
     framework_authority_order: tuple[str, ...] = (
@@ -241,6 +242,10 @@ def load_assessment_runtime_config_from_env(
             ),
         ),
         temperature=float(values.get("ASSESSMENT_TEMPERATURE") or str(defaults["temperature"])),
+        top_p=max(
+            0.0,
+            min(1.0, float(values.get("ASSESSMENT_TOP_P") or values.get("TOP_P") or "1.0")),
+        ),
         controls_semantic_default=_env_bool(values, "CONTROLS_SEMANTIC_DEFAULT", default=False),
         controls_semantic_configuration_name=(
             values.get("AZURE_SEARCH_CONTROLS_SEMANTIC_CONFIG") or "controls-semantic"
@@ -375,6 +380,7 @@ def _chat_completion(
     *,
     config: AssessmentRuntimeConfig,
     credential: Any,
+    top_p: float = 1.0,
     timeout: int = 45,
 ) -> str:
     """Run chat completion."""
@@ -385,6 +391,7 @@ def _chat_completion(
             model_id=config.query_deployment or None,
             region_name=os.getenv("AWS_REGION"),
             temperature=max(0.0, min(1.0, float(config.temperature))),
+            top_p=max(0.0, min(1.0, float(top_p))),
         )
         return llm.chat_complete(messages).strip()
 
@@ -406,6 +413,7 @@ def _chat_completion(
         "messages": cast(Any, messages),
         "max_completion_tokens": 1400,
         "temperature": safe_temperature,
+        "top_p": max(0.0, min(1.0, float(top_p))),
         "timeout": timeout,
     }
     if outbound_headers:
@@ -426,10 +434,17 @@ def _chat_completion(
                 or "invalid" in message
             )
         )
-        if not should_retry_with_one:
+        should_retry_top_p = max(0.0, min(1.0, float(top_p))) != 1.0 and (
+            "top_p" in message or "top p" in message or "topp" in message
+        )
+        if not should_retry_with_one and not should_retry_top_p:
             raise
-        request_kwargs["temperature"] = 1.0
-        response = client.chat.completions.create(**request_kwargs)
+        if should_retry_with_one:
+            request_kwargs["temperature"] = 1.0
+            response = client.chat.completions.create(**request_kwargs)
+        else:
+            request_kwargs["top_p"] = 1.0
+            response = client.chat.completions.create(**request_kwargs)
     return str(response.choices[0].message.content or "").strip()
 
 
@@ -999,7 +1014,10 @@ class SearchBackedAssessmentAgent:
         )
         self._chat_completion = chat_completion or (
             lambda messages: _chat_completion(
-                messages, config=self._config, credential=self._credential
+                messages,
+                config=self._config,
+                credential=self._credential,
+                top_p=self._config.top_p,
             )
         )
 

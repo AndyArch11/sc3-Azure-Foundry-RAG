@@ -21,6 +21,7 @@ COPY --from=deps /install /install
 COPY ingestion/ ./ingestion/
 COPY credentials/ ./credentials/
 COPY storage/ ./storage/
+COPY provider_core/ ./provider_core/
 COPY log_config.py ./log_config.py
 COPY trace_context.py ./trace_context.py
 COPY outbound_instrumentation.py ./outbound_instrumentation.py

@@ -164,6 +164,21 @@ variable "controls_index_name" {
   type = string
 }
 
+variable "opensearch_grounding_index_knn_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "opensearch_grounding_embedding_dimensions" {
+  type    = number
+  default = 1024
+}
+
+variable "grounding_embed_on_ingest" {
+  type    = bool
+  default = false
+}
+
 variable "bedrock_model_id" {
   type = string
 }

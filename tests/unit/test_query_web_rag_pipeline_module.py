@@ -287,7 +287,9 @@ def test_run_rag_classifies_mixed_case_corpus_b_chunks() -> None:
     svc._controls_search = lambda question, **kwargs: ([], {"controls_comparison_detected": 0.0})
     svc._chat_completion_with_empty_retry = lambda *args, **kwargs: "good answer"
 
-    def _capture_evaluate(question: str, context: str, answer: str, **kwargs: Any) -> dict[str, Any]:
+    def _capture_evaluate(
+        question: str, context: str, answer: str, **kwargs: Any
+    ) -> dict[str, Any]:
         captured_context["value"] = context
         return {"acceptable": True, "score": 1.0, "reason": "ok"}
 

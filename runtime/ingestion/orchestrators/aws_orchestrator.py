@@ -7,15 +7,48 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
+
+
+def _truthy_env(name: str, default: str = "false") -> bool:
+    raw = os.getenv(name, default).strip().lower()
+    return raw not in {"", "0", "false", "no", "off"}
+
+
+def _embed_text_aws(text: str, session: Any, model_id: str) -> list[float]:
+    payload = {"inputText": text}
+    bedrock = session.client("bedrock-runtime")
+    response = bedrock.invoke_model(
+        modelId=model_id,
+        body=json.dumps(payload).encode("utf-8"),
+        contentType="application/json",
+        accept="application/json",
+    )
+    body_stream = response.get("body")
+    if body_stream is None:
+        raise RuntimeError("Bedrock embedding response body was empty")
+    payload_obj = json.loads(body_stream.read())
+
+    vector = payload_obj.get("embedding")
+    if vector is None:
+        by_type = payload_obj.get("embeddingsByType")
+        if isinstance(by_type, dict):
+            float_vectors = by_type.get("float")
+            if isinstance(float_vectors, list) and float_vectors:
+                vector = float_vectors[0]
+    if not isinstance(vector, list) or not vector:
+        raise RuntimeError("Bedrock embedding response did not include a vector")
+    return [float(v) for v in vector]
 
 
 def run_aws(args: argparse.Namespace) -> int:
     """Run Corpus B ingestion on AWS and publish to OpenSearch."""
 
     try:
-        from ...credentials import get_credential_provider
-        from ...storage import get_storage_client
-    except ImportError:
+        from runtime.credentials import get_credential_provider
+        from runtime.storage import get_storage_client
+    except ModuleNotFoundError:
+        # In ingestion images we copy modules to /app/* without the runtime package prefix.
         from credentials import get_credential_provider
         from storage import get_storage_client
 
@@ -36,6 +69,14 @@ def run_aws(args: argparse.Namespace) -> int:
     # Step 1: get AWS credentials from abstraction layer
     credential_provider = get_credential_provider(cloud_provider="aws")
     aws_session = credential_provider.get_sdk_credential()
+
+    embed_on_ingest = _truthy_env("GROUNDING_EMBED_ON_INGEST", default="false")
+    embedding_model_id = os.getenv("BEDROCK_EMBEDDING_MODEL_ID", "").strip()
+    if embed_on_ingest and not embedding_model_id:
+        logger.warning(
+            "GROUNDING_EMBED_ON_INGEST is enabled but BEDROCK_EMBEDDING_MODEL_ID is empty; disabling embeddings"
+        )
+        embed_on_ingest = False
 
     corpus = os.getenv("INGESTION_CORPUS", "b").strip() or "b"
     index_prefix = os.getenv("AWS_S3_PREFIX", "").strip() or f"corpus-{corpus}/by-dedupe/"
@@ -165,6 +206,8 @@ def run_aws(args: argparse.Namespace) -> int:
     docs_processed = 0
     docs_failed = 0
     all_chunk_records: list[dict] = []
+    embeddings_indexed = 0
+    embedding_failures = 0
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
@@ -211,29 +254,40 @@ def run_aws(args: argparse.Namespace) -> int:
             docs_processed += 1
 
             for chunk in chunks:
-                all_chunk_records.append(
-                    {
-                        "chunk_id": chunk.chunk_id,
-                        "chunk_index": chunk.chunk_index,
-                        "content": chunk.content,
-                        "source_path": s3_key,
-                        "source_name": Path(s3_key).name,
-                        "source_type": chunk.source_type,
-                        "corpus": str(obj_meta.get("corpus") or corpus),
-                        "corpus_role": str(obj_meta.get("corpus_role") or "narrative_guidance"),
-                        "upload_source": str(obj_meta.get("upload_source") or ""),
-                        "uploaded_by": str(obj_meta.get("uploaded_by") or ""),
-                        "upload_batch": str(obj_meta.get("upload_batch") or ""),
-                        "uploaded_at": str(obj_meta.get("uploaded_at") or ""),
-                        "original_filename": str(
-                            obj_meta.get("original_filename") or Path(s3_key).name
-                        ),
-                        "content_sha256": str(obj_meta.get("content_sha256") or ""),
-                        "normalised_text_sha256": str(obj_meta.get("normalised_text_sha256") or ""),
-                        "dedupe_hash": str(obj_meta.get("dedupe_hash") or ""),
-                        "dedupe_method": str(obj_meta.get("dedupe_method") or ""),
-                    }
-                )
+                record = {
+                    "chunk_id": chunk.chunk_id,
+                    "chunk_index": chunk.chunk_index,
+                    "content": chunk.content,
+                    "source_path": s3_key,
+                    "source_name": Path(s3_key).name,
+                    "source_type": chunk.source_type,
+                    "corpus": str(obj_meta.get("corpus") or corpus),
+                    "corpus_role": str(obj_meta.get("corpus_role") or "narrative_guidance"),
+                    "upload_source": str(obj_meta.get("upload_source") or ""),
+                    "uploaded_by": str(obj_meta.get("uploaded_by") or ""),
+                    "upload_batch": str(obj_meta.get("upload_batch") or ""),
+                    "uploaded_at": str(obj_meta.get("uploaded_at") or ""),
+                    "original_filename": str(
+                        obj_meta.get("original_filename") or Path(s3_key).name
+                    ),
+                    "content_sha256": str(obj_meta.get("content_sha256") or ""),
+                    "normalised_text_sha256": str(obj_meta.get("normalised_text_sha256") or ""),
+                    "dedupe_hash": str(obj_meta.get("dedupe_hash") or ""),
+                    "dedupe_method": str(obj_meta.get("dedupe_method") or ""),
+                }
+
+                if embed_on_ingest:
+                    try:
+                        vector = _embed_text_aws(
+                            chunk.content[:6000], aws_session, embedding_model_id
+                        )
+                        record["embedding"] = vector
+                        embeddings_indexed += 1
+                    except Exception as exc:
+                        embedding_failures += 1
+                        logger.warning("Failed to embed chunk %s: %s", chunk.chunk_id, exc)
+
+                all_chunk_records.append(record)
 
     # Step 5: bulk-index all chunks into OpenSearch
     index_result: dict = {"records_indexed": 0, "records_skipped": 0, "records_failed": 0}
@@ -262,6 +316,8 @@ def run_aws(args: argparse.Namespace) -> int:
         "chunks_indexed": index_result.get("records_indexed", 0),
         "chunks_skipped": index_result.get("records_skipped", 0),
         "chunks_failed": index_result.get("records_failed", 0),
+        "embeddings_indexed": embeddings_indexed,
+        "embedding_failures": embedding_failures,
         "s3_uploads": uploaded_count,
         "s3_upload_failed": upload_failed_count,
     }

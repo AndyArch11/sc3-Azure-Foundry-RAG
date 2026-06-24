@@ -132,10 +132,16 @@ def _is_temperature_unsupported_error(exc: Exception) -> bool:
     )
 
 
+def _is_top_p_unsupported_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "top_p" in message or "top p" in message or "topp" in message
+
+
 def _chat_completion(
     messages: list[dict[str, str]],
     deployment: str,
     temperature: float,
+    top_p: float = 1.0,
     *,
     svc: Any,
     timeout: int = 45,
@@ -156,6 +162,7 @@ def _chat_completion(
             cloud_provider=provider,
             ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             ollama_model=os.getenv("OLLAMA_MODEL", "llama3.2"),
+            top_p=top_p,
         )
         return llm.chat_complete(messages).strip()
 
@@ -168,6 +175,7 @@ def _chat_completion(
             model_id=deployment or os.getenv("BEDROCK_MODEL_ID"),
             region_name=os.getenv("AWS_REGION"),
             temperature=safe_temperature,
+            top_p=max(0.0, min(1.0, float(top_p))),
             max_tokens=bedrock_max_tokens,
         )
         return llm.chat_complete(messages).strip()
@@ -192,6 +200,7 @@ def _chat_completion(
         "messages": typed_messages,
         "max_completion_tokens": token_cap,
         "temperature": safe_temperature,
+        "top_p": max(0.0, min(1.0, float(top_p))),
         "timeout": timeout,
     }
     if outbound_headers:
@@ -218,6 +227,19 @@ def _chat_completion(
                 operation="chat_completions_create_retry",
                 call=lambda: client.chat.completions.create(**request_kwargs),
             )
+        elif max(0.0, min(1.0, float(top_p))) != 1.0 and _is_top_p_unsupported_error(exc):
+            svc.logger.warning(
+                "Model rejected top_p %.3f for deployment %s; retrying with top_p=1.0",
+                max(0.0, min(1.0, float(top_p))),
+                deployment,
+            )
+            request_kwargs["top_p"] = 1.0
+            response = sdk_call_with_instrumentation(
+                logger=svc.logger,
+                system="azure-openai",
+                operation="chat_completions_create_retry",
+                call=lambda: client.chat.completions.create(**request_kwargs),
+            )
         else:
             raise
     return (response.choices[0].message.content or "").strip()
@@ -228,6 +250,7 @@ def _chat_completion_with_empty_retry(
     *,
     deployment: str,
     temperature: float,
+    top_p: float = 1.0,
     svc: Any,
     timeout: int = 45,
     max_completion_tokens: int | None = None,
@@ -236,15 +259,27 @@ def _chat_completion_with_empty_retry(
     if max_completion_tokens is not None:
         completion_kwargs["max_completion_tokens"] = max_completion_tokens
 
-    response = svc._unwrap_answer(
-        svc._chat_completion(
-            messages,
-            deployment=deployment,
-            temperature=temperature,
-            timeout=timeout,
-            **completion_kwargs,
-        )
-    ).strip()
+    try:
+        response = svc._unwrap_answer(
+            svc._chat_completion(
+                messages,
+                deployment=deployment,
+                temperature=temperature,
+                top_p=top_p,
+                timeout=timeout,
+                **completion_kwargs,
+            )
+        ).strip()
+    except TypeError:
+        response = svc._unwrap_answer(
+            svc._chat_completion(
+                messages,
+                deployment=deployment,
+                temperature=temperature,
+                timeout=timeout,
+                **completion_kwargs,
+            )
+        ).strip()
     if response:
         return response
 
@@ -253,15 +288,27 @@ def _chat_completion_with_empty_retry(
         "Compliance model returned an empty response; retrying once with temperature=%.1f",
         retry_temperature,
     )
-    return svc._unwrap_answer(
-        svc._chat_completion(
-            messages,
-            deployment=deployment,
-            temperature=retry_temperature,
-            timeout=timeout,
-            **completion_kwargs,
-        )
-    ).strip()
+    try:
+        return svc._unwrap_answer(
+            svc._chat_completion(
+                messages,
+                deployment=deployment,
+                temperature=retry_temperature,
+                top_p=top_p,
+                timeout=timeout,
+                **completion_kwargs,
+            )
+        ).strip()
+    except TypeError:
+        return svc._unwrap_answer(
+            svc._chat_completion(
+                messages,
+                deployment=deployment,
+                temperature=retry_temperature,
+                timeout=timeout,
+                **completion_kwargs,
+            )
+        ).strip()
 
 
 def _evaluate(

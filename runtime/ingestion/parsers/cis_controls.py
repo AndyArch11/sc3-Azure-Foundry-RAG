@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 import logging
 import re
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -150,7 +151,14 @@ class CisControlsParser(BaseParser):
 
         guidance_map = _build_control_guidance_map(self._pdf_path)
 
-        workbook = openpyxl.load_workbook(self._workbook_path, read_only=True, data_only=True)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Unknown extension is not supported and will be removed",
+                category=UserWarning,
+                module=r"openpyxl\\..*",
+            )
+            workbook = openpyxl.load_workbook(self._workbook_path, read_only=True, data_only=True)
         if "Controls V8" not in workbook.sheetnames:
             raise RuntimeError("CIS workbook missing expected 'Controls V8' sheet")
         sheet = workbook["Controls V8"]

@@ -270,6 +270,7 @@ def create_chat_completion_fn(
                     model=ollama_model,
                     base_url=ollama_url,
                     temperature=1.0,
+                    top_p=max(0.0, min(1.0, float(getattr(config, "top_p", 1.0)))),
                     timeout=120,
                     force_json=force_json,
                     num_ctx=num_ctx,

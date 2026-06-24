@@ -36,6 +36,7 @@ class ComplianceReportRequest(BaseModel):
     retrieve_k: int = Field(default=5, ge=1, le=20)
     controls_top_k: int = Field(default=4, ge=1, le=2000)
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
+    top_p: float = Field(default=1.0, ge=0.0, le=1.0)
     thinking_mode: str = "balanced"
     max_completion_tokens: int | None = Field(default=None, ge=256, le=8192)
     evaluator_max_completion_tokens: int | None = Field(default=None, ge=128, le=4096)
@@ -59,6 +60,7 @@ class AzureComplianceReportRequest(BaseModel):
     controls_framework: str = "NIST CSF"
     controls_top_k: int = Field(default=4, ge=1, le=2000)
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
+    top_p: float = Field(default=1.0, ge=0.0, le=1.0)
     thinking_mode: str = "balanced"
     max_completion_tokens: int | None = Field(default=None, ge=256, le=8192)
     evaluator_max_completion_tokens: int | None = Field(default=None, ge=128, le=4096)
@@ -77,6 +79,7 @@ class AwsComplianceReportRequest(BaseModel):
     controls_top_k: int = Field(default=4, ge=1, le=2000)
     retrieve_k: int = Field(default=5, ge=1, le=20)
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
+    top_p: float = Field(default=1.0, ge=0.0, le=1.0)
     thinking_mode: str = "balanced"
     max_completion_tokens: int | None = Field(default=None, ge=256, le=8192)
     evaluator_max_completion_tokens: int | None = Field(default=None, ge=128, le=4096)
@@ -642,6 +645,7 @@ def _assess_control_finding_with_llm(
     corpus_b_chunks: list[dict[str, Any]],
     corpus_c_chunks: list[dict[str, Any]],
     temperature: float,
+    top_p: float = 1.0,
 ) -> dict[str, Any]:
     requirement_id = str(control.get("requirement_id") or "").strip() or "UNMAPPED"
     framework = str(control.get("framework") or "").strip() or "Unknown"
@@ -686,11 +690,19 @@ def _assess_control_finding_with_llm(
     ]
 
     try:
-        raw = svc._chat_completion_with_empty_retry(
-            messages,
-            deployment=svc.config.query_deployment,
-            temperature=temperature,
-        )
+        try:
+            raw = svc._chat_completion_with_empty_retry(
+                messages,
+                deployment=svc.config.query_deployment,
+                temperature=temperature,
+                top_p=top_p,
+            )
+        except TypeError:
+            raw = svc._chat_completion_with_empty_retry(
+                messages,
+                deployment=svc.config.query_deployment,
+                temperature=temperature,
+            )
         parsed = _extract_json_object(raw, svc)
     except Exception:
         logger.exception(
@@ -732,6 +744,7 @@ def _build_per_control_report_payload(
     corpus_b_chunks: list[dict[str, Any]],
     corpus_c_chunks: list[dict[str, Any]],
     temperature: float,
+    top_p: float = 1.0,
     progress_cb: Callable[[int, int, str, str], None] | None = None,
     corpus_b_indexed_total: int = 0,
     corpus_c_indexed_total: int = 0,
@@ -758,6 +771,7 @@ def _build_per_control_report_payload(
             corpus_b_chunks=relevant_b,
             corpus_c_chunks=relevant_c,
             temperature=temperature,
+            top_p=top_p,
         )
         findings.append(finding)
         if progress_cb:
@@ -941,6 +955,9 @@ def generate_compliance_report_result(
         if payload.temperature is not None
         else mode_defaults.get("default_temperature", 1.0)
     )
+    report_top_p = getattr(payload, "top_p", 1.0)
+    if report_top_p is None:
+        report_top_p = 1.0
 
     controls, controls_timings = svc._controls_search(
         effective_question,
@@ -1015,6 +1032,7 @@ def generate_compliance_report_result(
             corpus_b_chunks=corpus_b_chunks,
             corpus_c_chunks=corpus_c_chunks,
             temperature=report_temperature,
+            top_p=report_top_p,
             progress_cb=progress_cb,
             corpus_b_indexed_total=corpus_b_indexed_total,
             corpus_c_indexed_total=corpus_c_indexed_total,
@@ -1079,6 +1097,7 @@ def generate_compliance_report_result(
             messages,
             deployment=svc.config.query_deployment,
             temperature=report_temperature,
+            top_p=report_top_p,
         )
         try:
             report_payload = _extract_json_object(model_response, svc)
@@ -1235,9 +1254,13 @@ def generate_azure_compliance_report_result(
         if payload.temperature is not None
         else mode_defaults.get("default_temperature", 1.0)
     )
+    report_top_p = getattr(payload, "top_p", 1.0)
+    if report_top_p is None:
+        report_top_p = 1.0
 
     resolved_env = dict(os.environ)
     resolved_env["CONTROLS_TOP_K"] = str(payload.controls_top_k)
+    resolved_env["ASSESSMENT_TOP_P"] = str(payload.top_p)
 
     validation_error = ""
     report_structured: ComplianceReportStructured | None = None
@@ -1275,6 +1298,7 @@ def generate_azure_compliance_report_result(
             corpus_b_chunks=corpus_b_chunks,
             corpus_c_chunks=corpus_c_chunks,
             temperature=report_temperature,
+            top_p=report_top_p,
             progress_cb=progress_cb,
             corpus_c_scope_label="Live Azure artifacts collected",
         )
@@ -1634,7 +1658,9 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
         return JSONResponse({"job_id": job.job_id, "mode": "azure-compliance-report-job"})
 
     @app.post("/api/compliance/report/aws/start")
-    def start_aws_compliance_report(request: Request, payload: AwsComplianceReportRequest) -> JSONResponse:
+    def start_aws_compliance_report(
+        request: Request, payload: AwsComplianceReportRequest
+    ) -> JSONResponse:
         if not svc._is_authorised_request(payload.auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -1651,7 +1677,9 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
             )
 
         def _run() -> None:
-            _update_report_job(job.job_id, state="running", message="Starting AWS compliance report")
+            _update_report_job(
+                job.job_id, state="running", message="Starting AWS compliance report"
+            )
             try:
                 result = svc._generate_aws_compliance_report_result(payload, progress_cb=_progress)
                 _update_report_job(

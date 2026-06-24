@@ -97,6 +97,7 @@ def register_ask_endpoints(
         retrieve_k: int = Form(...),
         controls_context_cap: int = Form(0),
         temperature: float = Form(...),
+        top_p: float = Form(1.0),
         max_completion_tokens: str = Form(""),
         evaluator_max_completion_tokens: str = Form(""),
         controls_semantic: str = Form(""),
@@ -246,6 +247,7 @@ def register_ask_endpoints(
                     "retrieve_k": retrieve_k,
                     "controls_context_cap": controls_context_cap,
                     "temperature": temperature,
+                    "top_p": top_p,
                     "max_completion_tokens": (
                         max_completion_tokens_int
                         if max_completion_tokens_int is not None
@@ -291,6 +293,7 @@ def register_ask_endpoints(
         retrieve_k = max(1, min(20, retrieve_k))
         controls_context_cap = max(1, min(2000, controls_context_cap))
         temperature = max(0, min(1.0, temperature))
+        top_p = max(0.0, min(1.0, top_p))
         controls_semantic_enabled = resolved_form_bool(
             controls_semantic, default=resolved_config.controls_semantic_default
         )
@@ -319,6 +322,7 @@ def register_ask_endpoints(
                 retrieve_k=retrieve_k,
                 controls_context_cap=controls_context_cap,
                 temperature=temperature,
+                top_p=top_p,
                 max_completion_tokens=max_completion_tokens_int,
                 evaluator_max_completion_tokens=evaluator_max_completion_tokens_int,
                 controls_semantic=controls_semantic_enabled,
@@ -385,6 +389,7 @@ def register_ask_endpoints(
                 "retrieve_k": retrieve_k,
                 "controls_context_cap": controls_context_cap,
                 "temperature": temperature,
+                "top_p": top_p,
                 "max_completion_tokens": (
                     max_completion_tokens_int
                     if max_completion_tokens_int is not None
@@ -466,6 +471,9 @@ def register_ask_endpoints(
         api_retrieve_k = parsed_payload.retrieve_k
         api_controls_context_cap = parsed_payload.controls_context_cap
         api_temperature = parsed_payload.temperature
+        api_top_p = getattr(parsed_payload, "top_p", 1.0)
+        if api_top_p is None:
+            api_top_p = 1.0
         if api_retrieve_k == 5 and api_thinking_mode:
             api_retrieve_k = int(api_mode_defaults.get("search_top_k", 5))
         if api_controls_context_cap is None:
@@ -476,6 +484,8 @@ def register_ask_endpoints(
             )
         if api_temperature == 1.0 and api_thinking_mode:
             api_temperature = float(api_mode_defaults.get("default_temperature", 1.0))
+        if api_top_p == 1.0 and api_thinking_mode:
+            api_top_p = 1.0
 
         required_dependencies = [
             resolved_is_authorised_request,
@@ -519,6 +529,7 @@ def register_ask_endpoints(
                 retrieve_k=api_retrieve_k,
                 controls_context_cap=max(1, min(2000, int(api_controls_context_cap))),
                 temperature=api_temperature,
+                top_p=api_top_p,
                 max_completion_tokens=getattr(parsed_payload, "max_completion_tokens", None)
                 or api_mode_defaults.get("max_completion_tokens"),
                 evaluator_max_completion_tokens=getattr(

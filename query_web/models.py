@@ -14,6 +14,7 @@ class AskRequest(BaseModel):
     retrieve_k: int = Field(default=5, ge=1, le=20)
     controls_context_cap: int | None = Field(default=None, ge=1, le=2000)
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
+    top_p: float = Field(default=1.0, ge=0.0, le=1.0)
     auth_token: str = ""
     thinking_mode: str = "balanced"
     controls_semantic: bool | None = None

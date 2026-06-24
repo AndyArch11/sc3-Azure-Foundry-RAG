@@ -700,11 +700,16 @@ def test_compliance_report_respects_evidence_corpus_include_exclude() -> None:
     assert body["schema_valid"] is True
     assert body["evidence_corpora_selected"] == ["b"]
     assert body["corpus_c_count"] == 0
-    assert body["audit"]["evidence_corpus_filter_expr"] == "corpus eq 'b'"
+    assert body["audit"]["evidence_corpus_filter_expr"] == (
+        "corpus eq 'b' or corpus_role eq 'narrative_guidance'"
+    )
     assert body["audit"]["corpus_c_filter_expr"] == "corpus eq 'c'"
     assert hybrid_mock.call_count == 2
     call_filters = [call.kwargs["evidence_filter"] for call in hybrid_mock.call_args_list]
-    assert call_filters == ["corpus eq 'b'", "corpus eq 'c'"]
+    assert call_filters == [
+        "corpus eq 'b'",
+        "corpus eq 'c'",
+    ]
 
 
 def test_assess_control_finding_coerces_scalar_list_fields() -> None:

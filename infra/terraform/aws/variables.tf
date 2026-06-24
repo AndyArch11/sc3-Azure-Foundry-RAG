@@ -313,3 +313,21 @@ variable "controls_index_name" {
   description = "OpenSearch index name for compliance controls."
   default     = "controls-index"
 }
+
+variable "opensearch_grounding_index_knn_enabled" {
+  type        = bool
+  description = "Enable index.knn and knn_vector embedding mapping when creating grounding index."
+  default     = false
+}
+
+variable "opensearch_grounding_embedding_dimensions" {
+  type        = number
+  description = "Embedding dimension used for grounding embedding knn_vector mapping."
+  default     = 1024
+}
+
+variable "grounding_embed_on_ingest" {
+  type        = bool
+  description = "Generate and store grounding chunk embeddings during AWS ingestion."
+  default     = false
+}

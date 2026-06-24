@@ -118,7 +118,9 @@ def test_evidence_corpus_helpers_normalise_and_build_filter() -> None:
     )
 
     assert selected == ["b"]
-    assert app_module._build_evidence_corpus_filter(selected) == "corpus eq 'b'"
+    assert app_module._build_evidence_corpus_filter(selected) == (
+        "corpus eq 'b' or corpus_role eq 'narrative_guidance'"
+    )
     assert app_module._build_evidence_corpus_filter([]) == "__none__"
 
 

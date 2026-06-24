@@ -182,6 +182,7 @@ def _chat_or_generate_once(
     messages: list[dict[str, str]],
     model: str,
     temperature: float,
+    top_p: float,
     timeout: int,
     force_json: bool,
     num_ctx: int,
@@ -194,6 +195,7 @@ def _chat_or_generate_once(
         "stream": False,
         "options": {
             "temperature": max(0.0, min(2.0, float(temperature))),
+            "top_p": max(0.0, min(1.0, float(top_p))),
             "num_ctx": num_ctx,
         },
     }
@@ -223,6 +225,7 @@ def _chat_or_generate_once(
             "stream": False,
             "options": {
                 "temperature": max(0.0, min(2.0, float(temperature))),
+                "top_p": max(0.0, min(1.0, float(top_p))),
                 "num_ctx": num_ctx,
             },
         }
@@ -248,6 +251,7 @@ def ollama_chat_completion(
     model: str = "gemma3:27b",
     base_url: str | None = None,
     temperature: float = 1.0,
+    top_p: float = 1.0,
     timeout: int = 240,
     force_json: bool = True,
     num_ctx: int = 65536,
@@ -312,6 +316,7 @@ def ollama_chat_completion(
                 messages=messages,
                 model=model,
                 temperature=temperature,
+                top_p=top_p,
                 timeout=effective_timeout,
                 force_json=force_json,
                 num_ctx=current_num_ctx,
@@ -362,6 +367,7 @@ def ollama_chat_completion(
                     messages=messages,
                     model=fallback_model,
                     temperature=temperature,
+                    top_p=top_p,
                     timeout=timeout,
                     force_json=force_json,
                     num_ctx=num_ctx,
