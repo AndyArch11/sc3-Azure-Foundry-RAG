@@ -160,7 +160,7 @@ class AWSOpenSearchClient:
         - field eq 'value'
         - field ne 'value'
         - field ne ''  -> _exists_:field
-        - conjunctions via "and"
+        - boolean combinations via "and" / "or" with optional parentheses
 
         If parsing fails, the original filter string is returned unchanged.
         """
@@ -175,36 +175,44 @@ class AWSOpenSearchClient:
         if " eq " not in text and " ne " not in text:
             return text
 
-        parts = re.split(r"\s+and\s+", text, flags=re.IGNORECASE)
-        translated: list[str] = []
         pattern = re.compile(
-            r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s+(eq|ne)\s+'((?:[^']|'')*)'\s*$",
+            r"([A-Za-z_][A-Za-z0-9_]*)\s+(eq|ne)\s+'((?:[^']|'')*)'",
             flags=re.IGNORECASE,
         )
 
-        for part in parts:
-            match = pattern.match(part)
-            if not match:
-                return text
+        replaced_any = False
+
+        def _replacement(match: re.Match[str]) -> str:
+            nonlocal replaced_any
+            replaced_any = True
+
             field, operator, raw_value = match.groups()
             value = raw_value.replace("''", "'")
             op = operator.lower()
 
             if op == "eq":
                 if value == "":
-                    # OpenSearch cannot reliably query empty strings; keep broad fallback.
-                    translated.append(f"NOT _exists_:{field}")
-                else:
-                    translated.append(f"{field}:{cls._escape_query_value(value)}")
-                continue
+                    # OpenSearch cannot reliably query empty strings; use negation syntax.
+                    return f"(-_exists_:{field})"
+                return f"({field}:{cls._escape_query_value(value)})"
 
             # ne
             if value == "":
-                translated.append(f"_exists_:{field}")
-            else:
-                translated.append(f"NOT {field}:{cls._escape_query_value(value)}")
+                return f"(_exists_:{field})"
+            return f"(-{field}:{cls._escape_query_value(value)})"
 
-        return " AND ".join(translated) if translated else text
+        translated = pattern.sub(_replacement, text)
+        if not replaced_any:
+            return text
+
+        translated = re.sub(r"\band\b", "AND", translated, flags=re.IGNORECASE)
+        translated = re.sub(r"\bor\b", "OR", translated, flags=re.IGNORECASE)
+
+        # If any OData operators remain, fallback to the original expression.
+        if re.search(r"\b(eq|ne)\b", translated, flags=re.IGNORECASE):
+            return text
+
+        return translated
 
     @property
     def index_name(self) -> str:
@@ -256,6 +264,32 @@ class AWSOpenSearchClient:
             timeout=self._timeout_seconds,
             operation="search_documents",
         )
+
+        # Log translated filter for debugging
+        if filters:
+            logger.debug(
+                "OpenSearch search filter",
+                extra={
+                    "filter_expression": filters,
+                    "status_code": response.status_code,
+                },
+            )
+
+        if response.status_code >= 400:
+            try:
+                error_body = response.json()
+            except (ValueError, AttributeError):
+                error_body = response.text
+            logger.error(
+                "OpenSearch search error",
+                extra={
+                    "status_code": response.status_code,
+                    "error_body": error_body,
+                    "filter_expression": filters,
+                    "query_body": body_payload,
+                },
+            )
+
         response.raise_for_status()
 
         payload = response.json()
@@ -284,6 +318,36 @@ class AWSOpenSearchClient:
             results.append(doc)
 
         return _SearchResults(items=results, total_count=total_count)
+
+    def delete_documents(self, *, documents: list[dict[str, Any]]) -> None:
+        """Delete documents by primary-key style selectors using OpenSearch bulk delete."""
+
+        selectors: list[str] = []
+        for doc in documents:
+            if not isinstance(doc, dict):
+                continue
+            doc_id = str(doc.get("id") or doc.get("requirement_id") or "").strip()
+            if doc_id:
+                selectors.append(doc_id)
+
+        if not selectors:
+            return
+
+        bulk_url = f"{self._endpoint}/_bulk?refresh=true"
+        lines = [
+            json.dumps({"delete": {"_index": self._index, "_id": doc_id}}, ensure_ascii=True)
+            for doc_id in selectors
+        ]
+        body = "\n".join(lines) + "\n"
+        headers = self._signed_headers("POST", bulk_url, body)
+        response = self._http.post(
+            bulk_url,
+            data=body,
+            headers=headers,
+            timeout=self._timeout_seconds,
+            operation="delete_documents",
+        )
+        response.raise_for_status()
 
     def load_documents(self, docs: list[dict[str, Any]]) -> None:
         """Unsupported for cloud backends; retained for protocol compatibility."""

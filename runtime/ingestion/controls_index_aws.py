@@ -16,6 +16,61 @@ except ModuleNotFoundError:
 logger = logging.getLogger(__name__)
 
 
+def _desired_embedding_dimension() -> int:
+    return int(os.getenv("BEDROCK_EMBEDDING_DIMENSIONS", "1024").strip() or "1024")
+
+
+def _existing_index_is_compatible(config: AWSControlsIndexConfig, session: Any) -> bool:
+    index_url = f"{config.opensearch_endpoint.rstrip('/')}/{config.controls_index_name}"
+    headers = _signed_headers(session, "GET", index_url, "")
+    response = request_with_instrumentation(
+        "GET",
+        index_url,
+        logger=logger,
+        headers=headers,
+        timeout=30,
+        system="aws-opensearch",
+        operation="describe_index",
+        request_callable=requests.get,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    index_state = payload.get(config.controls_index_name, {}) if isinstance(payload, dict) else {}
+
+    mappings = index_state.get("mappings", {}) if isinstance(index_state, dict) else {}
+    properties = mappings.get("properties", {}) if isinstance(mappings, dict) else {}
+    embedding = properties.get("embedding", {}) if isinstance(properties, dict) else {}
+
+    settings = index_state.get("settings", {}) if isinstance(index_state, dict) else {}
+    index_settings = settings.get("index", {}) if isinstance(settings, dict) else {}
+    knn_enabled = str(index_settings.get("knn", "false")).strip().lower() == "true"
+
+    return (
+        knn_enabled
+        and isinstance(embedding, dict)
+        and embedding.get("type") == "knn_vector"
+        and int(embedding.get("dimension") or 0) == _desired_embedding_dimension()
+    )
+
+
+def _delete_controls_index_aws(config: AWSControlsIndexConfig, session: Any) -> None:
+    index_url = f"{config.opensearch_endpoint.rstrip('/')}/{config.controls_index_name}"
+    headers = _signed_headers(session, "DELETE", index_url, "")
+    response = request_with_instrumentation(
+        "DELETE",
+        index_url,
+        logger=logger,
+        headers=headers,
+        timeout=30,
+        system="aws-opensearch",
+        operation="delete_index",
+        request_callable=requests.delete,
+    )
+    if response.status_code == 404:
+        return
+    response.raise_for_status()
+
+
 @dataclass(frozen=True)
 class AWSControlsIndexConfig:
     """Controls index configuration for AWS OpenSearch."""
@@ -77,14 +132,23 @@ def ensure_controls_index_aws(config: AWSControlsIndexConfig, session: Any) -> N
         request_callable=requests.head,
     )
     if head_response.status_code == 200:
-        return
-    if head_response.status_code != 404:
-        head_response.raise_for_status()
+        if _existing_index_is_compatible(config, session):
+            return
+
+        logger.warning(
+            "Controls index schema is incompatible with the expected vector mapping; recreating index %s",
+            config.controls_index_name,
+        )
+        _delete_controls_index_aws(config, session)
+    else:
+        if head_response.status_code != 404:
+            head_response.raise_for_status()
 
     body = json.dumps(
         {
             "settings": {
                 "index": {
+                    "knn": True,
                     "number_of_shards": 1,
                     "number_of_replicas": 1,
                 }
@@ -99,6 +163,15 @@ def ensure_controls_index_aws(config: AWSControlsIndexConfig, session: Any) -> N
                     "requirement_text": {"type": "text"},
                     "guidance_text": {"type": "text"},
                     "keywords": {"type": "keyword"},
+                    "embedding": {
+                        "type": "knn_vector",
+                        "dimension": _desired_embedding_dimension(),
+                        "method": {
+                            "name": "hnsw",
+                            "space_type": "cosinesimil",
+                            "engine": "nmslib",
+                        },
+                    },
                     "source_uri": {"type": "keyword"},
                     "source_section": {"type": "keyword"},
                     "effective_date": {"type": "keyword"},

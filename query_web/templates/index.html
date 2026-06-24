@@ -15,7 +15,7 @@
 <body>
   <div class="wrap">
     <script id="server-data" type="application/json">{"question": {{ question | tojson }}, "answer": {{ answer | tojson }}, "error": {{ error | tojson }}, "user_id": {{ user_id | tojson }}}</script>
-    <script id="ask-defaults" type="application/json">{"retrieve_k": {{ retrieve_k | tojson }}, "temperature": {{ temperature | tojson }}, "max_completion_tokens": {{ max_completion_tokens | tojson }}, "evaluator_max_completion_tokens": {{ evaluator_max_completion_tokens | tojson }}, "controls_semantic": {{ (1 if controls_semantic else 0) | tojson }}, "controls_framework": {{ (controls_framework or "") | tojson }}, "controls_comparison_mode": {{ (controls_comparison_mode or "auto-detect") | tojson }}}</script>
+    <script id="ask-defaults" type="application/json">{"retrieve_k": {{ retrieve_k | tojson }}, "controls_context_cap": {{ controls_context_cap | default(4) | tojson }}, "temperature": {{ temperature | tojson }}, "max_completion_tokens": {{ max_completion_tokens | tojson }}, "evaluator_max_completion_tokens": {{ evaluator_max_completion_tokens | tojson }}, "controls_semantic": {{ (1 if controls_semantic else 0) | tojson }}, "controls_framework": {{ (controls_framework or "") | tojson }}, "controls_comparison_mode": {{ (controls_comparison_mode or "auto-detect") | tojson }}}</script>
     <script id="ask-thinking-presets" type="application/json">{{ thinking_mode_presets | tojson }}</script>
     <div class="card">
       <div style="margin-bottom:6px">
@@ -85,6 +85,10 @@
             <div class="field">
               <label for="retrieve_k">Top K chunks</label>
               <input id="retrieve_k" name="retrieve_k" type="number" min="1" max="20" value="{{ retrieve_k }}" title="Number of top chunks retrieved from the grounding index for each query. Accepted range: 1–20." />
+            </div>
+            <div class="field">
+              <label for="controls_context_cap">Max controls in answer context</label>
+              <input id="controls_context_cap" name="controls_context_cap" type="number" min="1" max="2000" value="{{ controls_context_cap | default(4) }}" title="Upper bound on number of Corpus A controls included in Ask retrieval context. Lower match volume may return fewer." />
             </div>
             <div class="field">
               <label for="temperature">Temperature</label>
@@ -346,6 +350,81 @@
           <div id="cr-status" class="ops-status">No report generated yet.</div>
         </div>
 
+        {% if cloud_provider == 'aws' %}
+        <div class="source" id="aws-compliance-report-ops">
+          <h3>AWS Compliance Assessment</h3>
+          <p class="muted">Assess AWS account and regional scope against the selected control framework using indexed evidence.</p>
+          <div class="grid">
+            <div class="field">
+              <label for="aws-account-id">Account ID</label>
+              <input id="aws-account-id" type="text" placeholder="123456789012" title="AWS account ID used as the primary assessment scope." />
+            </div>
+            <div class="field">
+              <label for="aws-region">Region</label>
+              <input id="aws-region" type="text" placeholder="ap-southeast-2" title="AWS region scope for the assessment request." />
+            </div>
+            <div class="field">
+              <label for="aws-controls-framework">Controls framework</label>
+              <select id="aws-controls-framework" title="Select the compliance framework to evaluate against AWS evidence.">
+                <option value="Essential Eight">Essential Eight</option>
+                <option value="ISM">ISM</option>
+                <option value="AESCSF">AESCSF</option>
+                <option value="NIST AI RMF">NIST AI RMF</option>
+                <option value="NIST CSF" selected>NIST CSF</option>
+                <option value="CIS Controls">CIS Controls</option>
+                <option value="PCI DSS">PCI DSS</option>
+                <option value="PSPF">PSPF</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="aws-controls-top-k">Controls top-k</label>
+              <input id="aws-controls-top-k" type="number" min="1" max="2000" value="4" title="Number of control requirements to assess for the selected framework. Accepted range: 1–2000." />
+            </div>
+            <div class="field">
+              <label for="aws-retrieve-k">Top K chunks</label>
+              <input id="aws-retrieve-k" type="number" min="1" max="20" value="5" title="Top chunk count retrieved from indexed evidence. Accepted range: 1–20." />
+            </div>
+            <div class="field">
+              <label for="aws-temperature">Temperature</label>
+              <input id="aws-temperature" type="number" min="0" max="1" step="0.05" value="1" title="Model sampling temperature used while generating AWS assessment narrative. Accepted range: 0–1, step 0.05." />
+            </div>
+            <div class="field">
+              <label for="aws-thinking-mode">Thinking Mode</label>
+              <select id="aws-thinking-mode" title="Select a thinking mode: quick (fast, surface-level), balanced (default), or deep (thorough, slower).">
+                <option value="quick">Quick (fast, surface-level)</option>
+                <option value="balanced" selected>Balanced (default)</option>
+                <option value="deep">Deep (thorough, slower)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="aws-max-completion-tokens">Max Tokens</label>
+              <input id="aws-max-completion-tokens" type="number" min="256" max="8192" step="1" value="1400" title="Maximum completion tokens for assessment generation. Change Thinking Mode to apply preset values, or override directly. Accepted range: 256–8192." />
+            </div>
+            <div class="field">
+              <label for="aws-evaluator-max-completion-tokens">Evaluator Max Tokens</label>
+              <input id="aws-evaluator-max-completion-tokens" type="number" min="128" max="4096" step="1" value="800" title="Maximum completion tokens for evaluator scoring. Change Thinking Mode to apply preset values, or override directly. Accepted range: 128–4096." />
+            </div>
+            <div class="field">
+              <label for="aws-validation-mode">Schema validation mode</label>
+              <select id="aws-validation-mode" title="Choose strict schema validation or soft fallback when model output is malformed.">
+                <option value="hard" selected>Hard fail on schema mismatch</option>
+                <option value="soft">Soft fail (return raw output)</option>
+              </select>
+            </div>
+          </div>
+          <div class="field" style="margin-top:8px">
+            <label for="aws-resource-arns">Resource ARNs (optional, one per line)</label>
+            <textarea id="aws-resource-arns" placeholder="arn:aws:s3:::example-bucket" title="Optional: list explicit AWS resource ARNs to focus assessment scope; one per line."></textarea>
+          </div>
+          <div class="ops-row">
+            <button type="button" onclick="generateAwsComplianceReport()" title="Start an AWS configuration assessment for the selected account and scope.">Generate AWS Assessment</button>
+            <button type="button" class="btn-secondary" onclick="downloadAwsComplianceReportMarkdown()" title="Download the latest AWS assessment report as Markdown.">Download Markdown</button>
+            <button type="button" class="btn-secondary" onclick="downloadAwsComplianceReportJson()" title="Download the latest AWS assessment report as structured JSON.">Download JSON</button>
+            <button type="button" class="btn-secondary" onclick="downloadAwsComplianceFindingsCsv()" title="Download the findings table from the latest AWS assessment as CSV.">Download Findings CSV</button>
+          </div>
+          <div id="awscr-status" class="ops-status">No AWS assessment generated yet.</div>
+        </div>
+        {% else %}
         <div class="source" id="azure-compliance-report-ops">
           <h3>Azure Compliance Assessment</h3>
           <p class="muted">Assess Azure subscription and resource group configuration against NIST CSF using read-only Azure extraction.</p>
@@ -415,6 +494,7 @@
           </div>
           <div id="azcr-status" class="ops-status">No Azure assessment generated yet.</div>
         </div>
+        {% endif %}
 
         <div class="source" id="confluence-poll-ops">
           <h3>Confluence Poll Activity</h3>
@@ -490,7 +570,7 @@
               <input id="cb-files" type="file" multiple title="Select one or more guidance documents to upload into Corpus B." />
               <button type="button" onclick="uploadCorpusBIngest()" title="Upload Corpus B files and optionally trigger indexing for new content.">Upload Corpus B</button>
               <label><input type="checkbox" id="cb-trigger-job" checked title="Automatically trigger ingestion after upload when new or touched files are present." /> Trigger ingestion job</label>
-              <label><input type="checkbox" id="cb-reindex-on-dedupe" title="If upload is duplicate-only, touch existing dedupe blobs to force reindex for Corpus B items." /> Reindex from existing blobs when duplicates only</label>
+              <label><input type="checkbox" id="cb-reindex-on-dedupe" {% if cloud_provider == 'aws' %}checked{% endif %} title="If upload is duplicate-only, touch existing dedupe blobs to force reindex for Corpus B items." /> Reindex from existing blobs when duplicates only</label>
             </div>
           </details>
           <fieldset class="ops-group">

@@ -24,6 +24,35 @@ def _proportional_limit(n_items: int, per_item_max: int, total_budget: int, min_
     return min(per_item_max, max(min_chars, total_budget // n_items))
 
 
+def _normalise_corpus_value(raw_value: Any) -> str:
+    value = str(raw_value or "").strip().lower().replace("_", "-")
+    return value
+
+
+def _normalise_corpus_role_value(raw_value: Any) -> str:
+    return str(raw_value or "").strip().lower().replace("-", "_")
+
+
+def _is_corpus_b_chunk(chunk: dict[str, Any]) -> bool:
+    corpus = _normalise_corpus_value(chunk.get("corpus"))
+    corpus_role = _normalise_corpus_role_value(chunk.get("corpus_role"))
+    return corpus in {"b", "corpus-b"} or corpus_role in {
+        "narrative_guidance",
+        "guidance",
+        "narrative",
+    }
+
+
+def _is_corpus_c_chunk(chunk: dict[str, Any]) -> bool:
+    corpus = _normalise_corpus_value(chunk.get("corpus"))
+    corpus_role = _normalise_corpus_role_value(chunk.get("corpus_role"))
+    return corpus in {"c", "corpus-c"} or corpus_role in {
+        "assessed_artifact",
+        "artifact",
+        "evidence",
+    }
+
+
 def _run_rag(
     question: str,
     retrieve_k: int,
@@ -31,6 +60,7 @@ def _run_rag(
     controls_semantic: bool,
     *,
     svc: Any,
+    controls_context_cap: int | None = None,
     controls_framework: str | None = None,
     controls_comparison_mode: str = "auto-detect",
     evidence_corpora_include: list[str] | None = None,
@@ -78,7 +108,10 @@ def _run_rag(
         evidence_corpora_include,
         evidence_corpora_exclude,
     )
-    evidence_filter = svc._build_evidence_corpus_filter(selected_evidence_corpora)
+    # Corpus A is retrieved via controls search below; exclude it from chunk
+    # retrieval so Corpus B/C evidence is not crowded out in top-k chunks.
+    selected_chunk_corpora = [c for c in selected_evidence_corpora if c != "a"]
+    evidence_filter = svc._build_evidence_corpus_filter(selected_chunk_corpora)
     chunks, retrieval_timings = svc._hybrid_search(
         question,
         retrieve_k=retrieve_k,
@@ -88,13 +121,14 @@ def _run_rag(
         evidence_filter not in {None, "__none__"}
     )
     retrieval_timings["evidence_corpus_none_selected"] = float(evidence_filter == "__none__")
-    retrieval_timings["evidence_corpus_selected_count"] = float(len(selected_evidence_corpora))
+    retrieval_timings["evidence_corpus_selected_count"] = float(len(selected_chunk_corpora))
 
     include_controls = evidence_corpora_include is None or "a" in selected_evidence_corpora
+    controls_retrieve_k = max(1, int(controls_context_cap or svc.config.controls_top_k))
     if include_controls:
         controls, controls_timings = svc._controls_search(
             question,
-            retrieve_k=svc.config.controls_top_k,
+            retrieve_k=controls_retrieve_k,
             use_semantic=controls_semantic,
             framework_filter_override=controls_framework,
             comparison_mode=controls_comparison_mode,
@@ -147,6 +181,7 @@ def _run_rag(
             "audit": {
                 "evidence_corpus_filter_expr": evidence_filter,
                 "evidence_corpora_selected": selected_evidence_corpora,
+                "evidence_chunk_corpora_selected": selected_chunk_corpora,
             },
             "metrics": {
                 **retrieval_timings,
@@ -166,10 +201,17 @@ def _run_rag(
             },
         }
 
-    corpus_b_chunks = [
-        c for c in chunks if c.get("corpus") == "b" or c.get("corpus_role") == "narrative_guidance"
-    ]
-    corpus_c_chunks = [c for c in chunks if c not in corpus_b_chunks]
+    corpus_b_chunks: list[dict[str, Any]] = []
+    corpus_c_chunks: list[dict[str, Any]] = []
+    for chunk in chunks:
+        if _is_corpus_b_chunk(chunk):
+            corpus_b_chunks.append(chunk)
+        elif _is_corpus_c_chunk(chunk):
+            corpus_c_chunks.append(chunk)
+        else:
+            # Preserve previous behaviour for unknown corpus tags by routing
+            # unmatched evidence into the Corpus C/evidence section.
+            corpus_c_chunks.append(chunk)
 
     # Proportionally cap per-chunk chars to stay within context budget.
     _total_evidence_chunks = len(corpus_b_chunks) + len(corpus_c_chunks)
@@ -403,6 +445,7 @@ def _run_rag(
         "audit": {
             "evidence_corpus_filter_expr": evidence_filter,
             "evidence_corpora_selected": selected_evidence_corpora,
+            "evidence_chunk_corpora_selected": selected_chunk_corpora,
         },
         "metrics": metrics,
     }

@@ -3,8 +3,12 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-from azure.core.credentials import TokenCredential
+if TYPE_CHECKING:
+    from azure.core.credentials import TokenCredential
+else:
+    TokenCredential = Any
 
 
 def is_missing_controls_source_error(exc: Exception) -> bool:
@@ -53,7 +57,7 @@ def download_controls_source_files_azure(
     container = client.get_container_client(storage_container_name)
 
     expected_filenames = set(controls_source_target_filenames[framework])
-    samples_dir = Path(__file__).resolve().parents[1] / "samples" / "api" / "corpus-a"
+    samples_dir = Path(__file__).resolve().parents[2] / "samples" / "api" / "corpus-a"
     samples_dir.mkdir(parents=True, exist_ok=True)
 
     downloaded: list[str] = []
@@ -101,7 +105,7 @@ def download_controls_source_files_aws(
 
     logger = logging.getLogger("ingestion-runner")
     expected_filenames = set(controls_source_target_filenames[framework])
-    samples_dir = Path(__file__).resolve().parents[1] / "samples" / "api" / "corpus-a"
+    samples_dir = Path(__file__).resolve().parents[2] / "samples" / "api" / "corpus-a"
     samples_dir.mkdir(parents=True, exist_ok=True)
 
     if not hasattr(aws_session, "client") or not callable(getattr(aws_session, "client")):

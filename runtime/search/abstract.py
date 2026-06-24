@@ -57,3 +57,7 @@ class SearchClient(Protocol):
             Documents to load into the index.
         """
         ...
+
+    def delete_documents(self, *, documents: list[dict[str, Any]]) -> None:
+        """Delete documents from the search index."""
+        ...

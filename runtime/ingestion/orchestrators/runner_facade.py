@@ -101,6 +101,7 @@ modes:
             "cis_controls",
             "essential_eight",
             "ism",
+            "nist_ai_rmf",
             "nist_csf",
             "pci_dss",
             "pspf",

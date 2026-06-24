@@ -257,3 +257,52 @@ def test_run_rag_retry_fallback_and_merges_guardrail_metrics() -> None:
     assert result["iterations"] == 3
     assert result["metrics"]["validator_would_block"] is False
     assert result["answer"].startswith("disc")
+
+
+def test_run_rag_classifies_mixed_case_corpus_b_chunks() -> None:
+    svc = _base_svc()
+    captured_context: dict[str, str] = {}
+
+    svc._resolve_evidence_corpora = lambda include, exclude: ["b", "c"]
+    svc._build_evidence_corpus_filter = (
+        lambda selected: "(corpus eq 'b' or corpus eq 'c' or corpus eq 'legacy')"
+    )
+    svc._hybrid_search = lambda question, retrieve_k, evidence_filter: (
+        [
+            {
+                "corpus": "B",
+                "corpus_role": "",
+                "content": "Viva secure by design guidance text.",
+                "source_name": "b-upper.pdf",
+            },
+            {
+                "corpus": "",
+                "corpus_role": "NARRATIVE_GUIDANCE",
+                "content": "Additional narrative guidance from role-only metadata.",
+                "source_name": "b-role.pdf",
+            },
+        ],
+        {"embedding_s": 0.01, "search_s": 0.02},
+    )
+    svc._controls_search = lambda question, **kwargs: ([], {"controls_comparison_detected": 0.0})
+    svc._chat_completion_with_empty_retry = lambda *args, **kwargs: "good answer"
+
+    def _capture_evaluate(question: str, context: str, answer: str, **kwargs: Any) -> dict[str, Any]:
+        captured_context["value"] = context
+        return {"acceptable": True, "score": 1.0, "reason": "ok"}
+
+    svc._evaluate = _capture_evaluate
+
+    _run_rag(
+        "What does Viva secure by design require?",
+        5,
+        0.2,
+        True,
+        svc=svc,
+        evidence_corpora_include=["b", "c"],
+    )
+
+    context = captured_context.get("value", "")
+    assert "No Corpus B items were retrieved for this query." not in context
+    assert "Source: b-upper.pdf" in context
+    assert "Source: b-role.pdf" in context

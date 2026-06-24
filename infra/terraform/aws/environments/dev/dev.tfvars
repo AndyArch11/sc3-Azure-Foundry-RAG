@@ -56,6 +56,6 @@ confluence_poller_memory_mb      = 1024
 
 # initial_confluence_api_token = "<set-me>"
 
-ingestion_image_tag         = "202606211146-2a2de06"
-query_web_image_tag         = "202606211147-2a2de06"
+ingestion_image_tag = "202606231427-9d0c81d"
+query_web_image_tag = "202606231427-9d0c81d"
 confluence_poller_image_tag = "202605111406-be80d2b"

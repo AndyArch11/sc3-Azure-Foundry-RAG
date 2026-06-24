@@ -454,6 +454,17 @@ def test_mark_dedupe_blobs_for_reindex_records_not_found() -> None:
     assert len(result["not_found"]) == 1
 
 
+def test_mark_dedupe_blobs_for_reindex_aws_noop_does_not_require_azure_sdk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = _make_svc(storage_account="")
+    service = IngestionService(svc)
+    monkeypatch.setenv("CLOUD_PROVIDER", "aws")
+
+    result = service.mark_dedupe_blobs_for_reindex("b", ["abc123"], user_id="user1")
+    assert result == {"requested": 1, "touched": 0, "not_found": [], "failed": []}
+
+
 # ---------------------------------------------------------------------------
 # upload_corpus_b_files / upload_corpus_c_files
 # ---------------------------------------------------------------------------

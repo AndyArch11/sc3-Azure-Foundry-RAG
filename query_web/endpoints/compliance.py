@@ -67,6 +67,24 @@ class AzureComplianceReportRequest(BaseModel):
     auth_token: str = ""
 
 
+class AwsComplianceReportRequest(BaseModel):
+    """Request payload for AWS resource compliance assessment generation."""
+
+    account_id: str
+    region: str
+    resource_arns: list[str] = Field(default_factory=list)
+    controls_framework: str = "NIST CSF"
+    controls_top_k: int = Field(default=4, ge=1, le=2000)
+    retrieve_k: int = Field(default=5, ge=1, le=20)
+    temperature: float = Field(default=1.0, ge=0.0, le=1.0)
+    thinking_mode: str = "balanced"
+    max_completion_tokens: int | None = Field(default=None, ge=256, le=8192)
+    evaluator_max_completion_tokens: int | None = Field(default=None, ge=128, le=4096)
+    assessment_strategy: Literal["single_pass", "per_control"] = "single_pass"
+    validation_mode: Literal["hard", "soft"] = "hard"
+    auth_token: str = ""
+
+
 class ComplianceFinding(BaseModel):
     """Single normalised compliance finding in the structured report schema."""
 
@@ -110,7 +128,7 @@ class ComplianceReportStructured(BaseModel):
 @dataclass
 class _ReportJob:
     job_id: str
-    kind: Literal["compliance", "azure"]
+    kind: Literal["compliance", "azure", "aws"]
     created_at: str
     updated_at: str
     state: Literal["queued", "running", "completed", "failed"] = "queued"
@@ -126,7 +144,7 @@ _REPORT_JOBS: dict[str, _ReportJob] = {}
 _REPORT_JOBS_LOCK = threading.Lock()
 
 
-def _new_report_job(kind: Literal["compliance", "azure"]) -> _ReportJob:
+def _new_report_job(kind: Literal["compliance", "azure", "aws"]) -> _ReportJob:
     now = _utc_now_iso()
     job = _ReportJob(
         job_id=str(uuid.uuid4()),
@@ -1310,6 +1328,56 @@ def generate_azure_compliance_report_result(
     }
 
 
+def generate_aws_compliance_report_result(
+    payload: AwsComplianceReportRequest,
+    *,
+    svc: Any,
+    progress_cb: Callable[[int, int, str, str], None] | None = None,
+) -> dict[str, Any]:
+    """Generate an AWS-scoped compliance report via the corpus-based assessment engine."""
+
+    account_id = payload.account_id.strip()
+    region = payload.region.strip()
+    resource_arns = [item.strip() for item in payload.resource_arns if item.strip()]
+    if not account_id:
+        raise ValueError("account_id must not be empty")
+    if not region:
+        raise ValueError("region must not be empty")
+
+    aws_scope_question = (
+        "Assess AWS configuration evidence for compliance. "
+        f"Scope: account_id={account_id}, region={region}, "
+        f"resource_arns={', '.join(resource_arns[:20]) if resource_arns else '(all indexed AWS evidence)'}"
+    )
+
+    base_payload = ComplianceReportRequest(
+        question=aws_scope_question,
+        retrieve_k=payload.retrieve_k,
+        controls_top_k=payload.controls_top_k,
+        temperature=payload.temperature,
+        thinking_mode=payload.thinking_mode,
+        max_completion_tokens=payload.max_completion_tokens,
+        evaluator_max_completion_tokens=payload.evaluator_max_completion_tokens,
+        controls_framework=payload.controls_framework,
+        controls_comparison_mode="auto-detect",
+        assessment_strategy=payload.assessment_strategy,
+        validation_mode=payload.validation_mode,
+        auth_token=payload.auth_token,
+    )
+
+    report = generate_compliance_report_result(base_payload, svc=svc, progress_cb=progress_cb)
+    report["mode"] = "aws-compliance-report"
+    report["report_filename_base"] = (
+        f"aws-compliance-report-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
+    )
+    report["scope"] = {
+        "account_id": account_id,
+        "region": region,
+        "resource_arns": resource_arns,
+    }
+    return report
+
+
 # ---------------------------------------------------------------------------
 # Endpoint registration
 # ---------------------------------------------------------------------------
@@ -1419,6 +1487,26 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
                     {"error": "Compliance report schema validation failed."}, status_code=500
                 )
             logger.exception("Failed /api/compliance/report/azure request: %s", exc)
+            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+
+    @app.post("/api/compliance/report/aws")
+    def generate_aws_compliance_report(
+        request: Request, payload: AwsComplianceReportRequest
+    ) -> JSONResponse:
+        if not svc._is_authorised_request(payload.auth_token, request):
+            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+
+        try:
+            return JSONResponse(svc._generate_aws_compliance_report_result(payload))
+        except Exception as exc:
+            if isinstance(exc, RuntimeError) and "schema validation failed" in str(exc).lower():
+                logger.exception(
+                    "Failed /api/compliance/report/aws due to schema validation: %s", exc
+                )
+                return JSONResponse(
+                    {"error": "Compliance report schema validation failed."}, status_code=500
+                )
+            logger.exception("Failed /api/compliance/report/aws request: %s", exc)
             return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
 
     @app.post("/api/compliance/report/start")
@@ -1544,6 +1632,45 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
 
         threading.Thread(target=_run, daemon=True).start()
         return JSONResponse({"job_id": job.job_id, "mode": "azure-compliance-report-job"})
+
+    @app.post("/api/compliance/report/aws/start")
+    def start_aws_compliance_report(request: Request, payload: AwsComplianceReportRequest) -> JSONResponse:
+        if not svc._is_authorised_request(payload.auth_token, request):
+            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+
+        job = _new_report_job("aws")
+
+        def _progress(completed: int, total: int, requirement_id: str, message: str) -> None:
+            _update_report_job(
+                job.job_id,
+                state="running",
+                message=message,
+                total_controls=total,
+                completed_controls=completed,
+                current_requirement_id=requirement_id,
+            )
+
+        def _run() -> None:
+            _update_report_job(job.job_id, state="running", message="Starting AWS compliance report")
+            try:
+                result = svc._generate_aws_compliance_report_result(payload, progress_cb=_progress)
+                _update_report_job(
+                    job.job_id,
+                    state="completed",
+                    message="AWS compliance report completed",
+                    result=result,
+                )
+            except Exception as exc:
+                logger.exception("AWS compliance report job failed: %s", exc)
+                _update_report_job(
+                    job.job_id,
+                    state="failed",
+                    message="AWS compliance report failed",
+                    error=svc._INTERNAL_ERROR_MESSAGE,
+                )
+
+        threading.Thread(target=_run, daemon=True).start()
+        return JSONResponse({"job_id": job.job_id, "mode": "aws-compliance-report-job"})
 
     @app.get("/api/compliance/report/jobs/{job_id}")
     def get_compliance_report_job(

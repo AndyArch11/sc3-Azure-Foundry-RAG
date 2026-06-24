@@ -183,7 +183,7 @@ def test_build_evidence_corpus_filter_all_returns_none() -> None:
 
 def test_build_evidence_corpus_filter_single() -> None:
     result = _build_evidence_corpus_filter(["b"])
-    assert result == "corpus eq 'b'"
+    assert result == "(corpus eq 'b' or corpus_role eq 'narrative_guidance')"
 
 
 def test_build_evidence_corpus_filter_two_corpora() -> None:
@@ -191,6 +191,7 @@ def test_build_evidence_corpus_filter_two_corpora() -> None:
     assert result is not None
     assert "corpus eq 'a'" in result
     assert "corpus eq 'b'" in result
+    assert "corpus_role eq 'narrative_guidance'" in result
     assert result.startswith("(")
 
 

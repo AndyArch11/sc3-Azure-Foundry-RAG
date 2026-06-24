@@ -5,19 +5,28 @@ import json
 import logging
 from pathlib import Path
 
-from azure.identity import DefaultAzureCredential
-
 try:
     from runtime.log_config import configure_logging as _configure_logging
 except ModuleNotFoundError:
     # Runtime container image copies log_config.py to /app (without runtime/ package).
     from log_config import configure_logging as _configure_logging
 
-from .controls_index import ControlsIndexConfig, ensure_controls_index
-from .publish_controls import load_controls_jsonl, upload_controls_records
-
 _configure_logging("controls-runner")
 logger = logging.getLogger(__name__)
+
+
+def ensure_controls_index(config, credential) -> None:
+    """Lazy wrapper retained for compatibility with test monkeypatching."""
+    from .controls_index import ensure_controls_index as _ensure_controls_index
+
+    _ensure_controls_index(config, credential)
+
+
+def DefaultAzureCredential():
+    """Lazy wrapper retained for compatibility with test monkeypatching."""
+    from azure.identity import DefaultAzureCredential as _DefaultAzureCredential
+
+    return _DefaultAzureCredential()
 
 
 def _is_missing_source_error(exc: Exception) -> bool:
@@ -163,8 +172,10 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _resolve_controls_index_config(args: argparse.Namespace) -> ControlsIndexConfig:
+def _resolve_controls_index_config(args: argparse.Namespace):
     """Run resolve controls index config."""
+    from .controls_index import ControlsIndexConfig
+
     if args.search_endpoint:
         return ControlsIndexConfig(
             search_endpoint=str(args.search_endpoint).strip(),
@@ -243,7 +254,7 @@ def _run_parse_detailed(
 
 
 def _run_publish(
-    config: ControlsIndexConfig,
+    config,
     jsonl_path: Path,
     batch_size: int,
     *,
@@ -251,6 +262,9 @@ def _run_publish(
     dry_run: bool,
 ) -> dict:
     """Run run publish."""
+    from .controls_index import ensure_controls_index
+    from .publish_controls import load_controls_jsonl, upload_controls_records
+
     credential = DefaultAzureCredential()
 
     ensure_controls_index(config, credential)

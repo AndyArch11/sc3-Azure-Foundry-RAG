@@ -5,9 +5,10 @@ import json
 import logging
 import os
 import sys
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
-from azure.core.credentials import TokenCredential
+if TYPE_CHECKING:
+    from azure.core.credentials import TokenCredential
 
 
 def run_controls_aws(
@@ -22,10 +23,6 @@ def run_controls_aws(
     """Run controls orchestration for AWS provider."""
 
     logger = logging.getLogger("ingestion-runner")
-    try:
-        from ...credentials import get_credential_provider
-    except ImportError:
-        from credentials import get_credential_provider
     from ..controls_index_aws import AWSControlsIndexConfig, ensure_controls_index_aws
     from ..controls_runner import _build_parser_registry, _selected_frameworks
     from ..publish_controls_aws import upload_controls_records_aws
@@ -36,8 +33,17 @@ def run_controls_aws(
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 1
 
-    credential_provider = get_credential_provider(cloud_provider="aws")
-    aws_session = credential_provider.get_sdk_credential()
+    try:
+        import boto3
+    except ImportError as exc:
+        print("Configuration error: boto3 is required for AWS controls ingestion", file=sys.stderr)
+        logger.exception("boto3 import failed in AWS controls ingestion: %s", exc)
+        return 1
+
+    aws_session = boto3.Session(
+        profile_name=os.getenv("AWS_PROFILE") or None,
+        region_name=os.getenv("AWS_REGION") or None,
+    )
 
     if hasattr(aws_session, "client") and callable(getattr(aws_session, "client")):
         try:

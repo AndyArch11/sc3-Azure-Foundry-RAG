@@ -113,9 +113,35 @@ _QUERY_SHORT_KEEP = {"mfa", "2fa", "iam", "sso"}
 # backfill query variants so framework controls using different phrasing are
 # also retrieved.
 _POLICY_KEYWORD_EXPANSION: dict[str, tuple[str, ...]] = {
-    "encryption": ("encrypt", "encrypted", "cryptographic", "cryptography", "cipher", "tls", "aes", "rsa", "key management", "data at rest", "data in transit"),
-    "access": ("access control", "authentication", "authorisation", "authorization", "privileged access", "least privilege"),
-    "privileged": ("privileged access", "privileged user", "administrator", "admin", "elevated", "superuser"),
+    "encryption": (
+        "encrypt",
+        "encrypted",
+        "cryptographic",
+        "cryptography",
+        "cipher",
+        "tls",
+        "aes",
+        "rsa",
+        "key management",
+        "data at rest",
+        "data in transit",
+    ),
+    "access": (
+        "access control",
+        "authentication",
+        "authorisation",
+        "authorization",
+        "privileged access",
+        "least privilege",
+    ),
+    "privileged": (
+        "privileged access",
+        "privileged user",
+        "administrator",
+        "admin",
+        "elevated",
+        "superuser",
+    ),
     "backup": ("backup", "restore", "recovery", "retention", "resilience"),
 }
 
@@ -179,10 +205,23 @@ def _build_evidence_corpus_filter(selected_corpora: Iterable[str]) -> str | None
         return "__none__"
     if set(selected) == set(_EVIDENCE_CORPUS_ORDER):
         return None
-    if len(selected) == 1:
-        return f"corpus eq '{selected[0]}'"
-    clauses = [f"corpus eq '{corpus}'" for corpus in selected]
-    return "(" + " or ".join(clauses) + ")"
+
+    # Some historical ingestion paths populated corpus_role but not corpus.
+    # Include role-based fallbacks so those documents remain retrievable.
+    # Use simplified filter clauses without extra parentheses to avoid query_string parsing issues.
+    clause_by_corpus = {
+        "a": "corpus eq 'a'",
+        "b": "corpus eq 'b' or corpus_role eq 'narrative_guidance'",
+        "c": "corpus eq 'c' or corpus_role eq 'assessed_artifact'",
+        # Legacy/untagged docs may have an empty corpus value.
+        "legacy": "corpus eq 'legacy' or corpus eq ''",
+    }
+
+    clauses = [clause_by_corpus[corpus] for corpus in selected]
+    if len(clauses) == 1:
+        return clauses[0]
+    # Wrap only the final joined expression, not each clause
+    return " or ".join(f"({clause})" for clause in clauses)
 
 
 # ---------------------------------------------------------------------------
@@ -479,6 +518,52 @@ def _merge_control_candidates(
     return merged
 
 
+def _fuse_controls_rankings(
+    lexical_items: list[dict[str, Any]],
+    vector_items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Fuse lexical and vector rankings with reciprocal-rank fusion."""
+
+    if not vector_items:
+        return lexical_items
+    if not lexical_items:
+        return vector_items
+
+    def _item_key(item: dict[str, Any]) -> tuple[str, str, str]:
+        return (
+            str(item.get("requirement_id") or "").strip(),
+            str(item.get("framework") or "").strip(),
+            str(item.get("source_uri") or "").strip(),
+        )
+
+    fused_scores: dict[tuple[str, str, str], float] = {}
+    best_items: dict[tuple[str, str, str], dict[str, Any]] = {}
+    rrf_k = 60.0
+
+    for rank, item in enumerate(lexical_items, start=1):
+        key = _item_key(item)
+        fused_scores[key] = fused_scores.get(key, 0.0) + (1.0 / (rrf_k + rank))
+        best_items.setdefault(key, item)
+
+    for rank, item in enumerate(vector_items, start=1):
+        key = _item_key(item)
+        fused_scores[key] = fused_scores.get(key, 0.0) + (1.0 / (rrf_k + rank))
+        current_best = best_items.get(key)
+        if current_best is None or float(item.get("score") or 0.0) > float(
+            current_best.get("score") or 0.0
+        ):
+            best_items[key] = item
+
+    ranked_keys = sorted(
+        fused_scores.keys(),
+        key=lambda key: (
+            -fused_scores[key],
+            -float(best_items[key].get("score") or 0.0),
+        ),
+    )
+    return [best_items[key] for key in ranked_keys]
+
+
 def _fetch_controls(
     search_text: str,
     retrieve_k: int,
@@ -510,31 +595,51 @@ def _fetch_controls(
             svc.config.controls_semantic_configuration_name
         )
 
-    items: list[dict[str, Any]] = []
-    for r in svc.controls_search_client.search(
-        query_text=search_text,
-        top=retrieve_k,
-        select=_SELECT,
-        **neutral_kwargs,
-    ):
-        requirement_text = (r.get("requirement_text") or "").strip()
-        if not requirement_text:
-            continue
-        score = r.get("@search.score")
-        items.append(
-            {
-                "requirement_id": r.get("requirement_id") or "",
-                "framework": r.get("framework") or "",
-                "framework_version": r.get("framework_version") or "",
-                "control_family": r.get("control_family") or "",
-                "maturity_level": r.get("maturity_level"),
-                "requirement_text": requirement_text,
-                "guidance_text": (r.get("guidance_text") or "").strip(),
-                "source_uri": r.get("source_uri") or "",
-                "score": float(score) if score is not None else 0.0,
-            }
-        )
-    return items
+    def _search_with_vector(vector_query: list[float] | None) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        kwargs = dict(neutral_kwargs)
+        if vector_query is not None:
+            kwargs["vector_query"] = vector_query
+
+        for r in svc.controls_search_client.search(
+            query_text=search_text,
+            top=retrieve_k,
+            select=_SELECT,
+            **kwargs,
+        ):
+            requirement_text = (r.get("requirement_text") or "").strip()
+            if not requirement_text:
+                continue
+            score = r.get("@search.score")
+            items.append(
+                {
+                    "requirement_id": r.get("requirement_id") or "",
+                    "framework": r.get("framework") or "",
+                    "framework_version": r.get("framework_version") or "",
+                    "control_family": r.get("control_family") or "",
+                    "maturity_level": r.get("maturity_level"),
+                    "requirement_text": requirement_text,
+                    "guidance_text": (r.get("guidance_text") or "").strip(),
+                    "source_uri": r.get("source_uri") or "",
+                    "score": float(score) if score is not None else 0.0,
+                }
+            )
+        return items
+
+    lexical_items = _search_with_vector(vector_query=None)
+
+    vector: list[float] | None = None
+    embed_query = getattr(svc, "_embed_query", None)
+    if callable(embed_query):
+        try:
+            candidate = embed_query(search_text)
+            if isinstance(candidate, list):
+                vector = [float(v) for v in candidate]
+        except Exception:
+            vector = None
+
+    vector_items = _search_with_vector(vector_query=vector) if vector else []
+    return _fuse_controls_rankings(lexical_items, vector_items)
 
 
 # ---------------------------------------------------------------------------
@@ -677,6 +782,7 @@ def _summarise_controls_distribution(
         "control_family_counts": _as_sorted_items(family_counts),
         "retrieval_modes": {
             "semantic_enabled": bool(controls_timings.get("controls_semantic_enabled", 0.0) >= 0.5),
+            "hybrid_enabled": bool(controls_timings.get("controls_hybrid_enabled", 0.0) >= 0.5),
             "framework_filter_enabled": bool(
                 controls_timings.get("controls_framework_filter_enabled", 0.0) >= 0.5
             ),
@@ -758,6 +864,52 @@ def _apply_framework_authority_preference(
     return ranked[:top_k]
 
 
+def _control_concept_overlap_count(item: dict[str, Any], focus_terms: list[str]) -> int:
+    if not focus_terms:
+        return 0
+    haystack = " ".join(
+        [
+            str(item.get("requirement_text") or "").lower(),
+            str(item.get("control_family") or "").lower(),
+            str(item.get("guidance_text") or "").lower(),
+        ]
+    )
+    return sum(1 for term in focus_terms if term in haystack)
+
+
+def _is_acceptable_preferred_backfill_candidate(
+    candidate: dict[str, Any],
+    question: str,
+    current_slice: list[dict[str, Any]],
+) -> bool:
+    """Return True when a preferred-framework candidate is relevant enough.
+
+    This prevents low-match filler controls from displacing stronger top-k items,
+    while still allowing preferred-framework controls to backfill when cap crowding
+    suppresses acceptable matches.
+    """
+
+    focus_terms = _question_focus_terms(question)
+    overlap = _control_concept_overlap_count(candidate, focus_terms)
+    score = float(candidate.get("score") or 0.0)
+
+    if not current_slice:
+        return overlap > 0 or score >= 0.2
+
+    current_scores = [float(item.get("score") or 0.0) for item in current_slice]
+    current_min_score = min(current_scores) if current_scores else 0.0
+    relative_floor = max(0.1, current_min_score * 0.6)
+
+    # Strong concept alignment is sufficient unless the score is effectively noise.
+    if overlap >= 1 and score >= 0.05:
+        return True
+
+    # Otherwise require score to be within a reasonable band of current top-k.
+    if not focus_terms:
+        return score >= relative_floor
+    return score >= relative_floor and overlap > 0
+
+
 # ---------------------------------------------------------------------------
 # Main Controls Search
 # ---------------------------------------------------------------------------
@@ -780,6 +932,9 @@ def controls_search(
     """
     timings: dict[str, float] = {}
     timings["controls_semantic_enabled"] = 1.0 if use_semantic else 0.0
+    timings["controls_hybrid_enabled"] = (
+        1.0 if callable(getattr(svc, "_embed_query", None)) else 0.0
+    )
     detected_comparison = _is_cross_framework_comparison_intent(question)
     forced_comparison = comparison_mode == "force_cross_framework_comparison"
 
@@ -925,9 +1080,8 @@ def controls_search(
             items = re_ranked[:retrieve_k]
 
             # Hard-guarantee: if the preferred framework still has no
-            # representation after re-ranking, replace the last item in the
-            # slice with the best preferred-framework candidate so the policy
-            # rule is always reflected in the returned set.
+            # representation after re-ranking, replace the last item only when
+            # a preferred-framework candidate has acceptable fitness.
             if items and not any(
                 str(item.get("framework") or "") == preferred_framework for item in items
             ):
@@ -941,7 +1095,11 @@ def controls_search(
                 )
                 if best_preferred is None and backfill_items:
                     best_preferred = backfill_items[0]
-                if best_preferred is not None:
+                if best_preferred is not None and _is_acceptable_preferred_backfill_candidate(
+                    best_preferred,
+                    question,
+                    items,
+                ):
                     items[-1] = best_preferred
 
         timings["controls_preferred_framework_backfill_used"] = 1.0

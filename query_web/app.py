@@ -17,10 +17,20 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+_SearchIndexClientImpl: Any
+_SearchIndexerClientImpl: Any
+_BlobServiceClientImpl: Any
+
 try:
-    from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
-    from azure.storage.blob import BlobServiceClient
+    from azure.search.documents.indexes import SearchIndexClient as _ImportedSearchIndexClient
+    from azure.search.documents.indexes import SearchIndexerClient as _ImportedSearchIndexerClient
+    from azure.storage.blob import BlobServiceClient as _ImportedBlobServiceClient
+
+    _SearchIndexClientImpl = _ImportedSearchIndexClient
+    _SearchIndexerClientImpl = _ImportedSearchIndexerClient
+    _BlobServiceClientImpl = _ImportedBlobServiceClient
 except Exception:
+
     class _MissingAzureSdkClient:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             raise RuntimeError(
@@ -28,9 +38,13 @@ except Exception:
                 "Azure-specific features are unavailable for the current cloud provider."
             )
 
-    SearchIndexClient = _MissingAzureSdkClient  # type: ignore[assignment]
-    SearchIndexerClient = _MissingAzureSdkClient  # type: ignore[assignment]
-    BlobServiceClient = _MissingAzureSdkClient  # type: ignore[assignment]
+    _SearchIndexClientImpl = _MissingAzureSdkClient
+    _SearchIndexerClientImpl = _MissingAzureSdkClient
+    _BlobServiceClientImpl = _MissingAzureSdkClient
+
+SearchIndexClient = _SearchIndexClientImpl
+SearchIndexerClient = _SearchIndexerClientImpl
+BlobServiceClient = _BlobServiceClientImpl
 
 import query_web.endpoints.compliance as _compliance_module
 import query_web.pipeline.controls as controls
@@ -141,21 +155,36 @@ from runtime.assessment_orchestration._framework_patterns import (
     infer_single_framework as _infer_framework_filter,
 )
 
+
+def _run_azure_assessment_unavailable(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    raise RuntimeError("Azure assessment orchestration is unavailable in this runtime.")
+
+
+def _collect_azure_grounding_unavailable(*args: Any, **kwargs: Any) -> tuple[Any, Any]:
+    raise RuntimeError("Azure grounding collection is unavailable in this runtime.")
+
+
+_run_azure_assessment_impl: Any = _run_azure_assessment_unavailable
+_collect_azure_grounding_impl: Any = _collect_azure_grounding_unavailable
+
 try:
     from runtime.assessment_orchestration.azure_assessment import (
-        collect_azure_grounding,
-        run_azure_assessment,
+        collect_azure_grounding as _imported_collect_azure_grounding,
     )
-except Exception:
-    def run_azure_assessment(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        raise RuntimeError(
-            "Azure assessment orchestration is unavailable in this runtime."
-        )
+    from runtime.assessment_orchestration.azure_assessment import (
+        run_azure_assessment as _imported_run_azure_assessment,
+    )
 
-    def collect_azure_grounding(*args: Any, **kwargs: Any) -> tuple[Any, Any]:
-        raise RuntimeError(
-            "Azure grounding collection is unavailable in this runtime."
-        )
+    _run_azure_assessment_impl = _imported_run_azure_assessment
+    _collect_azure_grounding_impl = _imported_collect_azure_grounding
+except Exception:
+    pass
+
+
+run_azure_assessment = _run_azure_assessment_impl
+collect_azure_grounding = _collect_azure_grounding_impl
+
+
 from runtime.assessment_orchestration.state_store import CosmosPollingStateStore, PollingStateStore
 from runtime.credentials import get_credential_provider
 from runtime.provider_core import normalise_cloud_provider
@@ -239,6 +268,18 @@ def _generate_azure_compliance_report_result(
     )
 
 
+def _generate_aws_compliance_report_result(
+    payload: Any,
+    *,
+    progress_cb: Any = None,
+) -> dict[str, Any]:
+    return _compliance_module.generate_aws_compliance_report_result(
+        payload,
+        svc=_svc,
+        progress_cb=progress_cb,
+    )
+
+
 # Search index and blob helpers — real logic lives in pipeline/search.py and
 # pipeline/storage.py; thin wrappers preserve module-level names for svc callers.
 
@@ -290,9 +331,14 @@ register_request_context_middleware(app)
 
 def _branding_ctx() -> dict[str, Any]:
     """Return template context variables shared by every page response."""
+    try:
+        cloud_provider = normalise_cloud_provider(os.getenv("CLOUD_PROVIDER"))
+    except ValueError:
+        cloud_provider = "azure"
     return {
         "app_title": config.app_title,
         "static_version": _STATIC_VERSION,
+        "cloud_provider": cloud_provider,
     }
 
 
@@ -821,6 +867,7 @@ def _run_rag(
     controls_semantic: bool,
     max_completion_tokens: int | None = None,
     evaluator_max_completion_tokens: int | None = None,
+    controls_context_cap: int | None = None,
     controls_framework: str | None = None,
     controls_comparison_mode: str = "auto-detect",
     evidence_corpora_include: list[str] | None = None,
@@ -831,6 +878,7 @@ def _run_rag(
     return rag_pipeline._run_rag(
         question=question,
         retrieve_k=retrieve_k,
+        controls_context_cap=controls_context_cap,
         temperature=temperature,
         controls_semantic=controls_semantic,
         svc=_svc,

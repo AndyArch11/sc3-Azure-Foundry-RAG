@@ -157,6 +157,7 @@
   const SESSION_KEY = 'rag_session';
   let _lastComplianceReport = null;
   let _lastAzureComplianceReport = null;
+  let _lastAwsComplianceReport = null;
 
   function escHtml(s) {
     return String(s)
@@ -278,6 +279,7 @@
     }
 
     setVal('retrieve_k', defaults.retrieve_k);
+    setVal('controls_context_cap', defaults.controls_context_cap);
     setVal('temperature', defaults.temperature);
     setVal('max_completion_tokens', defaults.max_completion_tokens);
     setVal('evaluator_max_completion_tokens', defaults.evaluator_max_completion_tokens);
@@ -318,6 +320,7 @@
     }
 
     setVal('retrieve_k', preset.retrieve_k, false);
+    setVal('controls_context_cap', preset.controls_top_k, false);
     setVal('temperature', preset.temperature, false);
     setVal('max_completion_tokens', preset.max_completion_tokens, true);
     setVal('evaluator_max_completion_tokens', preset.evaluator_max_completion_tokens, true);
@@ -652,8 +655,24 @@
 
   function _renderAzureComplianceReport(payload) {
     const target = document.getElementById('azcr-status');
+    if (!target) return;
     if (payload && !payload.error && payload.mode === 'azure-compliance-report') {
       _lastAzureComplianceReport = payload;
+    }
+    if (payload && payload.report) {
+      target.classList.add('markdown');
+      target.innerHTML = '<div class="answer">' + mdRender(payload.report) + '</div>';
+      return;
+    }
+    target.classList.remove('markdown');
+    target.textContent = JSON.stringify(payload, null, 2);
+  }
+
+  function _renderAwsComplianceReport(payload) {
+    const target = document.getElementById('awscr-status');
+    if (!target) return;
+    if (payload && !payload.error && payload.mode === 'aws-compliance-report') {
+      _lastAwsComplianceReport = payload;
     }
     if (payload && payload.report) {
       target.classList.add('markdown');
@@ -736,6 +755,37 @@
     }
     const base = _lastAzureComplianceReport.report_filename_base || 'azure-compliance-report';
     _downloadText(base + '-findings.csv', _lastAzureComplianceReport.report_findings_csv, 'text/csv;charset=utf-8');
+  }
+
+  function downloadAwsComplianceReportMarkdown() {
+    if (!_lastAwsComplianceReport || !_lastAwsComplianceReport.report_markdown) {
+      _renderAwsComplianceReport({ error: 'Generate an AWS compliance report first.' });
+      return;
+    }
+    const base = _lastAwsComplianceReport.report_filename_base || 'aws-compliance-report';
+    _downloadText(base + '.md', _lastAwsComplianceReport.report_markdown, 'text/markdown;charset=utf-8');
+  }
+
+  function downloadAwsComplianceReportJson() {
+    if (!_lastAwsComplianceReport || !_lastAwsComplianceReport.report_structured) {
+      _renderAwsComplianceReport({ error: 'Generate an AWS compliance report first.' });
+      return;
+    }
+    const base = _lastAwsComplianceReport.report_filename_base || 'aws-compliance-report';
+    _downloadText(
+      base + '.json',
+      JSON.stringify(_lastAwsComplianceReport.report_structured, null, 2),
+      'application/json;charset=utf-8'
+    );
+  }
+
+  function downloadAwsComplianceFindingsCsv() {
+    if (!_lastAwsComplianceReport || !_lastAwsComplianceReport.report_findings_csv) {
+      _renderAwsComplianceReport({ error: 'Generate an AWS compliance report first.' });
+      return;
+    }
+    const base = _lastAwsComplianceReport.report_filename_base || 'aws-compliance-report';
+    _downloadText(base + '-findings.csv', _lastAwsComplianceReport.report_findings_csv, 'text/csv;charset=utf-8');
   }
 
   function refreshCorpusAStatus() {
@@ -1221,15 +1271,17 @@
       });
   }
 
-  function _pollComplianceJob(jobId, isAzure) {
+  function _pollComplianceJob(jobId, mode) {
     const token = _currentAuthToken();
     const params = new URLSearchParams();
     if (token) params.set('auth_token', token);
     const qs = params.toString();
     const endpoint = '/api/compliance/report/jobs/' + encodeURIComponent(jobId) + (qs ? ('?' + qs) : '');
 
-    const render = isAzure ? _renderAzureComplianceReport : _renderComplianceReport;
-    const done = isAzure ? _renderAzureComplianceReport : _renderComplianceReport;
+    const render = mode === 'azure'
+      ? _renderAzureComplianceReport
+      : (mode === 'aws' ? _renderAwsComplianceReport : _renderComplianceReport);
+    const done = render;
 
     const tick = function () {
       fetch(endpoint)
@@ -1314,7 +1366,7 @@
           _renderComplianceReport({ error: 'No job_id returned from compliance job start.' });
           return;
         }
-        _pollComplianceJob(data.job_id, false);
+        _pollComplianceJob(data.job_id, 'compliance');
       })
       .catch(err => _renderComplianceReport({ error: String(err) }));
   }
@@ -1373,9 +1425,69 @@
           _renderAzureComplianceReport({ error: 'No job_id returned from Azure assessment job start.' });
           return;
         }
-        _pollComplianceJob(data.job_id, true);
+        _pollComplianceJob(data.job_id, 'azure');
       })
       .catch(err => _renderAzureComplianceReport({ error: String(err) }));
+  }
+
+  function generateAwsComplianceReport() {
+    const accountId = document.getElementById('aws-account-id').value.trim();
+    const region = document.getElementById('aws-region').value.trim();
+    const resourceArns = document.getElementById('aws-resource-arns').value
+      .split('\n')
+      .map(v => v.trim())
+      .filter(Boolean);
+
+    if (!accountId) {
+      _renderAwsComplianceReport({ error: 'Account ID is required.' });
+      return;
+    }
+    if (!region) {
+      _renderAwsComplianceReport({ error: 'Region is required.' });
+      return;
+    }
+
+    const body = {
+      account_id: accountId,
+      region: region,
+      resource_arns: resourceArns,
+      controls_framework: document.getElementById('aws-controls-framework').value || 'NIST CSF',
+      controls_top_k: Number(document.getElementById('aws-controls-top-k').value || 4),
+      retrieve_k: Number(document.getElementById('aws-retrieve-k').value || 5),
+      temperature: Number(document.getElementById('aws-temperature').value || 1),
+      thinking_mode: document.getElementById('aws-thinking-mode').value || 'balanced',
+      max_completion_tokens: (function() {
+        const val = document.getElementById('aws-max-completion-tokens').value.trim();
+        return val ? Number(val) : null;
+      })(),
+      evaluator_max_completion_tokens: (function() {
+        const val = document.getElementById('aws-evaluator-max-completion-tokens').value.trim();
+        return val ? Number(val) : null;
+      })(),
+      assessment_strategy: 'per_control',
+      validation_mode: document.getElementById('aws-validation-mode').value || 'hard',
+      auth_token: _currentAuthToken(),
+    };
+
+    _renderAwsComplianceReport({ status: 'Starting AWS assessment job...' });
+    fetch('/api/compliance/report/aws/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          _renderAwsComplianceReport(data);
+          return;
+        }
+        if (!data.job_id) {
+          _renderAwsComplianceReport({ error: 'No job_id returned from AWS assessment job start.' });
+          return;
+        }
+        _pollComplianceJob(data.job_id, 'aws');
+      })
+      .catch(err => _renderAwsComplianceReport({ error: String(err) }));
   }
 
   // Cryptographically secure UUID v4 using window.crypto.getRandomValues.
@@ -1506,6 +1618,13 @@
       applyAssessThinkingModePreset('az', azureThinkingMode.value || 'balanced');
       azureThinkingMode.addEventListener('change', function () {
         applyAssessThinkingModePreset('az', azureThinkingMode.value || 'balanced');
+      });
+    }
+    const awsThinkingMode = document.getElementById('aws-thinking-mode');
+    if (awsThinkingMode) {
+      applyAssessThinkingModePreset('aws', awsThinkingMode.value || 'balanced');
+      awsThinkingMode.addEventListener('change', function () {
+        applyAssessThinkingModePreset('aws', awsThinkingMode.value || 'balanced');
       });
     }
     if (askForm && askBtn) {

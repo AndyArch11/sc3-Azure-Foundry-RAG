@@ -452,6 +452,7 @@ resource "aws_ecs_task_definition" "ingestion" {
         { name = "DYNAMODB_TABLE", value = var.dynamodb_table_name },
         { name = "BEDROCK_MODEL_ID", value = var.bedrock_model_id },
         { name = "BEDROCK_EMBEDDING_MODEL_ID", value = var.bedrock_embedding_model_id },
+        { name = "CONTROLS_EMBED_ON_PUBLISH", value = "true" },
         { name = "BEDROCK_API_MODE", value = var.bedrock_api_mode },
       ]
 

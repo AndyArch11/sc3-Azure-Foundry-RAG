@@ -7,9 +7,9 @@ pytest>=9.0.3
 pytest-cov>=4.1.0
 
 # Code quality and formatting
-black>=26.3.1
+black>=26.5.1
 pylint>=4.0.5
 isort>=8.0.1
-mypy>=2.0.0
+mypy>=2.1.0
  # Type stubs for requests (for mypy)
- types-requests>=2.33.0.20260508
+ types-requests>=2.33.0.20260518

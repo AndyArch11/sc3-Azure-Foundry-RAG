@@ -91,6 +91,24 @@ def _chunk_reference_label(chunk: dict[str, Any], *, fallback: str = "(unknown s
 
     return fallback
 
+# TODO: Refactor so only using a single format for corpus / corpus_role and avoid this dual normalisation logic.
+def _normalise_corpus_value(raw_value: Any) -> str:
+    return str(raw_value or "").strip().lower().replace("_", "-")
+
+
+def _normalise_corpus_role_value(raw_value: Any) -> str:
+    return str(raw_value or "").strip().lower().replace("-", "_")
+
+
+def _is_corpus_b_chunk(chunk: dict[str, Any]) -> bool:
+    corpus = _normalise_corpus_value(chunk.get("corpus"))
+    corpus_role = _normalise_corpus_role_value(chunk.get("corpus_role"))
+    return corpus in {"b", "corpus-b"} or corpus_role in {
+        "narrative_guidance",
+        "guidance",
+        "narrative",
+    }
+
 
 def _build_retrieval_based_fallback_answer(
     *,
@@ -103,11 +121,7 @@ def _build_retrieval_based_fallback_answer(
     resolved_corpus_b_chunks = list(corpus_b_chunks or [])
     resolved_corpus_c_chunks = list(corpus_c_chunks or [])
     if not resolved_corpus_b_chunks and not resolved_corpus_c_chunks and chunks:
-        resolved_corpus_b_chunks = [
-            c
-            for c in chunks
-            if c.get("corpus") == "b" or c.get("corpus_role") == "narrative_guidance"
-        ]
+        resolved_corpus_b_chunks = [c for c in chunks if _is_corpus_b_chunk(c)]
         resolved_corpus_c_chunks = [c for c in chunks if c not in resolved_corpus_b_chunks]
 
     frameworks = sorted(

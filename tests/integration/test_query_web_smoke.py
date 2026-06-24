@@ -155,7 +155,11 @@ def conversation_api_state(
             }
 
         # For successful creation flows, verify persistence semantics expected by lifecycle tests.
-        payload = probe.json() if probe.headers.get("content-type", "").startswith("application/json") else {}
+        payload = (
+            probe.json()
+            if probe.headers.get("content-type", "").startswith("application/json")
+            else {}
+        )
         user_id = str(payload.get("user_id", "")).strip()
         conversation_id = str(payload.get("conversation_id", "")).strip()
         if not user_id or not conversation_id:
@@ -192,7 +196,11 @@ def conversation_api_state(
                 "reason": f"conversation history fetch failed (status={history_resp.status_code})",
             }
 
-        history = history_resp.json() if history_resp.headers.get("content-type", "").startswith("application/json") else {}
+        history = (
+            history_resp.json()
+            if history_resp.headers.get("content-type", "").startswith("application/json")
+            else {}
+        )
         messages = history.get("messages")
         if not isinstance(messages, list) or not any(
             isinstance(m, dict) and m.get("content") == marker for m in messages

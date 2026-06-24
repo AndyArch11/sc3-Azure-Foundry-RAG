@@ -30,6 +30,7 @@ class _ConversationMessage:
 class _AskRequest(BaseModel):
     question: str = ""
     retrieve_k: int = 5
+    controls_context_cap: int | None = None
     temperature: float = 0.5
     controls_semantic: bool | None = None
     controls_framework: str | None = None
@@ -174,6 +175,7 @@ def test_ask_post_authorised_updates_conversation_and_clamps_inputs() -> None:
         data={
             "question": "risk question",
             "retrieve_k": "999",
+            "controls_context_cap": "99999",
             "temperature": "99",
             "controls_semantic": "",
             "controls_framework": " ISM ",
@@ -190,6 +192,7 @@ def test_ask_post_authorised_updates_conversation_and_clamps_inputs() -> None:
     body = response.json()
     assert body["answer"] == "answer"
     assert body["retrieve_k"] == 20
+    assert body["controls_context_cap"] == 2000
     assert body["temperature"] == 1.0
     assert body["controls_framework"] == "ism"
     assert len(session.messages) == 2
@@ -335,6 +338,7 @@ def test_api_ask_success_uses_default_controls_semantic_when_none() -> None:
     assert response.status_code == 200
     assert response.json()["error"] == ""
     assert captured["controls_semantic"] is True
+    assert captured["controls_context_cap"] == 4
 
 
 def test_api_ask_exception_returns_internal_error() -> None:

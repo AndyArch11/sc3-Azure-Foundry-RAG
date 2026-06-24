@@ -943,3 +943,74 @@ def test_controls_search_preferred_framework_backfill_both_fetches_raise() -> No
     assert len(controls) > 0
     # Backfill was attempted (flag is always set when backfill block entered)
     assert timings["controls_preferred_framework_backfill_used"] == 1.0
+
+
+def test_controls_search_backfill_does_not_force_low_fitness_preferred_candidate() -> None:
+    base_items = [
+        {
+            "requirement_id": "PCI-1",
+            "framework": "PCI DSS",
+            "framework_version": "v4",
+            "control_family": "Cryptography",
+            "maturity_level": None,
+            "requirement_text": "Use strong cryptography for cardholder data.",
+            "guidance_text": "",
+            "source_uri": "controls://pci-1",
+            "score": 0.98,
+        },
+        {
+            "requirement_id": "PCI-2",
+            "framework": "PCI DSS",
+            "framework_version": "v4",
+            "control_family": "Cryptography",
+            "maturity_level": None,
+            "requirement_text": "Protect key material with strict controls.",
+            "guidance_text": "",
+            "source_uri": "controls://pci-2",
+            "score": 0.95,
+        },
+    ]
+    low_fit_preferred = [
+        {
+            "requirement_id": "E8-weak-1",
+            "framework": "Essential Eight",
+            "framework_version": "November 2023",
+            "control_family": "Application control",
+            "maturity_level": "ML1",
+            "requirement_text": "Maintain an approved application allow-list.",
+            "guidance_text": "",
+            "source_uri": "controls://e8-weak-1",
+            "score": 0.01,
+        }
+    ]
+
+    def _fake_fetch(
+        search_text: str,
+        retrieve_k: int,
+        use_semantic: bool,
+        framework_filter: str | None = None,
+    ):
+        if framework_filter is None:
+            return base_items
+        if framework_filter == "Essential Eight":
+            return low_fit_preferred
+        return []
+
+    with (
+        patch.object(app_module, "_fetch_controls", side_effect=_fake_fetch),
+        patch.object(
+            app_module,
+            "_apply_framework_authority_preference",
+            side_effect=lambda items, top_k, question: items,
+        ),
+    ):
+        controls, timings = app_module._controls_search(
+            "What backup controls are required?",
+            retrieve_k=2,
+            use_semantic=False,
+            framework_filter_override=None,
+        )
+
+    frameworks = {str(item.get("framework")) for item in controls}
+    assert "Essential Eight" not in frameworks
+    assert timings["controls_preferred_framework_backfill_used"] == 1.0

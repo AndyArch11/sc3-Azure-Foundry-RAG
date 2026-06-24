@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from azure.core.credentials import TokenCredential
 from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents.indexes.models import (
+    HnswAlgorithmConfiguration,
     SearchField,
     SearchIndex,
     SemanticConfiguration,
@@ -13,6 +14,8 @@ from azure.search.documents.indexes.models import (
     SemanticPrioritizedFields,
     SemanticSearch,
     SimpleField,
+    VectorSearch,
+    VectorSearchProfile,
 )
 
 
@@ -102,6 +105,14 @@ def ensure_controls_index(config: ControlsIndexConfig, credential: TokenCredenti
             facetable=True,
             retrievable=True,
         ),
+        SearchField(
+            name="content_vector",
+            type="Collection(Edm.Single)",
+            searchable=True,
+            vector_search_dimensions=int(os.environ.get("EMBEDDING_DIMENSIONS", "1536")),
+            vector_search_profile_name="controls-hnsw-profile",
+            retrievable=False,
+        ),
         SimpleField(
             name="source_uri",
             type="Edm.String",
@@ -180,10 +191,21 @@ def ensure_controls_index(config: ControlsIndexConfig, credential: TokenCredenti
         ]
     )
 
+    vector_search = VectorSearch(
+        algorithms=[HnswAlgorithmConfiguration(name="controls-hnsw-config")],
+        profiles=[
+            VectorSearchProfile(
+                name="controls-hnsw-profile",
+                algorithm_configuration_name="controls-hnsw-config",
+            )
+        ],
+    )
+
     index = SearchIndex(
         name=config.controls_index_name,
         fields=fields,
         semantic_search=semantic_search,
+        vector_search=vector_search,
     )
 
     client.create_or_update_index(index)

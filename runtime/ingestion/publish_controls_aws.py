@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -14,9 +15,75 @@ except ModuleNotFoundError:
     from outbound_instrumentation import request_with_instrumentation
 
 from .controls_index_aws import AWSControlsIndexConfig
-from .publish_controls import _controls_manifest_hash
 
 logger = logging.getLogger(__name__)
+
+
+def _controls_embedding_enabled() -> bool:
+    raw = os.getenv("CONTROLS_EMBED_ON_PUBLISH", "false").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _controls_embedding_text(record: dict[str, Any]) -> str:
+    requirement_text = str(record.get("requirement_text") or "").strip()
+    guidance_text = str(record.get("guidance_text") or "").strip()
+    keywords = record.get("keywords") or []
+    keyword_text = " ".join(str(k).strip() for k in keywords if str(k).strip())
+
+    combined = "\n".join(
+        part for part in [requirement_text, guidance_text, keyword_text] if part
+    ).strip()
+    return combined[:6000]
+
+
+def _controls_manifest_hash(records: list[dict[str, Any]]) -> str:
+    canonical_rows: list[dict[str, Any]] = []
+    for record in records:
+        canonical_rows.append(
+            {
+                "requirement_id": record.get("requirement_id", ""),
+                "framework": record.get("framework", ""),
+                "framework_version": record.get("framework_version", ""),
+                "control_family": record.get("control_family", ""),
+                "maturity_level": record.get("maturity_level"),
+                "requirement_text": record.get("requirement_text", ""),
+                "guidance_text": record.get("guidance_text", ""),
+                "keywords": sorted(record.get("keywords", []) or []),
+                "source_uri": record.get("source_uri", ""),
+                "source_section": record.get("source_section", ""),
+                "effective_date": record.get("effective_date", ""),
+                "jurisdiction_or_scope": record.get("jurisdiction_or_scope", ""),
+            }
+        )
+
+    canonical_rows.sort(key=lambda row: str(row["requirement_id"]))
+    payload = json.dumps(canonical_rows, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _embed_text_aws(text: str, session: Any) -> list[float] | None:
+    model_id = os.getenv("BEDROCK_EMBEDDING_MODEL_ID", "").strip()
+    if not model_id:
+        return None
+
+    bedrock = session.client("bedrock-runtime")
+    payload = {"inputText": text}
+    response = bedrock.invoke_model(modelId=model_id, body=json.dumps(payload).encode("utf-8"))
+    body_stream = response.get("body")
+    if body_stream is None:
+        raise RuntimeError("Bedrock embedding response body was empty")
+    payload_obj = json.loads(body_stream.read())
+
+    vector = payload_obj.get("embedding")
+    if vector is None:
+        by_type = payload_obj.get("embeddingsByType")
+        if isinstance(by_type, dict):
+            float_vectors = by_type.get("float")
+            if isinstance(float_vectors, list) and float_vectors:
+                vector = float_vectors[0]
+    if not isinstance(vector, list) or not vector:
+        raise RuntimeError("Bedrock embedding response did not include a vector")
+    return [float(v) for v in vector]
 
 
 def _signed_headers(session: Any, method: str, url: str, body: str) -> dict[str, str]:
@@ -237,6 +304,16 @@ def upload_controls_records_aws(
                 enriched = enrich_control_with_applicability(enriched)
             except Exception:
                 pass
+
+        if _controls_embedding_enabled():
+            embedding_text = _controls_embedding_text(enriched)
+            if embedding_text:
+                try:
+                    vector = _embed_text_aws(embedding_text, session)
+                except Exception:
+                    vector = None
+                if vector is not None:
+                    enriched["embedding"] = vector
 
         enriched["ingestion_manifest_hash"] = manifest_hash
         enriched["ingestion_loaded_at"] = loaded_at

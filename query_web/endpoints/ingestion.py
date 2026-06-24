@@ -12,33 +12,43 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import requests  # type: ignore[import-untyped]
 from fastapi import UploadFile
 
-try:
-    from azure.core.exceptions import HttpResponseError as _AzureHttpResponseError
-    from azure.search.documents.indexes import SearchIndexerClient
-    from azure.storage.blob import BlobServiceClient, ContentSettings
-except Exception:
-    class _MissingAzureSdkClient:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            raise RuntimeError(
-                "Azure SDK packages are not installed in this runtime. "
-                "Azure-specific ingestion features are unavailable."
-            )
+if TYPE_CHECKING:
+    from azure.core.exceptions import HttpResponseError as HttpResponseError
+    from azure.search.documents.indexes import SearchIndexerClient as SearchIndexerClient
+    from azure.storage.blob import BlobServiceClient as BlobServiceClient
+    from azure.storage.blob import ContentSettings as ContentSettings
+else:
+    try:
+        from azure.core.exceptions import HttpResponseError as _HttpResponseError
+        from azure.search.documents.indexes import SearchIndexerClient as _SearchIndexerClient
+        from azure.storage.blob import BlobServiceClient as _BlobServiceClient
+        from azure.storage.blob import ContentSettings as _ContentSettings
+    except Exception:
 
-    class _FallbackHttpResponseError(Exception):
-        pass
+        class _MissingAzureSdkClient:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                raise RuntimeError(
+                    "Azure SDK packages are not installed in this runtime. "
+                    "Azure-specific ingestion features are unavailable."
+                )
 
-    _AzureHttpResponseError = _FallbackHttpResponseError
+        class _FallbackHttpResponseError(Exception):
+            pass
 
-    SearchIndexerClient = _MissingAzureSdkClient  # type: ignore[assignment]
-    BlobServiceClient = _MissingAzureSdkClient  # type: ignore[assignment]
-    ContentSettings = _MissingAzureSdkClient  # type: ignore[assignment]
+        _HttpResponseError = _FallbackHttpResponseError
+        _SearchIndexerClient = _MissingAzureSdkClient
+        _BlobServiceClient = _MissingAzureSdkClient
+        _ContentSettings = _MissingAzureSdkClient
 
-HttpResponseError: type[Exception] = _AzureHttpResponseError
+    HttpResponseError = _HttpResponseError
+    SearchIndexerClient = _SearchIndexerClient
+    BlobServiceClient = _BlobServiceClient
+    ContentSettings = _ContentSettings
 
 from runtime.provider_core import normalise_cloud_provider
 
@@ -669,6 +679,15 @@ class IngestionService:
 
         if not dedupe_hashes:
             return {"requested": 0, "touched": 0, "not_found": [], "failed": []}
+
+        # On AWS we re-run scoped ingestion directly; no Azure Blob metadata touch is required.
+        if self._is_aws_provider():
+            return {
+                "requested": len(dedupe_hashes),
+                "touched": 0,
+                "not_found": [],
+                "failed": [],
+            }
 
         account_url = f"https://{self.deps.config.storage_account_name}.blob.core.windows.net"
         blob_service_client_cls = self._dep_attr("BlobServiceClient", BlobServiceClient)

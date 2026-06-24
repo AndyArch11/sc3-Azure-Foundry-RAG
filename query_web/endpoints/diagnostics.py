@@ -9,17 +9,23 @@ import requests
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-try:
-    from azure.search.documents.indexes import SearchIndexClient as _SearchIndexClient
-    from azure.search.documents.indexes import SearchIndexerClient as _SearchIndexerClient
-    from azure.search.documents.indexes.models import IndexerStatus as _IndexerStatus
-    from azure.storage.blob import BlobServiceClient as _BlobServiceClient
+_SearchIndexClientImpl: Any
+_SearchIndexerClientImpl: Any
+_IndexerStatusImpl: Any
+_BlobServiceClientImpl: Any
 
-    SearchIndexClient: Any = _SearchIndexClient
-    SearchIndexerClient: Any = _SearchIndexerClient
-    IndexerStatus: Any = _IndexerStatus
-    BlobServiceClient: Any = _BlobServiceClient
+try:
+    from azure.search.documents.indexes import SearchIndexClient as _ImportedSearchIndexClient
+    from azure.search.documents.indexes import SearchIndexerClient as _ImportedSearchIndexerClient
+    from azure.search.documents.indexes.models import IndexerStatus as _ImportedIndexerStatus
+    from azure.storage.blob import BlobServiceClient as _ImportedBlobServiceClient
+
+    _SearchIndexClientImpl = _ImportedSearchIndexClient
+    _SearchIndexerClientImpl = _ImportedSearchIndexerClient
+    _IndexerStatusImpl = _ImportedIndexerStatus
+    _BlobServiceClientImpl = _ImportedBlobServiceClient
 except Exception:
+
     class _MissingAzureSdkClient:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             raise RuntimeError(
@@ -27,14 +33,19 @@ except Exception:
                 "Azure diagnostics are unavailable for the current cloud provider."
             )
 
-    IndexerStatus: Any = type(
+    _IndexerStatusImpl = type(
         "IndexerStatusFallback",
         (),
         {"IN_PROGRESS": "inProgress", "RUNNING": "running"},
     )
-    SearchIndexClient: Any = _MissingAzureSdkClient
-    SearchIndexerClient: Any = _MissingAzureSdkClient
-    BlobServiceClient: Any = _MissingAzureSdkClient
+    _SearchIndexClientImpl = _MissingAzureSdkClient
+    _SearchIndexerClientImpl = _MissingAzureSdkClient
+    _BlobServiceClientImpl = _MissingAzureSdkClient
+
+SearchIndexClient: Any = _SearchIndexClientImpl
+SearchIndexerClient: Any = _SearchIndexerClientImpl
+IndexerStatus: Any = _IndexerStatusImpl
+BlobServiceClient: Any = _BlobServiceClientImpl
 
 from runtime.search import SearchClient
 
@@ -603,7 +614,9 @@ def register_diagnostics_endpoints(
                     SearchIndexerClient,
                 ),
             )
-            idx_client = search_index_client_cls(endpoint=config.search_endpoint, credential=credential)
+            idx_client = search_index_client_cls(
+                endpoint=config.search_endpoint, credential=credential
+            )
             idxr_client = search_indexer_client_cls(
                 endpoint=config.search_endpoint, credential=credential
             )

@@ -210,10 +210,12 @@ def register_corpus_endpoints(
                 else:
                     message = (
                         "No new Corpus B files were uploaded; all files were skipped or failed, "
-                        "so no ingestion job was triggered and no new upload batch was created."
+                        "so no ingestion job was triggered and no new upload batch was created. "
+                        "To force reindex for duplicate-only uploads, enable 'reindex_on_dedupe'."
                     )
 
             status_code = 207 if upload_result["failed"] else 200
+            reindex_strategy = "blob_metadata_touch" if _current_provider() != "aws" else "scope_rerun"
 
             return JSONResponse(
                 {
@@ -234,7 +236,7 @@ def register_corpus_endpoints(
                     "reindex_touch": reindex_touch,
                     "indexer_reset": {
                         "performed": bool(should_trigger_for_reindex),
-                        "strategy": "blob_metadata_touch",
+                        "strategy": reindex_strategy,
                     },
                     "indexing_notice": (
                         "Ingestion runs asynchronously. Indexed counts can remain unchanged "
@@ -369,6 +371,7 @@ def register_corpus_endpoints(
                     )
 
             status_code = 207 if upload_result["failed"] else 200
+            reindex_strategy = "blob_metadata_touch" if _current_provider() != "aws" else "scope_rerun"
 
             return JSONResponse(
                 {
@@ -389,7 +392,7 @@ def register_corpus_endpoints(
                     "reindex_touch": reindex_touch,
                     "indexer_reset": {
                         "performed": bool(should_trigger_for_reindex),
-                        "strategy": "blob_metadata_touch",
+                        "strategy": reindex_strategy,
                     },
                     "indexing_notice": (
                         "Ingestion runs asynchronously. Indexed counts can remain unchanged "

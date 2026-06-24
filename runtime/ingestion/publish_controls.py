@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import requests
 from azure.core.credentials import TokenCredential
 from azure.search.documents import SearchClient
 
@@ -31,6 +33,50 @@ OPTIONAL_APPLICABILITY_FIELDS = {
     "applicability_confidence",
     "applicability_uncertain",
 }
+
+
+def _controls_embedding_enabled() -> bool:
+    raw = os.getenv("CONTROLS_EMBED_ON_PUBLISH", "false").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _controls_embedding_text(record: dict[str, Any]) -> str:
+    requirement_text = str(record.get("requirement_text") or "").strip()
+    guidance_text = str(record.get("guidance_text") or "").strip()
+    keywords = record.get("keywords") or []
+    keyword_text = " ".join(str(k).strip() for k in keywords if str(k).strip())
+
+    combined = "\n".join(
+        part for part in [requirement_text, guidance_text, keyword_text] if part
+    ).strip()
+    return combined[:6000]
+
+
+def _embed_text_azure(text: str, credential: TokenCredential) -> list[float] | None:
+    endpoint = (
+        os.getenv("AZURE_OPENAI_ENDPOINT", "").strip() or os.getenv("OPENAI_ENDPOINT", "").strip()
+    ).rstrip("/")
+    deployment = os.getenv("EMBEDDING_DEPLOYMENT_NAME", "text-embedding-ada-002").strip()
+    if not endpoint or not deployment:
+        return None
+
+    token = credential.get_token("https://cognitiveservices.azure.com/.default").token
+    url = f"{endpoint}/openai/deployments/{deployment}" f"/embeddings?api-version=2023-05-15"
+    response = requests.post(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        json={"input": text},
+        timeout=30,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    vector = payload.get("data", [{}])[0].get("embedding")
+    if not isinstance(vector, list) or not vector:
+        raise RuntimeError("Azure embedding response did not include a vector")
+    return [float(v) for v in vector]
 
 
 def load_controls_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -159,24 +205,6 @@ def upload_controls_records(
     manifest_hash = _controls_manifest_hash(records)
     loaded_at = datetime.now(UTC).isoformat()
 
-    enriched_records = []
-    for record in records:
-        enriched = dict(record)
-
-        # Apply control applicability enrichment if not already present
-        if "control_applicability_scope" not in enriched:
-            try:
-                from ..assessment_orchestration import enrich_control_with_applicability
-
-                enriched = enrich_control_with_applicability(enriched)
-            except Exception:
-                # Fallback: skip enrichment if unavailable (backward compatibility)
-                pass
-
-        enriched["ingestion_manifest_hash"] = manifest_hash
-        enriched["ingestion_loaded_at"] = loaded_at
-        enriched_records.append(enriched)
-
     if framework and framework_version:
         if any(
             str(r.get("framework", "")).strip() != framework
@@ -258,6 +286,33 @@ def upload_controls_records(
             "framework_version": framework_version,
             "manifest_hash": manifest_hash,
         }
+
+    enriched_records = []
+    for record in records:
+        enriched = dict(record)
+
+        # Apply control applicability enrichment if not already present.
+        if "control_applicability_scope" not in enriched:
+            try:
+                from ..assessment_orchestration import enrich_control_with_applicability
+
+                enriched = enrich_control_with_applicability(enriched)
+            except Exception:
+                pass
+
+        if _controls_embedding_enabled():
+            embedding_text = _controls_embedding_text(enriched)
+            if embedding_text:
+                try:
+                    vector = _embed_text_azure(embedding_text, credential)
+                except Exception:
+                    vector = None
+                if vector is not None:
+                    enriched["content_vector"] = vector
+
+        enriched["ingestion_manifest_hash"] = manifest_hash
+        enriched["ingestion_loaded_at"] = loaded_at
+        enriched_records.append(enriched)
 
     uploaded = 0
     failed = 0

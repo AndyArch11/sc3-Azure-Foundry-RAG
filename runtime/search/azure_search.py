@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from azure.search.documents import SearchClient as _AzureSDKSearchClient
 from azure.search.documents.models import VectorizedQuery
@@ -83,12 +83,21 @@ class AzureSearchClient:
             kwargs["select"] = select
 
         if vector_query is not None:
-            kwargs["vector_queries"] = [
-                VectorizedQuery(
+            vector_ctor = cast(Any, VectorizedQuery)
+            try:
+                vectorized_query = vector_ctor(
+                    vector=vector_query,
+                    k=top,
+                    fields="content_vector",
+                )
+            except TypeError:
+                vectorized_query = vector_ctor(
                     vector=vector_query,
                     k_nearest_neighbors=top,
                     fields="content_vector",
                 )
+            kwargs["vector_queries"] = [
+                vectorized_query
             ]
 
         # Forward provider-specific hints (e.g. query_type, semantic_configuration_name).
@@ -107,6 +116,15 @@ class AzureSearchClient:
         total_count = results.get_count() if hasattr(results, "get_count") else None
         items = [dict(r) for r in results]
         return _SearchResults(items=items, total_count=total_count)
+
+    def delete_documents(self, *, documents: list[dict[str, Any]]) -> None:
+        """Delete documents via the underlying Azure Search SDK client."""
+
+        delete_fn = getattr(self._client, "delete_documents", None)
+        if not callable(delete_fn):
+            raise AttributeError("SearchClient.delete_documents is unavailable")
+
+        delete_fn(documents=documents)
 
     def load_documents(self, docs: list[dict[str, Any]]) -> None:
         """Unsupported for cloud backends; retained for protocol compatibility."""

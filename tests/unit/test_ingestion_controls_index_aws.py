@@ -98,6 +98,7 @@ def test_signed_headers_returns_auth_header(monkeypatch: pytest.MonkeyPatch) -> 
 def test_ensure_controls_index_returns_when_index_exists(monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = mod.AWSControlsIndexConfig("https://os.example", "controls")
     monkeypatch.setattr(mod, "_signed_headers", lambda *args, **kwargs: {"h": "v"})
+    monkeypatch.setattr(mod, "_existing_index_is_compatible", lambda *args, **kwargs: True)
 
     head_calls: list[tuple[str, dict]] = []
 
@@ -118,6 +119,66 @@ def test_ensure_controls_index_returns_when_index_exists(monkeypatch: pytest.Mon
 
     assert len(head_calls) == 1
     assert put_called["value"] is False
+
+
+def test_existing_index_is_compatible_true(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = mod.AWSControlsIndexConfig("https://os.example", "controls")
+    monkeypatch.setattr(mod, "_signed_headers", lambda *args, **kwargs: {"h": "v"})
+
+    payload = {
+        "controls": {
+            "settings": {"index": {"knn": "true"}},
+            "mappings": {"properties": {"embedding": {"type": "knn_vector", "dimension": 1024}}},
+        }
+    }
+
+    monkeypatch.setattr(mod.requests, "get", lambda *args, **kwargs: _Resp(200, payload))
+    assert mod._existing_index_is_compatible(cfg, session=SimpleNamespace()) is True
+
+
+def test_existing_index_is_compatible_false_when_embedding_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = mod.AWSControlsIndexConfig("https://os.example", "controls")
+    monkeypatch.setattr(mod, "_signed_headers", lambda *args, **kwargs: {"h": "v"})
+
+    payload = {
+        "controls": {
+            "settings": {"index": {"knn": "false"}},
+            "mappings": {"properties": {}},
+        }
+    }
+
+    monkeypatch.setattr(mod.requests, "get", lambda *args, **kwargs: _Resp(200, payload))
+    assert mod._existing_index_is_compatible(cfg, session=SimpleNamespace()) is False
+
+
+def test_ensure_controls_index_recreates_incompatible_existing_index(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = mod.AWSControlsIndexConfig("https://os.example", "controls")
+    monkeypatch.setattr(mod, "_signed_headers", lambda *args, **kwargs: {"h": "v"})
+    monkeypatch.setattr(mod, "_existing_index_is_compatible", lambda *args, **kwargs: False)
+
+    calls: dict[str, int] = {"delete": 0, "put": 0}
+
+    monkeypatch.setattr(mod.requests, "head", lambda *args, **kwargs: _Resp(200))
+
+    def _delete(*args, **kwargs):
+        calls["delete"] += 1
+        return _Resp(200)
+
+    def _put(*args, **kwargs):
+        calls["put"] += 1
+        return _Resp(200)
+
+    monkeypatch.setattr(mod.requests, "delete", _delete)
+    monkeypatch.setattr(mod.requests, "put", _put)
+
+    mod.ensure_controls_index_aws(cfg, session=SimpleNamespace())
+
+    assert calls["delete"] == 1
+    assert calls["put"] == 1
 
 
 def test_ensure_controls_index_raises_on_unexpected_head_status(

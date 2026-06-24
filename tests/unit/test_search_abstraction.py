@@ -219,7 +219,25 @@ class TestAzureSearchClient:
         call_kwargs = mock_sdk_client.search.call_args.kwargs
         assert "vector_queries" in call_kwargs
         assert len(call_kwargs["vector_queries"]) == 1
-        assert call_kwargs["vector_queries"][0].k_nearest_neighbors == 5
+        assert call_kwargs["vector_queries"][0].as_dict()["k"] == 5
+
+    def test_delete_documents_delegates_to_sdk(self) -> None:
+        from runtime.search.azure_search import AzureSearchClient
+
+        mock_sdk_client = MagicMock()
+        with patch(
+            "runtime.search.azure_search._AzureSDKSearchClient", return_value=mock_sdk_client
+        ):
+            client = AzureSearchClient(
+                endpoint="https://endpoint.search.windows.net",
+                index="my-index",
+                credential=MagicMock(),
+            )
+
+        client.delete_documents(documents=[{"requirement_id": "CTRL-1"}])
+        mock_sdk_client.delete_documents.assert_called_once_with(
+            documents=[{"requirement_id": "CTRL-1"}]
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -344,6 +362,23 @@ class TestAWSOpenSearchClient:
         with pytest.raises(TypeError, match="query_text"):
             client.search(top=3)
 
+    def test_delete_documents_posts_bulk_delete(self) -> None:
+        from runtime.search.opensearch import AWSOpenSearchClient
+
+        response = MagicMock()
+        response.json.return_value = {"items": []}
+
+        client = AWSOpenSearchClient(endpoint="https://search.example", index="controls")
+        client._signed_headers = MagicMock(return_value={"Authorization": "sig"})
+        client._http.post = MagicMock(return_value=response)
+
+        client.delete_documents(documents=[{"requirement_id": "A"}, {"id": "B"}])
+
+        assert client._http.post.call_count == 1
+        body = client._http.post.call_args.kwargs["data"]
+        assert '"_id": "A"' in body
+        assert '"_id": "B"' in body
+
     def test_translate_filter_expression_eq_and_ne_empty(self) -> None:
         from runtime.search.opensearch import AWSOpenSearchClient
 
@@ -351,7 +386,7 @@ class TestAWSOpenSearchClient:
             "framework eq 'CIS Controls' and corpus ne ''"
         )
 
-        assert translated == 'framework:"CIS Controls" AND _exists_:corpus'
+        assert translated == '(framework:"CIS Controls") AND (_exists_:corpus)'
 
     def test_translate_filter_expression_preserves_query_string_syntax(self) -> None:
         from runtime.search.opensearch import AWSOpenSearchClient
@@ -360,3 +395,24 @@ class TestAWSOpenSearchClient:
         translated = AWSOpenSearchClient._translate_filter_expression(original)
 
         assert translated == original
+
+    def test_translate_filter_expression_with_or_group(self) -> None:
+        from runtime.search.opensearch import AWSOpenSearchClient
+
+        translated = AWSOpenSearchClient._translate_filter_expression(
+            "(corpus eq 'b' or corpus eq 'c' or corpus eq 'legacy')"
+        )
+
+        assert translated == '((corpus:"b") OR (corpus:"c") OR (corpus:"legacy"))'
+
+    def test_translate_filter_expression_with_role_and_empty_legacy(self) -> None:
+        from runtime.search.opensearch import AWSOpenSearchClient
+
+        translated = AWSOpenSearchClient._translate_filter_expression(
+            "((corpus eq 'b' or corpus_role eq 'narrative_guidance') or (corpus eq 'legacy' or corpus eq ''))"
+        )
+
+        assert translated == (
+            '(((corpus:"b") OR (corpus_role:"narrative_guidance")) OR '
+            '((corpus:"legacy") OR (NOT _exists_:corpus)))'
+        )

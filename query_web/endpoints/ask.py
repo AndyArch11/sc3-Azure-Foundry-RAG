@@ -95,6 +95,7 @@ def register_ask_endpoints(
         request: Request,
         question: str = Form(...),
         retrieve_k: int = Form(...),
+        controls_context_cap: int = Form(0),
         temperature: float = Form(...),
         max_completion_tokens: str = Form(""),
         evaluator_max_completion_tokens: str = Form(""),
@@ -173,6 +174,10 @@ def register_ask_endpoints(
         # Use mode presets if form values are empty, otherwise use explicit form values
         if not (retrieve_k and retrieve_k != 0):
             retrieve_k = int(mode_defaults.get("search_top_k", 5))
+        if controls_context_cap <= 0:
+            controls_context_cap = int(
+                mode_defaults.get("controls_top_k", getattr(resolved_config, "controls_top_k", 4))
+            )
         if temperature is None or temperature == 0.0:
             temperature = float(mode_defaults.get("default_temperature", 1.0))
 
@@ -239,6 +244,7 @@ def register_ask_endpoints(
                     "metrics": None,
                     "iterations": None,
                     "retrieve_k": retrieve_k,
+                    "controls_context_cap": controls_context_cap,
                     "temperature": temperature,
                     "max_completion_tokens": (
                         max_completion_tokens_int
@@ -283,6 +289,7 @@ def register_ask_endpoints(
             )
 
         retrieve_k = max(1, min(20, retrieve_k))
+        controls_context_cap = max(1, min(2000, controls_context_cap))
         temperature = max(0, min(1.0, temperature))
         controls_semantic_enabled = resolved_form_bool(
             controls_semantic, default=resolved_config.controls_semantic_default
@@ -310,6 +317,7 @@ def register_ask_endpoints(
             result = resolved_run_rag(
                 question=question,
                 retrieve_k=retrieve_k,
+                controls_context_cap=controls_context_cap,
                 temperature=temperature,
                 max_completion_tokens=max_completion_tokens_int,
                 evaluator_max_completion_tokens=evaluator_max_completion_tokens_int,
@@ -375,6 +383,7 @@ def register_ask_endpoints(
                 "metrics": result["metrics"],
                 "iterations": result["iterations"],
                 "retrieve_k": retrieve_k,
+                "controls_context_cap": controls_context_cap,
                 "temperature": temperature,
                 "max_completion_tokens": (
                     max_completion_tokens_int
@@ -455,9 +464,16 @@ def register_ask_endpoints(
 
         # Use mode presets if values are at their defaults, otherwise use explicit values
         api_retrieve_k = parsed_payload.retrieve_k
+        api_controls_context_cap = parsed_payload.controls_context_cap
         api_temperature = parsed_payload.temperature
         if api_retrieve_k == 5 and api_thinking_mode:
             api_retrieve_k = int(api_mode_defaults.get("search_top_k", 5))
+        if api_controls_context_cap is None:
+            api_controls_context_cap = int(
+                api_mode_defaults.get(
+                    "controls_top_k", getattr(resolved_config, "controls_top_k", 4)
+                )
+            )
         if api_temperature == 1.0 and api_thinking_mode:
             api_temperature = float(api_mode_defaults.get("default_temperature", 1.0))
 
@@ -501,6 +517,7 @@ def register_ask_endpoints(
             result = resolved_run_rag(
                 question=question,
                 retrieve_k=api_retrieve_k,
+                controls_context_cap=max(1, min(2000, int(api_controls_context_cap))),
                 temperature=api_temperature,
                 max_completion_tokens=getattr(parsed_payload, "max_completion_tokens", None)
                 or api_mode_defaults.get("max_completion_tokens"),
