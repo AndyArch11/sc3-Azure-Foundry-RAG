@@ -1,3 +1,9 @@
+"""
+Worker entrypoint for assessment orchestration. This script is intended to be run as a command-line interface (CLI) tool. It reads a queue message in JSON format, either from a file, directly from the command line, or from standard input (stdin), and processes it using the assessment orchestration worker.
+The script sets up logging, parses command-line arguments, and invokes the appropriate functions to handle the queue message. It is designed to be used in an Azure environment where assessment orchestration tasks are executed based on messages received from a queue.
+
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -13,7 +19,15 @@ from .worker import process_queue_message_json
 
 
 def _read_message(args: argparse.Namespace) -> str:
-    """Run read message."""
+    """Run read message.
+
+    Args:
+        args: The command-line arguments namespace containing message input options.
+    Returns:
+        The raw queue message as a string.
+    Raises:
+        ValueError: If no message is provided via command-line arguments or stdin.
+    """
     if args.message_json:
         return args.message_json
     if args.message_file:
@@ -26,7 +40,11 @@ def _read_message(args: argparse.Namespace) -> str:
 
 
 def main() -> int:
-    """Run main."""
+    """Run main.
+
+    Returns:
+        The exit code of the program.
+    """
     parser = argparse.ArgumentParser(description="Assessment orchestrator worker entrypoint")
     parser.add_argument("--message-json", default="", help="Raw queue message JSON payload")
     parser.add_argument(

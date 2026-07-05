@@ -1,3 +1,16 @@
+"""
+Assessment Orchestration Runtime Module.
+
+This module provides the core functionality for orchestrating assessments, including
+assessment job creation, queue message handling, schema validation, skill catalog management,
+and integration with various MCP (Message Control Protocol) servers such as Azure, Confluence,
+Email, and SharePoint.
+
+It also includes utilities for control applicability classification, LLM backend creation,
+and polling worker management. The module is designed to be extensible and adaptable to different
+runtime environments, with stubs provided for unavailable features.
+"""
+
 from typing import Any
 
 from .assessment_runtime import (
@@ -8,6 +21,7 @@ from .assessment_runtime import (
 
 
 def _run_azure_assessment_unavailable(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Run Azure assessment orchestration (unavailable in this runtime)."""
     raise RuntimeError("Azure assessment orchestration is unavailable in this runtime.")
 
 
@@ -36,11 +50,23 @@ from .interfaces import AssessmentAgent, AuditSink, DeliveryPublisher, MCPConten
 
 
 class _AzureMCPServerUnavailable:
+    """Stub class for Azure MCP server (unavailable in this runtime)."""
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Initialise the stub Azure MCP server.
+
+        Raises:
+            RuntimeError: Always raised to indicate that the Azure MCP server is unavailable in this runtime.
+        """
         raise RuntimeError("Azure MCP resource integration is unavailable in this runtime.")
 
 
 def _build_azure_target_reference_unavailable(*args: Any, **kwargs: Any) -> str:
+    """Stub function for building Azure target reference (unavailable in this runtime).
+
+    Raises:
+        RuntimeError: Always raised to indicate that the Azure target reference builder is unavailable in this runtime.
+    """
     raise RuntimeError("Azure target reference builder is unavailable in this runtime.")
 
 
@@ -72,10 +98,20 @@ from .models import (
 
 
 def _run_forever_unavailable(*args: Any, **kwargs: Any) -> Any:
+    """Run forever (unavailable in this runtime).
+
+    Raises:
+        RuntimeError: Always raised to indicate that the polling worker is unavailable in this runtime.
+    """
     raise RuntimeError("Polling worker is unavailable in this runtime.")
 
 
 def _run_poll_cycle_unavailable(*args: Any, **kwargs: Any) -> Any:
+    """Run poll cycle (unavailable in this runtime).
+
+    Raises:
+        RuntimeError: Always raised to indicate that the polling worker is unavailable in this runtime.
+    """
     raise RuntimeError("Polling worker is unavailable in this runtime.")
 
 
@@ -108,10 +144,20 @@ from .queue import (
 
 
 def _create_confluence_mcp_server_from_env_unavailable(*args: Any, **kwargs: Any) -> Any:
+    """Create Confluence MCP server from environment (unavailable in this runtime).
+
+    Raises:
+        RuntimeError: Always raised to indicate that the Confluence MCP server is unavailable in this runtime.
+    """
     raise RuntimeError("Confluence MCP server wiring is unavailable in this runtime.")
 
 
 def _create_orchestrator_adapter_from_env_unavailable(*args: Any, **kwargs: Any) -> Any:
+    """Create orchestrator adapter from environment (unavailable in this runtime).
+
+    Raises:
+        RuntimeError: Always raised to indicate that the orchestrator adapter is unavailable in this runtime.
+    """
     raise RuntimeError("Orchestrator adapter wiring is unavailable in this runtime.")
 
 

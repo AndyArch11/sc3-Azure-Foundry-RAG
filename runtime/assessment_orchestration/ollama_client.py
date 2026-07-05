@@ -55,6 +55,12 @@ def _resolve_base_url(explicit: str | None = None) -> str:
     """Return the Ollama base URL to use, following the priority chain.
 
     Priority: explicit arg > OLLAMA_HOST env > OLLAMA_BASE_URL env > host.docker.internal default.
+
+    Args:
+        explicit: An explicitly provided base URL (optional).
+
+    Returns:
+        The resolved base URL as a string.
     """
     if explicit:
         return explicit.rstrip("/")
@@ -72,7 +78,14 @@ def _resolve_base_url(explicit: str | None = None) -> str:
 
 
 def is_ollama_available(base_url: str | None = None) -> bool:
-    """Check if Ollama is running and accessible."""
+    """Check if Ollama is running and accessible.
+
+    Args:
+        base_url: An optional base URL to use for the check.
+
+    Returns:
+        A boolean indicating whether Ollama is available.
+    """
     url = _resolve_base_url(base_url)
     try:
         import requests  # type: ignore[import-untyped]
@@ -92,7 +105,14 @@ def is_ollama_available(base_url: str | None = None) -> bool:
 
 
 def _messages_to_prompt(messages: list[dict[str, str]]) -> str:
-    """Convert chat messages to a plain prompt for /api/generate fallback."""
+    """Convert chat messages to a plain prompt for /api/generate fallback.
+
+    Args:
+        messages: A list of dictionaries representing chat messages.
+
+    Returns:
+        A string representing the plain prompt.
+    """
     parts: list[str] = []
     for msg in messages:
         role = str(msg.get("role") or "user").strip().upper()
@@ -105,7 +125,14 @@ def _messages_to_prompt(messages: list[dict[str, str]]) -> str:
 
 
 def _response_error_message(response: Any) -> str:
-    """Extract the most useful error message from an HTTP response."""
+    """Extract the most useful error message from an HTTP response.
+
+    Args:
+        response: The HTTP response object.
+
+    Returns:
+        A string representing the extracted error message.
+    """
     try:
         payload = response.json()
     except Exception:
@@ -121,12 +148,29 @@ def _response_error_message(response: Any) -> str:
 
 
 def _is_model_not_found(status_code: int, error_message: str) -> bool:
+    """Determine if the response indicates a missing model.
+
+    Args:
+        status_code: The HTTP status code from the response.
+        error_message: The error message extracted from the response.
+
+    Returns:
+        A boolean indicating whether the model was not found.
+    """
     msg = error_message.lower()
     return status_code == 404 and "model" in msg and "not found" in msg
 
 
 def _list_available_models(resolved_url: str, timeout: int) -> list[str]:
-    """Return model names reported by Ollama /api/tags."""
+    """Return model names reported by Ollama /api/tags.
+
+    Args:
+        resolved_url: The resolved base URL for the Ollama API.
+        timeout: The timeout for the request in seconds.
+
+    Returns:
+        A list of model names.
+    """
     try:
         import requests
 
@@ -158,7 +202,15 @@ def _list_available_models(resolved_url: str, timeout: int) -> list[str]:
 
 
 def _choose_fallback_chat_model(requested_model: str, available_models: list[str]) -> str | None:
-    """Pick a non-embedding fallback model when requested model is unavailable."""
+    """Pick a non-embedding fallback model when requested model is unavailable.
+
+    Args:
+        requested_model: The name of the requested model.
+        available_models: A list of available model names.
+
+    Returns:
+        The name of a suitable fallback model, or None if no suitable model is found.
+    """
     requested = requested_model.strip().lower()
     for name in available_models:
         lower = name.lower()
@@ -187,7 +239,23 @@ def _chat_or_generate_once(
     force_json: bool,
     num_ctx: int,
 ) -> Any:
-    """Issue one chat request with /api/generate fallback for endpoint compatibility."""
+    """Issue one chat request with /api/generate fallback for endpoint compatibility.
+    Args:
+        requests: The requests module (or compatible interface).
+        resolved_url: The resolved base URL for the Ollama API.
+        messages: List of messages in OpenAI format [{"role": "system|user", "content": str}]
+        model: The name of the model to use for the chat request.
+        temperature: The temperature setting for the model.
+        top_p: The top_p setting for the model.
+        timeout: The timeout for the request in seconds.
+        force_json: Whether to force the response to be in JSON format.
+        num_ctx: The number of context tokens to use for the model.
+
+    Returns:
+        The response object from the Ollama API.
+    Raises:
+        requests.exceptions.RequestException: If the request fails for any reason.
+    """
     endpoint = f"{resolved_url}/api/chat"
     payload: dict[str, Any] = {
         "model": model,
@@ -263,6 +331,7 @@ def ollama_chat_completion(
         model: Ollama model name (default: gemma3:27b)
         base_url: Ollama API endpoint — resolved from OLLAMA_HOST/OLLAMA_BASE_URL if not supplied
         temperature: Sampling temperature (0.0-2.0, default: 1.0)
+        top_p: Nucleus sampling parameter (0.0-1.0, default: 1.0)
         timeout: Request timeout in seconds (default: 240 — accounts for large Q8 models on long contexts)
         force_json: Pass format='json' to constrain output to valid JSON tokens (default: True).
             Strongly recommended for compliance report generation to reduce schema validation failures.

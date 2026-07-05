@@ -1,3 +1,10 @@
+"""
+Email MCP Server Module.
+
+This module defines the EmailMCPServer class, which provides an implementation for handling email-based notifications and interactions within the MCP (Message Control Protocol) framework.
+It includes methods for reading inbox notifications, parsing notification targets, resolving recipients, sending emails, and marking notifications as processed.
+"""
+
 from __future__ import annotations
 
 import re
@@ -8,7 +15,13 @@ from ..models import DeliveryOutcome
 
 
 class EmailMCPServer:
-    """EmailMCPServer."""
+    """EmailMCPServer.
+
+    An MCP server implementation for handling email-based notifications and interactions. This class provides methods to read inbox notifications, parse notification targets, resolve recipients, send emails, and mark notifications as processed. It is designed to be extended with actual email service implementations.
+
+    Attributes:
+        _URL_PATTERN: A compiled regular expression pattern to match URLs in email content.
+    """
 
     provider = "email"
 
@@ -16,7 +29,15 @@ class EmailMCPServer:
 
     @staticmethod
     def _host_is_exact_or_subdomain(host: str, domain: str) -> bool:
-        """Run host is exact or subdomain."""
+        """Check if the host is exactly the domain or a subdomain of it.
+
+        Args:
+            host: The host to check.
+            domain: The domain to compare against.
+
+        Returns:
+            True if the host is exactly the domain or a subdomain of it, False otherwise.
+        """
         host_l = host.strip().lower()
         domain_l = domain.strip().lower()
         return host_l == domain_l or host_l.endswith(f".{domain_l}")
@@ -29,11 +50,31 @@ class EmailMCPServer:
         folder: str = "Inbox",
         unread_only: bool = True,
     ) -> list[dict[str, Any]]:
-        """Run read inbox notifications."""
+        """Run read inbox notifications.
+
+        Args:
+            mailbox_id: The ID of the mailbox to read notifications from.
+            lookback_window: The time window to look back for notifications (e.g., "PT1H" for 1 hour).
+            folder: The folder to read notifications from (default is "Inbox").
+            unread_only: Whether to only read unread notifications (default is True).
+
+        Returns:
+            A list of notification dictionaries containing details of the notifications read from the inbox.
+
+        Raises:
+            NotImplementedError: This method is not implemented yet and should be overridden in a subclass.
+        """
         raise NotImplementedError("Email inbox notification retrieval is not implemented yet")
 
     def parse_notification_target(self, message: dict[str, Any]) -> dict[str, Any]:
-        """Run parse notification target."""
+        """Run parse notification target.
+
+        Args:
+            message: A dictionary representing the email notification message to parse.
+
+        Returns:
+            A dictionary containing the parsed notification target information.
+        """
         body = str(message.get("body") or "")
         subject = str(message.get("subject") or "")
         text = f"{subject}\n{body}"
@@ -63,7 +104,15 @@ class EmailMCPServer:
         }
 
     def resolve_recipients(self, recipient_candidates: list[str], *, policy: str = "") -> list[str]:
-        """Run resolve recipients."""
+        """Run resolve recipients.
+
+        Args:
+            recipient_candidates: A list of candidate email addresses to resolve.
+            policy: An optional policy string to determine how recipients are resolved.
+
+        Returns:
+            A list of resolved email addresses.
+        """
         seen: set[str] = set()
         resolved: list[str] = []
         for candidate in recipient_candidates:
@@ -87,13 +136,33 @@ class EmailMCPServer:
         body: str,
         idempotency_key: str,
     ) -> DeliveryOutcome:
-        """Run send email."""
+        """Run send email.
+
+        Args:
+            recipients: A list of email addresses to send the email to.
+            subject: The subject of the email.
+            body: The body content of the email.
+            idempotency_key: A unique key to ensure idempotent email delivery.
+
+        Returns:
+            A DeliveryOutcome object representing the result of the email delivery.
+        Raises:
+            NotImplementedError: This method is not implemented yet and should be overridden in a subclass.
+        """
         raise NotImplementedError("Email delivery is not implemented yet")
 
     def mark_notification_processed(
         self, message_id: str, *, processing_state: str
     ) -> dict[str, Any]:
-        """Run mark notification processed."""
+        """Run mark notification processed.
+
+        Args:
+            message_id: The ID of the message to mark as processed.
+            processing_state: The state to mark the message with.
+
+        Returns:
+            A dictionary containing the result of the operation.
+        """
         return {
             "success": True,
             "message_id": str(message_id).strip(),

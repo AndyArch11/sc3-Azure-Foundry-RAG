@@ -12,7 +12,19 @@ _E = TypeVar("_E", bound=Exception)
 
 @dataclass(frozen=True)
 class ProviderResolvedSettings:
-    """Common provider-derived configuration used across services."""
+    """Common provider-derived configuration used across services.
+    
+    Attributes:
+        cloud_provider: The cloud provider in use.
+        is_aws: Whether the provider is AWS.
+        is_local: Whether the provider is local.
+        search_endpoint: The search endpoint URL.
+        search_index_name: The search index name.
+        controls_index_name: The controls index name.
+        openai_endpoint: The OpenAI endpoint URL.
+        embedding_deployment: The embedding deployment name.
+        query_deployment: The query deployment name.
+    """
 
     cloud_provider: CloudProvider
     is_aws: bool
@@ -27,7 +39,15 @@ class ProviderResolvedSettings:
 
 @dataclass(frozen=True)
 class QueryWebProviderSettings:
-    """Query-web-specific provider-derived settings."""
+    """Query-web-specific provider-derived settings.
+
+    Attributes:
+        evaluator_deployment: The evaluator deployment name.
+        cosmos_endpoint: The Cosmos DB endpoint URL.
+        cosmos_database_name: The Cosmos DB database name.
+        cosmos_container_name: The Cosmos DB container name.
+        cosmos_orchestration_container_name: The Cosmos DB orchestration container name.
+    """
 
     evaluator_deployment: str
     cosmos_endpoint: str
@@ -42,6 +62,16 @@ def _required(
     *,
     error_type: type[_E],
 ) -> str:
+    """Get a required value from *values* or raise *error_type* if missing.
+
+    Args:
+        values: A mapping of environment variable names to their values.
+        key: The key to look up in *values*.
+        error_type: The exception type to raise if the key is missing or empty.    
+    
+    Returns:
+        The value associated with *key* in *values*, stripped of whitespace.
+    """
     value = (values.get(key) or "").strip()
     if not value:
         raise error_type(f"Missing required environment variable: {key}")
@@ -55,7 +85,17 @@ def parse_framework_authority_order(
     resolve_name: Callable[[str, str], str | None],
     drop_unknown: bool,
 ) -> tuple[str, ...]:
-    """Parse framework order while preserving caller-specific alias behaviour."""
+    """Parse framework order while preserving caller-specific alias behaviour.
+
+    Args:
+        raw_value: The raw comma-separated framework order string.
+        default_order: The default order to use if *raw_value* is None or empty.
+        resolve_name: A callable to resolve framework names.
+        drop_unknown: Whether to drop unknown frameworks.
+
+    Returns:
+        A tuple of framework names in the resolved order.
+    """
 
     if raw_value is None or not raw_value.strip():
         return default_order
@@ -86,7 +126,18 @@ def resolve_provider_settings(
     local_openai_endpoint: str,
     local_openai_uses_default: bool,
 ) -> ProviderResolvedSettings:
-    """Resolve common cloud-provider settings from environment mapping."""
+    """Resolve common cloud-provider settings from environment mapping.
+
+    Args:
+        values: A mapping of environment variable names to their values.
+        missing_error: The exception type to raise if a required value is missing.
+        local_search_endpoint: The default search endpoint for local provider.
+        local_openai_endpoint: The default OpenAI endpoint for local provider.
+        local_openai_uses_default: Whether the local provider uses the default OpenAI endpoint.
+
+    Returns:
+        A ProviderResolvedSettings object with the resolved settings.
+    """
 
     provider = normalise_cloud_provider(values.get("CLOUD_PROVIDER"))
     is_aws = provider == "aws"
@@ -140,8 +191,16 @@ def resolve_query_web_provider_settings(
     common: ProviderResolvedSettings,
     missing_error: type[Exception],
 ) -> QueryWebProviderSettings:
-    """Resolve query-web provider-specific settings from environment mapping."""
+    """Resolve query-web provider-specific settings from environment mapping.
 
+    Args:
+        values: A mapping of environment variable names to their values.
+        common: The common provider settings resolved earlier.
+        missing_error: The exception type to raise if a required value is missing.
+
+    Returns:
+        A QueryWebProviderSettings object with the resolved settings.
+    """
     if common.is_aws:
         evaluator_deployment = (values.get("BEDROCK_MODEL_ID") or "").strip()
         cosmos_endpoint = ""

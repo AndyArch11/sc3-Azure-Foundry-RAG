@@ -1,3 +1,10 @@
+"""
+Azure Assessment Module.
+
+This module provides functionality to orchestrate compliance assessments for Azure resources.
+It includes functions to run assessments, collect grounding information, and interact with Azure MCP servers.
+"""
+
 from __future__ import annotations
 
 import os
@@ -23,7 +30,18 @@ def run_azure_assessment(
     env: Mapping[str, str] | None = None,
     credential: DefaultAzureCredential | None = None,
 ) -> dict[str, Any]:
-    """Run run azure assessment."""
+    """Run run azure assessment.
+
+    Args:
+        subscription_id: The Azure subscription identifier.
+        resource_group: The Azure resource group name.
+        resource_ids: Optional list of specific Azure resource IDs to assess.
+        controls_framework: The compliance framework to assess against. Azure CLI v1 supports NIST CSF only.
+        env: Optional mapping of environment variables. If None, defaults to os.environ.
+        credential: Optional Azure credential for authentication. If None, defaults to DefaultAzureCredential.
+    Returns:
+        A dictionary containing the assessment results.
+    """
     subscription_value = subscription_id.strip()
     resource_group_value = resource_group.strip()
     resource_id_values = [item.strip() for item in (resource_ids or []) if item.strip()]
@@ -87,6 +105,16 @@ def collect_azure_grounding(
 
     Returns the enriched artifact and grounding package so callers can run a
     per-control assessment loop rather than the single-pass LLM call.
+
+    Args:
+        subscription_id: The Azure subscription identifier.
+        resource_group: The Azure resource group name.
+        resource_ids: Optional list of specific Azure resource IDs to assess.
+        controls_framework: The compliance framework to assess against. Azure CLI v1 supports NIST CSF only.
+        env: Optional mapping of environment variables. If None, defaults to os.environ.
+        credential: Optional Azure credential for authentication. If None, defaults to DefaultAzureCredential.
+    Returns:
+        A tuple containing the enriched AssessedArtifactPackage and CorpusGroundingPackage.
     """
     subscription_value = subscription_id.strip()
     resource_group_value = resource_group.strip()

@@ -16,6 +16,12 @@ class AzureBlobStorageClient:
     """StorageClient backed by Azure Blob Storage."""
 
     def __init__(self, account_url: str, credential: Any) -> None:
+        """Initialise the Azure Blob Storage client.
+
+        Args:
+            account_url: The account URL for Azure Blob Storage.
+            credential: The credential/session object for Azure SDK clients.
+        """
         self._service_client = BlobServiceClient(
             account_url=account_url, credential=credential
         )
@@ -27,6 +33,14 @@ class AzureBlobStorageClient:
         data: bytes,
         metadata: dict[str, str] | None = None,
     ) -> None:
+        """Upload object data to Azure Blob Storage.
+
+        Args:
+            bucket_or_container: The name of the Azure Blob Storage container.
+            key: The key of the object.
+            data: The object data as bytes.
+            metadata: Optional metadata for the object.
+        """
         container = sdk_call_with_instrumentation(
             logger=logger,
             system="azure-blob",
@@ -46,6 +60,14 @@ class AzureBlobStorageClient:
         )
 
     def list_objects(self, bucket_or_container: str, prefix: str = "") -> list[str]:
+        """List object keys in an Azure Blob Storage container with an optional prefix.
+
+        Args:
+            bucket_or_container: The name of the Azure Blob Storage container.
+            prefix: Optional prefix to filter object keys.
+        Returns:
+            A list of object keys that match the specified prefix.
+        """
         container = sdk_call_with_instrumentation(
             logger=logger,
             system="azure-blob",
@@ -61,6 +83,14 @@ class AzureBlobStorageClient:
         return [blob.name for blob in blobs if blob.name]
 
     def get_object_metadata(self, bucket_or_container: str, key: str) -> dict[str, Any]:
+        """Return metadata for a stored object in Azure Blob Storage.
+
+        Args:
+            bucket_or_container: The name of the Azure Blob Storage container.
+            key: The key of the object.
+        Returns:
+            A dictionary containing the metadata of the object.
+        """
         container = sdk_call_with_instrumentation(
             logger=logger,
             system="azure-blob",
@@ -88,6 +118,14 @@ class AzureBlobStorageClient:
         return raw
 
     def get_object(self, bucket_or_container: str, key: str) -> bytes:
+        """Download object content from Azure Blob Storage.
+
+        Args:
+            bucket_or_container: The name of the Azure Blob Storage container.
+            key: The key of the object.
+        Returns:
+            The object data as bytes.
+        """
         container = sdk_call_with_instrumentation(
             logger=logger,
             system="azure-blob",
@@ -103,6 +141,12 @@ class AzureBlobStorageClient:
         return stream.readall()  # type: ignore[union-attr]
 
     def delete_object(self, bucket_or_container: str, key: str) -> None:
+        """Delete an object from Azure Blob Storage.
+
+        Args:
+            bucket_or_container: The name of the Azure Blob Storage container.
+            key: The key of the object to delete.
+        """
         container = sdk_call_with_instrumentation(
             logger=logger,
             system="azure-blob",

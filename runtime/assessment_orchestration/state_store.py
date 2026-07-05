@@ -1,3 +1,10 @@
+"""
+State store module for polling and assessment orchestration.
+
+This module defines the PollingStateStore protocol and provides an in-memory implementation (InMemoryPollingStateStore) for managing the state of polling and assessment processes.
+
+"""
+
 from __future__ import annotations
 
 import logging
@@ -25,7 +32,16 @@ def _log_cosmos_access(
     upcasted: bool,
     correlation_id: str = "",
 ) -> None:
-    """Emit a structured cosmos_schema_access log line for schema version monitoring."""
+    """Emit a structured cosmos_schema_access log line for schema version monitoring.
+
+    Args:
+        operation: The operation being performed.
+        container: The container being accessed.
+        schema_version_read: The schema version read.
+        schema_version_written: The schema version written.
+        upcasted: Whether the schema was upcasted.
+        correlation_id: The correlation ID for the operation.
+    """
     logger.info(
         "cosmos_schema_access",
         extra={
@@ -41,18 +57,38 @@ def _log_cosmos_access(
 
 
 def _utc_now_iso() -> str:
-    """Run utc now iso."""
+    """Run utc now iso.
+
+    Returns:
+        The current UTC time in ISO 8601 format.
+    """
     return datetime.now(UTC).isoformat()
 
 
 def _parse_iso(value: str) -> datetime:
-    """Run parse iso."""
+    """Run parse iso.
+
+    Args:
+        value: The ISO 8601 string to parse.
+
+    Returns:
+        The parsed datetime object.
+    Raises:
+        ValueError: If the input string is not a valid ISO 8601 format.
+    """
     clean = value.replace("Z", "+00:00")
     return datetime.fromisoformat(clean)
 
 
 def _coerce_state(payload: dict[str, Any]) -> "PollingState":
-    """Run coerce state."""
+    """Run coerce state.
+
+    Args:
+        payload: The payload dictionary to coerce.
+
+    Returns:
+        The coerced PollingState object.
+    """
     return PollingState(
         source=str(payload.get("source") or "confluence"),
         watermark=str(payload.get("watermark") or ""),
@@ -66,7 +102,17 @@ def _coerce_state(payload: dict[str, Any]) -> "PollingState":
 
 @dataclass(frozen=True)
 class PollingState:
-    """PollingState."""
+    """PollingState.
+
+    Attributes:
+        source: The source of the polling state.
+        watermark: The watermark of the polling state.
+        last_success_at: The timestamp of the last successful poll.
+        poll_count: The number of polls performed.
+        last_processed_event_id: The ID of the last processed event.
+        last_error: The last error encountered during polling.
+        etag: The ETag of the polling state.
+    """
 
     source: str
     watermark: str = ""
@@ -79,7 +125,16 @@ class PollingState:
 
 @dataclass(frozen=True)
 class AssessmentSnapshot:
-    """AssessmentSnapshot."""
+    """AssessmentSnapshot.
+
+    Attributes:
+        source: The source of the assessment snapshot.
+        target_id: The ID of the target.
+        framework_scope: The scope of the framework.
+        page_version: The version of the page.
+        content_hash: The hash of the content.
+        updated_at: The timestamp of the last update.
+    """
 
     source: str
     target_id: str
@@ -91,7 +146,19 @@ class AssessmentSnapshot:
 
 @dataclass(frozen=True)
 class PollRunSummary:
-    """PollRunSummary."""
+    """PollRunSummary.
+
+    Attributes:
+        source: The source of the poll run.
+        polled_at: The timestamp of the poll run.
+        since_iso: The ISO 8601 timestamp since the last poll.
+        watermark: The watermark of the poll run.
+        mentions_found: The number of mentions found.
+        jobs_queued: The number of jobs queued.
+        terminal_failures: The number of terminal failures.
+        error_message: The error message, if any.
+        space_keys: A tuple of space keys involved in the poll run.
+    """
 
     source: str
     polled_at: str
@@ -106,7 +173,21 @@ class PollRunSummary:
 
 @dataclass(frozen=True)
 class PageAssessmentRecord:
-    """PageAssessmentRecord."""
+    """PageAssessmentRecord.
+
+    Attributes:
+        source: The source of the page assessment.
+        target_id: The ID of the target.
+        framework_scope: The scope of the framework.
+        title: The title of the page.
+        target_url: The URL of the target page.
+        space_key: The key of the space.
+        status: The status of the assessment.
+        overall_risk: The overall risk of the assessment.
+        findings_count: The number of findings.
+        assessed_at: The timestamp of the assessment.
+        page_version: The version of the page.
+    """
 
     source: str
     target_id: str
@@ -123,7 +204,17 @@ class PageAssessmentRecord:
 
 @dataclass(frozen=True)
 class FailureRecord:
-    """FailureRecord."""
+    """FailureRecord.
+
+    Attributes:
+        source: The source of the failure.
+        event_id: The ID of the event.
+        status: The status of the failure.
+        attempt_count: The number of attempts.
+        last_error: The last error message.
+        last_attempt_at: The timestamp of the last attempt.
+        run_id: The ID of the run.
+    """
 
     source: str
     event_id: str
@@ -135,7 +226,11 @@ class FailureRecord:
 
 
 class PollingStateStore(Protocol):
-    """PollingStateStore."""
+    """PollingStateStore.
+
+    Attributes:
+        source: The source of the polling state store.
+    """
 
     def load_state(self, source: str) -> PollingState: ...
 
@@ -226,10 +321,25 @@ class PollingStateStore(Protocol):
 
 
 class InMemoryPollingStateStore:
-    """InMemoryPollingStateStore."""
+    """InMemoryPollingStateStore.
+
+    This class provides an in-memory implementation of the PollingStateStore protocol for managing the state of polling and assessment processes.
+    It maintains internal dictionaries to store state, leases, processed events, failures, assessment snapshots, poll runs, and page assessments.
+    Attributes:
+        _state: A dictionary to store the polling state for each source.
+        _lease: A dictionary to store lease information for each source.
+        _processed: A dictionary to track processed events for each source and event ID.
+        _failures: A dictionary to track failures for each source and event ID.
+        _assessment_snapshots: A dictionary to store assessment snapshots for each source, target ID, and framework scope.
+        _poll_runs: A dictionary to store poll run summaries for each source.
+        _page_assessments: A dictionary to store page assessments for each source, target ID, and framework scope.
+    """
 
     def __init__(self) -> None:
-        """Run init."""
+        """Run init.
+
+        Initialises the internal dictionaries for state, leases, processed events, failures, assessment snapshots, poll runs, and page assessments.
+        """
         self._state: dict[str, dict[str, Any]] = {}
         self._lease: dict[str, dict[str, Any]] = {}
         self._processed: dict[tuple[str, str], dict[str, Any]] = {}
@@ -239,7 +349,14 @@ class InMemoryPollingStateStore:
         self._page_assessments: dict[tuple[str, str, str], dict[str, Any]] = {}
 
     def load_state(self, source: str) -> PollingState:
-        """Run load state."""
+        """Run load state.
+
+        Args:
+            source: The source of the polling state to load.
+
+        Returns:
+            The polling state for the specified source.
+        """
         payload = self._state.get(source) or {"source": source}
         return _coerce_state(payload)
 
@@ -253,7 +370,19 @@ class InMemoryPollingStateStore:
         poll_count_increment: int = 0,
         expected_etag: str = "",
     ) -> PollingState:
-        """Run commit state."""
+        """Run commit state.
+
+        Args:
+            source: The source of the polling state to commit.
+            watermark: The watermark to set for the polling state.
+            last_processed_event_id: The ID of the last processed event.
+            last_error: The last error encountered during polling.
+            poll_count_increment: The increment for the poll count.
+            expected_etag: The expected ETag for concurrency control.
+
+        Returns:
+            The updated polling state for the specified source.
+        """
         current = self._state.get(source) or {"source": source, "poll_count": 0}
         current["watermark"] = watermark
         current["last_processed_event_id"] = last_processed_event_id
@@ -265,7 +394,16 @@ class InMemoryPollingStateStore:
         return _coerce_state(current)
 
     def try_acquire_lease(self, source: str, *, owner_run_id: str, ttl_seconds: int) -> bool:
-        """Run try acquire lease."""
+        """Run try acquire lease.
+
+        Args:
+            source: The source of the lease to acquire.
+            owner_run_id: The ID of the owner attempting to acquire the lease.
+            ttl_seconds: The time-to-live for the lease in seconds.
+
+        Returns:
+            True if the lease was successfully acquired, False otherwise.
+        """
         now = datetime.now(UTC)
         current = self._lease.get(source)
         if current:
@@ -283,7 +421,16 @@ class InMemoryPollingStateStore:
         return True
 
     def renew_lease(self, source: str, *, owner_run_id: str, ttl_seconds: int) -> bool:
-        """Run renew lease."""
+        """Run renew lease.
+
+        Args:
+            source: The source of the lease to renew.
+            owner_run_id: The ID of the owner attempting to renew the lease.
+            ttl_seconds: The time-to-live for the lease in seconds.
+
+        Returns:
+            True if the lease was successfully renewed, False otherwise.
+        """
         now = datetime.now(UTC)
         current = self._lease.get(source)
         if not current or str(current.get("owner_run_id") or "") != owner_run_id:
@@ -293,13 +440,26 @@ class InMemoryPollingStateStore:
         return True
 
     def release_lease(self, source: str, *, owner_run_id: str) -> None:
-        """Run release lease."""
+        """Run release lease.
+
+        Args:
+            source: The source of the lease to release.
+            owner_run_id: The ID of the owner attempting to release the lease.
+        """
         current = self._lease.get(source)
         if current and str(current.get("owner_run_id") or "") == owner_run_id:
             del self._lease[source]
 
     def is_event_processed(self, source: str, event_id: str) -> bool:
-        """Run is event processed."""
+        """Run is event processed.
+
+        Args:
+            source: The source of the event.
+            event_id: The ID of the event to check.
+
+        Returns:
+            True if the event has been processed, False otherwise.
+        """
         key = (source, event_id)
         row = self._processed.get(key)
         if not row:
@@ -313,7 +473,14 @@ class InMemoryPollingStateStore:
     def mark_processed_event(
         self, source: str, *, event_id: str, run_id: str, ttl_hours: int = 48
     ) -> None:
-        """Run mark processed event."""
+        """Run mark processed event.
+
+        Args:
+            source: The source of the event.
+            event_id: The ID of the event to mark as processed.
+            run_id: The ID of the run processing the event.
+            ttl_hours: The time-to-live for the processed event in hours.
+        """
         self._processed[(source, event_id)] = {
             "source": source,
             "event_id": event_id,
@@ -325,7 +492,17 @@ class InMemoryPollingStateStore:
     def increment_failure_count(
         self, source: str, *, event_id: str, error_message: str, run_id: str
     ) -> int:
-        """Run increment failure count."""
+        """Run increment failure count.
+
+        Args:
+            source: The source of the event.
+            event_id: The ID of the event that failed.
+            error_message: The error message associated with the failure.
+            run_id: The ID of the run processing the event.
+
+        Returns:
+            The updated failure count for the event.
+        """
         key = (source, event_id)
         row = self._failures.get(key) or {
             "source": source,
@@ -344,7 +521,14 @@ class InMemoryPollingStateStore:
     def mark_terminal_failure(
         self, source: str, *, event_id: str, error_message: str, run_id: str
     ) -> None:
-        """Run mark terminal failure."""
+        """Run mark terminal failure.
+
+        Args:
+            source: The source of the event.
+            event_id: The ID of the event that failed.
+            error_message: The error message associated with the failure.
+            run_id: The ID of the run processing the event.
+        """
         key = (source, event_id)
         row = self._failures.get(key) or {
             "source": source,
@@ -360,7 +544,16 @@ class InMemoryPollingStateStore:
     def get_assessment_snapshot(
         self, source: str, *, target_id: str, framework_scope: str
     ) -> AssessmentSnapshot | None:
-        """Run get assessment snapshot."""
+        """Run get assessment snapshot.
+
+        Args:
+            source: The source of the assessment snapshot.
+            target_id: The ID of the target for the assessment snapshot.
+            framework_scope: The framework scope of the assessment snapshot.
+
+        Returns:
+            The assessment snapshot if it exists, None otherwise.
+        """
         key = (source, target_id, framework_scope)
         payload = self._assessment_snapshots.get(key)
         if payload is None:
@@ -383,7 +576,18 @@ class InMemoryPollingStateStore:
         page_version: str,
         content_hash: str,
     ) -> AssessmentSnapshot:
-        """Run upsert assessment snapshot."""
+        """Run upsert assessment snapshot.
+
+        Args:
+            source: The source of the assessment snapshot.
+            target_id: The ID of the target for the assessment snapshot.
+            framework_scope: The framework scope of the assessment snapshot.
+            page_version: The version of the page for the assessment snapshot.
+            content_hash: The content hash of the assessment snapshot.
+
+        Returns:
+            The upserted assessment snapshot.
+        """
         payload = {
             "source": source,
             "target_id": target_id,
@@ -396,7 +600,14 @@ class InMemoryPollingStateStore:
         return AssessmentSnapshot(**payload)
 
     def get_latest_poll_run_summary(self, source: str) -> PollRunSummary | None:
-        """Run get latest poll run summary."""
+        """Run get latest poll run summary.
+
+        Args:
+            source: The source of the poll run summary.
+
+        Returns:
+            The latest poll run summary if it exists, None otherwise.
+        """
         payload = self._poll_runs.get(source)
         if payload is None:
             return None
@@ -425,7 +636,22 @@ class InMemoryPollingStateStore:
         error_message: str = "",
         space_keys: tuple[str, ...] = (),
     ) -> PollRunSummary:
-        """Run upsert poll run summary."""
+        """Run upsert poll run summary.
+
+        Args:
+            source: The source of the poll run summary.
+            polled_at: The time the poll was performed.
+            since_iso: The ISO timestamp since the last poll.
+            watermark: The watermark for the poll run.
+            mentions_found: The number of mentions found.
+            jobs_queued: The number of jobs queued.
+            terminal_failures: The number of terminal failures.
+            error_message: The error message associated with the poll run.
+            space_keys: The space keys associated with the poll run.
+
+        Returns:
+            The upserted poll run summary.
+        """
         payload = {
             "source": source,
             "polled_at": polled_at,
@@ -445,7 +671,16 @@ class InMemoryPollingStateStore:
     def list_recent_page_assessments(
         self, source: str, *, since_iso: str, limit: int = 100
     ) -> list[PageAssessmentRecord]:
-        """Run list recent page assessments."""
+        """Run list recent page assessments.
+
+        Args:
+            source: The source of the page assessments.
+            since_iso: The ISO timestamp since the last page assessment.
+            limit: The maximum number of page assessments to return.
+
+        Returns:
+            A list of recent page assessments.
+        """
         since_dt = _parse_iso(since_iso)
         records: list[PageAssessmentRecord] = []
         for payload in self._page_assessments.values():
@@ -492,7 +727,24 @@ class InMemoryPollingStateStore:
         assessed_at: str,
         page_version: str,
     ) -> PageAssessmentRecord:
-        """Run upsert page assessment."""
+        """Run upsert page assessment.
+
+        Args:
+            source: The source of the page assessment.
+            target_id: The ID of the target for the page assessment.
+            framework_scope: The framework scope of the page assessment.
+            title: The title of the page assessment.
+            target_url: The URL of the target page.
+            space_key: The space key associated with the page assessment.
+            status: The status of the page assessment.
+            overall_risk: The overall risk of the page assessment.
+            findings_count: The number of findings in the page assessment.
+            assessed_at: The timestamp when the page was assessed.
+            page_version: The version of the page.
+
+        Returns:
+            The upserted page assessment.
+        """
         payload = {
             "source": source,
             "target_id": target_id,
@@ -524,7 +776,16 @@ class InMemoryPollingStateStore:
     def list_recent_failures(
         self, source: str, *, since_iso: str, limit: int = 50
     ) -> list[FailureRecord]:
-        """Run list recent failures."""
+        """Run list recent failures.
+
+        Args:
+            source: The source of the failures.
+            since_iso: The ISO timestamp since the last failure.
+            limit: The maximum number of failures to return.
+
+        Returns:
+            A list of recent failures.
+        """
         since_dt = _parse_iso(since_iso)
         records: list[FailureRecord] = []
         for payload in self._failures.values():
@@ -561,44 +822,128 @@ class CosmosPollingStateStore:
       - {source}:lock
       - {source}:processed:{event_id}
       - {source}:failure:{event_id}
+
+    All documents are stamped with a schema_version field to support rolling migrations. The current schema version is v1, and the code should be able to read older versions and upcast them to the current version.
+
+    All documents are partitioned by /source, so that each source's state is isolated from others. This allows multiple sources to be polled concurrently without interference.
+
+    All documents are upserted with optimistic concurrency control using the _etag field. The code should check the _etag of the document before updating it, and retry if there is a conflict.
+
+    All documents are logged with structured logging for schema version monitoring. The logs include the operation, container, schema version read, schema version written, and whether the document was upcasted.
+
+    The CosmosPollingStateStore class implements the PollingStateStore protocol and provides methods to load and commit state, acquire and renew leases, mark events as processed, increment failure counts, and manage assessment snapshots and poll run summaries.
+
+    All methods are designed to be idempotent and resilient to transient errors, and should be retried as needed.
+
+    Attributes:
+        _container: The Cosmos container client used for storing state.
+        _container_name: The name of the Cosmos container, derived from the container client.
+
     """
 
     def __init__(self, container_client: Any) -> None:
-        """Run init."""
+        """Run init.
+
+        Args:
+            container_client: The Cosmos container client used for storing state.
+        """
         self._container = container_client
         # container_client.id is the Cosmos container name in the Azure SDK; fall back gracefully.
         self._container_name: str = str(getattr(container_client, "id", "state-store"))
 
     def _state_id(self, source: str) -> str:
-        """Run state id."""
+        """Run state id.
+
+        Args:
+            source: The source for which to generate the state id.
+
+        Returns:
+            The state id for the given source.
+        """
         return f"{source}:state"
 
     def _lock_id(self, source: str) -> str:
-        """Run lock id."""
+        """Run lock id.
+
+        Args:
+            source: The source for which to generate the lock id.
+
+        Returns:
+            The lock id for the given source.
+        """
         return f"{source}:lock"
 
     def _processed_id(self, source: str, event_id: str) -> str:
-        """Run processed id."""
+        """Run processed id.
+
+        Args:
+            source: The source for which to generate the processed id.
+            event_id: The event id for which to generate the processed id.
+
+        Returns:
+            The processed id for the given source and event id.
+        """
         return f"{source}:processed:{event_id}"
 
     def _failure_id(self, source: str, event_id: str) -> str:
-        """Run failure id."""
+        """Run failure id.
+
+        Args:
+            source: The source for which to generate the failure id.
+            event_id: The event id for which to generate the failure id.
+
+        Returns:
+            The failure id for the given source and event id.
+        """
         return f"{source}:failure:{event_id}"
 
     def _assessment_snapshot_id(self, source: str, target_id: str, framework_scope: str) -> str:
-        """Run assessment snapshot id."""
+        """Run assessment snapshot id.
+
+        Args:
+            source: The source for which to generate the assessment snapshot id.
+            target_id: The target id for which to generate the assessment snapshot id.
+            framework_scope: The framework scope for which to generate the assessment snapshot id.
+
+        Returns:
+            The assessment snapshot id for the given source, target id, and framework scope.
+        """
         return f"{source}:assessment:{target_id}:{framework_scope}"
 
     def _poll_run_summary_id(self, source: str) -> str:
-        """Run poll run summary id."""
+        """Run poll run summary id.
+
+        Args:
+            source: The source for which to generate the poll run summary id.
+
+        Returns:
+            The poll run summary id for the given source.
+        """
         return f"{source}:poll_run_summary"
 
     def _page_assessment_id(self, source: str, target_id: str, framework_scope: str) -> str:
-        """Run page assessment id."""
+        """Run page assessment id.
+
+        Args:
+            source: The source for which to generate the page assessment id.
+            target_id: The target id for which to generate the page assessment id.
+            framework_scope: The framework scope for which to generate the page assessment id.
+
+        Returns:
+            The page assessment id for the given source, target id, and framework scope.
+        """
         return f"{source}:page_assessment:{target_id}:{framework_scope}"
 
     def _read(self, source: str, doc_id: str) -> dict[str, Any] | None:
-        """Run read."""
+        """Run read.
+
+        Args:
+            source: The source for which to read the document.
+            doc_id: The document id to read.
+
+        Returns:
+            The document for the given source and document id, or None if not found.
+        """
         try:
             doc = self._container.read_item(item=doc_id, partition_key=source)
             doc_schema = str(doc.get("schema_version") or "unknown")
@@ -615,7 +960,14 @@ class CosmosPollingStateStore:
             return None
 
     def _upsert(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Run upsert."""
+        """Run upsert.
+
+        Args:
+            payload: The payload to upsert.
+
+        Returns:
+            The upserted document.
+        """
         payload.setdefault("schema_version", COSMOS_STATE_SCHEMA_VERSION)
         result = self._container.upsert_item(payload)
         _log_cosmos_access(
@@ -628,7 +980,14 @@ class CosmosPollingStateStore:
         return result
 
     def load_state(self, source: str) -> PollingState:
-        """Run load state."""
+        """Run load state.
+
+        Args:
+            source: The source for which to load the state.
+
+        Returns:
+            The polling state for the given source.
+        """
         payload = self._read(source, self._state_id(source)) or {
             "id": self._state_id(source),
             "doc_type": "state",
@@ -647,7 +1006,19 @@ class CosmosPollingStateStore:
         poll_count_increment: int = 0,
         expected_etag: str = "",
     ) -> PollingState:
-        """Run commit state."""
+        """Run commit state.
+
+        Args:
+            source: The source for which to commit the state.
+            watermark: The watermark to set for the state.
+            last_processed_event_id: The last processed event id to set for the state.
+            last_error: The last error to set for the state.
+            poll_count_increment: The increment to apply to the poll count.
+            expected_etag: The expected etag for the state.
+
+        Returns:
+            The committed polling state for the given source.
+        """
         current = self._read(source, self._state_id(source)) or {
             "id": self._state_id(source),
             "doc_type": "state",
@@ -663,7 +1034,16 @@ class CosmosPollingStateStore:
         return _coerce_state(saved)
 
     def try_acquire_lease(self, source: str, *, owner_run_id: str, ttl_seconds: int) -> bool:
-        """Run try acquire lease."""
+        """Run try acquire lease.
+
+        Args:
+            source: The source for which to acquire the lease.
+            owner_run_id: The run id of the owner attempting to acquire the lease.
+            ttl_seconds: The time-to-live for the lease in seconds.
+
+        Returns:
+            True if the lease was successfully acquired, False otherwise.
+        """
         now = datetime.now(UTC)
         lock = self._read(source, self._lock_id(source))
         if lock:
@@ -684,7 +1064,16 @@ class CosmosPollingStateStore:
         return True
 
     def renew_lease(self, source: str, *, owner_run_id: str, ttl_seconds: int) -> bool:
-        """Run renew lease."""
+        """Run renew lease.
+
+        Args:
+            source: The source for which to renew the lease.
+            owner_run_id: The run id of the owner attempting to renew the lease.
+            ttl_seconds: The time-to-live for the lease in seconds.
+
+        Returns:
+            True if the lease was successfully renewed, False otherwise.
+        """
         now = datetime.now(UTC)
         lock = self._read(source, self._lock_id(source))
         if not lock or str(lock.get("owner_run_id") or "") != owner_run_id:
@@ -695,7 +1084,12 @@ class CosmosPollingStateStore:
         return True
 
     def release_lease(self, source: str, *, owner_run_id: str) -> None:
-        """Run release lease."""
+        """Run release lease.
+
+        Args:
+            source: The source for which to release the lease.
+            owner_run_id: The run id of the owner attempting to release the lease.
+        """
         lock = self._read(source, self._lock_id(source))
         if not lock or str(lock.get("owner_run_id") or "") != owner_run_id:
             return
@@ -705,14 +1099,32 @@ class CosmosPollingStateStore:
             return
 
     def is_event_processed(self, source: str, event_id: str) -> bool:
-        """Run is event processed."""
+        """Run is event processed.
+
+        Args:
+            source: The source for which to check if the event is processed.
+            event_id: The id of the event to check.
+
+        Returns:
+            True if the event has been processed, False otherwise.
+        """
         doc = self._read(source, self._processed_id(source, event_id))
         return doc is not None
 
     def mark_processed_event(
         self, source: str, *, event_id: str, run_id: str, ttl_hours: int = 48
     ) -> None:
-        """Run mark processed event."""
+        """Run mark processed event.
+
+        Args:
+            source: The source for which to mark the event as processed.
+            event_id: The id of the event to mark as processed.
+            run_id: The run id associated with the processed event.
+            ttl_hours: The time-to-live for the processed event in hours.
+
+        Returns:
+            None
+        """
         payload = {
             "id": self._processed_id(source, event_id),
             "doc_type": "processed",
@@ -728,7 +1140,17 @@ class CosmosPollingStateStore:
     def increment_failure_count(
         self, source: str, *, event_id: str, error_message: str, run_id: str
     ) -> int:
-        """Run increment failure count."""
+        """Run increment failure count.
+
+        Args:
+            source: The source for which to increment the failure count.
+            event_id: The id of the event that failed.
+            error_message: The error message associated with the failure.
+            run_id: The run id associated with the failure.
+
+        Returns:
+            The updated failure count.
+        """
         doc = self._read(source, self._failure_id(source, event_id)) or {
             "id": self._failure_id(source, event_id),
             "doc_type": "failure",
@@ -748,7 +1170,17 @@ class CosmosPollingStateStore:
     def mark_terminal_failure(
         self, source: str, *, event_id: str, error_message: str, run_id: str
     ) -> None:
-        """Run mark terminal failure."""
+        """Run mark terminal failure.
+
+        Args:
+            source: The source for which to mark the event as a terminal failure.
+            event_id: The id of the event that failed.
+            error_message: The error message associated with the failure.
+            run_id: The run id associated with the failure.
+
+        Returns:
+            None
+        """
         doc = self._read(source, self._failure_id(source, event_id)) or {
             "id": self._failure_id(source, event_id),
             "doc_type": "failure",
@@ -765,7 +1197,16 @@ class CosmosPollingStateStore:
     def get_assessment_snapshot(
         self, source: str, *, target_id: str, framework_scope: str
     ) -> AssessmentSnapshot | None:
-        """Run get assessment snapshot."""
+        """Run get assessment snapshot.
+
+        Args:
+            source: The source for which to get the assessment snapshot.
+            target_id: The id of the target for which to get the assessment snapshot.
+            framework_scope: The framework scope for which to get the assessment snapshot.
+
+        Returns:
+            The assessment snapshot if it exists, otherwise None.
+        """
         doc_id = self._assessment_snapshot_id(source, target_id, framework_scope)
         payload = self._read(source, doc_id)
         if payload is None:
@@ -788,7 +1229,18 @@ class CosmosPollingStateStore:
         page_version: str,
         content_hash: str,
     ) -> AssessmentSnapshot:
-        """Run upsert assessment snapshot."""
+        """Run upsert assessment snapshot.
+
+        Args:
+            source: The source for which to upsert the assessment snapshot.
+            target_id: The id of the target for which to upsert the assessment snapshot.
+            framework_scope: The framework scope for which to upsert the assessment snapshot.
+            page_version: The page version for the assessment snapshot.
+            content_hash: The content hash for the assessment snapshot.
+
+        Returns:
+            The upserted assessment snapshot.
+        """
         payload = {
             "id": self._assessment_snapshot_id(source, target_id, framework_scope),
             "doc_type": "assessment_snapshot",
@@ -810,7 +1262,14 @@ class CosmosPollingStateStore:
         )
 
     def get_latest_poll_run_summary(self, source: str) -> PollRunSummary | None:
-        """Run get latest poll run summary."""
+        """Run get latest poll run summary.
+
+        Args:
+            source: The source for which to get the latest poll run summary.
+
+        Returns:
+            The latest poll run summary if it exists, otherwise None.
+        """
         payload = self._read(source, self._poll_run_summary_id(source))
         if payload is None:
             return None
@@ -839,7 +1298,22 @@ class CosmosPollingStateStore:
         error_message: str = "",
         space_keys: tuple[str, ...] = (),
     ) -> PollRunSummary:
-        """Run upsert poll run summary."""
+        """Run upsert poll run summary.
+
+        Args:
+            source: The source for which to upsert the poll run summary.
+            polled_at: The timestamp when the poll was performed.
+            since_iso: The ISO timestamp since when the poll was performed.
+            watermark: The watermark for the poll run.
+            mentions_found: The number of mentions found during the poll.
+            jobs_queued: The number of jobs queued during the poll.
+            terminal_failures: The number of terminal failures during the poll.
+            error_message: The error message associated with the poll run.
+            space_keys: The space keys associated with the poll run.
+
+        Returns:
+            The upserted poll run summary.
+        """
         payload = {
             "id": self._poll_run_summary_id(source),
             "doc_type": "poll_run_summary",
@@ -869,7 +1343,16 @@ class CosmosPollingStateStore:
     def list_recent_page_assessments(
         self, source: str, *, since_iso: str, limit: int = 100
     ) -> list[PageAssessmentRecord]:
-        """Run list recent page assessments."""
+        """Run list recent page assessments.
+
+        Args:
+            source: The source for which to list recent page assessments.
+            since_iso: The ISO timestamp since when to list recent page assessments.
+            limit: The maximum number of page assessments to return.
+
+        Returns:
+            A list of recent page assessments.
+        """
         try:
             query = (
                 "SELECT * FROM c WHERE c.source = @source AND c.doc_type = 'page_assessment' "
@@ -936,7 +1419,23 @@ class CosmosPollingStateStore:
         assessed_at: str,
         page_version: str,
     ) -> PageAssessmentRecord:
-        """Run upsert page assessment."""
+        """Run upsert page assessment.
+
+        Args:
+            source: The source for which to upsert the page assessment.
+            target_id: The id of the target for which to upsert the page assessment.
+            framework_scope: The framework scope for which to upsert the page assessment.
+            title: The title of the page assessment.
+            target_url: The URL of the target page.
+            space_key: The space key associated with the page assessment.
+            status: The status of the page assessment.
+            overall_risk: The overall risk of the page assessment.
+            findings_count: The number of findings in the page assessment.
+            assessed_at: The timestamp when the page was assessed.
+            page_version: The version of the page when it was assessed.
+
+        Returns:
+            The upserted page assessment."""
         payload = {
             "id": self._page_assessment_id(source, target_id, framework_scope),
             "doc_type": "page_assessment",
@@ -970,7 +1469,15 @@ class CosmosPollingStateStore:
     def list_recent_failures(
         self, source: str, *, since_iso: str, limit: int = 50
     ) -> list[FailureRecord]:
-        """Run list recent failures."""
+        """Run list recent failures.
+
+        Args:
+            source: The source of the failures.
+            since_iso: The ISO timestamp to filter failures since.
+            limit: The maximum number of failures to return.
+
+        Returns:
+            A list of recent failure records."""
         try:
             query = (
                 "SELECT * FROM c WHERE c.source = @source AND c.doc_type = 'failure' "
@@ -1080,58 +1587,129 @@ class LocalFilePollingStateStore(InMemoryPollingStateStore):
         self._path.write_text(self._json.dumps(raw, indent=2), encoding="utf-8")
 
     def commit_state(self, source: str, **kwargs: Any) -> PollingState:
-        """Run commit state."""
+        """Run commit state.
+
+        Args:
+            source: The source of the state.
+            kwargs: Additional keyword arguments.
+
+        Returns:
+            The committed polling state.
+        """
         result = super().commit_state(source, **kwargs)
         self._flush()
         return result
 
     def try_acquire_lease(self, source: str, **kwargs: Any) -> bool:
-        """Run try acquire lease."""
+        """Run try acquire lease.
+
+        Args:
+            source: The source of the lease.
+            kwargs: Additional keyword arguments.
+
+        Returns:
+            True if the lease was successfully acquired, False otherwise.
+        """
         result = super().try_acquire_lease(source, **kwargs)
         self._flush()
         return result
 
     def renew_lease(self, source: str, **kwargs: Any) -> bool:
-        """Run renew lease."""
+        """Run renew lease.
+
+        Args:
+            source: The source of the lease.
+            kwargs: Additional keyword arguments.
+
+        Returns:
+            True if the lease was successfully renewed, False otherwise.
+        """
         result = super().renew_lease(source, **kwargs)
         self._flush()
         return result
 
     def release_lease(self, source: str, **kwargs: Any) -> None:
-        """Run release lease."""
+        """Run release lease.
+
+        Args:
+            source: The source of the lease.
+            kwargs: Additional keyword arguments.
+        """
         super().release_lease(source, **kwargs)
         self._flush()
 
     def mark_processed_event(self, source: str, **kwargs: Any) -> None:
-        """Run mark processed event."""
+        """Run mark processed event.
+
+        Args:
+            source: The source of the event.
+            kwargs: Additional keyword arguments.
+        """
         super().mark_processed_event(source, **kwargs)
         self._flush()
 
     def increment_failure_count(self, source: str, **kwargs: Any) -> int:
-        """Run increment failure count."""
+        """Run increment failure count.
+
+        Args:
+            source: The source of the failure.
+            kwargs: Additional keyword arguments.
+
+        Returns:
+            The updated failure count.
+        """
         result = super().increment_failure_count(source, **kwargs)
         self._flush()
         return result
 
     def mark_terminal_failure(self, source: str, **kwargs: Any) -> None:
-        """Run mark terminal failure."""
+        """Run mark terminal failure.
+
+        Args:
+            source: The source of the failure.
+            kwargs: Additional keyword arguments.
+        """
         super().mark_terminal_failure(source, **kwargs)
         self._flush()
 
     def upsert_assessment_snapshot(self, source: str, **kwargs: Any) -> AssessmentSnapshot:
-        """Run upsert assessment snapshot."""
+        """Run upsert assessment snapshot.
+
+        Args:
+            source: The source of the assessment snapshot.
+            kwargs: Additional keyword arguments.
+
+        Returns:
+            The upserted assessment snapshot.
+        """
         result = super().upsert_assessment_snapshot(source, **kwargs)
         self._flush()
         return result
 
     def upsert_poll_run_summary(self, source: str, **kwargs: Any) -> PollRunSummary:
-        """Run upsert poll run summary."""
+        """Run upsert poll run summary.
+
+        Args:
+            source: The source of the poll run summary.
+            kwargs: Additional keyword arguments.
+
+        Returns:
+            The upserted poll run summary.
+        """
         result = super().upsert_poll_run_summary(source, **kwargs)
         self._flush()
         return result
 
     def upsert_page_assessment(self, source: str, **kwargs: Any) -> PageAssessmentRecord:
-        """Run upsert page assessment."""
+        """Run upsert page assessment.
+
+        Args:
+            source: The source of the page assessment.
+            kwargs: Additional keyword arguments.
+
+        Returns:
+            The upserted page assessment.
+        """
         result = super().upsert_page_assessment(source, **kwargs)
         self._flush()
         return result

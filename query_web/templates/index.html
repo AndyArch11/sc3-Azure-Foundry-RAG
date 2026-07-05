@@ -72,6 +72,7 @@
               <option value="balanced" {% if thinking_mode == 'balanced' %}selected{% endif %}>Balanced (default)</option>
               <option value="deep" {% if thinking_mode == 'deep' %}selected{% endif %}>Deep (thorough, slower)</option>
             </select>
+            <p class="muted" style="margin:6px 0 0 0">For technical assessment work, higher thinking modes raise temperature slightly but reduce top-p to keep answers grounded and limit tail-token drift.</p>
           </div>
 
           <div class="field" style="margin-top:10px">
@@ -281,11 +282,11 @@
             </div>
             <div class="field">
               <label for="cr-temperature">Temperature</label>
-              <input id="cr-temperature" type="number" min="0" max="1" step="0.05" value="1" title="Model sampling temperature used when generating report content. Accepted range: 0–1, step 0.05." />
+              <input id="cr-temperature" type="number" min="0" max="1" step="0.05" value="{{ temperature | default(1.0) }}" title="Model sampling temperature used when generating report content. Accepted range: 0–1, step 0.05." />
             </div>
             <div class="field">
               <label for="cr-top-p">Top-p</label>
-              <input id="cr-top-p" type="number" min="0" max="1" step="0.05" value="1" title="Top-p (nucleus sampling) works with temperature: lower values narrow the candidate token pool before temperature is applied, while 1.0 keeps the full distribution. Use this as an advanced control." />
+              <input id="cr-top-p" type="number" min="0" max="1" step="0.05" value="{{ top_p | default(1.0) }}" title="Top-p (nucleus sampling) works with temperature: lower values narrow the candidate token pool before temperature is applied, while 1.0 keeps the full distribution. Use this as an advanced control." />
             </div>
             <div class="field">
               <label for="cr-thinking-mode">Thinking Mode</label>
@@ -294,6 +295,7 @@
                 <option value="balanced" selected>Balanced (default)</option>
                 <option value="deep">Deep (thorough, slower)</option>
               </select>
+              <p class="muted" style="margin:6px 0 0 0">Higher modes allow a little more synthesis, while lower top-p keeps technical findings tighter and less speculative.</p>
             </div>
             <div class="field">
               <label for="cr-max-completion-tokens">Max Tokens</label>
@@ -394,11 +396,11 @@
             </div>
             <div class="field">
               <label for="aws-temperature">Temperature</label>
-              <input id="aws-temperature" type="number" min="0" max="1" step="0.05" value="1" title="Model sampling temperature used while generating AWS assessment narrative. Accepted range: 0–1, step 0.05." />
+              <input id="aws-temperature" type="number" min="0" max="1" step="0.05" value="{{ temperature | default(1.0) }}" title="Model sampling temperature used while generating AWS assessment narrative. Accepted range: 0–1, step 0.05." />
             </div>
             <div class="field">
               <label for="aws-top-p">Top-p</label>
-              <input id="aws-top-p" type="number" min="0" max="1" step="0.05" value="1" title="Top-p (nucleus sampling) works with temperature: lower values narrow the candidate token pool before temperature is applied, while 1.0 keeps the full distribution. Use this as an advanced control." />
+              <input id="aws-top-p" type="number" min="0" max="1" step="0.05" value="{{ top_p | default(1.0) }}" title="Top-p (nucleus sampling) works with temperature: lower values narrow the candidate token pool before temperature is applied, while 1.0 keeps the full distribution. Use this as an advanced control." />
             </div>
             <div class="field">
               <label for="aws-thinking-mode">Thinking Mode</label>
@@ -407,6 +409,7 @@
                 <option value="balanced" selected>Balanced (default)</option>
                 <option value="deep">Deep (thorough, slower)</option>
               </select>
+              <p class="muted" style="margin:6px 0 0 0">Higher modes allow a little more synthesis, while lower top-p keeps technical findings tighter and less speculative.</p>
             </div>
             <div class="field">
               <label for="aws-max-completion-tokens">Max Tokens</label>
@@ -468,11 +471,11 @@
             </div>
             <div class="field">
               <label for="az-temperature">Temperature</label>
-              <input id="az-temperature" type="number" min="0" max="1" step="0.05" value="1" title="Model sampling temperature used while generating Azure assessment narrative. Accepted range: 0–1, step 0.05." />
+              <input id="az-temperature" type="number" min="0" max="1" step="0.05" value="{{ temperature | default(1.0) }}" title="Model sampling temperature used while generating Azure assessment narrative. Accepted range: 0–1, step 0.05." />
             </div>
             <div class="field">
               <label for="az-top-p">Top-p</label>
-              <input id="az-top-p" type="number" min="0" max="1" step="0.05" value="1" title="Top-p (nucleus sampling) works with temperature: lower values narrow the candidate token pool before temperature is applied, while 1.0 keeps the full distribution. Use this as an advanced control." />
+              <input id="az-top-p" type="number" min="0" max="1" step="0.05" value="{{ top_p | default(1.0) }}" title="Top-p (nucleus sampling) works with temperature: lower values narrow the candidate token pool before temperature is applied, while 1.0 keeps the full distribution. Use this as an advanced control." />
             </div>
             <div class="field">
               <label for="az-thinking-mode">Thinking Mode</label>
@@ -481,6 +484,7 @@
                 <option value="balanced" selected>Balanced (default)</option>
                 <option value="deep">Deep (thorough, slower)</option>
               </select>
+              <p class="muted" style="margin:6px 0 0 0">Higher modes allow a little more synthesis, while lower top-p keeps technical findings tighter and less speculative.</p>
             </div>
             <div class="field">
               <label for="az-max-completion-tokens">Max Tokens</label>

@@ -33,6 +33,16 @@ logger = logging.getLogger(__name__)
 
 
 class CorpusAIngestRequest(BaseModel):
+    """Request model for Corpus A ingestion endpoint.
+
+    Attributes:
+        frameworks: Optional list of frameworks to include in the ingestion.
+        replace_existing: Whether to replace existing data.
+        dry_run: Whether to perform a dry run without actual ingestion.
+        no_guidance: Whether to skip guidance during ingestion.
+        auth_token: The authentication token provided by the user (optional).
+    """
+
     frameworks: list[str] | None = None
     replace_existing: bool = False
     dry_run: bool = False
@@ -41,12 +51,28 @@ class CorpusAIngestRequest(BaseModel):
 
 
 class CorpusClearRequest(BaseModel):
+    """Request model for Corpus clear endpoint.
+
+    Attributes:
+        clear_blobs: Whether to clear blobs.
+        dry_run: Whether to perform a dry run without actual clearing.
+        auth_token: The authentication token provided by the user (optional).
+    """
+
     clear_blobs: bool = False
     dry_run: bool = False
     auth_token: str = ""
 
 
 class CorpusAClearRequest(BaseModel):
+    """Request model for Corpus A clear endpoint.
+
+    Attributes:
+        frameworks: Optional list of frameworks to include in the clearing.
+        dry_run: Whether to perform a dry run without actual clearing.
+        auth_token: The authentication token provided by the user (optional).
+    """
+
     frameworks: list[str] | None = None
     dry_run: bool = False
     auth_token: str = ""
@@ -65,23 +91,23 @@ def register_corpus_endpoints(
 ) -> None:
     """Register corpus management, ingestion, and Confluence poll-status endpoints.
 
-    Parameters
-    ----------
-    app : FastAPI
-        The application instance.
-    svc : module | None
-        Optional service container for backward compatibility.
-    deps : dict[str, Any] | None
-        Optional explicit dependency providers/values keyed by attribute name.
-        When provided, these are resolved at call time before falling back to
-        ``svc``. Provider callables should be zero-arg and return the current
-        value (enables late binding for test patching).
+    Args:
+        app: The FastAPI application instance.
+        svc: Optional service object providing corpus management methods.
+        deps: Optional dictionary of dependencies to override default behaviour.
     """
 
     if svc is None:
         svc = {}
 
     class _SvcAdapter:
+        """Adapter class to provide attribute access to svc and deps dictionaries.
+
+        Attributes:
+            svc: The service object or dictionary.
+            deps: The dependencies dictionary.
+        """
+
         def __getattr__(self, name: str) -> Any:
             if isinstance(deps, dict) and name in deps:
                 candidate = deps[name]
@@ -96,6 +122,11 @@ def register_corpus_endpoints(
     svc = _SvcAdapter()
 
     def _current_provider() -> str:
+        """Determine the current cloud provider from the service configuration.
+
+        Returns:
+            A string representing the normalised cloud provider (e.g., "aws", "azure").
+        """
         try:
             return normalise_cloud_provider(getattr(svc.config, "cloud_provider", None))
         except ValueError:
@@ -109,6 +140,18 @@ def register_corpus_endpoints(
         reindex_on_dedupe: bool = Form(False),
         auth_token: str = Form(""),
     ) -> JSONResponse:
+        """Handle POST requests to upload Corpus B files and optionally trigger ingestion.
+
+        Args:
+            request: The incoming HTTP request.
+            files: A list of uploaded files for Corpus B.
+            trigger_job: Whether to trigger the ingestion job after upload (default is True).
+            reindex_on_dedupe: Whether to reindex on deduplication (default is False).
+            auth_token: The authentication token provided by the user (optional).
+
+        Returns:
+            A JSONResponse containing the upload and ingestion results or an error message.
+        """
         if not svc._is_authorised_request(auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -269,6 +312,18 @@ def register_corpus_endpoints(
         reindex_on_dedupe: bool = Form(False),
         auth_token: str = Form(""),
     ) -> JSONResponse:
+        """Handle POST requests to upload Corpus C files and optionally trigger ingestion.
+
+        Args:
+            request: The incoming HTTP request.
+            files: A list of uploaded files for Corpus C.
+            trigger_job: Whether to trigger the ingestion job after upload (default is True).
+            reindex_on_dedupe: Whether to reindex on deduplication (default is False).
+            auth_token: The authentication token provided by the user (optional).
+
+        Returns:
+            A JSONResponse containing the upload and ingestion results or an error message.
+        """
         if not svc._is_authorised_request(auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -421,6 +476,15 @@ def register_corpus_endpoints(
 
     @app.post("/api/corpus-a/clear")
     def clear_corpus_a(request: Request, payload: CorpusAClearRequest) -> JSONResponse:
+        """Handle POST requests to clear Corpus A documents based on the provided frameworks.
+
+        Args:
+            request: The incoming HTTP request.
+            payload: The request payload containing the frameworks and other options.
+
+        Returns:
+            A JSONResponse containing the results of the clear operation or an error message.
+        """
         if not svc._is_authorised_request(payload.auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -472,6 +536,15 @@ def register_corpus_endpoints(
 
     @app.post("/api/corpus-b/clear")
     def clear_corpus_b(request: Request, payload: CorpusClearRequest) -> JSONResponse:
+        """Handle POST requests to clear Corpus B documents.
+
+        Args:
+            request: The incoming HTTP request.
+            payload: The request payload containing the clear options.
+
+        Returns:
+            A JSONResponse containing the results of the clear operation or an error message.
+        """
         if not svc._is_authorised_request(payload.auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -520,6 +593,15 @@ def register_corpus_endpoints(
 
     @app.post("/api/corpus-c/clear")
     def clear_corpus_c(request: Request, payload: CorpusClearRequest) -> JSONResponse:
+        """Handle POST requests to clear Corpus C documents.
+
+        Args:
+            request: The incoming HTTP request.
+            payload: The request payload containing the clear options.
+
+        Returns:
+            A JSONResponse containing the results of the clear operation or an error message.
+        """
         if not svc._is_authorised_request(payload.auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -575,6 +657,21 @@ def register_corpus_endpoints(
         no_guidance: bool = Form(False),
         auth_token: str = Form(""),
     ) -> JSONResponse:
+        """Handle POST requests to upload Corpus A reference documents and optionally trigger ingestion.
+
+        Args:
+            request: The incoming HTTP request.
+            files: A list of uploaded files for Corpus A.
+            framework: The framework to which the files belong (optional).
+            trigger_job: Whether to trigger the ingestion job after upload (default is True).
+            replace_existing: Whether to replace existing data (default is False).
+            dry_run: Whether to perform a dry run without actual ingestion (default is False).
+            no_guidance: Whether to skip guidance during ingestion (default is False).
+            auth_token: The authentication token provided by the user (optional).
+
+        Returns:
+            A JSONResponse containing the upload and ingestion results or an error message.
+        """
         if not svc._is_authorised_request(auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -740,6 +837,15 @@ def register_corpus_endpoints(
 
     @app.get("/api/corpus-a/status")
     def corpus_a_status(request: Request, auth_token: str = "") -> JSONResponse:
+        """Handle GET requests to retrieve the ingestion status of Corpus A.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: The authentication token provided by the user (optional).
+
+        Returns:
+            A JSONResponse containing the ingestion status or an error message.
+        """
         if not svc._is_authorised_request(auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -766,6 +872,17 @@ def register_corpus_endpoints(
     def corpus_a_list(
         request: Request, auth_token: str = "", limit: int = 100, framework: str = ""
     ) -> JSONResponse:
+        """Handle GET requests to list Corpus A documents.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: The authentication token provided by the user (optional).
+            limit: The maximum number of documents to return (default is 100).
+            framework: The framework to filter documents by (optional).
+
+        Returns:
+            A JSONResponse containing the list of documents or an error message.
+        """
         if not svc._is_authorised_request(auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -815,7 +932,15 @@ def register_corpus_endpoints(
 
     @app.get("/api/ingestion-job/diagnostics")
     def ingestion_job_diagnostics(request: Request, auth_token: str = "") -> JSONResponse:
-        """Fetch Container App Job execution history and logs for debugging."""
+        """Fetch Container App Job execution history and logs for debugging.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: The authentication token provided by the user (optional).
+
+        Returns:
+            A JSONResponse containing the ingestion job diagnostics or an error message.
+        """
         if not svc._is_authorised_request(auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -958,6 +1083,17 @@ def register_corpus_endpoints(
     def corpus_b_list(
         request: Request, auth_token: str = "", limit: int = 100, upload_batch: str = ""
     ) -> JSONResponse:
+        """Handle GET requests to list Corpus B documents.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: The authentication token provided by the user (optional).
+            limit: The maximum number of documents to return (default is 100).
+            upload_batch: The upload batch to filter documents by (optional).
+
+        Returns:
+            A JSONResponse containing the list of documents or an error message.
+        """
         if not svc._is_authorised_request(auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -1015,6 +1151,17 @@ def register_corpus_endpoints(
     def corpus_c_list(
         request: Request, auth_token: str = "", limit: int = 100, upload_batch: str = ""
     ) -> JSONResponse:
+        """Handle GET requests to list Corpus C documents.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: The authentication token provided by the user (optional).
+            limit: The maximum number of documents to return (default is 100).
+            upload_batch: The upload batch to filter documents by (optional).
+
+        Returns:
+            A JSONResponse containing the list of documents or an error message.
+        """
         if not svc._is_authorised_request(auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -1070,6 +1217,15 @@ def register_corpus_endpoints(
 
     @app.get("/api/ingestion-job/latest")
     def get_latest_ingestion_job_status(request: Request, auth_token: str = "") -> JSONResponse:
+        """Handle GET requests to fetch the latest ingestion job status.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: The authentication token provided by the user (optional).
+
+        Returns:
+            A JSONResponse containing the latest ingestion job status or an error message.
+        """
         if not svc._is_authorised_request(auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -1096,7 +1252,16 @@ def register_corpus_endpoints(
         since_hours: int = 24,
         auth_token: str = "",
     ) -> JSONResponse:
-        """Return the last Confluence poll status and assessed pages for the look-back window."""
+        """Handle GET requests to fetch the Confluence poll status.
+
+        Args:
+            request: The incoming HTTP request.
+            since_hours: The look-back window in hours (default is 24).
+            auth_token: The authentication token provided by the user (optional).
+
+        Returns:
+            A JSONResponse containing the Confluence poll status and assessed pages for the look-back window, or an error message.
+        """
         if not svc._is_authorised_request(auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -1294,6 +1459,15 @@ def register_corpus_endpoints(
 
     @app.post("/api/corpus-a/ingest")
     def corpus_a_ingest(request: Request, payload: CorpusAIngestRequest) -> JSONResponse:
+        """Handle POST requests to trigger ingestion of Corpus A documents.
+
+        Args:
+            request: The incoming HTTP request.
+            payload: The request payload containing ingestion parameters.
+
+        Returns:
+            A JSONResponse indicating the ingestion status or an error message.
+        """
         if not svc._is_authorised_request(payload.auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 

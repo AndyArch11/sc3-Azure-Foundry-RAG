@@ -1,3 +1,10 @@
+"""
+Assessment Runtime Module.
+
+This module provides the core functionality for running assessments, including
+search-backed assessment agents, LLM integration, and orchestration of assessment tasks.
+"""
+
 from __future__ import annotations
 
 import json
@@ -95,7 +102,30 @@ _THINKING_MODE_ALIASES: dict[str, str] = {
 
 @dataclass(frozen=True)
 class AssessmentRuntimeConfig:
-    """AssessmentRuntimeConfig."""
+    """AssessmentRuntimeConfig.
+
+    Attributes:
+        search_endpoint: The endpoint for the search service.
+        openai_endpoint: The endpoint for the OpenAI service.
+        cloud_provider: The cloud provider to use (default: "azure").
+        search_index_name: The name of the search index (default: "grounding-index").
+        controls_index_name: The name of the controls index (default: "controls-index").
+        embedding_deployment: The deployment name for embeddings (default: "text-embedding-ada-002").
+        query_deployment: The deployment name for queries (default: "gpt-5.1-chat").
+        controls_top_k: The number of top controls to retrieve (default: 4).
+        guidance_top_k: The number of top guidance items to retrieve (default: 5).
+        temperature: The temperature setting for the model (default: 0.2).
+        top_p: The top_p setting for the model (default: 1.0).
+        controls_semantic_default: Whether to use semantic search for controls by default (default: False).
+        controls_semantic_configuration_name: The name of the semantic configuration for controls (default: "controls-semantic").
+        framework_authority_order: The order of framework authorities (default: ("Essential Eight", "ISM", "AESCSF", "NIST CSF", "PSPF", "PCI DSS", "CIS Controls")).
+        validation_mode: The validation mode (default: "hard").
+        artifact_content_chars: The number of characters to consider for artifact content (default: 6000).
+        discussion_comment_limit: The limit for discussion comments (default: 8).
+        discussion_comment_chars: The number of characters to consider for discussion comments (default: 1200).
+        control_llm_review_enabled: Whether to enable LLM review for controls (default: False).
+        control_llm_review_heuristic_threshold: The heuristic threshold for LLM review (default: 0.75).
+    """
 
     search_endpoint: str
     openai_endpoint: str
@@ -128,7 +158,16 @@ class AssessmentRuntimeConfig:
 
 
 def _env_bool(env: Mapping[str, str], key: str, default: bool = False) -> bool:
-    """Run env bool."""
+    """Get a boolean value from environment variables.
+
+    Args:
+        env: The environment variables mapping.
+        key: The key to look for in the environment variables.
+        default: The default value to return if the key is not found.
+
+    Returns:
+        bool: The boolean value of the environment variable.
+    """
     value = env.get(key)
     if value is None:
         return default
@@ -136,6 +175,14 @@ def _env_bool(env: Mapping[str, str], key: str, default: bool = False) -> bool:
 
 
 def _normalise_thinking_mode(raw: str | None) -> str:
+    """Normalise the thinking mode.
+
+    Args:
+        raw: The raw thinking mode string.
+
+    Returns:
+        str: The normalised thinking mode.
+    """
     mode = (raw or "").strip().lower()
     resolved = _THINKING_MODE_ALIASES.get(mode)
     if resolved is not None:
@@ -165,7 +212,14 @@ def _assessment_thinking_defaults(mode: str) -> dict[str, float | int]:
 
 
 def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
-    """Run parse framework authority order."""
+    """Parse the framework authority order.
+
+    Args:
+        raw_value: The raw framework authority order string.
+
+    Returns:
+        tuple[str, ...]: The parsed framework authority order.
+    """
     default_order = (
         "Essential Eight",
         "ISM",
@@ -209,7 +263,14 @@ def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
 def load_assessment_runtime_config_from_env(
     env: Mapping[str, str] | None = None,
 ) -> AssessmentRuntimeConfig:
-    """Run load assessment runtime config from env."""
+    """Load assessment runtime config from environment variables.
+
+    Args:
+        env: The environment variables mapping.
+
+    Returns:
+        AssessmentRuntimeConfig: The loaded assessment runtime config.
+    """
     values = dict(os.environ) if env is None else dict(env)
     common = resolve_provider_settings(
         values,
@@ -271,7 +332,14 @@ def load_assessment_runtime_config_from_env(
 
 
 def _unwrap_answer(text: str) -> str:
-    """Run unwrap answer."""
+    """Run unwrap answer.
+
+    Args:
+        text: The input text to unwrap.
+
+    Returns:
+        str: The unwrapped answer.
+    """
     stripped = text.strip()
     fence_match = re.search(r"```(?:json)?\s*(.+?)\s*```", stripped, re.DOTALL)
     if fence_match:
@@ -286,7 +354,14 @@ def _unwrap_answer(text: str) -> str:
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
-    """Run extract json object."""
+    """Run extract json object.
+
+    Args:
+        text: The input text containing a JSON object.
+
+    Returns:
+        dict[str, Any]: The extracted JSON object.
+    """
     cleaned = _unwrap_answer(text).strip()
     if not cleaned:
         raise ValueError("Model returned empty response")
@@ -310,7 +385,14 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 
 
 def sanitise_untrusted_text(text: str) -> str:
-    """Run sanitise untrusted text."""
+    """Sanitise untrusted text.
+
+    Args:
+        text: The input text to sanitise.
+
+    Returns:
+        str: The sanitised text.
+    """
     lines: list[str] = []
     for raw_line in text.splitlines():
         cleaned = _ZERO_WIDTH_RE.sub("", raw_line)
@@ -323,12 +405,26 @@ def sanitise_untrusted_text(text: str) -> str:
 
 
 def _assessment_task_instruction(artifact: AssessedArtifactPackage) -> str:
-    """Run assessment task instruction."""
+    """Run assessment task instruction.
+
+    Args:
+        artifact: The assessed artifact package.
+
+    Returns:
+        str: The assessment task instruction.
+    """
     return get_assessment_task_instruction(artifact.provider)
 
 
 def _cognitive_token(credential: Any) -> str:
-    """Run cognitive token."""
+    """Run cognitive token.
+
+    Args:
+        credential: The credential object.
+
+    Returns:
+        str: The cognitive token.
+    """
     return credential.get_token("https://cognitiveservices.azure.com/.default").token
 
 
@@ -338,7 +434,16 @@ def _embed_query(
     config: AssessmentRuntimeConfig,
     credential: Any,
 ) -> list[float]:
-    """Run embed query."""
+    """Run embed query.
+
+    Args:
+        question: The input question to embed.
+        config: The assessment runtime configuration.
+        credential: The credential object.
+
+    Returns:
+        list[float]: The embedding vector.
+    """
     strategy = get_assessment_provider_strategy(config.cloud_provider)
     if not strategy.supports_embeddings:
         return []
@@ -380,17 +485,30 @@ def _chat_completion(
     *,
     config: AssessmentRuntimeConfig,
     credential: Any,
-    top_p: float = 1.0,
+    temperature: float,
+    top_p: float,
     timeout: int = 45,
 ) -> str:
-    """Run chat completion."""
+    """Run chat completion.
+
+    Args:
+        messages: The list of messages for the chat completion.
+        config: The assessment runtime configuration.
+        credential: The credential object.
+        temperature: The temperature parameter for the chat completion.
+        top_p: The top_p parameter for the chat completion.
+        timeout: The timeout for the chat completion.
+
+    Returns:
+        str: The chat completion result.
+    """
     strategy = get_assessment_provider_strategy(config.cloud_provider)
     if strategy.uses_bedrock_chat:
         llm = get_llm_client(
             cloud_provider="aws",
             model_id=config.query_deployment or None,
             region_name=os.getenv("AWS_REGION"),
-            temperature=max(0.0, min(1.0, float(config.temperature))),
+            temperature=max(0.0, min(1.0, float(temperature))),
             top_p=max(0.0, min(1.0, float(top_p))),
         )
         return llm.chat_complete(messages).strip()
@@ -405,7 +523,7 @@ def _chat_completion(
         api_version="2024-08-01-preview",
         azure_endpoint=config.openai_endpoint,
     )
-    safe_temperature = max(0.0, min(1.0, float(config.temperature)))
+    safe_temperature = max(0.0, min(1.0, float(temperature)))
     outbound_headers = outbound_trace_headers()
 
     request_kwargs: dict[str, Any] = {
@@ -449,7 +567,15 @@ def _chat_completion(
 
 
 def _framework_authority_rank(item: dict[str, Any], order: tuple[str, ...]) -> int:
-    """Run framework authority rank."""
+    """Run framework authority rank.
+
+    Args:
+        item: The item containing the framework information.
+        order: The tuple of framework names in the desired order.
+
+    Returns:
+        int: The authority rank of the framework.
+    """
     framework = str(item.get("framework") or "").strip().lower()
     for idx, configured in enumerate(order):
         if framework == configured.strip().lower():
@@ -464,7 +590,17 @@ def _fetch_controls(
     config: AssessmentRuntimeConfig,
     framework_filter: str | None,
 ) -> list[dict[str, Any]]:
-    """Run fetch controls."""
+    """Run fetch controls.
+
+    Args:
+        client: The search client to use for fetching controls.
+        question: The question to search for.
+        config: The assessment runtime configuration.
+        framework_filter: Optional framework filter.
+
+    Returns:
+        list[dict[str, Any]]: The list of fetched controls.
+    """
     select_fields = [
         "requirement_id",
         "framework",
@@ -576,7 +712,15 @@ def _filter_controls_for_artifact(
     artifact: AssessedArtifactPackage,
     controls: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Run filter controls for artifact."""
+    """Run filter controls for artifact.
+
+    Args:
+        artifact: The assessed artifact package.
+        controls: The list of controls to filter.
+
+    Returns:
+        list[dict[str, Any]]: The list of filtered controls.
+    """
     return filter_controls_for_artifact(
         artifact_provider=artifact.provider,
         artifact_metadata=artifact.metadata,
@@ -593,10 +737,29 @@ def _hybrid_search(
     embed_query: Callable[[str], list[float]],
     evidence_filter: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Run hybrid search."""
+    """Run hybrid search.
+
+    Args:
+        client: The search client to use for the hybrid search.
+        question: The question to search for.
+        config: The assessment runtime configuration.
+        retrieve_k: The number of top results to retrieve.
+        embed_query: A callable that takes a question and returns its embedding vector.
+        evidence_filter: Optional filter for evidence.
+
+    Returns:
+        list[dict[str, Any]]: The list of search results.
+    """
 
     def _is_missing_grounding_index_error(exc: Exception) -> bool:
-        """Return True if *exc* indicates the grounding index does not exist."""
+        """Return True if *exc* indicates the grounding index does not exist.
+
+        Args:
+            exc: The exception to check.
+
+        Returns:
+            bool: True if the grounding index does not exist, False otherwise.
+        """
         try:
             from azure.core.exceptions import ResourceNotFoundError as _AzureNotFound
 
@@ -677,7 +840,15 @@ def _hybrid_search(
 
 
 def _ensure_string(value: Any, field_name: str) -> str:
-    """Run ensure string."""
+    """Run ensure string.
+
+    Args:
+        value: The value to ensure is a string.
+        field_name: The name of the field for error messages.
+
+    Returns:
+        str: The ensured string.
+    """
     text = str(value or "").strip()
     if not text:
         raise ValueError(f"{field_name} must be a non-empty string")
@@ -685,7 +856,16 @@ def _ensure_string(value: Any, field_name: str) -> str:
 
 
 def _ensure_string_list(value: Any, field_name: str, *, min_items: int = 0) -> list[str]:
-    """Run ensure string list."""
+    """Run ensure string list.
+
+    Args:
+        value: The value to ensure is a list of strings.
+        field_name: The name of the field for error messages.
+        min_items: The minimum number of items required in the list.
+
+    Returns:
+        list[str]: The ensured list of strings.
+    """
     if not isinstance(value, list):
         raise ValueError(f"{field_name} must be a list")
     items = [str(item).strip() for item in value if str(item).strip()]
@@ -695,7 +875,14 @@ def _ensure_string_list(value: Any, field_name: str, *, min_items: int = 0) -> l
 
 
 def validate_compliance_report_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Run validate compliance report payload."""
+    """Run validate compliance report payload.
+
+    Args:
+        payload: The compliance report payload to validate.
+
+    Returns:
+        dict[str, Any]: The validated compliance report payload.
+    """
     schema_version = _ensure_string(payload.get("schema_version"), "schema_version")
     if schema_version != COMPLIANCE_REPORT_SCHEMA_VERSION:
         raise ValueError(
@@ -784,7 +971,17 @@ def _fallback_report(
     guidance: list[dict[str, Any]],
     error: str,
 ) -> dict[str, Any]:
-    """Run fallback report."""
+    """Run fallback report.
+
+    Args:
+        artifact: The assessed artifact package.
+        controls: The list of controls.
+        guidance: The list of guidance items.
+        error: The error message.
+
+    Returns:
+        dict[str, Any]: The fallback report.
+    """
     first_control = controls[0] if controls else {}
     requirement_id = str(first_control.get("requirement_id") or "assessment-fallback")
     framework = str(first_control.get("framework") or "Unknown")
@@ -830,7 +1027,15 @@ def _fallback_report(
 
 
 def _artifact_excerpt(artifact: AssessedArtifactPackage, limit: int) -> str:
-    """Run artifact excerpt."""
+    """Run artifact excerpt.
+
+    Args:
+        artifact: The assessed artifact package.
+        limit: The maximum number of characters to include in the excerpt.
+
+    Returns:
+        str: The artifact excerpt.
+    """
     content = sanitise_untrusted_text(artifact.content)
     return content[:limit].strip()
 
@@ -838,7 +1043,16 @@ def _artifact_excerpt(artifact: AssessedArtifactPackage, limit: int) -> str:
 def _discussion_excerpt(
     artifact: AssessedArtifactPackage, *, comment_limit: int, char_limit: int
 ) -> str:
-    """Run discussion excerpt."""
+    """Run discussion excerpt.
+
+    Args:
+        artifact: The assessed artifact package.
+        comment_limit: The maximum number of comments to include in the excerpt.
+        char_limit: The maximum number of characters to include from each comment.
+
+    Returns:
+        str: The discussion excerpt.
+    """
     lines: list[str] = []
     for item in artifact.discussion_context[:comment_limit]:
         author = str(item.get("author") or item.get("display_name") or "unknown")
@@ -917,7 +1131,15 @@ def _chunk_artifact_content(
     artifact: AssessedArtifactPackage,
     chunk_size: int = 2000,
 ) -> list[dict[str, Any]]:
-    """Split artifact content into chunk-like dicts for per-control evidence scoring."""
+    """Split artifact content into chunk-like dicts for per-control evidence scoring.
+
+    Args:
+        artifact: The assessed artifact package.
+        chunk_size: The maximum number of characters per chunk.
+
+    Returns:
+        list[dict[str, Any]]: The list of chunk-like dicts.
+    """
     content = artifact.content.strip()
     title = artifact.title or "Artifact evidence"
     if not content:
@@ -935,7 +1157,16 @@ def _select_chunks_for_control_rt(
     chunks: list[dict[str, Any]],
     max_chunks: int,
 ) -> list[dict[str, Any]]:
-    """Score and select the most relevant chunks for a single control."""
+    """Score and select the most relevant chunks for a single control.
+
+    Args:
+        control: The control dictionary.
+        chunks: The list of chunk-like dicts.
+        max_chunks: The maximum number of chunks to select.
+
+    Returns:
+        list[dict[str, Any]]: The list of selected chunks.
+    """
     if not chunks:
         return []
     tokens: set[str] = set()
@@ -948,7 +1179,14 @@ def _select_chunks_for_control_rt(
             tokens.add(t.lower())
 
     def _score(chunk: dict[str, Any]) -> float:
-        """Run score."""
+        """Run score.
+
+        Args:
+            chunk: The chunk dictionary.
+
+        Returns:
+            float: The score for the chunk.
+        """
         text = str(chunk.get("content") or "").lower()
         overlap = sum(1 for t in tokens if t in text)
         term_score = overlap / (len(tokens) + 1)
@@ -959,7 +1197,18 @@ def _select_chunks_for_control_rt(
 
 
 class SearchBackedAssessmentAgent:
-    """SearchBackedAssessmentAgent."""
+    """SearchBackedAssessmentAgent.
+
+    At a high level, this class orchestrates the assessment of an artifact by retrieving relevant controls and guidance from search indices, optionally enriching controls with LLM-based applicability reviews, and generating a structured assessment report. It uses embedding and chat completion functions to interact with LLMs for semantic understanding and reasoning.
+
+    Attributes:
+        _config: The assessment runtime configuration.
+        _credential: The credential for authentication.
+        _evidence_search_client: The search client for evidence.
+        _controls_search_client: The search client for controls.
+        _embed_query: The function to embed queries.
+        _chat_completion: The function to perform chat completion.
+    """
 
     def __init__(
         self,
@@ -971,7 +1220,16 @@ class SearchBackedAssessmentAgent:
         embed_query: Callable[[str], list[float]] | None = None,
         chat_completion: Callable[[list[dict[str, str]]], str] | None = None,
     ) -> None:
-        """Run init."""
+        """Run init.
+
+        Args:
+            config: The assessment runtime configuration.
+            credential: The credential for authentication.
+            evidence_search_client: The search client for evidence.
+            controls_search_client: The search client for controls.
+            embed_query: The function to embed queries.
+            chat_completion: The function to perform chat completion.
+        """
         self._config = config
         if credential is None:
             provider = get_credential_provider(cloud_provider=self._config.cloud_provider)
@@ -1017,6 +1275,7 @@ class SearchBackedAssessmentAgent:
                 messages,
                 config=self._config,
                 credential=self._credential,
+                temperature=self._config.temperature,
                 top_p=self._config.top_p,
             )
         )
@@ -1024,7 +1283,14 @@ class SearchBackedAssessmentAgent:
     def retrieve_corpus_grounding(
         self, artifact: AssessedArtifactPackage
     ) -> CorpusGroundingPackage:
-        """Run retrieve corpus grounding."""
+        """Run retrieve corpus grounding.
+
+        Args:
+            artifact: The assessed artifact package.
+
+        Returns:
+            A CorpusGroundingPackage containing the retrieved corpus grounding.
+        """
         query = self._build_assessment_query(artifact)
         framework_override = str(artifact.metadata.get("framework_filter_override") or "").strip()
         framework_filter = framework_override or _infer_framework_filter(
@@ -1066,7 +1332,16 @@ class SearchBackedAssessmentAgent:
         *,
         validation_mode: str = "hard",
     ) -> dict[str, Any]:
-        """Run generate assessment."""
+        """Run generate assessment.
+
+        Args:
+            artifact: The assessed artifact package.
+            grounding: The corpus grounding package.
+            validation_mode: The validation mode for the compliance report ('hard' or 'soft').
+
+            Returns:
+                A dictionary containing the generated assessment.
+        """
         controls_context = "\n\n".join(
             (
                 f"Requirement ID: {item['requirement_id']}\n"
@@ -1201,7 +1476,14 @@ class SearchBackedAssessmentAgent:
         return report
 
     def _build_assessment_query(self, artifact: AssessedArtifactPackage) -> str:
-        """Run build assessment query."""
+        """Run build assessment query.
+
+        Args:
+            artifact: The assessed artifact package.
+
+        Returns:
+            A string containing the built assessment query.
+        """
         excerpts = [artifact.title.strip()]
         if artifact.metadata.get("version"):
             excerpts.append(f"Version: {artifact.metadata['version']}")
@@ -1228,6 +1510,14 @@ class SearchBackedAssessmentAgent:
         Produces the same report schema as :meth:`generate_assessment` but using a
         separate LLM call per control so the context window is never dominated by a
         single control family.
+
+        Args:
+            artifact: The assessed artifact package.
+            grounding: The corpus grounding package.
+            progress_cb: Optional callback to report progress. Called with (current_index, total_controls, requirement_id, message).
+
+        Returns:
+            dict[str, Any]: The generated assessment report.
         """
         controls = list(grounding.corpus_a_results)
         corpus_b_chunks = list(grounding.corpus_b_results)
@@ -1328,7 +1618,17 @@ class SearchBackedAssessmentAgent:
         corpus_b_chunks: list[dict[str, Any]],
         corpus_c_chunks: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Run assess one control."""
+        """Run assess one control.
+
+        Args:
+            artifact: The assessed artifact package.
+            control: The control to be assessed.
+            corpus_b_chunks: List of Corpus B guidance chunks.
+            corpus_c_chunks: List of Corpus C evidence chunks.
+
+        Returns:
+            dict[str, Any]: The assessment result for the control.
+        """
         requirement_id = str(control.get("requirement_id") or "").strip() or "UNMAPPED"
         framework = str(control.get("framework") or "").strip() or "Unknown"
 

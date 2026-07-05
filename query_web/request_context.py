@@ -37,11 +37,22 @@ _TRACESTATE: contextvars.ContextVar[str] = contextvars.ContextVar(
 
 
 def _new_correlation_id() -> str:
+    """Generate a new random correlation ID (32 hex chars).
+
+    Returns:
+        A new correlation ID string.
+    """
     return uuid.uuid4().hex
 
 
 def _sanitise_correlation_id(value: str) -> str:
-    """Strip log-unsafe characters and cap length (log injection / DoS guard)."""
+    """Strip log-unsafe characters and cap length (log injection / DoS guard).
+
+    Args:
+        value: The raw correlation ID value to sanitise.
+    Returns:
+        The sanitised correlation ID string.
+    """
     sanitised = _CORRELATION_ID_SAFE_RE.sub("", value)[:_MAX_CORRELATION_ID_LEN]
     if sanitised != value[:_MAX_CORRELATION_ID_LEN]:
         from query_web.metrics import CORRELATION_ID_SANITISED_TOTAL  # noqa: PLC0415
@@ -61,6 +72,11 @@ def _validate_traceparent(value: str) -> str:
 
     The sampled flag (bit 0 of trace-flags) is propagated faithfully without
     behavioural change — sampling decisions are the vendor's responsibility.
+
+    Args:
+        value: The raw traceparent header value to validate.
+    Returns:
+        The validated traceparent string, or an empty string if invalid.
     """
     s = (value or "").strip().lower()
     if not s:
@@ -108,8 +124,11 @@ def _validate_traceparent(value: str) -> str:
 def resolve_request_ids(request: Request) -> tuple[str, str, str]:
     """Resolve incoming request IDs, generating a correlation ID when absent.
 
+    Args:
+        request: The FastAPI Request object from which to extract headers.
+
     Returns:
-        (correlation_id, traceparent, tracestate)
+        A tuple containing (correlation_id, traceparent, tracestate).
     """
     raw_corr = _clean(request.headers.get(CORRELATION_ID_HEADER))
     correlation_id = _sanitise_correlation_id(raw_corr) if raw_corr else _new_correlation_id()
@@ -124,7 +143,16 @@ def resolve_request_ids(request: Request) -> tuple[str, str, str]:
 def set_request_context(
     *, correlation_id: str, traceparent: str, tracestate: str = ""
 ) -> tuple[Token[str], Token[str], Token[str]]:
-    """Set request-local contextvars and return tokens for reset."""
+    """Set request-local contextvars and return tokens for reset.
+
+    Args:
+        correlation_id: The correlation ID to set in the context.
+        traceparent: The traceparent value to set in the context.
+        tracestate: The tracestate value to set in the context (default is empty).
+
+    Returns:
+        A tuple of tokens for resetting the contextvars.
+    """
     return (
         _CORRELATION_ID.set(correlation_id),
         _TRACEPARENT.set(traceparent),
@@ -133,7 +161,11 @@ def set_request_context(
 
 
 def reset_request_context(tokens: tuple[Token[str], Token[str], Token[str]]) -> None:
-    """Reset request-local contextvars using tokens from set_request_context."""
+    """Reset request-local contextvars using tokens from set_request_context.
+
+    Args:
+        tokens: A tuple of tokens returned by set_request_context.
+    """
     correlation_token, traceparent_token, tracestate_token = tokens
     _CORRELATION_ID.reset(correlation_token)
     _TRACEPARENT.reset(traceparent_token)
@@ -141,7 +173,14 @@ def reset_request_context(tokens: tuple[Token[str], Token[str], Token[str]]) -> 
 
 
 def get_correlation_id(request: Request | None = None) -> str:
-    """Return correlation_id from request state/header, then contextvar fallback."""
+    """Return correlation_id from request state/header, then contextvar fallback.
+
+    Args:
+        request: The FastAPI Request object from which to extract the correlation ID (optional).
+
+    Returns:
+        The correlation ID string.
+    """
     if request is not None:
         state_value = getattr(request.state, "correlation_id", "")
         if isinstance(state_value, str) and state_value.strip():
@@ -153,7 +192,14 @@ def get_correlation_id(request: Request | None = None) -> str:
 
 
 def get_traceparent(request: Request | None = None) -> str:
-    """Return traceparent from request state/header, then contextvar fallback."""
+    """Return traceparent from request state/header, then contextvar fallback.
+
+    Args:
+        request: The FastAPI Request object from which to extract the traceparent (optional).
+
+    Returns:
+        The traceparent string.
+    """
     if request is not None:
         state_value = getattr(request.state, "traceparent", "")
         if isinstance(state_value, str) and state_value.strip():
@@ -165,7 +211,14 @@ def get_traceparent(request: Request | None = None) -> str:
 
 
 def get_tracestate(request: Request | None = None) -> str:
-    """Return tracestate from request state/header, then contextvar fallback."""
+    """Return tracestate from request state/header, then contextvar fallback.
+
+    Args:
+        request: The FastAPI Request object from which to extract the tracestate (optional).
+
+    Returns:
+        The tracestate string.
+    """
     if request is not None:
         state_value = getattr(request.state, "tracestate", "")
         if isinstance(state_value, str) and state_value.strip():
@@ -185,6 +238,14 @@ def outbound_trace_headers(
     """Build outbound headers for cross-service correlation propagation.
 
     Includes tracestate alongside traceparent per W3C Trace Context spec §3.3.
+
+    Args:
+        correlation_id: Optional correlation ID to include in the headers.
+        traceparent: Optional traceparent value to include in the headers.
+        tracestate: Optional tracestate value to include in the headers.
+
+    Returns:
+        A dictionary of headers to include in outbound requests for correlation propagation.
     """
     corr = _clean(correlation_id) or _clean(_CORRELATION_ID.get())
     tp = _clean(traceparent) or _clean(_TRACEPARENT.get())
@@ -200,7 +261,11 @@ def outbound_trace_headers(
 
 
 def register_request_context_middleware(app: FastAPI) -> None:
-    """Attach middleware that resolves and propagates correlation/trace IDs."""
+    """Attach middleware that resolves and propagates correlation/trace IDs.
+
+    Args:
+        app: The FastAPI application instance to which the middleware will be added.
+    """
 
     @app.middleware("http")
     async def _request_context_middleware(

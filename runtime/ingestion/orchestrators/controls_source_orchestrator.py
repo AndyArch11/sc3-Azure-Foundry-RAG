@@ -1,3 +1,7 @@
+"""
+Controls ingestion orchestrator for AWS and Azure providers.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -12,7 +16,13 @@ else:
 
 
 def is_missing_controls_source_error(exc: Exception) -> bool:
-    """Return True when a parser error indicates missing local source files."""
+    """Return True when a parser error indicates missing local source files.
+
+    Args:
+        exc: The exception to check.
+    Returns:
+        True if the exception message indicates missing source files, False otherwise.
+    """
 
     message = str(exc).lower()
     markers = (
@@ -32,7 +42,16 @@ def download_controls_source_files_azure(
     *,
     controls_source_target_filenames: dict[str, set[str]],
 ) -> list[str]:
-    """Download staged controls source documents from Azure Blob into runtime samples dir."""
+    """Download staged controls source documents from Azure Blob into runtime samples dir.
+
+    Args:
+        framework: The compliance framework (e.g., "cis_controls", "pci_dss").
+        source_prefix: The prefix for source files in Azure Blob.
+        credential: The Azure TokenCredential for authentication.
+        controls_source_target_filenames: A dictionary mapping frameworks to expected source filenames.
+    Returns:
+        A list of downloaded source filenames.
+    """
 
     prefix = str(source_prefix or "").strip().strip("/")
     if not prefix:
@@ -90,7 +109,18 @@ def download_controls_source_files_aws(
     *,
     controls_source_target_filenames: dict[str, set[str]],
 ) -> list[str]:
-    """Download staged controls source documents from S3 into runtime samples dir."""
+    """Download staged controls source documents from S3 into runtime samples dir.
+
+    Args:
+        framework: The compliance framework (e.g., "cis_controls", "pci_dss").
+        source_prefix: The prefix for source files in S3.
+        aws_session: The AWS session object for authentication.
+        s3_bucket_name: The name of the S3 bucket.
+        controls_source_target_filenames: A dictionary mapping frameworks to expected source filenames.
+
+    Returns:
+        A list of downloaded source filenames.
+    """
 
     prefix = str(source_prefix or "").strip().strip("/")
     if not prefix:

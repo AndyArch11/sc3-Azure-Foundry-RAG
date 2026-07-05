@@ -19,7 +19,20 @@ def get_search_client(
     region_name: str | None = None,
     documents: list[dict[str, Any]] | None = None,
 ) -> SearchClient:
-    """Return a provider-appropriate SearchClient."""
+    """Return a provider-appropriate SearchClient.
+    
+    Args:
+        cloud_provider: Optional name of the cloud provider ("azure", "aws", or "local"). If not provided, the function will attempt to read from the "CLOUD_PROVIDER" environment variable. 
+        credential: Optional credentials for the search client.
+        endpoint: Optional endpoint URL for the search service.
+        index_name: Optional name of the index to use.
+        region_name: Optional region name for the search service.
+        documents: Optional list of documents for local search clients.
+    Returns:
+        An instance of a SearchClient appropriate for the specified cloud provider.
+    Raises:
+        ValueError: If the specified cloud provider is not supported or required parameters are missing.
+    """
 
     provider_raw = cloud_provider if cloud_provider is not None else os.getenv("CLOUD_PROVIDER")
     provider = DEFAULT_CLOUD_PROVIDER_REGISTRY.get(provider_raw).provider

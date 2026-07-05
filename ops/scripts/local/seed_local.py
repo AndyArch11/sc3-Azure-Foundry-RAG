@@ -49,6 +49,15 @@ logger = logging.getLogger("seed_local")
 # ---------------------------------------------------------------------------
 
 def _env(key: str, default: str) -> str:
+    """Get an environment variable with a default, stripping whitespace.
+    
+    Args:
+        key: The environment variable name.
+        default: The default value if the environment variable is not set.
+    
+    Returns:
+        The environment variable value or the default, stripped of whitespace.
+    """
     return os.getenv(key, default).strip()
 
 
@@ -70,7 +79,17 @@ CONTROLS_PATH = _env("LOCAL_CONTROLS_JSONL_PATH", "/app/parsed-controls")
 # ---------------------------------------------------------------------------
 
 def _wait_for_service(name: str, url: str, max_wait: int = 120, interval: int = 3) -> None:
-    """Poll a URL until it returns HTTP 200 or timeout expires."""
+    """Poll a URL until it returns HTTP 200 or timeout expires.
+    
+    Args:
+        name: A friendly name for the service being checked.
+        url: The URL to poll for readiness.
+        max_wait: Maximum time to wait in seconds (default: 120).
+        interval: Time between polls in seconds (default: 3).   
+        
+    Raises:
+        RuntimeError: If the service is not ready within the specified timeout.
+    """
     deadline = time.time() + max_wait
     logger.info("Waiting for %s at %s ...", name, url)
     while time.time() < deadline:
@@ -86,7 +105,8 @@ def _wait_for_service(name: str, url: str, max_wait: int = 120, interval: int = 
 
 
 def wait_for_dependencies() -> None:
-    _wait_for_service("Qdrant", f"{QDRANT_URL}/readyz")
+    """Wait for Qdrant and Ollama services to be ready before seeding."""
+    _wait_for_service("Qdrant", f"{QDRANT_URL}/ready")
     _wait_for_service("Ollama", f"{OLLAMA_BASE_URL}/api/tags")
 
 
@@ -95,6 +115,14 @@ def wait_for_dependencies() -> None:
 # ---------------------------------------------------------------------------
 
 def _load_jsonl_files(path_value: str) -> list[dict[str, Any]]:
+    """Load JSONL files from a given path.
+
+    Args:
+        path_value: The path to a JSONL file or directory containing JSONL files.
+
+    Returns:
+        A list of dictionaries representing the JSONL documents.
+    """
     path_text = path_value.strip()
     if not path_text:
         return []
@@ -123,7 +151,24 @@ def _load_jsonl_files(path_value: str) -> list[dict[str, Any]]:
 
 
 def _normalise_evidence(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Normalise raw evidence documents for embedding and indexing.
+
+    Args:
+        raw: A list of raw evidence documents.  
+    
+    Returns:
+        A list of normalised evidence documents.
+    """
     def infer_corpus(source_path: str, explicit_corpus: str) -> str:
+        """Infer the corpus (A, B, or C) from the source path or explicit corpus field.
+
+        Args:
+            source_path: The path to the source file.
+            explicit_corpus: The explicit corpus value, if provided.
+
+        Returns:
+            The inferred corpus value ("a", "b", or "c").
+        """
         corpus = (explicit_corpus or "").strip().lower()
         if corpus in {"a", "b", "c"}:
             return corpus
@@ -167,6 +212,14 @@ def _normalise_evidence(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _normalise_controls(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Normalise raw control documents for embedding and indexing.
+
+    Args:
+        raw: A list of raw control documents.
+
+    Returns:
+        A list of normalised control documents.
+    """
     docs: list[dict[str, Any]] = []
     for payload in raw:
         req_text = str(payload.get("requirement_text") or "").strip()
@@ -192,6 +245,14 @@ def _normalise_controls(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 def _embed_text(text: str) -> list[float]:
+    """Embed text using Ollama embeddings with retry and backoff.
+
+    Args:
+        text: The text to be embedded.
+
+    Returns:
+        A list of floats representing the embedding.
+    """
     current_text = text
     while True:
         for attempt in range(1, EMBED_MAX_RETRIES + 1):
@@ -248,12 +309,30 @@ def _embed_text(text: str) -> list[float]:
 
 
 def _text_for_embedding(doc: dict[str, Any]) -> str:
+    """Extract text from a document for embedding.
+
+    Args:
+        doc: A dictionary representing the document.
+
+    Returns:
+        A string containing the text to be embedded.
+    """
     return str(
         doc.get("content") or doc.get("requirement_text") or doc.get("guidance_text") or ""
     ).strip()
 
 
 def _point_id(doc: dict[str, Any], ordinal: int, collection: str) -> int:
+    """Generate a unique point ID for a document.
+
+    Args:
+        doc: A dictionary representing the document.
+        ordinal: The ordinal number of the document in the collection.
+        collection: The name of the collection.
+
+    Returns:
+        An integer representing the unique point ID.
+    """
     seed = str(doc.get("id") or doc.get("requirement_id") or f"{collection}:{ordinal}")
     return int(hashlib.sha256(seed.encode()).hexdigest()[:15], 16)
 
@@ -263,7 +342,14 @@ def _point_id(doc: dict[str, Any], ordinal: int, collection: str) -> int:
 # ---------------------------------------------------------------------------
 
 def _collection_count(collection: str) -> int | None:
-    """Return number of indexed vectors, or None if collection does not exist."""
+    """Return number of indexed vectors, or None if collection does not exist.
+
+    Args:
+        collection: The name of the Qdrant collection.
+
+    Returns:
+        The number of indexed vectors, or None if the collection does not exist.
+    """
     try:
         r = requests.get(f"{QDRANT_URL}/collections/{collection}", timeout=10)
         if r.status_code == 404:
@@ -286,10 +372,21 @@ def _collection_count(collection: str) -> int | None:
 
 
 def _delete_collection(collection: str) -> None:
+    """Delete a Qdrant collection.
+
+    Args:
+        collection: The name of the Qdrant collection.
+    """
     requests.delete(f"{QDRANT_URL}/collections/{collection}", timeout=10)
 
 
 def _create_collection(collection: str, dim: int) -> None:
+    """Create a Qdrant collection.
+
+    Args:
+        collection: The name of the Qdrant collection.
+        dim: The dimensionality of the vectors.
+    """
     payload = {
         "vectors": {
             "size": dim,
@@ -305,6 +402,12 @@ def _create_collection(collection: str, dim: int) -> None:
 
 
 def _upsert_points(collection: str, points: list[dict[str, Any]]) -> None:
+    """Upsert points into a Qdrant collection.
+
+    Args:
+        collection: The name of the Qdrant collection.
+        points: A list of points to upsert.
+    """
     BATCH_SIZE = 64
     total = len(points)
     for start in range(0, total, BATCH_SIZE):
@@ -333,7 +436,16 @@ def seed_collection(
     *,
     force: bool = False,
 ) -> int:
-    """Embed and upsert docs into a Qdrant collection. Returns count of seeded docs."""
+    """Embed and upsert docs into a Qdrant collection. Returns count of seeded docs.
+
+    Args:
+        collection: The name of the Qdrant collection.
+        docs: A list of documents to embed and upsert.
+        force: If True, force re-seeding even if the collection already has vectors.
+
+    Returns:
+        The number of seeded documents.
+    """
     existing = _collection_count(collection)
     if existing is not None and existing > 0 and not force:
         logger.info(
@@ -391,6 +503,11 @@ def seed_collection(
 # ---------------------------------------------------------------------------
 
 def check_indexes() -> dict[str, int | None]:
+    """Check the status of Qdrant collections.
+
+    Returns:
+        A dictionary mapping collection names to their vector counts, or None if the collection does not exist.
+    """
     counts: dict[str, int | None] = {
         EVIDENCE_INDEX: _collection_count(EVIDENCE_INDEX),
         CONTROLS_INDEX: _collection_count(CONTROLS_INDEX),
@@ -408,6 +525,11 @@ def check_indexes() -> dict[str, int | None]:
 # ---------------------------------------------------------------------------
 
 def main() -> int:
+    """Seed local Qdrant indexes from JSONL files.
+    
+    Returns:
+        Exit code: 0 on success, 1 on error.
+    """
     parser = argparse.ArgumentParser(description="Seed local Qdrant indexes from JSONL files.")
     parser.add_argument(
         "--check",

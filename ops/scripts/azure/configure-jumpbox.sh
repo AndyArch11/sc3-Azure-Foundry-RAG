@@ -55,7 +55,7 @@ Usage:
 
 Configures an Ubuntu jumpbox for local platform operations by:
   - installing OS packages (Docker, Python, Azure CLI, etc.)
-  - creating runtime/.venv
+  - creating .venv at the repository root
   - installing Python dependencies for runtime or repo unit tests
   - optionally installing Terraform locally
   - optionally performing az login --identity and running unit tests
@@ -181,7 +181,7 @@ if [[ ! -d "${REPO_DIR}" ]]; then
 fi
 
 RUNTIME_DIR="${REPO_DIR}/runtime"
-VENV_DIR="${RUNTIME_DIR}/.venv"
+VENV_DIR="${REPO_DIR}/.venv"
 PYTHON_BIN="python${PYTHON_VERSION}"
 
 if [[ "${INSTALL_RUNTIME_ONLY}" == "true" ]]; then

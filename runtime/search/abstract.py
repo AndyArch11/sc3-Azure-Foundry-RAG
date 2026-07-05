@@ -25,23 +25,15 @@ class SearchClient(Protocol):
     ) -> list[dict[str, Any]]:
         """Execute search and return normalised documents.
 
-        Parameters
-        ----------
-        query_text:
-            Full-text query string.
-        top:
-            Maximum number of results to return.
-        vector_query:
-            Pre-computed embedding vector for k-NN / hybrid search.
-        filters:
-            Provider filter expression (OData for Azure, Lucene for OpenSearch).
-        select:
-            Field names to include in results.  ``None`` returns all fields.
-        **extra_kwargs:
-            Provider-specific hints forwarded transparently to the underlying
-            client.  Unknown kwargs are silently ignored by non-Azure backends.
-            Example: ``query_type="semantic"``,
-            ``semantic_configuration_name="controls-semantic"``.
+        Args:
+            query_text: The search query text.
+            top: The maximum number of results to return.
+            vector_query: Optional vector query for semantic search.
+            filters: Optional filter expression for search.
+            select: Optional list of fields to include in the results.
+            extra_kwargs: Additional provider-specific keyword arguments.
+        Returns:
+            A list of documents matching the search criteria, each represented as a dictionary.
         """
         ...
 
@@ -51,13 +43,15 @@ class SearchClient(Protocol):
         This method is only implemented by local search clients (in-memory and Qdrant).
         Azure and AWS search clients do not support this operation.
 
-        Parameters
-        ----------
-        docs : list[dict[str, Any]]
-            Documents to load into the index.
+        Args:
+            docs: Documents to load into the index.
         """
         ...
 
     def delete_documents(self, *, documents: list[dict[str, Any]]) -> None:
-        """Delete documents from the search index."""
+        """Delete documents from the search index.
+
+        Args:
+            documents: Documents to delete from the index.
+        """
         ...

@@ -14,7 +14,7 @@ Usage::
     from runtime.ingestion.parsers.nist_csf import NistCsfParser
     parser = NistCsfParser()
     records = parser.parse()
-    print(parser.to_jsonl(records))
+    print(f"Parsed {len(records)} NIST CSF requirement records.")
 """
 
 from __future__ import annotations
@@ -779,14 +779,28 @@ _CATEGORY_GUIDANCE_URLS: Dict[str, str] = {
 
 
 def _slugify(text: str) -> str:
-    """Run slugify."""
+    """Run slugify.
+
+    Args:
+        text: The input string to be slugified.
+
+    Returns:
+        A slugified version of the input string.
+    """
     slug = text.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     return slug.strip("-")
 
 
 def _fetch_guidance(category_id: str) -> str:
-    """Attempt to fetch category guidance text from NIST CPRT. Returns empty string on failure."""
+    """Attempt to fetch category guidance text from NIST CPRT. Returns empty string on failure.
+
+    Args:
+        category_id: The ID of the category to fetch guidance for.
+
+    Returns:
+        The guidance text for the category, or an empty string if unavailable.
+    """
     try:
         from bs4 import BeautifulSoup  # noqa: PLC0415
     except ImportError:
@@ -814,7 +828,13 @@ def _fetch_guidance(category_id: str) -> str:
 
 
 def _build_category_guidance_map(fetch_guidance: bool) -> Dict[str, str]:
-    """Return a mapping of category_id → guidance text."""
+    """Return a mapping of category_id → guidance text.
+
+    Args:
+        fetch_guidance: If True, attempt to fetch guidance text from NIST CPRT; otherwise, use the static category descriptions.
+    Returns:
+        A dictionary mapping category IDs to their corresponding guidance text.
+    """
     if not fetch_guidance:
         return {}
 
@@ -853,11 +873,19 @@ class NistCsfParser(BaseParser):
     """
 
     def __init__(self, fetch_guidance: bool = True) -> None:
-        """Run init."""
+        """Run init.
+
+        Args:
+            fetch_guidance: If True, attempt to fetch guidance text from NIST CPRT; otherwise, use the static category descriptions.
+        """
         self._fetch_guidance = fetch_guidance
 
     def parse(self) -> List[RequirementRecord]:
-        """Run parse."""
+        """Run parse.
+
+        Returns:
+            A list of RequirementRecord objects representing the parsed NIST CSF 2.0 subcategories.
+        """
         logger.info("Parsing NIST CSF 2.0 core (fetch_guidance=%s)", self._fetch_guidance)
 
         guidance_map = _build_category_guidance_map(self._fetch_guidance)

@@ -1,3 +1,10 @@
+"""
+Azure Resource Management Module.
+
+This module provides functionality to interact with Azure resources, including
+resolving target references, checking user access, and extracting resource configurations.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -18,7 +25,15 @@ def build_azure_target_reference(
     resource_group: str,
     resource_ids: list[str] | None = None,
 ) -> str:
-    """Run build azure target reference."""
+    """Run build azure target reference.
+
+    Args:
+        subscription_id: The Azure subscription ID.
+        resource_group: The Azure resource group name.
+        resource_ids: Optional list of Azure resource IDs to include in the target reference.
+    Returns:
+        A string representing the canonical Azure target reference URL.
+    """
     encoded_sub = quote(subscription_id.strip(), safe="")
     encoded_rg = quote(resource_group.strip(), safe="")
     encoded_ids = ",".join(
@@ -28,7 +43,11 @@ def build_azure_target_reference(
 
 
 class AzureMCPServer:
-    """AzureMCPServer."""
+    """AzureMCPServer.
+
+    Attributes:
+        provider: The cloud provider name, set to "azure".
+    """
 
     provider = "azure"
 
@@ -40,7 +59,14 @@ class AzureMCPServer:
         max_resources: int = 100,
         http_get: Callable[..., requests.Response] | None = None,
     ) -> None:
-        """Run init."""
+        """Initialise AzureMCPServer.
+
+        Args:
+            credential: Optional Azure credential. If not provided, DefaultAzureCredential is used.
+            management_base_url: Base URL for Azure management API.
+            max_resources: Maximum number of resources to process.
+            http_get: Optional HTTP GET function. If not provided, requests.get is used.
+        """
         self._credential = credential or DefaultAzureCredential()
         self._management_base_url = management_base_url.rstrip("/")
         self._resolved_scopes: dict[str, dict[str, Any]] = {}
@@ -50,7 +76,15 @@ class AzureMCPServer:
     def resolve_target(
         self, target_reference: str, *, requester_context: dict[str, Any] | None = None
     ) -> ResolvedTarget:
-        """Run resolve target."""
+        """Run resolve target.
+
+        Args:
+            target_reference: The canonical Azure target reference URL.
+            requester_context: Optional context about the requester.
+
+        Returns:
+            A ResolvedTarget object representing the resolved Azure target.
+        """
         scope = self._parse_target_reference(target_reference)
         canonical_scope = json.dumps(scope, sort_keys=True)
         target_id = hashlib.sha256(canonical_scope.encode("utf-8")).hexdigest()[:24]
@@ -75,7 +109,15 @@ class AzureMCPServer:
     def check_user_access(
         self, target_id: str, delegated_user_context: dict[str, Any]
     ) -> AccessDecision:
-        """Run check user access."""
+        """Run check user access.
+
+        Args:
+            target_id: The ID of the target to check access for.
+            delegated_user_context: Context about the delegated user making the request.
+
+        Returns:
+            An AccessDecision object representing the access decision.
+        """
         return AccessDecision(
             granted=True,
             identity_mode="delegated",
@@ -90,7 +132,16 @@ class AzureMCPServer:
         identity_mode: str,
         include_discussion_context: bool = False,
     ) -> AssessedArtifactPackage:
-        """Run get content by id."""
+        """Run get content by id.
+
+        Args:
+            target_id: The ID of the target to get content for.
+            identity_mode: The identity mode to use ("app_only" or "delegated").
+            include_discussion_context: Whether to include discussion context.
+
+        Returns:
+            An AssessedArtifactPackage object representing the content.
+        """
         if identity_mode not in {"app_only", "delegated"}:
             raise ValueError("identity_mode must be app_only or delegated")
 
@@ -129,7 +180,16 @@ class AzureMCPServer:
         identity_mode: str,
         trigger_context: dict[str, Any] | None = None,
     ) -> AssessedArtifactPackage:
-        """Run get flagged item context."""
+        """Run get flagged item context.
+
+        Args:
+            target_id: The ID of the target to get flagged item context for.
+            identity_mode: The identity mode to use ("app_only" or "delegated").
+            trigger_context: Optional context about the trigger event.
+
+        Returns:
+            An AssessedArtifactPackage object representing the flagged item context.
+        """
         return self.get_content_by_id(
             target_id, identity_mode=identity_mode, include_discussion_context=False
         )
@@ -179,7 +239,17 @@ class AzureMCPServer:
         resource_ids: list[str],
         fallback_subscription: str = "",
     ) -> dict[str, Any]:
-        """Run scope from resource ids."""
+        """Run scope from resource ids.
+
+        Args:
+            resource_ids: A list of Azure resource IDs.
+            fallback_subscription: An optional fallback subscription ID.
+
+        Returns:
+            A dictionary representing the scope extracted from the resource IDs.
+        Raises:
+            ValueError: If the resource IDs are invalid or inconsistent.
+        """
         normalised = [item.strip() for item in resource_ids if item.strip()]
         if not normalised:
             raise ValueError("At least one Azure resource ID is required")
@@ -218,7 +288,16 @@ class AzureMCPServer:
         }
 
     def _extract_configuration(self, scope: dict[str, Any]) -> dict[str, Any]:
-        """Run extract configuration."""
+        """Run extract configuration.
+
+        Args:
+            scope: A dictionary representing the scope extracted from the resource IDs.
+
+        Returns:
+            A dictionary representing the extracted configuration.
+        Raises:
+            ValueError: If the scope is invalid or inconsistent.
+        """
         subscription_id = str(scope["subscription_id"])
         resource_group = str(scope["resource_group"])
         requested_ids = list(scope.get("resource_ids") or [])
@@ -263,7 +342,19 @@ class AzureMCPServer:
         resource_group: str,
         resource_ids: list[str],
     ) -> dict[str, Any]:
-        """Run extract policy context."""
+        """Run extract policy context.
+
+        Args:
+            subscription_id: The ID of the subscription.
+            resource_group: The name of the resource group.
+            resource_ids: A list of resource IDs.
+
+        Returns:
+            A dictionary containing the policy context, including scope paths,
+            assignments, and referenced definitions.
+        Raises:
+            ValueError: If the subscription ID, resource group, or resource IDs are invalid.
+        """
         scope_paths = [
             f"/subscriptions/{subscription_id}",
             f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}",
@@ -297,7 +388,16 @@ class AzureMCPServer:
         }
 
     def _list_policy_assignments(self, scope_path: str) -> list[dict[str, Any]]:
-        """Run list policy assignments."""
+        """Run list policy assignments.
+
+        Args:
+            scope_path: The scope path for which to list policy assignments.
+
+        Returns:
+            A list of dictionaries representing the policy assignments.
+        Raises:
+            ValueError: If the scope path is invalid.
+        """
         next_url = f"{self._management_base_url}{scope_path}/providers/Microsoft.Authorization/policyAssignments"
         assignments: list[dict[str, Any]] = []
 
@@ -332,7 +432,15 @@ class AzureMCPServer:
         return assignments
 
     def _read_policy_definition(self, definition_id: str) -> dict[str, Any]:
-        """Run read policy definition."""
+        """Run read policy definition.
+
+        Args:
+            definition_id: The ID of the policy definition to read.
+        Returns:
+            A dictionary representing the policy definition.
+        Raises:
+            ValueError: If the policy definition cannot be read or is invalid.
+        """
         payload = self._arm_get_json(definition_id, api_version="2023-04-01")
         raw_properties = payload.get("properties")
         properties: dict[str, Any] = raw_properties if isinstance(raw_properties, dict) else {}
@@ -368,7 +476,15 @@ class AzureMCPServer:
         return summary
 
     def _extract_policy_effect(self, policy_rule: dict[str, Any]) -> str:
-        """Run extract policy effect."""
+        """Run extract policy effect.
+
+        Args:
+            policy_rule: A dictionary representing the policy rule.
+        Returns:
+            The effect of the policy rule as a string.
+        Raises:
+            ValueError: If the policy rule does not contain a valid effect.
+        """
         raw_then_clause = policy_rule.get("then")
         then_clause: dict[str, Any] = raw_then_clause if isinstance(raw_then_clause, dict) else {}
         effect = then_clause.get("effect")
@@ -379,7 +495,16 @@ class AzureMCPServer:
         return ""
 
     def _arm_get_json(self, path_or_url: str, api_version: str = "2021-04-01") -> dict[str, Any]:
-        """Run arm get json."""
+        """Run arm get json.
+
+        Args:
+            path_or_url: The path or URL to the ARM resource.
+            api_version: The API version to use.
+        Returns:
+            A dictionary representing the ARM resource.
+        Raises:
+            ValueError: If the ARM response payload is not a valid object.
+        """
         token = self._credential.get_token("https://management.azure.com/.default").token
         if path_or_url.startswith("http://") or path_or_url.startswith("https://"):
             separator = "&" if "?" in path_or_url else "?"
@@ -402,7 +527,15 @@ class AzureMCPServer:
         return payload
 
     def _read_resource_by_id(self, resource_id: str) -> dict[str, Any]:
-        """Run read resource by id."""
+        """Run read resource by id.
+
+        Args:
+            resource_id: The ID of the resource to read.
+        Returns:
+            A dictionary representing the resource.
+        Raises:
+            ValueError: If the resource cannot be read or is invalid.
+        """
         payload = self._arm_get_json(resource_id, api_version="2021-04-01")
         return {
             "id": str(payload.get("id") or resource_id),
@@ -418,7 +551,16 @@ class AzureMCPServer:
     def _list_resources_in_group(
         self, subscription_id: str, resource_group: str
     ) -> list[dict[str, Any]]:
-        """Run list resources in group."""
+        """Run list resources in group.
+
+        Args:
+            subscription_id: The ID of the subscription.
+            resource_group: The name of the resource group.
+        Returns:
+            A list of dictionaries representing the resources.
+        Raises:
+            ValueError: If the resources cannot be listed or are invalid.
+        """
         next_url = f"{self._management_base_url}/subscriptions/{subscription_id}/resourceGroups/{resource_group}/resources"
         resources: list[dict[str, Any]] = []
 

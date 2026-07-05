@@ -13,7 +13,14 @@ from runtime.provider_core import normalise_cloud_provider
 
 
 def _extract_auth_token(request: Request) -> str:
-    """Best-effort auth token extraction for initial page loads."""
+    """Best-effort auth token extraction for initial page loads.
+
+    Args:
+        request: The incoming HTTP request.
+
+    Returns:
+        The extracted authentication token, or an empty string if not found.
+    """
     query_params = getattr(request, "query_params", None)
     if query_params is not None:
         token = str(query_params.get("auth_token", "")).strip()
@@ -53,9 +60,27 @@ def register_home_endpoints(
     unauthorised_message: Any | None = None,
     branding_ctx: Any | None = None,
 ) -> None:
-    """Register home page endpoints."""
+    """Register home page endpoints.
+
+    Args:
+        app: The FastAPI application instance.
+        svc: Optional service object providing dependencies (default is None).
+        templates: Optional template rendering engine (default is None).
+        config: Optional configuration object (default is None).
+        is_authorised_request: Optional callable to check request authorisation (default is None).
+        unauthorised_message: Optional callable to generate unauthorised messages (default is None).
+        branding_ctx: Optional callable to provide branding context (default is None).
+    """
 
     def _query_model_display(resolved_config: Any) -> str:
+        """Determine the display name for the query model based on the cloud provider and configuration.
+
+        Args:
+            resolved_config: The resolved configuration object.
+
+        Returns:
+            The display name for the query model.
+        """
         try:
             provider = normalise_cloud_provider(os.getenv("CLOUD_PROVIDER"))
         except ValueError:
@@ -65,6 +90,15 @@ def register_home_endpoints(
         return str(getattr(resolved_config, "query_deployment", "")).strip()
 
     def _dep(name: str, value: Any) -> Any:
+        """Resolve a dependency value, falling back to the service object if not provided.
+
+        Args:
+            name: The name of the dependency.
+            value: The provided value for the dependency.
+
+        Returns:
+            The resolved dependency value, either from the provided value or the service object.
+        """
         if value is not None:
             return value
         if svc is None:
@@ -116,6 +150,7 @@ def register_home_endpoints(
                 "iterations": None,
                 "retrieve_k": resolved_config.search_top_k,
                 "temperature": resolved_config.default_temperature,
+                "top_p": getattr(resolved_config, "top_p", 1.0),
                 "max_completion_tokens": getattr(resolved_config, "max_completion_tokens", 1400),
                 "evaluator_max_completion_tokens": getattr(
                     resolved_config,

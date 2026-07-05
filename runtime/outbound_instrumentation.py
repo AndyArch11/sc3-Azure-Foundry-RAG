@@ -1,3 +1,6 @@
+"""
+    Outbound instrumentation for HTTP requests and SDK calls, including trace propagation and Prometheus metrics.
+"""
 from __future__ import annotations
 
 import logging
@@ -46,6 +49,14 @@ def _merge_headers(
     *,
     header_getter: Callable[[], dict[str, str]],
 ) -> dict[str, str]:
+    """Merge provided headers with propagated trace headers, giving precedence to provided headers.
+
+    Args:
+        headers: Optional dictionary of headers to include in the request.
+        header_getter: Callable that returns a dictionary of headers to propagate (e.g., trace headers).
+    Returns:
+        A dictionary containing the merged headers, with provided headers taking precedence over propagated headers.
+    """
     merged = dict(headers or {})
     propagated = header_getter() or {}
     for key, value in propagated.items():
@@ -54,6 +65,14 @@ def _merge_headers(
 
 
 def _target_and_endpoint(url: str) -> tuple[str, str]:
+    """Extract the target and endpoint from a URL.
+
+    Args:
+        url: The URL to parse.
+
+    Returns:
+        A tuple containing the target (host) and endpoint (path) of the URL.
+    """
     parsed = urlparse(url)
     target = parsed.netloc or parsed.path or "unknown"
     endpoint = parsed.path or "/"
@@ -75,7 +94,25 @@ def request_with_instrumentation(
     request_callable: Callable[..., requests.Response] | None = None,
     **kwargs: Any,
 ) -> requests.Response:
-    """Issue one outbound HTTP request with trace propagation and timing logs."""
+    """Issue one outbound HTTP request with trace propagation and timing logs.
+
+    Args:
+        method: The HTTP method to use for the request.
+        url: The URL to send the request to.
+        logger: The logger to use for logging request details.
+        session: Optional requests.Session to use for the request.
+        headers: Optional dictionary of headers to include in the request.
+        retry_count: The number of times the request has been retried.
+        system: Optional system name for metrics and logging.
+        operation: Optional operation name for metrics and logging.
+        event: The event name for logging.
+        header_getter: Callable that returns a dictionary of headers to propagate (e.g., trace headers).
+        request_callable: Optional callable to use for making the request.
+        **kwargs: Additional keyword arguments to pass to the request callable.
+
+    Returns:
+        The response from the HTTP request.
+    """
     target, endpoint = _target_and_endpoint(url)
     merged_headers = _merge_headers(headers, header_getter=header_getter)
 
@@ -175,7 +212,13 @@ def request_with_instrumentation(
 
 
 class InstrumentedRequestsSession(requests.Session):
-    """Requests Session with automatic trace propagation and outbound logs."""
+    """Requests Session with automatic trace propagation and outbound logs.
+    
+    Attributes:
+        logger: The logger to use for logging request details.
+        system: Optional system name for metrics and logging.
+        header_getter: Callable that returns a dictionary of headers to propagate (e.g., trace headers).
+    """
 
     def __init__(
         self,
@@ -184,6 +227,13 @@ class InstrumentedRequestsSession(requests.Session):
         system: str | None = None,
         header_getter: Callable[[], dict[str, str]] = _runtime_outbound_trace_headers,
     ) -> None:
+        """Initialise an InstrumentedRequestsSession with trace propagation and logging.
+        
+        Args:
+            logger: The logger to use for logging request details.
+            system: Optional system name for metrics and logging.
+            header_getter: Callable that returns a dictionary of headers to propagate (e.g., trace headers).
+        """
         super().__init__()
         self._logger = logger
         self._system = system
@@ -192,6 +242,16 @@ class InstrumentedRequestsSession(requests.Session):
     def request(  # type: ignore[override]  # intentionally narrows bytes→str internally
         self, method: str | bytes, url: str | bytes, **kwargs: Any
     ) -> requests.Response:  # noqa: D401
+        """Override requests.Session.request to add trace propagation and outbound logs.
+        
+        Args:
+            method: The HTTP method to use for the request.
+            url: The URL to send the request to.
+            **kwargs: Additional keyword arguments to pass to the request.
+            
+        Returns:
+            The response from the HTTP request.
+        """
         headers = kwargs.pop("headers", None)
         return request_with_instrumentation(
             method if isinstance(method, str) else method.decode(),
@@ -207,6 +267,17 @@ class InstrumentedRequestsSession(requests.Session):
     def post(  # type: ignore[override]  # forward extra kwargs (e.g. operation=) to request()
         self, url: str | bytes, data: Any = None, json: Any = None, **kwargs: Any
     ) -> requests.Response:
+        """Override requests.Session.post to add trace propagation and outbound logs.
+        
+        Args:
+            url: The URL to send the POST request to.
+            data: The data to include in the body of the POST request.
+            json: The JSON data to include in the body of the POST request.
+            **kwargs: Additional keyword arguments to pass to the request.
+            
+        Returns:
+            The response from the HTTP request.
+        """
         return self.request("POST", url, data=data, json=json, **kwargs)
 
 
@@ -218,7 +289,20 @@ def sdk_call_with_instrumentation(
     call: Callable[[], Any],
     expected_exceptions: tuple[type[BaseException], ...] = (),
 ) -> Any:
-    """Run one SDK call and emit consistent operation-level telemetry."""
+    """Run one SDK call and emit consistent operation-level telemetry.
+    
+    Args:
+        logger: The logger to use for logging SDK call details.
+        system: The system name for metrics and logging.
+        operation: The operation name for metrics and logging.
+        call: The callable representing the SDK call to execute.
+        expected_exceptions: A tuple of exception types that are expected and should be handled gracefully.
+        
+    Returns:
+        The result of the SDK call.
+    Raises:
+        Any exception raised by the SDK call that is not in expected_exceptions.
+    """
     started = time.perf_counter()
     try:
         result = call()

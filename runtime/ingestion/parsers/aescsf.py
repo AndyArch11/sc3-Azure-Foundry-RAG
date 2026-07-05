@@ -141,12 +141,26 @@ _PRACTICE_RE = re.compile(r"^[A-Z][A-Z0-9-]+-(?:AP\d+|\d+[A-Za-z])$")
 
 
 def _slugify(text: str) -> str:
-    """Run slugify."""
+    """Run slugify.
+
+    Args:
+        text: The input text to slugify.
+
+    Returns:
+        A slugified version of the input text.
+    """
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
 
 
 def _parse_maturity_level(value: object) -> Optional[int]:
-    """Extract the integer MIL level from values like ``MIL-2``."""
+    """Extract the integer MIL level from values like ``MIL-2``.
+
+    Args:
+        value: The input value containing the MIL level.
+
+    Returns:
+        The integer MIL level if found, otherwise None.
+    """
     if value is None:
         return None
     match = re.search(r"(\d+)", str(value))
@@ -161,14 +175,10 @@ def _parse_maturity_level(value: object) -> Optional[int]:
 class AescsfParser(BaseParser):
     """Parse the AESCSF v2 core workbook from the AEMO-hosted Excel workbook.
 
-    Parameters
-    ----------
-    toolkit_url:
-        Direct download URL for the AESCSF Excel file. Defaults to the AEMO
-        hosted v2 core workbook.
-    include_anti_patterns:
-        Whether to include Anti-Pattern practices (Objective IDs ending in ``-AP``).
-        Defaults to True.
+    Attributes:
+        _toolkit_url: The URL of the AESCSF core workbook to fetch.
+        _include_anti_patterns: Whether to include anti-pattern practices in the output.
+
     """
 
     def __init__(
@@ -177,7 +187,12 @@ class AescsfParser(BaseParser):
         include_anti_patterns: bool = True,
         **_kwargs,
     ) -> None:
-        """Run init."""
+        """Run init.
+
+        Args:
+            toolkit_url: The URL of the AESCSF core workbook to fetch.
+            include_anti_patterns: Whether to include anti-pattern practices in the output.
+        """
         self._toolkit_url = toolkit_url
         self._include_anti_patterns = include_anti_patterns
 
@@ -186,7 +201,11 @@ class AescsfParser(BaseParser):
     # ------------------------------------------------------------------
 
     def parse(self) -> List[RequirementRecord]:
-        """Run parse."""
+        """Run parse.
+
+        Returns:
+            A list of RequirementRecord instances parsed from the AESCSF core workbook.
+        """
         logger.info("Fetching AESCSF core workbook from %s", self._toolkit_url)
         workbook_bytes = self._fetch_workbook()
         return self._build_records(workbook_bytes)
@@ -196,7 +215,13 @@ class AescsfParser(BaseParser):
     # ------------------------------------------------------------------
 
     def _fetch_workbook(self) -> bytes:
-        """Run fetch workbook."""
+        """Run fetch workbook.
+
+        Returns:
+            The content of the AESCSF core workbook as bytes.
+        Raises:
+            RuntimeError: If the workbook cannot be fetched or is empty.
+        """
         response = request_with_instrumentation(
             "GET",
             self._toolkit_url,
@@ -211,7 +236,16 @@ class AescsfParser(BaseParser):
         return response.content
 
     def _build_records(self, workbook_bytes: bytes) -> List[RequirementRecord]:
-        """Run build records."""
+        """Run build records.
+
+        Args:
+            workbook_bytes: The content of the AESCSF core workbook as bytes.
+
+        Returns:
+            A list of RequirementRecord instances parsed from the AESCSF core workbook.
+        Raises:
+            RuntimeError: If openpyxl is not installed.
+        """
         try:
             import openpyxl  # noqa: PLC0415
         except ImportError as exc:

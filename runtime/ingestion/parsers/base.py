@@ -151,24 +151,46 @@ class RequirementRecord:
     jurisdiction_or_scope: str  # e.g. "Australia"
 
     def to_dict(self) -> dict:
-        """Run to dict."""
+        """Convert the RequirementRecord instance to a dictionary."""
         return asdict(self)
 
 
 class BaseParser(ABC):
-    """Abstract base for all standards pre-parsers."""
+    """Abstract base for all standards pre-parsers.
+
+    Attributes:
+        framework: The name of the compliance framework (e.g., "cis_controls", "pci_dss").
+        framework_version: The version of the compliance framework (e.g., "v8.0.0", "2023-11").
+    """
 
     @abstractmethod
     def parse(self) -> List[RequirementRecord]:
-        """Fetch the source material and return a list of RequirementRecords."""
+        """Fetch the source material and return a list of RequirementRecords.
+        Returns:
+            A list of RequirementRecord instances parsed from the source material.
+        """
 
     def to_jsonl(self, records: List[RequirementRecord]) -> str:
-        """Serialise *records* to JSONL (one JSON object per line)."""
+        """Serialise *records* to JSONL (one JSON object per line).
+
+        Args:
+            records: A list of RequirementRecord instances to serialise.
+
+        Returns:
+            A JSONL string representation of the records.
+        """
         return "\n".join(json.dumps(r.to_dict(), ensure_ascii=False) for r in records)
 
 
 def filter_keywords(keywords: Iterable[str]) -> list[str]:
-    """Normalise and remove common stopwords from a keyword iterable."""
+    """Normalise and remove common stopwords from a keyword iterable.
+
+    Args:
+        keywords: An iterable of keyword strings to filter.
+
+    Returns:
+        A list of filtered and normalised keyword strings.
+    """
     cleaned: list[str] = []
     seen: set[str] = set()
 
@@ -199,7 +221,14 @@ def filter_keywords(keywords: Iterable[str]) -> list[str]:
 
 
 def keywordise_values(*values: str) -> list[str]:
-    """Tokenise free text values and return deduplicated, stopword-filtered tokens."""
+    """Tokenise free text values and return deduplicated, stopword-filtered tokens.
+
+    Args:
+        values: A variable number of string values to tokenise.
+
+    Returns:
+        A list of deduplicated, stopword-filtered tokens.
+    """
     tokens: list[str] = []
     for value in values:
         for token in re.split(r"[^A-Za-z0-9]+", str(value or "").lower()):

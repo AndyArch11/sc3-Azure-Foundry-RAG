@@ -30,7 +30,18 @@ logger = logging.getLogger(__name__)
 
 
 class ComplianceReportRequest(BaseModel):
-    """Request payload for corpus-based compliance report generation."""
+    """Request payload for corpus-based compliance report generation.
+
+    Attributes:
+        question: The compliance question to be assessed.
+        retrieve_k: The number of top documents to retrieve.
+        controls_top_k: The number of top controls to consider.
+        temperature: The temperature setting for the model.
+        top_p: The top-p sampling parameter for the model.
+        thinking_mode: The thinking mode for the model.
+        max_completion_tokens: The maximum number of tokens for the model completion.
+        evaluator_max_completion_tokens: The maximum number of tokens for the evaluator completion.
+    """
 
     question: str = ""
     retrieve_k: int = Field(default=5, ge=1, le=20)
@@ -52,7 +63,23 @@ class ComplianceReportRequest(BaseModel):
 
 
 class AzureComplianceReportRequest(BaseModel):
-    """Request payload for Azure resource compliance assessment generation."""
+    """Request payload for Azure resource compliance assessment generation.
+
+    Attributes:
+        subscription_id: The Azure subscription ID.
+        resource_group: The Azure resource group name.
+        resource_ids: A list of Azure resource IDs.
+        controls_framework: The controls framework to use.
+        controls_top_k: The number of top controls to consider.
+        temperature: The temperature setting for the model.
+        top_p: The top-p sampling parameter for the model.
+        thinking_mode: The thinking mode for the model.
+        max_completion_tokens: The maximum number of tokens for the model completion.
+        evaluator_max_completion_tokens: The maximum number of tokens for the evaluator completion.
+        assessment_strategy: The assessment strategy to use.
+        validation_mode: The validation mode to use.
+        auth_token: The authentication token.
+    """
 
     subscription_id: str
     resource_group: str
@@ -70,7 +97,24 @@ class AzureComplianceReportRequest(BaseModel):
 
 
 class AwsComplianceReportRequest(BaseModel):
-    """Request payload for AWS resource compliance assessment generation."""
+    """Request payload for AWS resource compliance assessment generation.
+
+    Attributes:
+        account_id: The AWS account ID.
+        region: The AWS region.
+        resource_arns: A list of AWS resource ARNs.
+        controls_framework: The controls framework to use.
+        controls_top_k: The number of top controls to consider.
+        retrieve_k: The number of top documents to retrieve.
+        temperature: The temperature setting for the model.
+        top_p: The top-p sampling parameter for the model.
+        thinking_mode: The thinking mode for the model.
+        max_completion_tokens: The maximum number of tokens for the model completion.
+        evaluator_max_completion_tokens: The maximum number of tokens for the evaluator completion.
+        assessment_strategy: The assessment strategy to use.
+        validation_mode: The validation mode to use.
+        auth_token: The authentication token.
+    """
 
     account_id: str
     region: str
@@ -89,7 +133,19 @@ class AwsComplianceReportRequest(BaseModel):
 
 
 class ComplianceFinding(BaseModel):
-    """Single normalised compliance finding in the structured report schema."""
+    """Single normalised compliance finding in the structured report schema.
+
+    Attributes:
+        finding_id: The unique identifier for the finding.
+        requirement_id: The identifier for the requirement.
+        framework: The compliance framework.
+        status: The compliance status.
+        severity: The severity of the finding.
+        rationale: The rationale for the finding.
+        evidence_sources: The sources of evidence.
+        gaps: The identified gaps.
+        recommendations: The recommended actions.
+    """
 
     finding_id: str = Field(min_length=1, max_length=64)
     requirement_id: str = Field(min_length=1, max_length=128)
@@ -109,7 +165,20 @@ class ComplianceFinding(BaseModel):
 
 
 class ComplianceReportStructured(BaseModel):
-    """Structured compliance report payload returned to clients and exports."""
+    """Structured compliance report payload returned to clients and exports.
+
+    Attributes:
+        schema_version: The version of the schema.
+        executive_summary: The executive summary of the report.
+        scope_and_inputs: The scope and inputs of the assessment.
+        controls_assessed: The controls assessed in the report.
+        guidance_applied: The guidance applied in the assessment.
+        findings: The list of compliance findings.
+        overall_risk_rating: The overall risk rating of the report.
+        missing_evidence: The list of missing evidence.
+        recommended_actions: The list of recommended actions.
+        citations: The list of citations.
+    """
 
     schema_version: str = Field(min_length=1, max_length=32)
     executive_summary: str = Field(min_length=1, max_length=3000)
@@ -130,6 +199,22 @@ class ComplianceReportStructured(BaseModel):
 
 @dataclass
 class _ReportJob:
+    """Internal representation of a compliance report generation job.
+
+    Attributes:
+        job_id: The unique identifier for the job.
+        kind: The kind of report (compliance, azure, aws).
+        created_at: The creation timestamp of the job.
+        updated_at: The last updated timestamp of the job.
+        state: The current state of the job (queued, running, completed, failed).
+        message: A message describing the job state.
+        total_controls: The total number of controls in the report.
+        completed_controls: The number of completed controls.
+        current_requirement_id: The identifier of the current requirement being processed.
+        result: The result of the report generation.
+        error: Any error encountered during report generation.
+    """
+
     job_id: str
     kind: Literal["compliance", "azure", "aws"]
     created_at: str
@@ -148,6 +233,14 @@ _REPORT_JOBS_LOCK = threading.Lock()
 
 
 def _new_report_job(kind: Literal["compliance", "azure", "aws"]) -> _ReportJob:
+    """Create a new report job and store it in the in-memory job tracking dictionary.
+
+    Args:
+        kind: The kind of report (compliance, azure, aws).
+
+    Returns:
+        The newly created report job.
+    """
     now = _utc_now_iso()
     job = _ReportJob(
         job_id=str(uuid.uuid4()),
@@ -161,11 +254,28 @@ def _new_report_job(kind: Literal["compliance", "azure", "aws"]) -> _ReportJob:
 
 
 def _get_report_job(job_id: str) -> _ReportJob | None:
+    """Retrieve a report job by its ID.
+
+    Args:
+        job_id: The unique identifier of the report job.
+
+    Returns:
+        The report job if found, otherwise None.
+    """
     with _REPORT_JOBS_LOCK:
         return _REPORT_JOBS.get(job_id)
 
 
 def _update_report_job(job_id: str, **updates: Any) -> None:
+    """Update a report job with new values.
+
+    Args:
+        job_id: The unique identifier of the report job.
+        updates: Key-value pairs of attributes to update.
+
+    Returns:
+        None
+    """
     with _REPORT_JOBS_LOCK:
         job = _REPORT_JOBS.get(job_id)
         if not job:
@@ -221,6 +331,19 @@ COMPLIANCE_REPORT_JSON_SCHEMA_HINT = (
 
 
 def _extract_json_object(text: str, svc: Any) -> dict[str, Any]:
+    """
+    Extract a JSON object from the model response text, attempting to recover from common formatting issues.
+
+    Args:
+        text: The model response text.
+        svc: The service instance used to unwrap the answer.
+
+    Returns:
+        A dictionary representing the JSON object.
+
+    Raises:
+        ValueError: If the model response does not contain a valid JSON object.
+    """
     cleaned = svc._unwrap_answer(text).strip()
     if not cleaned:
         raise ValueError("Model returned empty response")
@@ -248,6 +371,17 @@ def _extract_json_object(text: str, svc: Any) -> dict[str, Any]:
 
 
 def _validate_compliance_report_payload(payload: dict[str, Any]) -> ComplianceReportStructured:
+    """Validate the compliance report payload and return a structured report.
+
+    Args:
+        payload: The raw compliance report payload.
+
+    Returns:
+        A structured compliance report.
+
+    Raises:
+        ValueError: If the payload is invalid or the schema version is incorrect.
+    """
     report = ComplianceReportStructured.model_validate(payload)
     if report.schema_version != COMPLIANCE_REPORT_SCHEMA_VERSION:
         raise ValueError(
@@ -257,6 +391,14 @@ def _validate_compliance_report_payload(payload: dict[str, Any]) -> ComplianceRe
 
 
 def _clean_non_empty_string_list(value: Any) -> list[str]:
+    """Clean a value into a list of non-empty strings.
+
+    Args:
+        value: The value to clean.
+
+    Returns:
+        A list of non-empty strings.
+    """
     if isinstance(value, str):
         value = [value]
     if not isinstance(value, list):
@@ -270,6 +412,14 @@ def _clean_non_empty_string_list(value: Any) -> list[str]:
 
 
 def _control_terms(control: dict[str, Any]) -> set[str]:
+    """Extract a set of unique terms from a compliance control for scoring purposes.
+
+    Args:
+        control: The compliance control dictionary.
+
+    Returns:
+        A set of unique terms extracted from the control.
+    """
     text = " ".join(
         [
             str(control.get("requirement_id") or ""),
@@ -287,6 +437,16 @@ def _select_chunks_for_control(
     *,
     max_chunks: int,
 ) -> list[dict[str, Any]]:
+    """Select the most relevant chunks for a given compliance control.
+
+    Args:
+        control: The compliance control dictionary.
+        chunks: A list of chunks to score and select from.
+        max_chunks: The maximum number of chunks to return.
+
+    Returns:
+        A list of the most relevant chunks for the control.
+    """
     if not chunks:
         return []
 
@@ -318,6 +478,25 @@ def _build_compliance_scope_inputs(
     corpus_c_scope_label: str = "Corpus C artifacts retrieved",
     assessment_strategy: str | None = None,
 ) -> list[str]:
+    """Build a list of scope and input descriptions for the compliance report.
+
+    Args:
+        question: The assessment question.
+        controls_count: The number of controls retrieved.
+        corpus_b_chunk_count: The number of Corpus B chunks retrieved.
+        corpus_c_chunk_count: The number of Corpus C chunks retrieved.
+        corpus_b_indexed_total: The total number of indexed documents in Corpus B.
+        corpus_c_indexed_total: The total number of indexed documents in Corpus C.
+        corpus_b_upload_batch: The upload batch identifier for Corpus B.
+        corpus_c_upload_batch: The upload batch identifier for Corpus C.
+        corpus_b_filtered_total: The total number of filtered documents in Corpus B.
+        corpus_c_filtered_total: The total number of filtered documents in Corpus C.
+        corpus_c_scope_label: The label for Corpus C scope.
+        assessment_strategy: The assessment strategy used.
+
+    Returns:
+        A list of scope and input descriptions for the compliance report.
+    """
     items: list[str] = []
     if question is not None:
         items.append(f"Assessment question: {question[:200]}")
@@ -363,6 +542,26 @@ def _normalise_compliance_report_payload(
     corpus_c_filtered_total: int | None = None,
     assessment_strategy: str | None = None,
 ) -> dict[str, Any]:
+    """Normalise the compliance report payload to ensure required fields are present and valid.
+
+    Args:
+        payload: The original compliance report payload.
+        svc: The service instance for processing.
+        question: The assessment question.
+        controls: A list of compliance controls.
+        corpus_b_chunks: A list of Corpus B chunks.
+        corpus_c_chunks: A list of Corpus C chunks.
+        corpus_b_indexed_total: The total number of indexed documents in Corpus B.
+        corpus_c_indexed_total: The total number of indexed documents in Corpus C.
+        corpus_b_upload_batch: The upload batch identifier for Corpus B.
+        corpus_c_upload_batch: The upload batch identifier for Corpus C.
+        corpus_b_filtered_total: The total number of filtered documents in Corpus B.
+        corpus_c_filtered_total: The total number of filtered documents in Corpus C.
+        assessment_strategy: The assessment strategy used.
+
+    Returns:
+        A normalised compliance report payload.
+    """
     report = dict(payload or {})
 
     controls_count = len(controls)
@@ -525,6 +724,14 @@ def _normalise_compliance_report_payload(
 
 
 def _report_findings_to_csv(report: ComplianceReportStructured) -> str:
+    """Convert the findings in a compliance report to CSV format.
+
+    Args:
+        report: The structured compliance report.
+
+    Returns:
+        A CSV string representation of the findings.
+    """
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(
@@ -573,6 +780,26 @@ def _build_fallback_compliance_report_payload(
     corpus_c_filtered_total: int | None = None,
     assessment_strategy: str | None = None,
 ) -> dict[str, Any]:
+    """Build a fallback compliance report payload when the model response is invalid or unusable.
+
+    Args:
+        svc: The service instance for processing.
+        question: The assessment question.
+        controls: A list of compliance controls.
+        corpus_b_chunks: A list of Corpus B chunks.
+        corpus_c_chunks: A list of Corpus C chunks.
+        validation_error: The validation error message.
+        corpus_b_indexed_total: The total number of indexed documents in Corpus B.
+        corpus_c_indexed_total: The total number of indexed documents in Corpus C.
+        corpus_b_upload_batch: The upload batch identifier for Corpus B.
+        corpus_c_upload_batch: The upload batch identifier for Corpus C.
+        corpus_b_filtered_total: The total number of filtered documents in Corpus B.
+        corpus_c_filtered_total: The total number of filtered documents in Corpus C.
+        assessment_strategy: The assessment strategy used.
+
+    Returns:
+        A fallback compliance report payload.
+    """
     control_ids = [
         str(item.get("requirement_id") or "").strip()
         for item in controls
@@ -647,6 +874,21 @@ def _assess_control_finding_with_llm(
     temperature: float,
     top_p: float = 1.0,
 ) -> dict[str, Any]:
+    """
+    Assess a single compliance control using a language model.
+
+    Args:
+        svc: The service instance for processing.
+        question: The assessment question.
+        control: The compliance control to assess.
+        corpus_b_chunks: A list of Corpus B chunks.
+        corpus_c_chunks: A list of Corpus C chunks.
+        temperature: The temperature setting for the language model.
+        top_p: The top_p setting for the language model.
+
+    Returns:
+        A dictionary representing the assessed control finding.
+    """
     requirement_id = str(control.get("requirement_id") or "").strip() or "UNMAPPED"
     framework = str(control.get("framework") or "").strip() or "Unknown"
 
@@ -754,6 +996,27 @@ def _build_per_control_report_payload(
     corpus_c_filtered_total: int | None = None,
     corpus_c_scope_label: str = "Corpus C artifacts retrieved",
 ) -> dict[str, Any]:
+    """Build a compliance report payload by assessing each control individually.
+
+    Args:
+        svc: The service instance for processing.
+        question: The assessment question.
+        controls: A list of compliance controls.
+        corpus_b_chunks: A list of Corpus B chunks.
+        corpus_c_chunks: A list of Corpus C chunks.
+        temperature: The temperature setting for the language model.
+        top_p: The top_p setting for the language model.
+        progress_cb: An optional callback function for reporting progress.
+        corpus_b_indexed_total: The total number of indexed documents in Corpus B.
+        corpus_c_indexed_total: The total number of indexed documents in Corpus C.
+        corpus_b_upload_batch: The upload batch identifier for Corpus B.
+        corpus_c_upload_batch: The upload batch identifier for Corpus C.
+        corpus_b_filtered_total: The total number of filtered documents in Corpus B.
+        corpus_c_filtered_total: The total number of filtered documents in Corpus C.
+        corpus_c_scope_label: The scope label for Corpus C artifacts.
+
+    Returns:
+        A compliance report payload with per-control findings."""
     findings: list[dict[str, Any]] = []
     total = len(controls)
 
@@ -838,6 +1101,14 @@ def _build_per_control_report_payload(
 
 
 def _report_to_markdown(report: ComplianceReportStructured) -> str:
+    """Convert a structured compliance report to a Markdown string.
+
+    Args:
+        report: The structured compliance report.
+
+    Returns:
+        A Markdown string representation of the compliance report.
+    """
     lines: list[str] = []
     lines.append("# Compliance Report")
     lines.append("")
@@ -903,6 +1174,15 @@ def _report_to_markdown(report: ComplianceReportStructured) -> str:
 
 
 def _chunk_azure_artifact(artifact: Any, chunk_size: int = 2000) -> list[dict[str, Any]]:
+    """Chunk an Azure artifact's content into smaller pieces for processing.
+
+    Args:
+        artifact: The Azure artifact to be chunked.
+        chunk_size: The maximum size of each chunk.
+
+    Returns:
+        A list of dictionaries containing chunked content and metadata.
+    """
     content = (getattr(artifact, "content", None) or "").strip()
     title = str(getattr(artifact, "title", None) or "Azure scope evidence")
     if not content:
@@ -921,7 +1201,16 @@ def generate_compliance_report_result(
     svc: Any,
     progress_cb: Callable[[int, int, str, str], None] | None = None,
 ) -> dict[str, Any]:
-    """Generate a compliance report using Corpus A/B/C retrieval and LLM synthesis."""
+    """Generate a compliance report using Corpus A/B/C retrieval and LLM synthesis.
+
+    Args:
+        payload: The compliance report request payload.
+        svc: The service instance to use for generating the report.
+        progress_cb: Optional callback function for reporting progress.
+
+    Returns:
+        A dictionary containing the compliance report results.
+    """
 
     question = payload.question.strip()
     effective_question = question
@@ -957,7 +1246,9 @@ def generate_compliance_report_result(
     )
     report_top_p = getattr(payload, "top_p", 1.0)
     if report_top_p is None:
-        report_top_p = 1.0
+        report_top_p = getattr(svc.config, "top_p", 1.0)
+    elif report_top_p == 1.0 and payload.thinking_mode:
+        report_top_p = float(mode_defaults.get("top_p", getattr(svc.config, "top_p", 1.0)))
 
     controls, controls_timings = svc._controls_search(
         effective_question,
@@ -1217,7 +1508,16 @@ def generate_azure_compliance_report_result(
     svc: Any,
     progress_cb: Callable[[int, int, str, str], None] | None = None,
 ) -> dict[str, Any]:
-    """Generate a compliance report for Azure scope evidence and selected framework."""
+    """Generate a compliance report for Azure scope evidence and selected framework.
+
+    Args:
+        payload: The Azure compliance report request payload.
+        svc: The service instance to use for generating the report.
+        progress_cb: Optional callback function for reporting progress.
+
+    Returns:
+        A dictionary containing the compliance report results.
+    """
 
     subscription_id = payload.subscription_id.strip()
     resource_group = payload.resource_group.strip()
@@ -1256,11 +1556,13 @@ def generate_azure_compliance_report_result(
     )
     report_top_p = getattr(payload, "top_p", 1.0)
     if report_top_p is None:
-        report_top_p = 1.0
+        report_top_p = getattr(svc.config, "top_p", 1.0)
+    elif report_top_p == 1.0 and payload.thinking_mode:
+        report_top_p = float(mode_defaults.get("top_p", getattr(svc.config, "top_p", 1.0)))
 
     resolved_env = dict(os.environ)
     resolved_env["CONTROLS_TOP_K"] = str(payload.controls_top_k)
-    resolved_env["ASSESSMENT_TOP_P"] = str(payload.top_p)
+    resolved_env["ASSESSMENT_TOP_P"] = str(report_top_p)
 
     validation_error = ""
     report_structured: ComplianceReportStructured | None = None
@@ -1358,7 +1660,16 @@ def generate_aws_compliance_report_result(
     svc: Any,
     progress_cb: Callable[[int, int, str, str], None] | None = None,
 ) -> dict[str, Any]:
-    """Generate an AWS-scoped compliance report via the corpus-based assessment engine."""
+    """Generate an AWS-scoped compliance report via the corpus-based assessment engine.
+
+    Args:
+        payload: The AWS compliance report request payload.
+        svc: The service instance to use for generating the report.
+        progress_cb: Optional callback function for reporting progress.
+
+    Returns:
+        A dictionary containing the compliance report results.
+    """
 
     account_id = payload.account_id.strip()
     region = payload.region.strip()
@@ -1410,22 +1721,19 @@ def generate_aws_compliance_report_result(
 def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | None = None) -> None:
     """Register compliance report endpoints.
 
-    Parameters
-    ----------
-    app : FastAPI
-        The application instance.
-    svc : module, optional
-        Legacy service container (the app module at runtime).  All helpers are
-        accessed via ``svc.attribute`` at *call time* so that
-        ``patch.object(svc, ...)`` patches work correctly in tests.
-    deps : dict, optional
-        Explicit dependency providers dict.  Each value may be a zero-arg
-        callable (resolved lazily at access time) or a plain value.  Takes
-        precedence over *svc* when provided.
+    Args:
+        app: The FastAPI application instance.
+        svc: The service instance to use for endpoint processing.
+        deps: Optional dictionary of dependencies to override service methods.
     """
 
     class _SvcAdapter:
-        """Resolves deps in order: deps dict → svc fallback."""
+        """Resolves deps in order: deps dict → svc fallback.
+
+        Attributes:
+            _orig_svc: The original service instance.
+            _deps: A dictionary of dependency overrides.
+        """
 
         def __getattr__(self, name: str) -> Any:
             if isinstance(_deps, dict) and name in _deps:
@@ -1443,6 +1751,15 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
     def generate_compliance_report(
         request: Request, payload: ComplianceReportRequest
     ) -> JSONResponse:
+        """Generate a compliance report using Corpus A/B/C retrieval and LLM synthesis.
+
+        Args:
+            request: The FastAPI request object.
+            payload: The compliance report request payload.
+
+        Returns:
+            JSONResponse: The response containing the compliance report or an error message.
+        """
         if not svc._is_authorised_request(payload.auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -1497,6 +1814,14 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
     def generate_azure_compliance_report(
         request: Request, payload: AzureComplianceReportRequest
     ) -> JSONResponse:
+        """Generate a compliance report for Azure scope evidence and selected framework.
+
+        Args:
+            request: The FastAPI request object.
+            payload: The Azure compliance report request payload.
+        Returns:
+            JSONResponse: The response containing the Azure compliance report or an error message.
+        """
         if not svc._is_authorised_request(payload.auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -1517,6 +1842,14 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
     def generate_aws_compliance_report(
         request: Request, payload: AwsComplianceReportRequest
     ) -> JSONResponse:
+        """Generate a compliance report for AWS scope evidence and selected framework.
+
+        Args:
+            request: The FastAPI request object.
+            payload: The AWS compliance report request payload.
+        Returns:
+            JSONResponse: The response containing the AWS compliance report or an error message.
+        """
         if not svc._is_authorised_request(payload.auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -1535,6 +1868,14 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
 
     @app.post("/api/compliance/report/start")
     def start_compliance_report(request: Request, payload: ComplianceReportRequest) -> JSONResponse:
+        """Start a compliance report using Corpus A/B/C retrieval and LLM synthesis.
+
+        Args:
+            request: The FastAPI request object.
+            payload: The compliance report request payload.
+        Returns:
+            JSONResponse: The response containing the compliance report or an error message.
+        """
         if not svc._is_authorised_request(payload.auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -1616,12 +1957,27 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
     def start_azure_compliance_report(
         request: Request, payload: AzureComplianceReportRequest
     ) -> JSONResponse:
+        """Start an Azure compliance report.
+
+        Args:
+            request: The FastAPI request object.
+            payload: The Azure compliance report request payload.
+        Returns:
+            JSONResponse: The response containing the Azure compliance report or an error message.
+        """
         if not svc._is_authorised_request(payload.auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
         job = _new_report_job("azure")
 
         def _progress(completed: int, total: int, requirement_id: str, message: str) -> None:
+            """Update the report job progress.
+            Args:
+                completed: The number of completed controls.
+                total: The total number of controls.
+                requirement_id: The current requirement ID being processed.
+                message: The progress message.
+            """
             _update_report_job(
                 job.job_id,
                 state="running",
@@ -1632,6 +1988,7 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
             )
 
         def _run() -> None:
+            """Run the Azure compliance report generation in a separate thread."""
             _update_report_job(
                 job.job_id, state="running", message="Starting Azure compliance report"
             )
@@ -1661,6 +2018,14 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
     def start_aws_compliance_report(
         request: Request, payload: AwsComplianceReportRequest
     ) -> JSONResponse:
+        """Start an AWS compliance report.
+
+        Args:
+            request: The FastAPI request object.
+            payload: The AWS compliance report request payload.
+        Returns:
+            JSONResponse: The response containing the AWS compliance report or an error message.
+        """
         if not svc._is_authorised_request(payload.auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 
@@ -1704,6 +2069,15 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
     def get_compliance_report_job(
         job_id: str, request: Request, auth_token: str = ""
     ) -> JSONResponse:
+        """Get the status of a compliance report job.
+
+        Args:
+            job_id: The ID of the compliance report job.
+            request: The FastAPI request object.
+            auth_token: The authentication token.
+        Returns:
+            JSONResponse: The response containing the status of the compliance report job or an error message.
+        """
         if not svc._is_authorised_request(auth_token, request):
             return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
 

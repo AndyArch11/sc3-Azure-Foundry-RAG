@@ -21,12 +21,23 @@ logger = logging.getLogger(__name__)
 
 
 def _utc_now_iso() -> str:
-    """Get current UTC time in ISO 8601 format."""
+    """Get current UTC time in ISO 8601 format.
+
+    Returns:
+        A string representing the current UTC time in ISO 8601 format.
+    """
     return datetime.now(UTC).isoformat()
 
 
 def _sanitise_blob_name_component(value: str) -> str:
-    """Sanitise a component of a blob name to be Azure Storage compatible."""
+    """Sanitise a component of a blob name to be Azure Storage compatible.
+
+    Args:
+        value: The string value to sanitise.
+
+    Returns:
+        A sanitised string suitable for use in Azure Storage blob names.
+    """
     text = value.strip().replace("\\", "_").replace("/", "_")
     text = re.sub(r"[^A-Za-z0-9._-]", "_", text)
     return text[:120] or "file"
@@ -40,7 +51,13 @@ def _compute_normalised_text_hash(
 ) -> tuple[str | None, str]:
     """Compute hash of normalised text content for deduplication.
 
-    Returns (hash_hex, hash_method) or (None, "binary") for non-text.
+    Args:
+        content: The content bytes to hash.
+        filename: The name of the file.
+        content_type: The MIME type of the content.
+
+    Returns:
+        A tuple containing the hash hex string and the hash method, or (None, "binary") for non-text content.
     """
     text_exts = {
         ".txt",
@@ -75,7 +92,14 @@ def _compute_normalised_text_hash(
 
 
 def _extract_dedupe_hashes(skipped: list[str]) -> list[str]:
-    """Extract deduplication hashes from a list of skip messages."""
+    """Extract deduplication hashes from a list of skip messages.
+
+    Args:
+        skipped: A list of skip messages containing deduplication information.
+
+    Returns:
+        A list of deduplication hash strings.
+    """
     hashes: list[str] = []
     pattern = re.compile(r"duplicate-[^:]+:([0-9a-f]{64})$", re.IGNORECASE)
     for item in skipped:
@@ -86,7 +110,15 @@ def _extract_dedupe_hashes(skipped: list[str]) -> list[str]:
 
 
 def _dedupe_blob_prefix(corpus: str, dedupe_hash: str) -> str:
-    """Generate blob prefix for deduplicated corpus artifacts."""
+    """Generate blob prefix for deduplicated corpus artifacts.
+
+    Args:
+        corpus: The name of the corpus.
+        dedupe_hash: The deduplication hash.
+
+    Returns:
+        A string representing the blob prefix for deduplicated corpus artifacts.
+    """
     return f"corpus-{corpus}/by-dedupe/{dedupe_hash}"
 
 
@@ -94,6 +126,12 @@ def sanitise_untrusted_text(text: str) -> str:
     """Sanitise untrusted text to prevent injection attacks.
 
     Delegates to the prompt_injection_guard module.
+
+    Args:
+        text: The untrusted text to sanitise.
+
+    Returns:
+        A sanitised version of the input text, safe for further processing.
     """
     from query_web.security.prompt_injection_guard import sanitise_untrusted_text as guard_sanitise
 
@@ -106,11 +144,28 @@ def sanitise_untrusted_text(text: str) -> str:
 
 
 def _is_allowed_filetype(filename: str) -> bool:
+    """Check if the file type is allowed based on its extension.
+
+    Args:
+        filename: The name of the file to check.
+
+    Returns:
+        True if the file type is allowed, False otherwise.
+    """
     ext = Path(filename).suffix.lower()
     return ext in ALLOWED_EXTENSIONS
 
 
 def _extension_matches_mime(filename: str, mime_type: str) -> bool:
+    """Check if the file extension matches the provided MIME type.
+
+    Args:
+        filename: The name of the file to check.
+        mime_type: The MIME type to compare against.
+
+    Returns:
+        True if the file extension matches the MIME type, False otherwise.
+    """
     ext = Path(filename).suffix.lower()
     expected_mime = MIME_TYPE_BY_EXTENSION.get(ext)
     if not expected_mime:
@@ -120,6 +175,14 @@ def _extension_matches_mime(filename: str, mime_type: str) -> bool:
 
 
 def _risk_label(value: str) -> str:
+    """Normalise risk label to one of the recognised categories.
+
+    Args:
+        value: The risk label string to normalise.
+
+    Returns:
+        A normalised risk label string: "Low", "Medium", "High", "Critical", or "Unknown".
+    """
     normalised = str(value or "unknown").strip().replace("_", " ").lower()
     if normalised == "low":
         return "Low"
@@ -136,6 +199,13 @@ def sanitise_conversation_turn(role: str, content: str) -> str:
     """Sanitise conversation history entries.
 
     Delegates to the prompt_injection_guard module.
+
+    Args:
+        role: The role of the participant in the conversation.
+        content: The content of the conversation turn.
+
+    Returns:
+        A sanitised version of the conversation turn.
     """
     from query_web.security.prompt_injection_guard import (
         sanitise_conversation_turn as guard_sanitise,

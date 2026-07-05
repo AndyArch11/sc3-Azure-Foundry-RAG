@@ -83,7 +83,12 @@ try:
 
 except ImportError:  # pragma: no cover – runtime worker without prometheus-client
     class _NoOpChild:
-        """No-op label child that silently absorbs inc/observe calls."""
+        """No-op label child that silently absorbs inc/observe calls.
+        
+        Attributes:
+            inc: Method to increment the counter (no-op).
+            observe: Method to observe a value in the histogram (no-op).
+        """
 
         def inc(self, amount: float = 1) -> None:  # noqa: D401
             pass
@@ -92,7 +97,11 @@ except ImportError:  # pragma: no cover – runtime worker without prometheus-cl
             pass
 
     class _NoOpMetric:
-        """No-op metric that returns a _NoOpChild for any label combination."""
+        """No-op metric that returns a _NoOpChild for any label combination.
+        
+        Attributes:
+            labels: Method to retrieve a _NoOpChild for the specified label values.
+        """
 
         def labels(self, **kwargs: object) -> _NoOpChild:
             return _NoOpChild()

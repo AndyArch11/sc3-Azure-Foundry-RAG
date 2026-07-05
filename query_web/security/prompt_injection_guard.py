@@ -142,20 +142,52 @@ class GuardrailDecision:
 
 
 def _normalise_text(text: str) -> str:
+    """Normalise text for prompt-injection assessment.
+
+    Args:
+        text: The input text to normalise.
+
+    Returns:
+        The normalised text.
+    """
     canonical = unicodedata.normalize("NFKC", text)
     canonical = _ZERO_WIDTH_RE.sub("", canonical)
     return _WHITESPACE_RE.sub(" ", canonical).strip()
 
 
 def _compact_text(text: str) -> str:
+    """Compact text for prompt-injection assessment.
+
+    Args:
+        text: The input text to compact.
+
+    Returns:
+        The compacted text.
+    """
     return re.sub(r"[^a-z0-9]+", "", text.lower())
 
 
 def _has_academic_context(text: str) -> bool:
+    """Check if the text has academic context.
+
+    Args:
+        text: The input text to check.
+
+    Returns:
+        True if the text has academic context, False otherwise.
+    """
     return bool(_ACADEMIC_CONTEXT_RE.search(text))
 
 
 def _decode_base64_candidate(token: str) -> str:
+    """Decode a base64-encoded candidate string.
+
+    Args:
+        token: The base64-encoded string to decode.
+
+    Returns:
+        The decoded string, or an empty string if decoding fails.
+    """
     padding = "=" * (-len(token) % 4)
     try:
         decoded = base64.b64decode(token + padding, validate=True)
@@ -172,7 +204,15 @@ def _decode_base64_candidate(token: str) -> str:
 def assess_prompt_injection(
     text: str, *, allow_academic_context: bool = True
 ) -> GuardrailAssessment:
-    """Score a text payload for prompt-injection patterns and blocking thresholds."""
+    """Score a text payload for prompt-injection patterns and blocking thresholds.
+
+    Args:
+        text: The input text to assess.
+        allow_academic_context: Whether to allow academic context to reduce false positives.
+
+    Returns:
+        A GuardrailAssessment object containing the assessment results.
+    """
 
     normalised = _normalise_text(text)
     lowered = normalised.lower()
@@ -252,7 +292,14 @@ def assess_prompt_injection(
 
 
 def sanitise_untrusted_text(text: str) -> str:
-    """Remove or mask dangerous instruction-like lines from untrusted content."""
+    """Remove or mask dangerous instruction-like lines from untrusted content.
+
+    Args:
+        text: The untrusted text to sanitise.
+
+    Returns:
+        The sanitised text.
+    """
 
     sanitised_lines: list[str] = []
     for raw_line in text.splitlines():
@@ -270,7 +317,15 @@ def sanitise_untrusted_text(text: str) -> str:
 
 
 def sanitise_conversation_turn(role: str, content: str) -> str:
-    """Sanitise a prior conversation turn, applying stricter rules to user content."""
+    """Sanitise a prior conversation turn, applying stricter rules to user content.
+
+    Args:
+        role: The role of the speaker in the conversation turn.
+        content: The content of the conversation turn.
+
+    Returns:
+        The sanitised conversation turn.
+    """
 
     if role != "user":
         return content.strip()

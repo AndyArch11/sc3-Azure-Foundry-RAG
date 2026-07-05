@@ -15,18 +15,42 @@ logger = logging.getLogger(__name__)
 
 
 class _SearchResults(list[dict[str, Any]]):
-    """List-like search results with optional total count metadata."""
+    """List-like search results with optional total count metadata.
+    
+    Attributes:
+        _total_count: The total count of matching documents, if available.
+    """
 
     def __init__(self, items: list[dict[str, Any]], total_count: int | None = None) -> None:
+        """Initialise search results with optional total count.
+
+        Args:
+            items: The list of search result items.
+            total_count: Optional total count of matching documents.
+        """
         super().__init__(items)
         self._total_count = total_count
 
     def get_count(self) -> int | None:
+        """Get the total count of matching documents, if available.
+
+        Returns:
+            The total count of matching documents, or None if not available.
+        """
         return self._total_count
 
 
 class AWSOpenSearchClient:
-    """SearchClient backed by AWS OpenSearch Service."""
+    """SearchClient backed by AWS OpenSearch Service.
+    
+    Attributes:
+        _endpoint: The OpenSearch endpoint URL.
+        _index: The OpenSearch index name.
+        _session: The AWS session object.
+        _region_name: The AWS region name.
+        _service_name: The AWS service name.
+        _timeout_seconds: The request timeout in seconds.
+    """
 
     def __init__(
         self,
@@ -37,6 +61,16 @@ class AWSOpenSearchClient:
         service_name: str = "es",
         timeout_seconds: int = 30,
     ) -> None:
+        """Initialise an AWSOpenSearchClient instance.
+
+        Args:
+            endpoint: The OpenSearch endpoint URL.
+            index: The OpenSearch index name.
+            session: Optional AWS session object.
+            region_name: Optional AWS region name.
+            service_name: The AWS service name.
+            timeout_seconds: The request timeout in seconds.
+        """
         if not endpoint:
             raise ValueError("endpoint must be set for AWS OpenSearch")
         if not index:
@@ -50,6 +84,11 @@ class AWSOpenSearchClient:
         self._http = InstrumentedRequestsSession(logger=logger, system="aws-opensearch")
 
     def _get_session(self) -> Any:
+        """Get or create an AWS session.
+
+        Returns:
+            The AWS session object.
+        """
         if self._session is not None:
             return self._session
 
@@ -64,6 +103,16 @@ class AWSOpenSearchClient:
         return self._session
 
     def _signed_headers(self, method: str, url: str, body: str) -> dict[str, str]:
+        """Generate signed headers for an AWS OpenSearch request.
+
+        Args:
+            method: The HTTP method (e.g., "GET", "POST").
+            url: The request URL.
+            body: The request body.
+
+        Returns:
+            A dictionary of signed headers.
+        """
         from botocore.auth import SigV4Auth
         from botocore.awsrequest import AWSRequest
 
@@ -94,6 +143,16 @@ class AWSOpenSearchClient:
         vector_query: list[float] | None,
         filters: str | None,
     ) -> dict[str, Any]:
+        """Build the OpenSearch query body from search parameters.
+
+        Args:
+            query_text: The search query text.
+            top: The maximum number of results to return.
+            vector_query: Optional vector query for semantic search.
+            filters: Optional filter expression for search.
+        Returns:
+            A dictionary representing the OpenSearch query body.
+        """
         normalised_query = (query_text or "").strip()
         has_text_query = bool(normalised_query and normalised_query != "*")
 
@@ -149,12 +208,26 @@ class AWSOpenSearchClient:
 
     @staticmethod
     def _escape_query_value(value: str) -> str:
+        """Escape special characters in a query value for OpenSearch query_string syntax.
+
+        Args:
+            value: The query value to escape.
+
+        Returns:
+            The escaped query value, wrapped in double quotes.
+        """
         escaped = value.replace('"', '\\"')
         return f'"{escaped}"'
 
     @classmethod
     def _translate_filter_expression(cls, filters: str | None) -> str | None:
         """Translate simple OData filters into OpenSearch query_string syntax.
+
+        Args:
+            filters: The OData filter expression.
+
+        Returns:
+            The translated OpenSearch query_string expression, or None if no filters are provided.
 
         Supported forms:
         - field eq 'value'
@@ -183,6 +256,14 @@ class AWSOpenSearchClient:
         replaced_any = False
 
         def _replacement(match: re.Match[str]) -> str:
+            """Replacement function for regex substitution.
+            
+            Args:
+                match: The regex match object.
+
+            Returns:
+                The replacement string for the matched expression.
+            """
             nonlocal replaced_any
             replaced_any = True
 
@@ -216,10 +297,19 @@ class AWSOpenSearchClient:
 
     @property
     def index_name(self) -> str:
+        """Return the name of the OpenSearch index."""
         return self._index
 
     @staticmethod
     def _parse_status_code(response: requests.Response) -> int:
+        """Parse the HTTP status code from a response object.
+
+        Args:
+            response: The HTTP response object.
+
+        Returns:
+            The HTTP status code as an integer, or 0 if it cannot be determined.
+        """
         try:
             return int(getattr(response, "status_code", 200) or 0)
         except (TypeError, ValueError):
@@ -227,6 +317,14 @@ class AWSOpenSearchClient:
 
     @staticmethod
     def _parse_error_body(response: requests.Response) -> Any:
+        """Parse the error body from a response object.
+
+        Args:
+            response: The HTTP response object.
+
+        Returns:
+            The parsed error body, or the raw text if parsing fails.
+        """
         try:
             return response.json()
         except (ValueError, AttributeError):
@@ -234,6 +332,14 @@ class AWSOpenSearchClient:
 
     @staticmethod
     def _is_knn_vector_mapping_error(error_body: Any) -> bool:
+        """Determine if an error body indicates a KNN vector mapping issue.
+
+        Args:
+            error_body: The error body to inspect.
+
+        Returns:
+            True if the error body indicates a KNN vector mapping issue, False otherwise.
+        """
         text = str(error_body).lower()
         return "not knn_vector type" in text or "is not knn_vector type" in text
 
@@ -245,6 +351,14 @@ class AWSOpenSearchClient:
         body_payload: dict[str, Any],
         error_body: Any,
     ) -> None:
+        """Log an OpenSearch search error with relevant details.
+
+        Args:
+            status_code: The HTTP status code of the response.
+            filters: The filter expression used in the search.
+            body_payload: The request body payload sent to OpenSearch.
+            error_body: The error body received from OpenSearch.
+        """
         error_body_text = str(error_body)
         if len(error_body_text) > 2000:
             error_body_text = error_body_text[:2000] + "...<truncated>"
@@ -278,6 +392,18 @@ class AWSOpenSearchClient:
         select: list[str] | None = None,
         **extra_kwargs: Any,
     ) -> list[dict[str, Any]]:
+        """Execute a search query against the AWS OpenSearch index.
+
+        Args:
+            query_text: The search query text.
+            top: The maximum number of results to return.
+            vector_query: Optional vector query for semantic search.
+            filters: Optional filter expression for search.
+            select: Optional list of fields to include in the results.
+            extra_kwargs: Additional provider-specific keyword arguments.
+        Returns:
+            A list of documents matching the search criteria, each represented as a dictionary.
+        """
         # Backward compatibility with older call sites that pass Azure SDK-style
         # kwargs (search_text/filter/include_total_count).
         if query_text is None:
@@ -400,7 +526,11 @@ class AWSOpenSearchClient:
         return _SearchResults(items=results, total_count=total_count)
 
     def delete_documents(self, *, documents: list[dict[str, Any]]) -> None:
-        """Delete documents by primary-key style selectors using OpenSearch bulk delete."""
+        """Delete documents by primary-key style selectors using OpenSearch bulk delete.
+        
+        Args:
+            documents: The list of documents to delete from the index.
+        """
 
         selectors: list[str] = []
         for doc in documents:
@@ -430,5 +560,11 @@ class AWSOpenSearchClient:
         response.raise_for_status()
 
     def load_documents(self, docs: list[dict[str, Any]]) -> None:
-        """Unsupported for cloud backends; retained for protocol compatibility."""
+        """Unsupported for cloud backends; retained for protocol compatibility.
+        
+        Args:
+            docs: Documents to load into the index.
+        Raises:
+            NotImplementedError: Always raised for AWS OpenSearch, as loading documents is not supported.
+        """
         raise NotImplementedError("AWSOpenSearchClient does not support load_documents")

@@ -32,7 +32,25 @@ try:
 except Exception:
 
     class _MissingAzureSdkClient:
+        """Placeholder for missing Azure SDK client classes when the Azure SDK is not installed.
+
+        Raises a RuntimeError when instantiated, indicating that the Azure SDK is unavailable.
+
+        This class is used to provide a clear error message when attempting to use Azure-specific
+        features in a runtime where the Azure SDK packages are not installed.
+
+        Attributes:
+            None
+
+        Raises:
+            RuntimeError: Always raised when an attempt is made to instantiate this class.
+        """
+
         def __init__(self, *args: Any, **kwargs: Any) -> None:
+            """Raise a RuntimeError indicating that the Azure SDK is unavailable.
+            Raises:
+                RuntimeError: Always raised to indicate that the Azure SDK is not installed.
+            """
             raise RuntimeError(
                 "Azure SDK packages are not installed in this runtime. "
                 "Azure-specific features are unavailable for the current cloud provider."
@@ -157,10 +175,24 @@ from runtime.assessment_orchestration._framework_patterns import (
 
 
 def _run_azure_assessment_unavailable(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Raise a RuntimeError indicating that Azure assessment orchestration is unavailable in this runtime.
+    Args:
+        *args: Positional arguments passed to the function.
+        **kwargs: Keyword arguments passed to the function.
+    Raises:
+        RuntimeError: Always raised to indicate that Azure assessment orchestration is unavailable.
+    """
     raise RuntimeError("Azure assessment orchestration is unavailable in this runtime.")
 
 
 def _collect_azure_grounding_unavailable(*args: Any, **kwargs: Any) -> tuple[Any, Any]:
+    """Raise a RuntimeError indicating that Azure grounding collection is unavailable in this runtime.
+    Args:
+        *args: Positional arguments passed to the function.
+        **kwargs: Keyword arguments passed to the function.
+    Raises:
+        RuntimeError: Always raised to indicate that Azure grounding collection is unavailable.
+    """
     raise RuntimeError("Azure grounding collection is unavailable in this runtime.")
 
 
@@ -203,18 +235,51 @@ CosmosResourceNotFoundError: type[Exception] = _CosmosResourceNotFoundError
 
 # Helper to count blobs with a given prefix (for dry_run in clear endpoints)
 def _count_blob_prefix(prefix: str) -> dict[str, int]:
+    """Count blobs under *prefix* without deleting them (dry-run support).
+
+    Args:
+        prefix: The prefix to filter blobs.
+
+    Returns:
+        A dictionary with the count of blobs under the given prefix.
+    """
     return _storage_module._count_blob_prefix(prefix, svc=_svc)
 
 
 def _is_allowed_filetype(filename: str) -> bool:
+    """Check if the file extension of *filename* is in the allowed list.
+
+    Args:
+        filename: The name of the file to check.
+
+    Returns:
+        True if the file extension is allowed, False otherwise.
+    """
     return _utils_is_allowed_filetype(filename)
 
 
 def _extension_matches_mime(filename: str, mime_type: str) -> bool:
+    """Check if the file extension of *filename* matches the given MIME type.
+
+    Args:
+        filename: The name of the file to check.
+        mime_type: The MIME type to match against.
+
+    Returns:
+        True if the file extension matches the MIME type, False otherwise.
+    """
     return _utils_extension_matches_mime(filename, mime_type)
 
 
 def _risk_label(value: str) -> str:
+    """Get the risk label for a given value.
+
+    Args:
+        value: The value to evaluate.
+
+    Returns:
+        The risk label associated with the value.
+    """
     return _utils_risk_label(value)
 
 
@@ -222,6 +287,17 @@ logger = logging.getLogger(__name__)
 
 
 class _ConversationContainer(Protocol):
+    """Protocol for a conversation container that supports reading, upserting, and querying items.
+
+    Methods:
+        read_item(item: str, partition_key: str) -> dict[str, Any]: Read an item from the container.
+        upsert_item(body: dict[str, Any]) -> dict[str, Any]: Upsert an item into the container.
+        query_items(query: str, parameters: list[dict[str, Any]] | None = None, partition_key: str | None = None, max_item_count: int | None = None) -> Iterable[dict[str, Any]]: Query items in the container.
+
+    Attributes:
+        None
+    """
+
     def read_item(self, *, item: str, partition_key: str) -> dict[str, Any]: ...
 
     def upsert_item(self, body: dict[str, Any]) -> dict[str, Any]: ...
@@ -249,6 +325,15 @@ def _generate_compliance_report_result(
     *,
     progress_cb: Any = None,
 ) -> dict[str, Any]:
+    """Generate a compliance report result based on the provided payload.
+
+    Args:
+        payload: The input data for generating the compliance report.
+        progress_cb: Optional callback function to report progress.
+
+    Returns:
+        A dictionary containing the compliance report result.
+    """
     return _compliance_module.generate_compliance_report_result(
         payload,
         svc=_svc,
@@ -261,6 +346,15 @@ def _generate_azure_compliance_report_result(
     *,
     progress_cb: Any = None,
 ) -> dict[str, Any]:
+    """Generate an Azure compliance report result based on the provided payload.
+
+    Args:
+        payload: The input data for generating the Azure compliance report.
+        progress_cb: Optional callback function to report progress.
+
+    Returns:
+        A dictionary containing the Azure compliance report result.
+    """
     return _compliance_module.generate_azure_compliance_report_result(
         payload,
         svc=_svc,
@@ -273,6 +367,15 @@ def _generate_aws_compliance_report_result(
     *,
     progress_cb: Any = None,
 ) -> dict[str, Any]:
+    """Generate an AWS compliance report result based on the provided payload.
+
+    Args:
+        payload: The input data for generating the AWS compliance report.
+        progress_cb: Optional callback function to report progress.
+
+    Returns:
+        A dictionary containing the AWS compliance report result.
+    """
     return _compliance_module.generate_aws_compliance_report_result(
         payload,
         svc=_svc,
@@ -285,15 +388,40 @@ def _generate_aws_compliance_report_result(
 
 
 def _delete_blob_prefix(prefix: str) -> dict[str, int]:
+    """Delete blobs with the specified prefix.
+
+    Args:
+        prefix: The prefix of the blobs to delete.
+
+    Returns:
+        A dictionary containing the number of deleted blobs.
+    """
     return _storage_module._delete_blob_prefix(prefix, svc=_svc)
 
 
 # Thin delegation wrappers for compliance helpers accessed via svc or app_module in tests
 def _build_compliance_scope_inputs(**kwargs: Any) -> list[str]:
+    """Build compliance scope inputs based on provided keyword arguments.
+
+    Args:
+        **kwargs: Keyword arguments for building compliance scope inputs.
+
+    Returns:
+        A list of compliance scope inputs.
+    """
     return _compliance_module._build_compliance_scope_inputs(**kwargs)
 
 
 def _assess_control_finding_with_llm(*args: Any, **kwargs: Any) -> Any:
+    """Assess a control finding using an LLM based on provided arguments.
+
+    Args:
+        *args: Positional arguments for the assessment.
+        **kwargs: Keyword arguments for the assessment.
+
+    Returns:
+        The result of the control finding assessment.
+    """
     kwargs.setdefault("svc", _svc)
     return _compliance_module._assess_control_finding_with_llm(*args, **kwargs)
 
@@ -330,7 +458,11 @@ register_request_context_middleware(app)
 
 
 def _branding_ctx() -> dict[str, Any]:
-    """Return template context variables shared by every page response."""
+    """Return template context variables shared by every page response.
+
+    Returns:
+        A dictionary containing branding-related context variables for templates.
+    """
     try:
         cloud_provider = normalise_cloud_provider(os.getenv("CLOUD_PROVIDER"))
     except ValueError:
@@ -375,7 +507,14 @@ except ValueError:
 
 
 def _resolve_writable_sqlite_path(*candidates: str) -> str | None:
-    """Return first candidate path whose parent directory is writable."""
+    """Return first candidate path whose parent directory is writable.
+
+    Args:
+        *candidates: A list of candidate file paths to check.
+
+    Returns:
+        The first writable candidate path, or None if none are writable.
+    """
     for candidate in candidates:
         path_text = (candidate or "").strip()
         if not path_text:
@@ -480,54 +619,75 @@ class _IngestionServiceDeps:
     Properties are intentionally late-bound to module globals so existing
     patch.object(app_module, ...) tests continue to work while avoiding
     injecting the whole module object.
+
+    Attributes:
+        config: The configuration object for the application.
+        credential: The credential object for authentication.
+        requests: The requests module for making HTTP requests.
+        SearchIndexerClient: The Azure SearchIndexerClient class for interacting with Azure Search.
+        BlobServiceClient: The Azure BlobServiceClient class for interacting with Azure Blob Storage.
+        search_client: The search client for performing search operations.
+        ALLOWED_EXTENSIONS: A list of allowed file extensions for uploads.
     """
 
     @property
     def config(self):
+        """Return the configuration object for the application."""
         return config
 
     @property
     def credential(self):
+        """Return the credential object for authentication."""
         return credential
 
     @property
     def requests(self):
+        """Return the requests module for making HTTP requests."""
         return requests
 
     @property
     def SearchIndexerClient(self):
+        """Return the Azure SearchIndexerClient class for interacting with Azure Search."""
         return SearchIndexerClient
 
     @property
     def BlobServiceClient(self):
+        """Return the Azure BlobServiceClient class for interacting with Azure Blob Storage."""
         return BlobServiceClient
 
     @property
     def search_client(self):
+        """Return the search client for performing search operations."""
         return search_client
 
     @property
     def ALLOWED_EXTENSIONS(self):
+        """Return a list of allowed file extensions for uploads."""
         return ALLOWED_EXTENSIONS
 
     @property
     def _compute_normalised_text_hash(self):
+        """Return the function to compute a normalised text hash."""
         return _compute_normalised_text_hash
 
     @property
     def _dedupe_blob_prefix(self):
+        """Return the function to deduplicate blob prefixes."""
         return _dedupe_blob_prefix
 
     @property
     def _sanitise_blob_name_component(self):
+        """Return the function to sanitise blob name components."""
         return _sanitise_blob_name_component
 
     @property
     def _prepare_corpus_a_reference_uploads(self):
+        """Return the function to prepare corpus A reference uploads."""
         return _prepare_corpus_a_reference_uploads
 
     @property
     def _CORPUS_A_FRAMEWORKS(self):
+        """Return the corpus A frameworks."""
         return _CORPUS_A_FRAMEWORKS
 
 
@@ -535,6 +695,15 @@ _ingestion_svc = _IngestionService(_IngestionServiceDeps())
 
 
 def _get_user_id(auth_token: str, session_id: str) -> str:
+    """Return the user ID for the given authentication token and session ID.
+
+    Args:
+        auth_token: The authentication token of the user.
+        session_id: The session ID of the user.
+
+    Returns:
+        The user ID associated with the provided authentication token and session ID.
+    """
     return _conversations_get_user_id(auth_token, session_id)
 
 
@@ -544,6 +713,16 @@ def _load_conversation(
     *,
     correlation_id: str = "",
 ) -> ConversationSession:
+    """Load a conversation session for the given user ID and conversation ID.
+
+    Args:
+        user_id: The ID of the user.
+        conversation_id: The ID of the conversation to load.
+        correlation_id: Optional correlation ID for tracing requests.
+
+    Returns:
+        The loaded conversation session.
+    """
     return _conversations_load_conversation(
         user_id,
         conversation_id,
@@ -553,6 +732,12 @@ def _load_conversation(
 
 
 def _save_conversation(session: ConversationSession, *, correlation_id: str = "") -> None:
+    """Save a conversation session.
+
+    Args:
+        session: The conversation session to save.
+        correlation_id: Optional correlation ID for tracing requests.
+    """
     _conversations_save_conversation(
         session,
         conversations_container,
@@ -561,14 +746,36 @@ def _save_conversation(session: ConversationSession, *, correlation_id: str = ""
 
 
 def _build_feedback_context(session: ConversationSession, limit: int = 5) -> str:
+    """Build the feedback context for a conversation session.
+
+    Args:
+        session: The conversation session.
+        limit: The maximum number of feedback items to include.
+
+    Returns:
+        The feedback context as a string.
+    """
     return _conversations_build_feedback_context(session, limit=limit)
 
 
 def _cognitive_token() -> str:
+    """Get the cognitive services token.
+
+    Returns:
+        The cognitive services token.
+    """
     return credential.get_token("https://cognitiveservices.azure.com/.default").token
 
 
 def _is_authorised(auth_token: str) -> bool:
+    """Check if the provided authentication token is authorised.
+
+    Args:
+        auth_token: The authentication token to check.
+
+    Returns:
+        True if the token is authorised, False otherwise.
+    """
     return _auth.is_authorised(auth_token, config)
 
 
@@ -584,14 +791,36 @@ _group_auth_failure_message = _auth._group_auth_failure_message
 
 
 def _is_authorised_request(auth_token: str, request: Request | None) -> bool:
+    """Check if the request is authorised based on the provided authentication token.
+
+    Args:
+        auth_token: The authentication token to check.
+        request: The FastAPI request object.
+
+    Returns:
+        True if the request is authorised, False otherwise.
+    """
     return _auth.is_authorised_request(auth_token, request, config)
 
 
 def _unauthorised_message(request: Request | None = None) -> str:
+    """Get the unauthorised message for a request.
+
+    Args:
+        request: The FastAPI request object.
+
+    Returns:
+        The unauthorised message as a string.
+    """
     return _auth.unauthorised_message(request, config)
 
 
 def _target_env_name() -> str:
+    """Get the target environment name from environment variables.
+
+    Returns:
+        The target environment name as a lowercase string. Defaults to "dev" if not set.
+    """
     # TARGET_ENV is the canonical flag in this repo; ENV is accepted as fallback.
     return (
         os.getenv("TARGET_ENV", "").strip().lower() or os.getenv("ENV", "").strip().lower() or "dev"
@@ -599,10 +828,24 @@ def _target_env_name() -> str:
 
 
 def _diagnostics_enabled() -> bool:
+    """Check if diagnostics are enabled based on the target environment.
+
+    Returns:
+        True if diagnostics are enabled (not in production), False otherwise.
+    """
     return _target_env_name() != "prod"
 
 
 def _check_diagnostics_access(request: Request, auth_token: str) -> JSONResponse | None:
+    """Check if diagnostics access is allowed for the given request and authentication token.
+
+    Args:
+        request: The FastAPI request object.
+        auth_token: The authentication token to check.
+
+    Returns:
+        A JSONResponse indicating unauthorised access if not authorised, or None if access is allowed.
+    """
     return _diagnostics_check_diagnostics_access(
         request,
         auth_token,
@@ -612,6 +855,14 @@ def _check_diagnostics_access(request: Request, auth_token: str) -> JSONResponse
 
 
 def _resolve_acr_registry_name(explicit_registry_name: str = "") -> str:
+    """Resolve the Azure Container Registry (ACR) registry name.
+
+    Args:
+        explicit_registry_name: An explicit registry name to use. If not provided, the default will be used.
+
+    Returns:
+        The resolved ACR registry name.
+    """
     return _diagnostics_resolve_acr_registry_name(explicit_registry_name)
 
 
@@ -635,6 +886,14 @@ def _list_acr_tags_via_management_api(
 
 
 def _embed_query(question: str) -> list[float]:
+    """Embed a query using the search module.
+
+    Args:
+        question: The query string to embed.
+
+    Returns:
+        A list of floats representing the embedded query.
+    """
     return _search_module._embed_query(question, svc=_svc)
 
 
@@ -643,10 +902,25 @@ def _hybrid_search(
     retrieve_k: int,
     evidence_filter: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, float]]:
+    """Perform a hybrid search using the search module.
+
+    Args:
+        question: The query string to search for.
+        retrieve_k: The number of results to retrieve.
+        evidence_filter: An optional filter for evidence.
+
+    Returns:
+        A tuple containing a list of search results and a dictionary of scores.
+    """
     return _search_module._hybrid_search(question, retrieve_k, evidence_filter, svc=_svc)
 
 
 def _controls_framework_ingestion_status() -> dict[str, Any]:
+    """Get the ingestion status of controls frameworks.
+
+    Returns:
+        A dictionary containing the ingestion status of controls frameworks.
+    """
     return controls._controls_framework_ingestion_status(svc=_svc)
 
 
@@ -658,22 +932,62 @@ def _controls_framework_ingestion_status() -> dict[str, Any]:
 
 
 def _normalise_framework_filter(raw_value: str | None) -> str | None:
+    """Normalise the framework filter value.
+
+    Args:
+        raw_value: The raw framework filter value.
+
+    Returns:
+        The normalised framework filter value.
+    """
     return controls._normalise_framework_filter(raw_value, svc=_svc)
 
 
 def _normalise_controls_comparison_mode(raw_value: str | None) -> str:
+    """Normalise the controls comparison mode value.
+
+    Args:
+        raw_value: The raw controls comparison mode value.
+
+    Returns:
+        The normalised controls comparison mode value.
+    """
     return controls._normalise_controls_comparison_mode(raw_value)
 
 
 def _normalise_evidence_corpus(raw_value: str) -> str | None:
+    """Normalise the evidence corpus value.
+
+    Args:
+        raw_value: The raw evidence corpus value.
+
+    Returns:
+        The normalised evidence corpus value.
+    """
     return controls._normalise_evidence_corpus(raw_value)
 
 
 def _normalise_evidence_corpora(values: Iterable[str] | None) -> list[str] | None:
+    """Normalise the evidence corpora values.
+
+    Args:
+        values: The raw evidence corpora values.
+
+    Returns:
+        The normalised evidence corpora values.
+    """
     return controls._normalise_evidence_corpora(values)
 
 
 def _parse_evidence_corpora_csv(raw_value: str | None) -> list[str] | None:
+    """Parse a CSV string of evidence corpora into a list of strings.
+
+    Args:
+        raw_value: The raw CSV string of evidence corpora.
+
+    Returns:
+        A list of evidence corpora strings, or None if the input is None.
+    """
     return controls._parse_evidence_corpora_csv(raw_value)
 
 
@@ -683,10 +997,28 @@ def _resolve_evidence_corpora(
     *,
     default_corpora: Iterable[str] | None = None,
 ) -> list[str]:
+    """Resolve the final list of evidence corpora based on include and exclude lists.
+
+    Args:
+        include: An iterable of evidence corpora to include.
+        exclude: An iterable of evidence corpora to exclude.
+        default_corpora: An optional iterable of default evidence corpora to use if include is None.
+
+    Returns:
+        A list of resolved evidence corpora strings.
+    """
     return controls._resolve_evidence_corpora(include, exclude, default_corpora=default_corpora)
 
 
 def _build_evidence_corpus_filter(selected_corpora: Iterable[str]) -> str | None:
+    """Build a filter string for the selected evidence corpora.
+
+    Args:
+        selected_corpora: An iterable of selected evidence corpora.
+
+    Returns:
+        A filter string for the selected evidence corpora, or None if no corpora are selected.
+    """
     return controls._build_evidence_corpus_filter(selected_corpora)
 
 
@@ -696,6 +1028,16 @@ def _controls_coverage_disclaimer(
     comparison_detected: bool,
     comparison_mode: str,
 ) -> str | None:
+    """Generate a disclaimer message based on controls coverage.
+
+    Args:
+        controls_debug: A dictionary containing debug information about controls, or None.
+        comparison_detected: A boolean indicating if a comparison was detected.
+        comparison_mode: A string representing the comparison mode.
+
+    Returns:
+        A disclaimer message string, or None if no disclaimer is needed.
+    """
     return controls._controls_coverage_disclaimer(
         controls_debug=controls_debug,
         comparison_detected=comparison_detected,
@@ -704,22 +1046,60 @@ def _controls_coverage_disclaimer(
 
 
 def _prepend_disclaimer(answer: str, disclaimer: str | None) -> str:
+    """Prepend a disclaimer to the answer if provided.
+
+    Args:
+        answer: The original answer string.
+        disclaimer: The disclaimer string to prepend, or None.
+
+    Returns:
+        The answer string with the disclaimer prepended if provided.
+    """
     return controls._prepend_disclaimer(answer, disclaimer)
 
 
 def _framework_authority_rank(framework_name: str) -> int:
+    """Get the authority rank of a given framework.
+
+    Args:
+        framework_name: The name of the framework to check.
+
+    Returns:
+        An integer representing the authority rank of the framework.
+    """
     return controls._framework_authority_rank(framework_name, svc=_svc)
 
 
 def _preferred_framework_for_question(question: str) -> str | None:
+    """Determine the preferred framework for a given question.
+
+    Args:
+        question: The question string to evaluate.
+
+    Returns:
+        The name of the preferred framework, or None if no preference is determined.
+    """
     return controls._preferred_framework_for_question(question, svc=_svc)
 
 
 def _preferred_framework_context_for_question(question: str) -> dict[str, Any] | None:
+    """Get the preferred framework context for a given question.
+
+    Args:
+        question: The question string to evaluate.
+
+    Returns:
+        A dictionary containing the preferred framework context, or None if no preference is determined.
+    """
     return controls._preferred_framework_context_for_question(question, svc=_svc)
 
 
 def _precedence_policy_summary() -> str:
+    """Get a summary of the precedence policy.
+
+    Returns:
+        A string summarising the precedence policy.
+    """
     return controls._precedence_policy_summary(svc=_svc)
 
 
@@ -728,14 +1108,41 @@ def _apply_framework_authority_preference(
     top_k: int,
     question: str,
 ) -> list[dict[str, Any]]:
+    """Apply framework authority preference to a list of items based on the question.
+
+    Args:
+        items: A list of items (dictionaries) to apply the preference to.
+        top_k: The number of top items to return after applying the preference.
+        question: The question string to evaluate for framework preference.
+
+    Returns:
+        A list of items after applying the framework authority preference.
+    """
     return controls._apply_framework_authority_preference(items, top_k, question, svc=_svc)
 
 
 def _is_cross_framework_comparison_intent(question: str) -> bool:
+    """Determine if the question indicates an intent for cross-framework comparison.
+
+    Args:
+        question: The question string to evaluate.
+
+    Returns:
+        A boolean indicating if the question is intended for cross-framework comparison.
+    """
     return controls._is_cross_framework_comparison_intent(question)
 
 
 def _select_diverse_controls(items: list[dict[str, Any]], top_k: int) -> list[dict[str, Any]]:
+    """Select a diverse set of controls from the provided items.
+
+    Args:
+        items: A list of control items (dictionaries) to select from.
+        top_k: The number of top diverse controls to return.
+
+    Returns:
+        A list of selected diverse control items.
+    """
     return controls._select_diverse_controls(items, top_k)
 
 
@@ -746,6 +1153,17 @@ def _summarise_controls_distribution(
     preferred_framework: str | None = None,
     preferred_framework_debug: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Summarise the distribution of controls.
+
+    Args:
+        controls_list: A list of control items (dictionaries) to summarise.
+        controls_timings: A dictionary mapping control IDs to their timings.
+        preferred_framework: The preferred framework, if any.
+        preferred_framework_debug: Debug information for the preferred framework, if any.
+
+    Returns:
+        A dictionary summarising the controls distribution.
+    """
     return controls._summarise_controls_distribution(
         controls_list,
         controls_timings,
@@ -755,10 +1173,26 @@ def _summarise_controls_distribution(
 
 
 def _question_focus_terms(question: str) -> list[str]:
+    """Extract focus terms from the question.
+
+    Args:
+        question: The question string to extract focus terms from.
+
+    Returns:
+        A list of focus terms extracted from the question.
+    """
     return controls._question_focus_terms(question)
 
 
 def _controls_query_variants(question: str) -> list[str]:
+    """Generate query variants for the given question.
+
+    Args:
+        question: The question string to generate query variants for.
+
+    Returns:
+        A list of query variants for the question.
+    """
     return controls._controls_query_variants(question)
 
 
@@ -766,6 +1200,15 @@ def _merge_control_candidates(
     base_items: list[dict[str, Any]],
     new_items: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    """Merge two lists of control candidates, ensuring uniqueness and preserving order.
+
+    Args:
+        base_items: The base list of control items (dictionaries).
+        new_items: The new list of control items (dictionaries) to merge with the base.
+
+    Returns:
+        A merged list of control items, with duplicates removed and order preserved.
+    """
     return controls._merge_control_candidates(base_items, new_items)
 
 
@@ -775,6 +1218,17 @@ def _fetch_controls(
     use_semantic: bool,
     framework_filter: str | None = None,
 ) -> list[dict[str, Any]]:
+    """Fetch controls based on the search text, retrieval count, and framework filter.
+
+    Args:
+        search_text: The text to search for in controls.
+        retrieve_k: The number of controls to retrieve.
+        use_semantic: Whether to use semantic search or not.
+        framework_filter: An optional filter for the framework.
+
+    Returns:
+        A list of control items (dictionaries) matching the search criteria.
+    """
     return controls._fetch_controls(
         search_text,
         retrieve_k,
@@ -792,6 +1246,18 @@ def _controls_search(
     framework_filter_override: str | None = None,
     comparison_mode: str = "auto-detect",
 ) -> tuple[list[dict[str, Any]], dict[str, float]]:
+    """Perform a controls search based on the question, retrieval count, and other parameters.
+
+    Args:
+        question: The question string to search for in controls.
+        retrieve_k: The number of controls to retrieve.
+        use_semantic: Whether to use semantic search or not.
+        framework_filter_override: An optional override for the framework filter.
+        comparison_mode: The comparison mode to use (default is "auto-detect").
+
+    Returns:
+        A tuple containing a list of control items (dictionaries) and a dictionary of scores.
+    """
     return controls.controls_search(
         question,
         retrieve_k,
@@ -803,6 +1269,14 @@ def _controls_search(
 
 
 def _is_temperature_unsupported_error(exc: Exception) -> bool:
+    """Check if the provided exception is related to an unsupported temperature error.
+
+    Args:
+        exc: The exception to check.
+
+    Returns:
+        True if the exception is an unsupported temperature error, False otherwise.
+    """
     return llm_chat._is_temperature_unsupported_error(exc)
 
 
@@ -814,6 +1288,18 @@ def _chat_completion(
     timeout: int = 45,
     max_completion_tokens: int | None = None,
 ) -> str:
+    """Generate a chat completion using the provided messages and parameters.
+
+    Args:
+        messages: A list of message dictionaries for the chat.
+        deployment: The deployment name for the chat model.
+        temperature: The temperature setting for the chat model.
+        top_p: The top-p setting for the chat model (default is 1.0).
+        timeout: The timeout in seconds for the chat completion (default is 45).
+        max_completion_tokens: The maximum number of tokens for the completion (optional).
+
+    Returns:
+        The generated chat completion as a string."""
     return llm_chat._chat_completion(
         messages,
         deployment,
@@ -834,6 +1320,18 @@ def _chat_completion_with_empty_retry(
     timeout: int = 45,
     max_completion_tokens: int | None = None,
 ) -> str:
+    """Generate a chat completion with empty retry using the provided messages and parameters.
+
+    Args:
+        messages: A list of message dictionaries for the chat.
+        deployment: The deployment name for the chat model.
+        temperature: The temperature setting for the chat model.
+        top_p: The top-p setting for the chat model (default is 1.0).
+        timeout: The timeout in seconds for the chat completion (default is 45).
+        max_completion_tokens: The maximum number of tokens for the completion (optional).
+
+    Returns:
+        The generated chat completion as a string."""
     return llm_chat._chat_completion_with_empty_retry(
         messages,
         deployment=deployment,
@@ -851,6 +1349,17 @@ def _evaluate(
     answer: str,
     evaluator_max_completion_tokens: int | None = None,
 ) -> dict[str, Any]:
+    """Evaluate the answer to a question given the context using an LLM.
+
+    Args:
+        question: The question string to evaluate.
+        context: The context string providing relevant information.
+        answer: The answer string to evaluate.
+        evaluator_max_completion_tokens: The maximum number of tokens for the evaluation (optional).
+
+    Returns:
+        A dictionary containing the evaluation results.
+    """
     return llm_chat._evaluate(
         question,
         context,
@@ -861,6 +1370,15 @@ def _evaluate(
 
 
 def _call_validator(text: str, timeout_s: int = 15) -> dict[str, Any]:
+    """Call the validator with the provided text and timeout.
+
+    Args:
+        text: The text to validate.
+        timeout_s: The timeout in seconds for the validation (default is 15).
+
+    Returns:
+        A dictionary containing the validation results.
+    """
     return llm_chat._call_validator(text, svc=_svc, timeout_s=timeout_s)
 
 
@@ -880,6 +1398,27 @@ def _run_rag(
     conversation_history: list[ConversationMessage] | None = None,
     feedback_context: str = "",
 ) -> dict[str, Any]:
+    """Run the RAG (Retrieval-Augmented Generation) pipeline with the provided parameters.
+
+    Args:
+        question: The question string to process.
+        retrieve_k: The number of documents to retrieve.
+        temperature: The temperature setting for the generation model.
+        controls_semantic: Whether to use semantic search for controls.
+        top_p: The top-p setting for the generation model (default is 1.0
+        max_completion_tokens: The maximum number of tokens for the completion (optional).
+        evaluator_max_completion_tokens: The maximum number of tokens for the evaluation (optional).
+        controls_context_cap: The maximum context size for controls (optional).
+        controls_framework: The specific controls framework to use (optional).
+        controls_comparison_mode: The comparison mode for controls (default is "auto-detect").
+        evidence_corpora_include: List of evidence corpora to include (optional).
+        evidence_corpora_exclude: List of evidence corpora to exclude (optional).
+        conversation_history: List of conversation messages (optional).
+        feedback_context: Feedback context string (optional).
+
+    Returns:
+        A dictionary containing the RAG pipeline results.
+    """
     return rag_pipeline._run_rag(
         question=question,
         retrieve_k=retrieve_k,
@@ -909,18 +1448,38 @@ def _run_rag(
 
 
 def _is_corpus_upload_enabled() -> bool:
+    """Check if corpus upload is enabled.
+
+    Returns:
+        True if corpus upload is enabled, False otherwise.
+    """
     return _ingestion_svc.is_corpus_upload_enabled()
 
 
 def _is_ingestion_job_trigger_enabled() -> bool:
+    """Check if ingestion job trigger is enabled.
+
+    Returns:
+        True if ingestion job trigger is enabled, False otherwise.
+    """
     return _ingestion_svc.is_ingestion_job_trigger_enabled()
 
 
 def _is_aws_ecs_trigger_enabled() -> bool:
+    """Check if AWS ECS trigger is enabled.
+
+    Returns:
+        True if AWS ECS trigger is enabled, False otherwise.
+    """
     return _ingestion_svc.is_aws_ecs_trigger_enabled()
 
 
 def _get_ecs_recent_executions() -> list[dict[str, Any]]:
+    """Get recent executions from AWS ECS.
+
+    Returns:
+        A list of dictionaries containing recent ECS execution details.
+    """
     return _ingestion_svc.get_ecs_recent_executions()
 
 
@@ -931,6 +1490,17 @@ def _trigger_ecs_controls_task(
     dry_run: bool = False,
     no_guidance: bool = False,
 ) -> dict[str, Any]:
+    """Trigger an AWS ECS controls task for the specified framework.
+
+    Args:
+        framework: The name of the framework for which to trigger the ECS task.
+        replace_existing: Whether to replace existing tasks (default is False).
+        dry_run: Whether to perform a dry run without executing the task (default is False).
+        no_guidance: Whether to skip guidance during the task execution (default is False).
+
+    Returns:
+        A dictionary containing the ECS controls task results.
+    """
     return _ingestion_svc.trigger_ecs_controls_task(
         framework,
         replace_existing=replace_existing,
@@ -940,34 +1510,93 @@ def _trigger_ecs_controls_task(
 
 
 def _trigger_ingestion_job() -> dict[str, Any]:
+    """Trigger an ingestion job.
+
+    Returns:
+        A dictionary containing the ingestion job results.
+    """
     return _ingestion_svc.trigger_ingestion_job()
 
 
 def _is_indexer_running(status: Any) -> bool:
+    """Check if the indexer is running.
+
+    Args:
+        status: The status of the indexer.
+
+    Returns:
+        True if the indexer is running, False otherwise.
+    """
     return _ingestion_svc.is_indexer_running(status)
 
 
 def _wait_for_indexer_idle(indexer_name: str, timeout_seconds: int = 900) -> bool:
+    """Wait for the indexer to become idle.
+
+    Args:
+        indexer_name: The name of the indexer.
+        timeout_seconds: The maximum time to wait in seconds (default is 900).
+
+    Returns:
+        True if the indexer becomes idle within the timeout, False otherwise.
+    """
     return _ingestion_svc.wait_for_indexer_idle(indexer_name, timeout_seconds=timeout_seconds)
 
 
 def _reset_grounding_indexer_state() -> str:
+    """Reset the grounding indexer state.
+
+    Returns:
+        A string indicating the result of the reset operation.
+    """
     return _ingestion_svc.reset_grounding_indexer_state()
 
 
 def _get_ingestion_job_template_container(token: str) -> dict[str, Any]:
+    """Get the ingestion job template container.
+
+    Args:
+        token: The authentication token.
+
+    Returns:
+        A dictionary containing the ingestion job template container.
+    """
     return _ingestion_svc.get_ingestion_job_template_container(token)
 
 
 def _trigger_ingestion_job_with_args(args_override: list[str] | None) -> dict[str, Any]:
+    """Trigger an ingestion job with arguments.
+
+    Args:
+        args_override: A list of arguments to override the default ingestion job arguments.
+
+    Returns:
+        A dictionary containing the ingestion job results.
+    """
     return _ingestion_svc.trigger_ingestion_job_with_args(args_override)
 
 
 def _trigger_ecs_task_with_args(args: list[str]) -> dict[str, Any]:
+    """Trigger an ECS task with arguments.
+
+    Args:
+        args: A list of arguments to pass to the ECS task.
+
+    Returns:
+        A dictionary containing the ECS task results.
+    """
     return _ingestion_svc.trigger_ecs_task_with_args(args)
 
 
 def _trigger_ingestion_task_with_args(args_override: list[str] | None) -> dict[str, Any]:
+    """Trigger an ingestion task with arguments.
+
+    Args:
+        args_override: A list of arguments to override the default ingestion task arguments.
+
+    Returns:
+        A dictionary containing the ingestion task results.
+    """
     return _ingestion_svc.trigger_ingestion_task_with_args(args_override)
 
 
@@ -978,16 +1607,39 @@ from query_web.endpoints.ingestion import (  # noqa: E402
 
 
 def _blob_has_required_ingestion_metadata(metadata: dict[str, str] | None) -> bool:
+    """Check if the blob has the required ingestion metadata.
+
+    Args:
+        metadata: A dictionary containing the blob's metadata.
+
+    Returns:
+        True if the blob has the required ingestion metadata, False otherwise.
+    """
     return _ingestion_svc.blob_has_required_ingestion_metadata(metadata)
 
 
 def _mark_dedupe_blobs_for_reindex(
     corpus: str, dedupe_hashes: list[str], *, user_id: str
 ) -> dict[str, Any]:
+    """Mark deduplicated blobs for reindexing.
+
+    Args:
+        corpus: The corpus name.
+        dedupe_hashes: A list of deduplication hashes for the blobs to reindex.
+        user_id: The ID of the user performing the operation.
+
+    Returns:
+        A dictionary containing the results of the reindexing operation.
+    """
     return _ingestion_svc.mark_dedupe_blobs_for_reindex(corpus, dedupe_hashes, user_id=user_id)
 
 
 def _latest_ingestion_job_execution() -> dict[str, Any] | None:
+    """Get the latest ingestion job execution.
+
+    Returns:
+        A dictionary containing the latest ingestion job execution, or None if no execution is found.
+    """
     return _ingestion_svc.latest_ingestion_job_execution()
 
 
@@ -998,16 +1650,45 @@ def _upload_corpus_files(
     corpus: str,
     corpus_role: str,
 ) -> dict[str, Any]:
+    """Upload corpus files to the ingestion service.
+
+    Args:
+        files: A list of UploadFile objects to upload.
+        user_id: The ID of the user performing the upload.
+        corpus: The name of the corpus to which the files belong.
+        corpus_role: The role of the corpus (e.g., "narrative_guidance", "assessed_artifact").
+
+    Returns:
+        A dictionary containing the results of the file upload operation.
+    """
     return _ingestion_svc.upload_corpus_files(
         files, user_id, corpus=corpus, corpus_role=corpus_role
     )
 
 
 def _upload_corpus_b_files(files: list[UploadFile], user_id: str) -> dict[str, Any]:
+    """Upload files to corpus B.
+
+    Args:
+        files: A list of UploadFile objects to upload.
+        user_id: The ID of the user performing the upload.
+
+    Returns:
+        A dictionary containing the results of the file upload operation.
+    """
     return _upload_corpus_files(files, user_id, corpus="b", corpus_role="narrative_guidance")
 
 
 def _upload_corpus_c_files(files: list[UploadFile], user_id: str) -> dict[str, Any]:
+    """Upload files to corpus C.
+
+    Args:
+        files: A list of UploadFile objects to upload.
+        user_id: The ID of the user performing the upload.
+
+    Returns:
+        A dictionary containing the results of the file upload operation.
+    """
     return _upload_corpus_files(files, user_id, corpus="c", corpus_role="assessed_artifact")
 
 
@@ -1017,6 +1698,16 @@ def _upload_corpus_a_reference_files(
     *,
     framework: str,
 ) -> dict[str, Any]:
+    """Upload reference files to corpus A.
+
+    Args:
+        files: A list of UploadFile objects to upload.
+        user_id: The ID of the user performing the upload.
+        framework: The framework to which the reference files belong.
+
+    Returns:
+        A dictionary containing the results of the file upload operation.
+    """
     return _ingestion_svc.upload_corpus_a_reference_files(files, user_id, framework=framework)
 
 
@@ -1028,7 +1719,19 @@ def _upload_corpus_a_reference_files(
 
 
 class _AppServices:
+    """A proxy class for accessing application services."""
+
     def __getattr__(self, name: str) -> Any:
+        """Get the attribute with the given name from the module globals.
+
+        Args:
+            name: The name of the attribute to retrieve.
+
+        Returns:
+            The value of the attribute from the module globals.
+        Raises:
+            AttributeError: If the attribute is not found in the module globals.
+        """
         try:
             return globals()[name]
         except KeyError as exc:

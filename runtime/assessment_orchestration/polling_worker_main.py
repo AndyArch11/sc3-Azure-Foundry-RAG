@@ -1,3 +1,11 @@
+"""
+Confluence polling worker main module.
+
+This module serves as the entry point for the Confluence polling worker CLI.
+It handles command-line argument parsing, logging configuration, and orchestrates the execution of the polling process by invoking the run_forever or run_poll_cycle functions from the polling_worker module.
+
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -25,7 +33,11 @@ from .runtime_wiring import (
 
 
 def main() -> int:
-    """Run main."""
+    """Run main.
+
+    Returns:
+        Exit code: 0 on success, 1 on error.
+    """
     parser = argparse.ArgumentParser(description="Confluence polling worker entrypoint")
     parser.add_argument("--once", action="store_true", help="Run exactly one poll cycle and exit")
     args = parser.parse_args()

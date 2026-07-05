@@ -78,6 +78,14 @@ _CANONICAL_FRAMEWORKS: set[str] = {
 
 
 def _canonical_framework_name(raw_value: str | None) -> str | None:
+    """Normalise a raw framework name to its canonical form.
+
+    Args:
+        raw_value: The raw framework name to normalise.
+
+    Returns:
+        The canonical framework name, or None if the input is None or empty.
+    """
     if raw_value is None:
         return None
     value = raw_value.strip().lower()
@@ -93,6 +101,17 @@ def _canonical_framework_name(raw_value: str | None) -> str | None:
 
 
 def _require_env(name: str) -> str:
+    """Get the value of a required environment variable.
+
+    Args:
+        name: The name of the environment variable.
+
+    Returns:
+        The value of the environment variable.
+
+    Raises:
+        RuntimeError: If the environment variable is not set.
+    """
     value = os.getenv(name)
     if not value:
         raise RuntimeError(f"Required environment variable not set: {name}")
@@ -100,6 +119,15 @@ def _require_env(name: str) -> str:
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
+    """Get the value of an environment variable as a boolean.
+
+    Args:
+        name: The name of the environment variable.
+        default: The default value to return if the environment variable is not set.
+
+    Returns:
+        The boolean value of the environment variable.
+    """
     value = os.getenv(name)
     if value is None:
         return default
@@ -107,6 +135,15 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 def _form_bool(value: str | None, default: bool = False) -> bool:
+    """Convert a form value to a boolean.
+
+    Args:
+        value: The form value to convert.
+        default: The default value to return if the form value is None or empty.
+
+    Returns:
+        The boolean value of the form value.
+    """
     if value is None:
         return default
     text = value.strip().lower()
@@ -116,7 +153,11 @@ def _form_bool(value: str | None, default: bool = False) -> bool:
 
 
 def _detect_host_resources() -> tuple[float, int]:
-    """Best-effort host resource detection (RAM GiB, CPU cores)."""
+    """Best-effort host resource detection (RAM GiB, CPU cores).
+
+    Returns:
+        A tuple containing the detected RAM in GiB and the number of CPU cores.
+    """
     cpu_count = os.cpu_count() or 1
 
     try:
@@ -149,7 +190,11 @@ def _detect_host_resources() -> tuple[float, int]:
 
 
 def _local_completion_token_defaults() -> tuple[int, int]:
-    """Adaptive local defaults for query/evaluator max completion token caps."""
+    """Adaptive local defaults for query/evaluator max completion token caps.
+
+    Returns:
+        A tuple containing the default max completion tokens for query and evaluator.
+    """
     ram_gib, cpu_count = _detect_host_resources()
 
     if ram_gib < 8 or cpu_count <= 4:
@@ -164,6 +209,14 @@ def _local_completion_token_defaults() -> tuple[int, int]:
 
 
 def _normalise_thinking_mode(raw: str | None) -> str:
+    """Normalise THINKING_MODE environment variable to a canonical mode.
+
+    Args:
+        raw: The raw THINKING_MODE value from the environment variable.
+
+    Returns:
+        The canonical thinking mode: "quick", "balanced", or "deep".
+    """
     mode = (raw or "").strip().lower()
     resolved = _THINKING_MODE_ALIASES.get(mode)
     if resolved is not None:
@@ -178,12 +231,23 @@ def _thinking_defaults(
     default_max_completion_tokens: int,
     default_evaluator_max_completion_tokens: int,
 ) -> dict[str, float | int]:
+    """Get default thinking parameters based on the specified mode.
+
+    Args:
+        mode: The thinking mode ("quick", "balanced", or "deep").
+        default_max_completion_tokens: The default max completion tokens for query.
+        default_evaluator_max_completion_tokens: The default max completion tokens for evaluator.
+
+    Returns:
+        A dictionary containing the default parameters for the specified thinking mode.
+    """
     if mode == "quick":
         return {
             "search_top_k": 3,
             "controls_top_k": 3,
-            "default_temperature": 0.1,
-            "evaluator_temperature": 0.1,
+            "default_temperature": 0.05,
+            "top_p": 0.95,
+            "evaluator_temperature": 0.05,
             "evaluation_threshold": 0.70,
             "max_completion_tokens": min(default_max_completion_tokens, 900),
             "evaluator_max_completion_tokens": min(default_evaluator_max_completion_tokens, 512),
@@ -194,7 +258,8 @@ def _thinking_defaults(
             "search_top_k": 8,
             "controls_top_k": 6,
             "default_temperature": 0.2,
-            "evaluator_temperature": 0.15,
+            "top_p": 0.85,
+            "evaluator_temperature": 0.1,
             "evaluation_threshold": 0.78,
             "max_completion_tokens": max(default_max_completion_tokens, 2200),
             "evaluator_max_completion_tokens": max(default_evaluator_max_completion_tokens, 1000),
@@ -203,8 +268,9 @@ def _thinking_defaults(
     return {
         "search_top_k": 5,
         "controls_top_k": 4,
-        "default_temperature": 1.0,
-        "evaluator_temperature": 1.0,
+        "default_temperature": 0.1,
+        "top_p": 0.9,
+        "evaluator_temperature": 0.075,
         "evaluation_threshold": 0.72,
         "max_completion_tokens": default_max_completion_tokens,
         "evaluator_max_completion_tokens": default_evaluator_max_completion_tokens,
@@ -216,6 +282,15 @@ def _thinking_mode_presets_for_ui(
     default_max_completion_tokens: int,
     default_evaluator_max_completion_tokens: int,
 ) -> dict[str, dict[str, float | int]]:
+    """Get thinking mode presets for UI selection.
+
+    Args:
+        default_max_completion_tokens: The default max completion tokens for query.
+        default_evaluator_max_completion_tokens: The default max completion tokens for evaluator.
+
+    Returns:
+        A dictionary mapping thinking modes to their respective default parameters.
+    """
     presets: dict[str, dict[str, float | int]] = {}
     for mode in ("quick", "balanced", "deep"):
         defaults = _thinking_defaults(
@@ -227,6 +302,9 @@ def _thinking_mode_presets_for_ui(
             "retrieve_k": int(defaults["search_top_k"]),
             "controls_top_k": int(defaults["controls_top_k"]),
             "temperature": float(defaults["default_temperature"]),
+            "top_p": float(defaults["top_p"]),
+            "evaluator_temperature": float(defaults["evaluator_temperature"]),
+            "evaluation_threshold": float(defaults["evaluation_threshold"]),
             "max_completion_tokens": int(defaults["max_completion_tokens"]),
             "evaluator_max_completion_tokens": int(defaults["evaluator_max_completion_tokens"]),
         }
@@ -240,7 +318,55 @@ def _thinking_mode_presets_for_ui(
 
 @dataclass(frozen=True)
 class QueryConfig:
-    """Runtime configuration for query-web endpoints and helpers."""
+    """Runtime configuration for query-web endpoints and helpers.
+
+    Attributes:
+        cloud_provider: The cloud provider (e.g., "azure", "aws").
+        search_endpoint: The endpoint for the search service.
+        search_index_name: The name of the search index.
+        controls_index_name: The name of the controls index.
+        openai_endpoint: The endpoint for the OpenAI service.
+        embedding_deployment: The deployment name for embeddings.
+        query_deployment: The deployment name for query completions.
+        evaluator_deployment: The deployment name for evaluation completions.
+        search_top_k: The default number of top search results to retrieve.
+        controls_top_k: The default number of top control results to retrieve.
+        controls_semantic_default: Whether semantic search is enabled for controls.
+        controls_semantic_configuration_name: The name of the semantic configuration for controls.
+        controls_framework_authority_order: The order of framework authorities for control resolution.
+        precedence_policy_path: The file path to the precedence policy JSON.
+        storage_account_name: The name of the Azure storage account.
+        storage_container_name: The name of the Azure storage container.
+        s3_bucket_name: The name of the AWS S3 bucket.
+        ingestion_job_subscription_id: The subscription ID for the ingestion job.
+        ingestion_job_resource_group: The resource group for the ingestion job.
+        ingestion_job_name: The name of the ingestion job.
+        ecs_cluster_name: The name of the ECS cluster for ingestion tasks.
+        ingestion_task_definition_arn: The ARN of the ECS task definition for ingestion.
+        ecs_sg_id: The security group ID for the ECS tasks.
+        ecs_subnet_id: The subnet ID for the ECS tasks.
+        default_temperature: The default temperature for completions.
+        top_p: The default top_p value for completions.
+        evaluator_temperature: The temperature for evaluation completions.
+        evaluation_threshold: The threshold for evaluation scoring.
+        max_completion_tokens: The maximum number of tokens for completions.
+        evaluator_max_completion_tokens: The maximum number of tokens for evaluation completions.
+        auth_token: The shared access token for authentication.
+        required_group_object_id: The required Entra ID group object ID for authentication.
+        cosmos_endpoint: The endpoint for the Cosmos DB service.
+        cosmos_database_name: The name of the Cosmos DB database.
+        cosmos_container_name: The name of the Cosmos DB container.
+        cosmos_orchestration_container_name: The name of the Cosmos DB orchestration container.
+        prompt_injection_validator_enabled: Whether the prompt injection validator is enabled.
+        prompt_injection_validator_deployment: The deployment name for the prompt injection validator.
+        prompt_injection_validator_threshold: The threshold for the prompt injection validator.
+        prompt_injection_validator_temperature: The temperature for the prompt injection validator.
+        prompt_injection_validator_timeout_s: The timeout in seconds for the prompt injection validator.
+        prompt_injection_validator_mode: The mode for the prompt injection validator.
+        guardrail_metrics_in_response: Whether to include guardrail metrics in the response.
+        branding_static_path: The path to the static branding assets.
+        app_title: The title of the application.
+    """
 
     cloud_provider: str
     search_endpoint: str
@@ -271,6 +397,7 @@ class QueryConfig:
     ecs_subnet_id: str
 
     default_temperature: float
+    top_p: float
     evaluator_temperature: float
     evaluation_threshold: float
     max_completion_tokens: int
@@ -297,7 +424,14 @@ class QueryConfig:
 
 @dataclass(frozen=True)
 class PrecedencePolicy:
-    """Framework precedence policy used for control conflict resolution."""
+    """Framework precedence policy used for control conflict resolution.
+
+    Attributes:
+        version: The version of the precedence policy.
+        default_framework_order: The default order of frameworks for precedence.
+        rules: The list of precedence rules defined in the policy.
+        default_framework: The default framework to use when no specific precedence is defined.
+    """
 
     version: str
     default_framework_order: tuple[str, ...]
@@ -311,7 +445,14 @@ class PrecedencePolicy:
 
 
 def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
-    """Parse framework authority ordering from env into canonical framework names."""
+    """Parse framework authority ordering from env into canonical framework names.
+
+    Args:
+        raw_value: The raw string value from the environment variable.
+
+    Returns:
+        A tuple of canonical framework names in the specified order.
+    """
     default_order = (
         "Essential Eight",
         "ISM",
@@ -334,7 +475,15 @@ def _load_precedence_policy(
     policy_path: str,
     fallback_order: tuple[str, ...],
 ) -> PrecedencePolicy:
-    """Load precedence policy JSON; fall back safely if file is missing/invalid."""
+    """Load precedence policy JSON; fall back safely if file is missing/invalid.
+
+    Args:
+        policy_path: The file path to the precedence policy JSON.
+        fallback_order: The fallback order of frameworks to use if the policy is missing or invalid.
+
+    Returns:
+        A PrecedencePolicy object representing the loaded or default policy.
+    """
     default_policy = PrecedencePolicy(
         version="v1-default",
         default_framework_order=fallback_order,
@@ -402,7 +551,11 @@ def _load_precedence_policy(
 
 
 def load_config() -> QueryConfig:
-    """Load and normalise application configuration from environment variables."""
+    """Load and normalise application configuration from environment variables.
+
+    Returns:
+        A QueryConfig object containing the loaded configuration.
+    """
 
     values = dict(os.environ)
     common = resolve_provider_settings(
@@ -468,6 +621,7 @@ def load_config() -> QueryConfig:
         default_temperature=float(
             os.getenv("DEFAULT_TEMPERATURE", str(defaults["default_temperature"]))
         ),
+        top_p=float(os.getenv("TOP_P", str(defaults["top_p"]))),
         evaluator_temperature=float(
             os.getenv("EVALUATOR_TEMPERATURE", str(defaults["evaluator_temperature"]))
         ),

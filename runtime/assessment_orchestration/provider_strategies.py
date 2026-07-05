@@ -34,7 +34,13 @@ _AZURE_GOVERNANCE_ID_RE = re.compile(r"^(GV(?:\.|-)|ID\.GV\b|AT-\d+|PM-\d+)", re
 
 @dataclass(frozen=True)
 class AssessmentProviderStrategy:
-    """Assessment-runtime behaviour strategy for a cloud provider."""
+    """Assessment-runtime behaviour strategy for a cloud provider.
+
+    Attributes:
+        provider: The cloud provider name (e.g., "azure", "aws", "local").
+        supports_embeddings: Whether the provider supports embeddings for content analysis.
+        uses_bedrock_chat: Whether the provider uses Bedrock chat for conversational AI.
+    """
 
     provider: CloudProvider
     supports_embeddings: bool
@@ -61,14 +67,26 @@ _ASSESSMENT_PROVIDER_STRATEGIES: dict[CloudProvider, AssessmentProviderStrategy]
 
 
 def get_assessment_provider_strategy(cloud_provider: str | None) -> AssessmentProviderStrategy:
-    """Return the cloud-provider strategy used by assessment runtime."""
+    """Return the cloud-provider strategy used by assessment runtime.
+
+    Args:
+        cloud_provider: The cloud provider name (e.g., "azure", "aws", "local"). If None, defaults to the environment variable CLOUD_PROVIDER or "local".
+    Returns:
+        An instance of AssessmentProviderStrategy corresponding to the specified cloud provider.
+    """
 
     provider = normalise_cloud_provider(cloud_provider)
     return _ASSESSMENT_PROVIDER_STRATEGIES[provider]
 
 
 def get_assessment_task_instruction(artifact_provider: str | None) -> str:
-    """Return provider-aware task instructions for assessment prompts."""
+    """Return provider-aware task instructions for assessment prompts.
+
+    Args:
+        artifact_provider: The cloud provider name associated with the assessment artifact (e.g., "azure", "aws", "local"). If None, defaults to the environment variable CLOUD_PROVIDER or "local".
+    Returns:
+        A string containing the task instructions for the specified cloud provider.
+    """
 
     if (artifact_provider or "").strip().lower() == "azure":
         return _AZURE_TASK_INSTRUCTION
@@ -80,7 +98,14 @@ def resolve_aws_region_name(
     *,
     env: Mapping[str, str] | None = None,
 ) -> str | None:
-    """Return AWS region when required by provider strategy, else ``None``."""
+    """Return AWS region when required by provider strategy, else ``None``.
+
+    Args:
+        cloud_provider: The cloud provider name (e.g., "azure", "aws", "local"). If None, defaults to the environment variable CLOUD_PROVIDER or "local".
+        env: Optional dictionary of environment variables to use instead of os.environ.
+    Returns:
+        The AWS region name if required by the provider strategy, else ``None``.
+    """
 
     strategy = get_assessment_provider_strategy(cloud_provider)
     if strategy.provider != "aws":
@@ -91,6 +116,13 @@ def resolve_aws_region_name(
 
 
 def azure_control_is_likely_applicable(control: dict[str, Any]) -> bool:
+    """Determine if an Azure control is likely applicable based on its metadata and content.
+
+    Args:
+        control: A dictionary representing the Azure control metadata and content.
+    Returns:
+        True if the control is likely applicable, False otherwise.
+    """
     # If control has pre-computed applicability metadata, use it
     scope = str(control.get("control_applicability_scope") or "").strip()
     confidence = float(control.get("applicability_confidence") or 0.0)
@@ -126,7 +158,15 @@ def filter_controls_for_artifact(
     artifact_metadata: dict[str, Any],
     controls: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Apply provider-specific applicability filtering to control candidates."""
+    """Apply provider-specific applicability filtering to control candidates.
+
+    Args:
+        artifact_provider: The cloud provider name associated with the assessment artifact (e.g., "azure", "aws", "local"). If None, defaults to the environment variable CLOUD_PROVIDER or "local".
+        artifact_metadata: A dictionary containing metadata about the assessment artifact.
+        controls: A list of dictionaries representing the control candidates.
+    Returns:
+        A list of dictionaries representing the filtered control candidates.
+    """
 
     if (artifact_provider or "").strip().lower() != "azure":
         return controls

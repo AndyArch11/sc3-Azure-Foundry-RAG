@@ -55,7 +55,13 @@ _CORPUS_A_REFERENCE_UPLOAD_TARGETS: dict[str, dict[str, str]] = {
 
 
 def _normalise_corpus_a_framework_key(raw: str) -> str | None:
-    """Return a canonical framework key for *raw*, or None if unrecognised."""
+    """Return a canonical framework key for *raw*, or None if unrecognised.
+
+    Args:
+        raw: The raw framework name or key to normalise.
+    Returns:
+        The canonical framework key, or None if unrecognised.
+    """
     key = (raw or "").strip().lower()
     if not key:
         return None
@@ -87,6 +93,12 @@ def _selected_corpus_a_frameworks(frameworks: list[str] | None) -> list[str]:
     """Return the sorted list of canonical framework keys selected by *frameworks*.
 
     If *frameworks* is empty or None, all known frameworks are returned.
+
+    Args:
+        frameworks: Optional list of raw framework names or keys to normalise and select.
+
+    Returns:
+        A sorted list of canonical framework keys corresponding to the selected frameworks.
     """
     if not frameworks:
         return sorted(_CORPUS_A_FRAMEWORKS.keys())
@@ -115,6 +127,14 @@ def _prepare_corpus_a_reference_uploads(
 
     Returns ``(framework_key, [(upload_file, original_name, target_name), ...])``.
     Raises :class:`ValueError` on validation errors.
+
+    Args:
+        framework: The raw framework name or key to normalise.
+        files: The list of uploaded files to validate and map.
+    Returns:
+        A tuple containing the canonical framework key and a list of tuples for each file, where each tuple contains the UploadFile object, the original filename, and the canonical target blob name.
+    Raises:
+        ValueError: If the framework is unrecognised, unsupported, or if the uploaded files do not match the expected types or counts for the framework.
     """
     from fastapi import UploadFile  # noqa: F401 — imported for type narrowing at runtime
 
@@ -163,6 +183,13 @@ def _classify_corpus_a_auto_uploads(
     """Classify uploaded Corpus A source files into CIS/PCI framework buckets.
 
     Raises :class:`ValueError` if a file cannot be classified or is unsupported.
+
+    Args:
+        files: The list of uploaded files to classify.
+    Returns:
+        A dictionary mapping framework keys to lists of UploadFile objects for each classified framework.
+    Raises:
+        ValueError: If a file cannot be classified into a framework or if unsupported file types are provided.
     """
     grouped: dict[str, list["UploadFile"]] = {
         "cis_controls": [],

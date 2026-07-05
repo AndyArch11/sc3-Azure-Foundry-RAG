@@ -1,3 +1,11 @@
+"""
+Confluence Cloud REST API Client Module.
+
+This module provides a thin wrapper around the Confluence Cloud REST API, supporting basic operations such as fetching content, searching, and managing pages.
+It supports multiple authentication methods, including basic auth, bearer tokens, and OAuth 2.0 client credentials.
+The client handles API version differences and provides utility functions for normalising search results and extracting relevant metadata.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -32,33 +40,74 @@ logger = logging.getLogger(__name__)
 
 
 class _HTMLTextExtractor(HTMLParser):
-    """Minimal HTML tag stripper using stdlib – no extra dependencies."""
+    """Minimal HTML tag stripper using stdlib - no extra dependencies.
+
+    Usage::
+        extractor = _HTMLTextExtractor()
+        extractor.feed("<p>Hello, world!</p>")
+        text = extractor.get_text()
+        print(text)  # Output: "Hello, world!"
+
+    This class extends HTMLParser to extract text content from HTML input.
+
+    It overrides the handle_data method to collect text data and provides a get_text method to retrieve the concatenated text content.
+
+    Attributes:
+        _parts: A list of strings that accumulates the text data extracted from the HTML input.
+    """
 
     def __init__(self) -> None:
-        """Run init."""
+        """Run init.
+
+        Initialises the _parts list to store extracted text data."""
         super().__init__()
         self._parts: list[str] = []
 
     def handle_data(self, data: str) -> None:
-        """Run handle data."""
+        """Run handle data.
+
+        This method is called by the HTMLParser when text data is encountered in the HTML input. It strips whitespace and appends non-empty text to the _parts list.
+
+        Args:
+            data: The text data extracted from the HTML input.
+        """
         text = data.strip()
         if text:
             self._parts.append(text)
 
     def get_text(self) -> str:
-        """Run get text."""
+        """Run get text.
+
+        Returns:
+            The concatenated text content extracted from the HTML input.
+        """
         return "\n".join(self._parts)
 
 
 def _strip_html(html: str) -> str:
-    """Run strip html."""
+    """Run strip html.
+
+    Args:
+        html: The HTML content to be stripped.
+
+    Returns:
+        The text content extracted from the HTML input.
+    """
     extractor = _HTMLTextExtractor()
     extractor.feed(html)
     return extractor.get_text()
 
 
 def _host_is_exact_or_subdomain(host: str, domain: str) -> bool:
-    """Run host is exact or subdomain."""
+    """Run host is exact or subdomain.
+
+    Args:
+        host: The host to check.
+        domain: The domain to check against.
+
+    Returns:
+        True if the host is exactly the domain or a subdomain of it, False otherwise.
+    """
     host_l = host.strip().lower()
     domain_l = domain.strip().lower()
     return host_l == domain_l or host_l.endswith(f".{domain_l}")
@@ -70,7 +119,14 @@ def _host_is_exact_or_subdomain(host: str, domain: str) -> bool:
 
 
 def _iso_to_cql_datetime(iso_str: str) -> str:
-    """Convert ISO 8601 datetime to Confluence CQL datetime format (YYYY-MM-DD HH:mm)."""
+    """Convert ISO 8601 datetime to Confluence CQL datetime format (YYYY-MM-DD HH:mm).
+
+    Args:
+        iso_str: The ISO 8601 datetime string to be converted.
+
+    Returns:
+        The datetime string in Confluence CQL format.
+    """
     clean = iso_str.replace("Z", "+00:00")
     try:
         dt = datetime.fromisoformat(clean)
@@ -80,7 +136,15 @@ def _iso_to_cql_datetime(iso_str: str) -> str:
 
 
 def _extract_mention_occurred_at(content: dict[str, Any], result: dict[str, Any]) -> str:
-    """Best-effort extraction of event time from Confluence CQL result shapes."""
+    """Best-effort extraction of event time from Confluence CQL result shapes.
+
+    Args:
+        content: The content object from the Confluence CQL result.
+        result: The full Confluence CQL result object.
+
+    Returns:
+        The extracted event time as a string, or an empty string if not found.
+    """
     version = content.get("version") or {}
     history = content.get("history") or {}
     last_updated = history.get("lastUpdated") or {}
@@ -102,7 +166,14 @@ def _extract_mention_occurred_at(content: dict[str, Any], result: dict[str, Any]
 
 
 def _iso_duration_to_since(duration: str) -> str:
-    """Convert an ISO 8601 duration string (e.g. PT1H, PT24H, P1D) to an absolute ISO timestamp."""
+    """Convert an ISO 8601 duration string (e.g. PT1H, PT24H, P1D) to an absolute ISO timestamp.
+
+    Args:
+        duration: The ISO 8601 duration string to be converted.
+
+    Returns:
+        The absolute ISO timestamp as a string.
+    """
     upper = duration.upper()
     hours = minutes = days = 0
     m = re.search(r"(\d+)H", upper)
@@ -121,7 +192,15 @@ def _iso_duration_to_since(duration: str) -> str:
 
 
 def _normalise_mention_result(result: dict[str, Any], *, site_base_url: str) -> dict[str, Any]:
-    """Normalise a Confluence CQL search result into a structured mention event."""
+    """Normalise a Confluence CQL search result into a structured mention event.
+
+    Args:
+        result: The Confluence CQL search result to be normalised.
+        site_base_url: The base URL of the Confluence site.
+
+    Returns:
+        A dictionary representing the structured mention event.
+    """
     # CQL /wiki/rest/api/search results wrap the content object
     content = result.get("content") or result
     content_id = str(content.get("id") or "")
@@ -194,6 +273,12 @@ def _parse_confluence_url_path(path: str) -> tuple[str | None, str | None]:
 
     Handles:
       /wiki/spaces/{SPACE_KEY}/pages/{page_id}[/{slug}]
+
+    Args:
+        path: The URL path to parse.
+
+    Returns:
+        A tuple containing the page ID and space key, or None if not found.
     """
     parts = [p for p in path.split("/") if p]
     page_id: str | None = None
@@ -213,14 +298,28 @@ def _parse_confluence_url_path(path: str) -> tuple[str | None, str | None]:
 
 
 def _url_fallback_id(url: str) -> str:
-    """Run url fallback id."""
+    """Run url fallback id.
+
+    Args:
+        url: The URL to generate a fallback ID for.
+
+    Returns:
+        A 24-character fallback ID derived from the URL.
+    """
     import hashlib
 
     return hashlib.sha256(url.encode()).hexdigest()[:24]
 
 
 def _raise_for_status_with_body(resp: requests.Response) -> None:
-    """Raise HTTPError with a short response-body snippet for easier debugging."""
+    """Raise HTTPError with a short response-body snippet for easier debugging.
+
+    Args:
+        resp: The HTTP response object.
+
+    Raises:
+        requests.HTTPError: If the HTTP request returned an unsuccessful status code.
+    """
     try:
         resp.raise_for_status()
     except requests.HTTPError as exc:
@@ -241,7 +340,16 @@ def _raise_for_status_with_body(resp: requests.Response) -> None:
 
 
 class ConfluenceClient:
-    """Thin wrapper around the Confluence Cloud REST API (v2 primary, v1 for search/users)."""
+    """Thin wrapper around the Confluence Cloud REST API (v2 primary, v1 for search/users).
+
+    Supports basic auth (email + API token), bearer token, or OAuth 2.0 client credentials.
+
+    Attributes:
+        _site_base_url: The base URL of the Confluence site.
+        _auth_mode: The authentication mode used (basic, bearer, or oauth).
+        _api_base_url: The base URL for the Confluence API.
+        _session: The HTTP session used for making requests.
+    """
 
     def __init__(
         self,
@@ -258,7 +366,21 @@ class ConfluenceClient:
         auth_mode: str = "basic",
         cloud_id: str | None = None,
     ) -> None:
-        """Run init."""
+        """Run init.
+
+        Args:
+            base_url: The base URL of the Confluence site.
+            api_token: The API token for basic or bearer authentication.
+            oauth_access_token: The OAuth access token for OAuth authentication.
+            oauth_client_id: The OAuth client ID for OAuth authentication.
+            oauth_client_secret: The OAuth client secret for OAuth authentication.
+            oauth_token_url: The OAuth token URL for obtaining access tokens.
+            oauth_scope: The OAuth scope for the access token.
+            oauth_audience: The OAuth audience for the access token.
+            auth_email: The email address for basic authentication.
+            auth_mode: The authentication mode to use (basic, bearer, or oauth).
+            cloud_id: The cloud ID for bearer or OAuth authentication.
+        """
         self._site_base_url = base_url.rstrip("/")
         self._auth_mode = auth_mode
         if auth_mode == "basic":
@@ -323,21 +445,51 @@ class ConfluenceClient:
         self._session.headers.update({"Accept": "application/json"})
 
     def _get(self, path: str, **params: Any) -> Any:
-        """Run get."""
+        """Run get.
+
+        Args:
+            path: The API endpoint path.
+            **params: Additional query parameters.
+
+        Returns:
+            The JSON response from the API.
+        Raises:
+            requests.HTTPError: If the HTTP request returned an unsuccessful status code.
+        """
         url = f"{self._api_base_url}{path}"
         resp = self._session.get(url, params=params)
         _raise_for_status_with_body(resp)
         return resp.json()
 
     def _post(self, path: str, body: dict[str, Any]) -> Any:
-        """Run post."""
+        """Run post.
+
+        Args:
+            path: The API endpoint path.
+            body: The JSON body to send in the request.
+
+        Returns:
+            The JSON response from the API.
+        Raises:
+            requests.HTTPError: If the HTTP request returned an unsuccessful status code.
+        """
         url = f"{self._api_base_url}{path}"
         resp = self._session.post(url, json=body)
         _raise_for_status_with_body(resp)
         return resp.json()
 
     def get_page(self, page_id: str, *, body_format: str = "storage") -> dict[str, Any]:
-        """Run get page."""
+        """Run get page.
+
+        Args:
+            page_id: The ID of the page to retrieve.
+            body_format: The format of the page body to retrieve (default is "storage").
+
+        Returns:
+            The JSON response from the API.
+        Raises:
+            requests.HTTPError: If the HTTP request returned an unsuccessful status code.
+        """
         if self._auth_mode in {"bearer", "oauth"}:
             result = self._get(
                 f"/wiki/rest/api/content/{page_id}",
@@ -360,12 +512,28 @@ class ConfluenceClient:
             return self._normalise_v1_page(result)
 
     def get_user(self, account_id: str) -> dict[str, Any]:
-        """Run get user."""
+        """Run get user.
+
+        Args:
+            account_id: The account ID of the user to retrieve.
+        Returns:
+            The JSON response from the API.
+        Raises:
+            requests.HTTPError: If the HTTP request returned an unsuccessful status code.
+        """
         result = self._get("/wiki/rest/api/user", accountId=account_id)
         return result  # type: ignore[return-value]
 
     def get_space(self, space_id: str) -> dict[str, Any]:
-        """Run get space."""
+        """Run get space.
+
+        Args:
+            space_id: The ID or key of the space to retrieve.
+        Returns:
+            The JSON response from the API.
+        Raises:
+            requests.HTTPError: If the HTTP request returned an unsuccessful status code.
+        """
         if self._auth_mode in {"bearer", "oauth"}:
             result = self._get(f"/wiki/rest/api/space/{space_id}")
             return {
@@ -377,7 +545,15 @@ class ConfluenceClient:
         return result  # type: ignore[return-value]
 
     def get_footer_comments(self, page_id: str) -> list[dict[str, Any]]:
-        """Run get footer comments."""
+        """Run get footer comments.
+
+        Args:
+            page_id: The ID of the page to retrieve footer comments for.
+        Returns:
+            A list of JSON responses from the API.
+        Raises:
+            requests.HTTPError: If the HTTP request returned an unsuccessful status code.
+        """
         if self._auth_mode in {"bearer", "oauth"}:
             result = self._get(
                 f"/wiki/rest/api/content/{page_id}/child/comment",
@@ -402,7 +578,15 @@ class ConfluenceClient:
             return self._normalise_v1_comments(result.get("results", []))
 
     def get_comment(self, comment_id: str) -> dict[str, Any]:
-        """Fetch a single comment by its ID."""
+        """Fetch a single comment by its ID.
+
+        Args:
+            comment_id: The ID of the comment to retrieve.
+        Returns:
+            The JSON response from the API.
+        Raises:
+            requests.HTTPError: If the HTTP request returned an unsuccessful status code.
+        """
         # Try v2 first, then v1 for compatibility
         try:
             result = self._get(f"/wiki/api/v2/comments/{comment_id}")
@@ -418,7 +602,16 @@ class ConfluenceClient:
             raise
 
     def post_footer_comment(self, page_id: str, *, body_html: str) -> dict[str, Any]:
-        """Run post footer comment."""
+        """Run post footer comment.
+
+        Args:
+            page_id: The ID of the page to post the footer comment to.
+            body_html: The HTML content of the comment.
+        Returns:
+            The JSON response from the API.
+        Raises:
+            requests.HTTPError: If the HTTP request returned an unsuccessful status code.
+        """
         if self._auth_mode in {"bearer", "oauth"}:
             result = self._post(
                 "/wiki/rest/api/content",
@@ -454,7 +647,15 @@ class ConfluenceClient:
             return result  # type: ignore[return-value]
 
     def list_spaces(self, *, limit: int = 25) -> list[dict[str, Any]]:
-        """Run list spaces."""
+        """Run list spaces.
+
+        Args:
+            limit: The maximum number of spaces to retrieve.
+        Returns:
+            A list of JSON responses from the API.
+        Raises:
+            requests.HTTPError: If the HTTP request returned an unsuccessful status code.
+        """
         if self._auth_mode in {"bearer", "oauth"}:
             result = self._get("/wiki/rest/api/space", limit=limit)
             return result.get("results", [])  # type: ignore[return-value]
@@ -471,28 +672,59 @@ class ConfluenceClient:
             return result.get("results", [])  # type: ignore[return-value]
 
     def search_cql(self, cql: str, *, limit: int = 25) -> list[dict[str, Any]]:
-        """Run search cql."""
+        """Run search cql.
+
+        Args:
+            cql: The CQL query string.
+            limit: The maximum number of results to retrieve.
+        Returns:
+            A list of JSON responses from the API.
+        Raises:
+            requests.HTTPError: If the HTTP request returned an unsuccessful status code.
+        """
         result = self._get("/wiki/rest/api/content/search", cql=cql, limit=limit, start=0)
         return result.get("results", [])  # type: ignore[return-value]
 
     def get_current_user(self) -> dict[str, Any]:
-        """Return the Atlassian account details for the authenticated service account."""
+        """Return the Atlassian account details for the authenticated service account.
+
+        Returns:
+            The JSON response from the API.
+        Raises:
+            requests.HTTPError: If the HTTP request returned an unsuccessful status code.
+        """
         result = self._get("/wiki/rest/api/user/current")
         return result  # type: ignore[return-value]
 
     def resolve_canonical_url(self, webui_path: str) -> str:
-        """Build an absolute URL from a relative _links.webui value."""
+        """Build an absolute URL from a relative _links.webui value.
+
+        Args:
+            webui_path: The relative web UI path from the Confluence API.
+        Returns:
+            The absolute URL to the Confluence page or comment.
+        """
         if webui_path.startswith("http"):
             return webui_path
         return f"{self._site_base_url}{webui_path}"
 
     @property
     def site_base_url(self) -> str:
-        """Run site base url."""
+        """Return the base URL of the Confluence site.
+
+        Returns:
+            The base URL of the Confluence site.
+        """
         return self._site_base_url
 
     def _normalise_v1_page(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Run normalise v1 page."""
+        """Run normalise v1 page.
+
+        Args:
+            payload: The JSON payload from the Confluence API.
+        Returns:
+            The normalised page data.
+        """
         body = (payload.get("body") or {}).get("storage") or {}
         version = payload.get("version") or {}
         by = version.get("by") or {}
@@ -516,7 +748,13 @@ class ConfluenceClient:
         }
 
     def _normalise_v1_comments(self, comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Run normalise v1 comments."""
+        """Run normalise v1 comments.
+
+        Args:
+            comments: The list of comment JSON payloads from the Confluence API.
+        Returns:
+            The normalised comment data.
+        """
         normalised: list[dict[str, Any]] = []
         for comment in comments:
             version = comment.get("version") or {}
@@ -537,20 +775,42 @@ class ConfluenceClient:
 
 
 class _BearerTokenAuth(AuthBase):
-    """BearerTokenAuth."""
+    """BearerTokenAuth.
+
+    Args:
+        token: The bearer token to use for authentication.
+    """
 
     def __init__(self, token: str) -> None:
-        """Run init."""
+        """Run init.
+
+        Args:
+            token: The bearer token to use for authentication.
+        """
         self._token = token
 
     def __call__(self, request: requests.PreparedRequest) -> requests.PreparedRequest:
-        """Run call."""
+        """Run call.
+
+        Args:
+            request: The prepared HTTP request to modify.
+        Returns:
+            The modified HTTP request with the Authorization header set.
+        """
         request.headers["Authorization"] = f"Bearer {self._token}"
         return request
 
 
 class _OAuthClientCredentialsAuth(AuthBase):
-    """Fetches and refreshes OAuth access tokens using client credentials."""
+    """Fetches and refreshes OAuth access tokens using client credentials.
+
+    Args:
+        token_url: The URL to fetch the OAuth token from.
+        client_id: The client ID for OAuth authentication.
+        client_secret: The client secret for OAuth authentication.
+        scope: The scope for the OAuth token.
+        audience: The audience for the OAuth token.
+    """
 
     def __init__(
         self,
@@ -561,7 +821,15 @@ class _OAuthClientCredentialsAuth(AuthBase):
         scope: str | None = None,
         audience: str | None = None,
     ) -> None:
-        """Run init."""
+        """Run init.
+
+        Args:
+            token_url: The URL to fetch the OAuth token from.
+            client_id: The client ID for OAuth authentication.
+            client_secret: The client secret for OAuth authentication.
+            scope: The scope for the OAuth token.
+            audience: The audience for the OAuth token.
+        """
         self._token_url = token_url
         self._client_id = client_id
         self._client_secret = client_secret
@@ -571,20 +839,34 @@ class _OAuthClientCredentialsAuth(AuthBase):
         self._expires_at_epoch_s: float = 0.0
 
     def __call__(self, request: requests.PreparedRequest) -> requests.PreparedRequest:
-        """Run call."""
+        """Run call.
+
+        Args:
+            request: The prepared HTTP request to modify.
+        Returns:
+            The modified HTTP request with the Authorization header set.
+        """
         if self._needs_refresh():
             self._refresh_token()
         request.headers["Authorization"] = f"Bearer {self._access_token}"
         return request
 
     def _needs_refresh(self) -> bool:
-        """Run needs refresh."""
+        """Run needs refresh.
+
+        Returns:
+            True if the access token needs to be refreshed, False otherwise.
+        """
         if not self._access_token:
             return True
         return time.time() >= self._expires_at_epoch_s
 
     def _refresh_token(self) -> None:
-        """Run refresh token."""
+        """Run refresh token.
+
+        Raises:
+            ValueError: If the OAuth token response does not include an access_token.
+        """
         payload: dict[str, str] = {
             "grant_type": "client_credentials",
             "client_id": self._client_id,
@@ -621,7 +903,11 @@ class _OAuthClientCredentialsAuth(AuthBase):
 
 
 class ConfluenceMCPServer:
-    """ConfluenceMCPServer."""
+    """ConfluenceMCPServer.
+
+    Attributes:
+        provider: The provider name for this server.
+    """
 
     provider = "confluence"
 
@@ -643,7 +929,24 @@ class ConfluenceMCPServer:
         account_id: str | None = None,
         mention_aliases: tuple[str, ...] | None = None,
     ) -> None:
-        """Run init."""
+        """Run init.
+
+        Args:
+            base_url: The base URL of the Confluence site.
+            auth_email: The email address for basic authentication.
+            api_token: The API token for basic or bearer authentication.
+            oauth_access_token: The OAuth access token for OAuth authentication.
+            oauth_client_id: The OAuth client ID for OAuth authentication.
+            oauth_client_secret: The OAuth client secret for OAuth authentication.
+            oauth_token_url: The OAuth token URL for obtaining access tokens.
+            oauth_scope: The OAuth scope for the access token.
+            oauth_audience: The OAuth audience for the access token.
+            auth_mode: The authentication mode to use (basic, bearer, or oauth).
+            cloud_id: The cloud ID for bearer or OAuth authentication.
+            client: An optional pre-initialised ConfluenceClient instance.
+            account_id: The Atlassian account ID of the service account.
+            mention_aliases: Optional tuple of mention aliases to recognise in content.
+        """
         self._account_id = account_id or ""
         aliases = mention_aliases or ("@assessment-agent", "@compliance-agent")
         self._mention_aliases = tuple(a.strip() for a in aliases if a.strip())
@@ -685,7 +988,11 @@ class ConfluenceMCPServer:
 
     @property
     def client(self) -> ConfluenceClient | None:
-        """Expose the underlying ConfluenceClient for direct API access."""
+        """Expose the underlying ConfluenceClient for direct API access.
+
+        Returns:
+            The ConfluenceClient instance if initialised, otherwise None.
+        """
         return self._client
 
     # ------------------------------------------------------------------ #
@@ -695,7 +1002,16 @@ class ConfluenceMCPServer:
     def resolve_target(
         self, target_reference: str, *, requester_context: dict[str, Any] | None = None
     ) -> ResolvedTarget:
-        """Run resolve target."""
+        """Run resolve target.
+
+        Args:
+            target_reference: The URL or identifier of the target to resolve.
+            requester_context: Optional context about the requester (not used in this implementation).
+        Returns:
+            A ResolvedTarget object containing details about the resolved target.
+        Raises:
+            ValueError: If the target_reference is not a valid Confluence Cloud URL.
+        """
         parsed = urlparse(target_reference.strip())
         if not parsed.scheme or not parsed.netloc:
             raise ValueError("target_reference must be a valid absolute URL")
@@ -734,7 +1050,14 @@ class ConfluenceMCPServer:
     def check_user_access(
         self, target_id: str, delegated_user_context: dict[str, Any]
     ) -> AccessDecision:
-        """Run check user access."""
+        """Run check user access.
+
+        Args:
+            target_id: The ID of the target to check access for.
+            delegated_user_context: A dictionary containing context about the delegated user.
+        Returns:
+            An AccessDecision object indicating whether access is granted and the reason.
+        """
         principal = str(delegated_user_context.get("principal_id") or "").strip()
         email = str(delegated_user_context.get("email") or "").strip()
         if not (principal or email):
@@ -776,7 +1099,17 @@ class ConfluenceMCPServer:
         identity_mode: str,
         include_discussion_context: bool = False,
     ) -> AssessedArtifactPackage:
-        """Run get content by id."""
+        """Run get content by id.
+
+        Args:
+            target_id: The ID of the target content to retrieve.
+            identity_mode: The identity mode to use ("app_only" or "delegated").
+            include_discussion_context: Whether to include discussion context (comments).
+        Returns:
+            An AssessedArtifactPackage containing the content and metadata.
+         Raises:
+            ValueError: If identity_mode is not "app_only" or "delegated".
+        """
         if identity_mode not in {"app_only", "delegated"}:
             raise ValueError("identity_mode must be app_only or delegated")
 
@@ -819,7 +1152,15 @@ class ConfluenceMCPServer:
         lookback_window: str = "",
         scope_filter: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Run get recent mentions."""
+        """Run get recent mentions.
+
+        Args:
+            since: An ISO 8601 timestamp to filter mentions created after this time.
+            lookback_window: An ISO 8601 duration string to filter mentions within this time window.
+            scope_filter: An optional dictionary to filter mentions by space key(s).
+        Returns:
+            A dictionary containing a list of recent mentions.
+        """
         if self._client is None:
             return {"mentions": []}
 
@@ -866,7 +1207,14 @@ class ConfluenceMCPServer:
         return {"mentions": mentions}
 
     def _resolve_since(self, *, since: str, lookback_window: str) -> str:
-        """Run resolve since."""
+        """Run resolve since.
+
+        Args:
+            since: An ISO 8601 timestamp to filter mentions created after this time.
+            lookback_window: An ISO 8601 duration string to filter mentions within this time window.
+        Returns:
+            An ISO 8601 timestamp string representing the resolved 'since' time.
+        """
         if since:
             return since
         if lookback_window:
@@ -880,7 +1228,15 @@ class ConfluenceMCPServer:
         identity_mode: str,
         trigger_context: dict[str, Any] | None = None,
     ) -> AssessedArtifactPackage:
-        """Run get flagged item context."""
+        """Run get flagged item context.
+
+        Args:
+            target_id: The ID of the target content.
+            identity_mode: The identity mode to use.
+            trigger_context: Optional dictionary containing trigger context.
+        Returns:
+            An AssessedArtifactPackage containing the flagged item context.
+        """
         artifact = self.get_content_by_id(
             target_id,
             identity_mode=identity_mode,
@@ -900,7 +1256,13 @@ class ConfluenceMCPServer:
         )
 
     def resolve_page_owner(self, target_id: str) -> dict[str, Any]:
-        """Run resolve page owner."""
+        """Run resolve page owner.
+
+        Args:
+            target_id: The ID of the target content.
+        Returns:
+            A dictionary containing the page owner's information.
+        """
         if self._client is None:
             return {"principal_id": f"owner-{target_id}", "display_name": "Stub Owner", "email": ""}
         page = self._client.get_page(target_id)
@@ -915,7 +1277,13 @@ class ConfluenceMCPServer:
         }
 
     def resolve_last_editor(self, target_id: str) -> dict[str, Any]:
-        """Run resolve last editor."""
+        """Run resolve last editor.
+
+        Args:
+            target_id: The ID of the target content.
+        Returns:
+            A dictionary containing the last editor's information.
+        """
         if self._client is None:
             return {
                 "principal_id": f"editor-{target_id}",
@@ -950,7 +1318,16 @@ class ConfluenceMCPServer:
         identity_mode: str,
         idempotency_key: str,
     ) -> DeliveryOutcome:
-        """Run post comment."""
+        """Run post comment.
+
+        Args:
+            target_id: The ID of the target content.
+            comment_body: The body of the comment to post.
+            identity_mode: The identity mode to use.
+            idempotency_key: A unique key to ensure idempotent comment posting.
+        Returns:
+            A DeliveryOutcome indicating the result of the comment posting.
+        """
         if self._client is None:
             raise NotImplementedError(
                 "Confluence comment publication requires a live ConfluenceClient"
@@ -980,7 +1357,13 @@ class ConfluenceMCPServer:
     # ------------------------------------------------------------------ #
 
     def _resolve_person(self, account_id: str | None) -> PersonReference | None:
-        """Run resolve person."""
+        """Run resolve person.
+
+        Args:
+            account_id: The account ID of the person to resolve.
+        Returns:
+            A PersonReference object containing the person's information, or None if not found.
+        """
         if not account_id or self._client is None:
             return None
         try:
@@ -999,7 +1382,15 @@ class ConfluenceMCPServer:
         identity_mode: str,
         include_discussion_context: bool,
     ) -> AssessedArtifactPackage:
-        """Run offline content stub."""
+        """Run offline content stub.
+
+        Args:
+            target_id: The ID of the target content.
+            identity_mode: The identity mode to use.
+            include_discussion_context: Whether to include discussion context.
+        Returns:
+            An AssessedArtifactPackage containing the offline content stub.
+        """
         content = (
             "This is stub Confluence content for orchestration wiring. "
             f"Target ID: {target_id}. Identity mode: {identity_mode}."
@@ -1038,7 +1429,13 @@ class MentionPoller:
         space_keys: list[str] | None = None,
         initial_lookback: str = "PT1H",
     ) -> None:
-        """Run init."""
+        """Run init.
+
+        Args:
+            server: The Confluence MCP server instance.
+            space_keys: Optional list of space keys to filter mentions.
+            initial_lookback: The initial lookback period for mentions.
+        """
         self._server = server
         self._space_keys = space_keys
         self._initial_lookback = initial_lookback
@@ -1046,16 +1443,28 @@ class MentionPoller:
 
     @property
     def watermark(self) -> str:
-        """Current high-water mark as ISO 8601 string. Empty string on first poll."""
+        """Current high-water mark as ISO 8601 string. Empty string on first poll.
+
+        Returns:
+            The current watermark timestamp.
+        """
         return self._watermark
 
     @watermark.setter
     def watermark(self, value: str) -> None:
-        """Run watermark."""
+        """Set the current watermark timestamp.
+
+        Args:
+            value: The new watermark timestamp as an ISO 8601 string.
+        """
         self._watermark = value
 
     def poll(self) -> list[dict[str, Any]]:
-        """Return new mentions since last watermark and advance the watermark."""
+        """Return new mentions since last watermark and advance the watermark.
+
+        Returns:
+            A list of new mention dictionaries since the last watermark.
+        """
         scope: dict[str, Any] | None = (
             {"space_keys": self._space_keys} if self._space_keys else None
         )
@@ -1076,7 +1485,13 @@ class MentionPoller:
 
 
 def _normalise_comments(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Run normalise comments."""
+    """Run normalise comments.
+
+    Args:
+        raw: A list of raw comment dictionaries.
+    Returns:
+        A list of normalised comment dictionaries.
+    """
     result = []
     for comment in raw:
         body_html = (comment.get("body") or {}).get("storage", {}).get("value") or ""

@@ -27,7 +27,15 @@ _APPLICABILITY_REVIEW_PROMPT = (
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
-    """Run extract json object."""
+    """Run extract json object.
+
+    Args:
+        text: The input text containing a JSON object.
+    Returns:
+        The extracted JSON object as a dictionary.
+    Raises:
+        ValueError: If the text does not contain a valid JSON object.
+    """
     value = text.strip()
     try:
         parsed = json.loads(value)
@@ -51,7 +59,19 @@ def _review_control_with_llm(
     chat_completion,
     max_attempts: int = 2,
 ) -> dict[str, Any]:
-    """Run review control with llm."""
+    """Run review control with llm.
+
+    Args:
+        control: The control dictionary to review.
+        heuristic_scope: The heuristic scope classification.
+        heuristic_confidence: The heuristic confidence score.
+        chat_completion: A callable for generating chat completions.
+        max_attempts: Maximum number of attempts to get a valid response from the LLM.
+    Returns:
+        The reviewed control dictionary with LLM classification.
+    Raises:
+        ValueError: If the LLM response is invalid or incomplete after max_attempts.
+    """
     base_messages = [
         {"role": "system", "content": _APPLICABILITY_REVIEW_PROMPT},
         {
@@ -121,7 +141,16 @@ def review_ambiguous_controls_with_llm(
     max_controls: int = 20,
     chat_completion=None,
 ) -> dict[str, Any]:
-    """Run review ambiguous controls with llm."""
+    """Run review ambiguous controls with llm.
+
+    Args:
+        controls: A list of control dictionaries to review.
+        confidence_threshold: The confidence threshold for considering a control ambiguous.
+        max_controls: Maximum number of controls to review with the LLM.
+        chat_completion: A callable for generating chat completions.
+    Returns:
+        A dictionary containing the review results, including agreements, disagreements, and errors.
+    """
     if chat_completion is None:
         chat_completion = create_chat_completion_fn()
 
@@ -198,6 +227,16 @@ def validate_controls_applicability(
     Returns classification distribution, confidence histogram, and ambiguous cases.
 
     If controls_source is None, loads all local parsed-controls/*.jsonl files.
+
+    Args:
+        controls_source: Path to a JSONL file containing controls, or None to load all local parsed-controls/*.jsonl files.
+        confidence_threshold: Confidence threshold for considering a control ambiguous.
+        max_results: Maximum number of controls to process.
+        review_with_llm: Whether to review ambiguous controls with an LLM.
+        llm_max_controls: Maximum number of ambiguous controls to review with the LLM.
+        chat_completion: A callable for generating chat completions.
+    Returns:
+        A dictionary containing the validation results, including distribution, confidence histogram, and ambiguous controls.
     """
     controls_data: list[dict[str, Any]] = []
 

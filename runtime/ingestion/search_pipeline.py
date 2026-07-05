@@ -106,6 +106,13 @@ def _create_or_update_skillset_via_preview_rest(
     when using the search service system-assigned managed identity. The SDK model omits
     null-valued properties, so we submit this payload as raw JSON bytes via the low-level
     generated operation to preserve null fields.
+
+    Args:
+        client: The SearchIndexerClient instance for interacting with the Search service.
+        config: The IngestionConfig object containing Azure Search configuration.
+        skillset: The SearchIndexerSkillset object representing the skillset to create or update.
+    Raises:
+        RuntimeError: If the skillset creation or update fails.
     """
 
     payload = skillset.as_dict()
@@ -147,7 +154,16 @@ def _create_or_update_skillset_via_preview_rest(
 
 
 def _delete_if_exists(delete_fn, resource_name: str, resource_kind: str) -> None:
-    """Run delete if exists."""
+    """Run delete if exists.
+
+    Args:
+        delete_fn: The delete function to call.
+        resource_name: The name of the resource to delete.
+        resource_kind: The kind of the resource (e.g., "indexer", "skillset", "index").
+
+    Raises:
+        ResourceNotFoundError: If the resource does not exist.
+    """
     try:
         delete_fn(resource_name)
         logger.warning("Deleted Search %s for schema reset: %s", resource_kind, resource_name)
@@ -159,7 +175,14 @@ def _reset_search_artifacts_for_schema_change(
     config: IngestionConfig,
     credential: TokenCredential,
 ) -> None:
-    """Run reset search artifacts for schema change."""
+    """Run reset search artifacts for schema change.
+
+    Args:
+        config: The IngestionConfig object containing Azure Search configuration.
+        credential: The TokenCredential object for authenticating with Azure Search.
+    Raises:
+        ResourceNotFoundError: If any of the resources do not exist.
+    """
     indexer_client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
     index_client = SearchIndexClient(endpoint=config.search_endpoint, credential=credential)
 
@@ -174,7 +197,15 @@ def _reset_search_artifacts_for_schema_change(
 
 
 def ensure_search_index(config: IngestionConfig, credential: TokenCredential) -> None:
-    """Create or update the target Search index schema."""
+    """Create or update the target Search index schema.
+
+    Args:
+        config: The IngestionConfig object containing Azure Search configuration.
+        credential: The TokenCredential object for authenticating with Azure Search.
+
+    Raises:
+        RuntimeError: If the index creation or update fails.
+    """
     client = SearchIndexClient(endpoint=config.search_endpoint, credential=credential)
 
     fields = [
@@ -354,7 +385,15 @@ def ensure_search_index(config: IngestionConfig, credential: TokenCredential) ->
 
 
 def ensure_data_source(config: IngestionConfig, credential: TokenCredential) -> None:
-    """Create or update the blob storage data source using managed identity auth."""
+    """Create or update the blob storage data source using managed identity auth.
+
+    Args:
+        config: The IngestionConfig object containing Azure Search configuration.
+        credential: The TokenCredential object for authenticating with Azure Search.
+
+    Raises:
+        RuntimeError: If the data source creation or update fails.
+    """
     client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
 
     # Managed-identity connection string — no credentials stored in code.
@@ -391,6 +430,22 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
       3. MergeSkill               — merge native text with OCR text
       4. SplitSkill               — chunk merged text into pages of configurable size
       5. AzureOpenAIEmbeddingSkill — embed each chunk using the configured deployment
+
+    The skillset is configured with index projections to ensure that each chunk
+    document is written with the required metadata fields, even if the source blob
+    lacks those fields.  ConditionalSkill is used to provide default values for
+    missing fields.
+
+    The skillset is persisted via the preview REST API to ensure that the
+    `cognitiveServices.identity` property is explicitly null when using the search service system-assigned managed identity.
+    The SDK model omits null-valued properties, so we submit this payload as raw JSON bytes via the low-level generated operation to preserve null fields.
+
+    Args:
+        config: The IngestionConfig object containing Azure Search configuration.
+        credential: The TokenCredential object for authenticating with Azure Search.
+
+    Raises:
+        RuntimeError: If the skillset creation or update fails.
     """
     client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
 
@@ -835,7 +890,15 @@ def ensure_skillset(config: IngestionConfig, credential: TokenCredential) -> Non
 
 
 def ensure_indexer(config: IngestionConfig, credential: TokenCredential) -> None:
-    """Create or update the blob indexer binding the pipeline together."""
+    """Create or update the blob indexer binding the pipeline together.
+
+    Args:
+        config: The IngestionConfig object containing Azure Search configuration.
+        credential: The TokenCredential object for authenticating with Azure Search.
+
+    Raises:
+        RuntimeError: If the indexer creation or update fails.
+    """
     client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
 
     parameters = IndexingParameters(
@@ -865,8 +928,12 @@ def ensure_indexer(config: IngestionConfig, credential: TokenCredential) -> None
         parameters=parameters,
     )
 
-    client.create_or_update_indexer(indexer)
-    logger.info("Indexer ensured: %s", config.indexer_name)
+    try:
+        client.create_or_update_indexer(indexer)
+        logger.info("Indexer ensured: %s", config.indexer_name)
+    except Exception as e:
+        logger.error("Failed to create or update indexer: %s", config.indexer_name)
+        raise RuntimeError(f"Failed to create or update indexer: {config.indexer_name}") from e
 
 
 # ---------------------------------------------------------------------------
@@ -882,6 +949,12 @@ def _is_indexer_run_in_progress(status: Any) -> bool:
     - status.status is top-level IndexerStatus: running | error | unknown
       TOP-LEVEL "running" means the indexer is healthy/operational, NOT that an execution
       is in flight.  Only last_result.status == "inprogress" reliably signals active execution.
+
+    Args:
+        status: The indexer status object returned by the SDK.
+
+    Returns:
+        True if an indexer run is currently in progress, False otherwise.
     """
     try:
         last_result = getattr(status, "last_result", None)
@@ -896,7 +969,12 @@ def _is_indexer_run_in_progress(status: Any) -> bool:
 
 
 def run_indexer(config: IngestionConfig, credential: TokenCredential) -> None:
-    """Trigger an indexer run, or attach when another run is already active."""
+    """Trigger an indexer run, or attach when another run is already active.
+
+    Args:
+        config: The IngestionConfig object containing Azure Search configuration.
+        credential: The TokenCredential object for authenticating with Azure Search.
+    """
     client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
 
     # If another worker already started the indexer, attach to that run.
@@ -931,6 +1009,15 @@ def wait_for_indexer(
     """
     Poll until the indexer run completes (success or error) and return a
     summary dict with keys: status, items_processed, items_failed, error_message.
+
+    Args:
+        config: The IngestionConfig object containing Azure Search configuration.
+        credential: The TokenCredential object for authenticating with Azure Search.
+        poll_interval_seconds: How often to poll for indexer status (default: 10s).
+        timeout_seconds: Maximum time to wait for indexer completion (default: 1800s).
+
+    Returns:
+        A dict summarising the indexer run result, with keys
     """
     client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
     deadline = time.monotonic() + timeout_seconds
@@ -1054,7 +1141,13 @@ def wait_for_indexer(
 
 
 def _extract_retry_after_seconds_from_text(text: str) -> Optional[int]:
-    """Parse provider-advised retry delay (seconds) from error text."""
+    """Parse provider-advised retry delay (seconds) from error text.
+    Args:
+        text: The error text to parse.
+
+    Returns:
+        The retry delay in seconds if found, otherwise None.
+    """
     if not text:
         return None
 
@@ -1078,7 +1171,14 @@ def _extract_retry_after_seconds_from_text(text: str) -> Optional[int]:
 
 
 def _detect_rate_limit_retry_after_seconds(result: dict[str, Any]) -> Optional[int]:
-    """Return advised retry delay if a rate-limit signal exists in indexer result."""
+    """Return advised retry delay if a rate-limit signal exists in indexer result.
+
+    Args:
+        result: The indexer result dictionary to inspect.
+
+    Returns:
+        The retry delay in seconds if a rate-limit signal is detected, otherwise None.
+    """
     markers = ("ratelimitreached", "toomanyrequests", "retry after")
 
     text_candidates: list[str] = []
@@ -1130,6 +1230,22 @@ def run_indexer_with_rate_limit_backoff(
 
     - Honors provider-advised "retry after" delay when available.
     - Otherwise uses exponential backoff: base * 2^(attempt-1), capped.
+
+    Args:
+        config: The IngestionConfig object containing Azure Search configuration.
+        credential: The TokenCredential object for authenticating with Azure Search.
+        poll_interval_seconds: How often to poll for indexer status (default: 10s).
+        timeout_seconds: Maximum time to wait for indexer completion (default: 1800s).
+        max_attempts: Maximum number of indexer attempts (default: 4).
+        base_backoff_seconds: Base backoff delay in seconds (default: 30s).
+        max_backoff_seconds: Maximum backoff delay in seconds (default: 300s).
+
+    Returns:
+        A dict summarising the indexer run result, with keys:
+        - status: "success", "transientfailure", "error", or "timeout"
+        - items_processed: Number of items processed (or None if unknown)
+        - items_failed: Number of items failed (or None if unknown)
+        - error_message: Top-level error message if any (or None)
     """
     safe_attempts = max(1, int(max_attempts))
     safe_base = max(1, int(base_backoff_seconds))

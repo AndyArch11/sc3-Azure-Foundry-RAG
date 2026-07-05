@@ -39,18 +39,16 @@ def get_state_store(
 ) -> PollingStateStore:
     """Return a ``PollingStateStore`` for the configured cloud provider.
 
-    Parameters
-    ----------
-    cloud_provider:
-        Override the ``CLOUD_PROVIDER`` env var.
-    cosmos_container:
-        Pre-built Cosmos container client (Azure path).
-    table_name:
-        DynamoDB table name (AWS path); falls back to ``DYNAMODB_TABLE`` env var.
-    dynamo_session:
-        ``boto3.Session`` to use (AWS path).
-    region_name:
-        AWS region (AWS path, ignored when *dynamo_session* is provided).
+    Args:
+        cloud_provider: Optional name of the cloud provider ("azure", "aws", or "local"). If not provided, the function will attempt to read from the "CLOUD_PROVIDER" environment variable.
+        cosmos_container: Optional Cosmos DB container for Azure state store.
+        table_name: Optional DynamoDB table name for AWS state store.
+        dynamo_session: Optional DynamoDB session for AWS state store.
+        region_name: Optional AWS region name for DynamoDB state store.
+    Returns:
+        An instance of a PollingStateStore appropriate for the specified cloud provider.
+    Raises:
+        AssertionError: If the specified cloud provider is not supported or required parameters are missing.
     """
     provider_raw = cloud_provider if cloud_provider is not None else os.getenv("CLOUD_PROVIDER")
     provider = DEFAULT_CLOUD_PROVIDER_REGISTRY.get(provider_raw).provider

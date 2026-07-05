@@ -25,7 +25,7 @@ Successfully validated that `runtime/assessment_orchestration/mcp/azure_resource
 ### Infrastructure
 - **OS**: Ubuntu 24.04.4 LTS (dev container)
 - **Azure CLI**: Latest (authenticated to correct subscription)
-- **Python Runtime**: Python 3.12 with venv (`runtime/.venv`)
+- **Python Runtime**: Python 3.12 with repo-root venv (`.venv`)
 - **Dependencies**: azure-identity, requests (from requirements-dev.txt)
 
 ### Azure Scope

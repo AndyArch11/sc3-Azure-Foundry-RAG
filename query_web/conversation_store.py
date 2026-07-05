@@ -37,6 +37,11 @@ CREATE INDEX IF NOT EXISTS idx_conv_partition
 
 
 def _default_db_path() -> str:
+    """Get the default SQLite database path from environment or use in-memory.
+
+    Returns:
+        The path to the SQLite database file, or ":memory:" for in-memory storage.
+    """
     return os.environ.get("LOCAL_STATE_DB_PATH", ":memory:")
 
 
@@ -51,10 +56,24 @@ class SqliteConversationStore:
     when a document is absent.  The callers in ``conversations.py`` must
     catch ``KeyError`` in addition to the Cosmos exception — see that module
     for the dual-exception guard.
+
+    The store is thread-safe for concurrent reads and writes, using a
+    single lock around the SQLite connection.  This is sufficient for the
+    expected usage pattern of the store in the FastAPI app, where each request
+    is handled in a separate thread and may read or write conversations.
+
+    Attributes:
+        _path: The path to the SQLite database file.
+        _lock: A threading lock to ensure thread-safe access to the SQLite connection.
+        _conn: The SQLite connection object used for database operations.
     """
 
     def __init__(self, db_path: str | None = None) -> None:
-        """Initialise schema if needed."""
+        """Initialise schema if needed.
+
+        Args:
+            db_path: Optional path to the SQLite database file. If None, uses the default path from the environment variable or in-memory storage.
+        """
         self._path = db_path if db_path is not None else _default_db_path()
         if self._path != ":memory:":
             Path(self._path).parent.mkdir(parents=True, exist_ok=True)
@@ -76,7 +95,16 @@ class SqliteConversationStore:
     # ------------------------------------------------------------------
 
     def read_item(self, *, item: str, partition_key: str) -> dict:  # type: ignore[type-arg]
-        """Return the document dict or raise ``KeyError`` if not found."""
+        """Return the document dict or raise ``KeyError`` if not found.
+
+        Args:
+            item: The document ID to read.
+            partition_key: The partition key for the document (not used in this implementation).
+        Returns:
+            The document as a dictionary.
+        Raises:
+            KeyError: If the document with the specified ID is not found.
+        """
         row = self._conn.execute(
             "SELECT data FROM conversations WHERE doc_id=?", (item,)
         ).fetchone()
@@ -85,7 +113,15 @@ class SqliteConversationStore:
         return json.loads(row[0])
 
     def upsert_item(self, body: dict) -> dict:  # type: ignore[type-arg]
-        """Insert or replace a document.  ``body`` must contain an ``id`` field."""
+        """Insert or replace a document.  ``body`` must contain an ``id`` field.
+
+        Args:
+            body: The document to upsert, must contain an "id" field.
+        Returns:
+            The upserted document as a dictionary.
+        Raises:
+            ValueError: If the document does not contain a non-empty "id" field.
+        """
         doc_id = str(body.get("id") or "")
         if not doc_id:
             raise ValueError("Document must have a non-empty 'id' field")
@@ -116,6 +152,14 @@ class SqliteConversationStore:
 
         The current app call-site passes ``@user_id`` in *parameters* and expects
         rows ordered by ``updated_at`` descending.
+
+        Args:
+            query: The SQL query string (not used in this implementation).
+            parameters: Optional list of query parameters, expected to contain "@user_id".
+            partition_key: Optional partition key to filter conversations (used if "@user_id" is not found in parameters).
+            max_item_count: Optional maximum number of items to return.
+        Returns:
+            A list of conversation documents as dictionaries, ordered by "updated_at" descending.
         """
         params = parameters or []
         user_id = ""

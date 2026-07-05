@@ -38,6 +38,14 @@ EVALUATOR_PROMPT = (
 
 
 def _prompt_injection_response(reason: str) -> dict[str, Any]:
+    """Return a standard response for detected prompt injection attempts.
+
+    Args:
+        reason: The reason for blocking the request, typically a message from the validator.
+
+    Returns:
+        A dictionary representing the standard response for a blocked prompt injection attempt.
+    """
     return {
         "answer": BLOCKED_PROMPT_INJECTION_MESSAGE,
         "results": [],
@@ -59,11 +67,23 @@ def _prompt_injection_response(reason: str) -> dict[str, Any]:
 
 
 def _json_fallback_eval() -> dict[str, Any]:
+    """Return a default evaluation when the evaluator fails to return valid JSON.
+
+    Returns:
+        A dictionary representing a fallback evaluation indicating that the evaluator did not return valid JSON.
+    """
     return {"acceptable": False, "score": 0.0, "reason": "Evaluator did not return valid JSON."}
 
 
 def _parse_eval(text: str) -> dict[str, Any]:
-    """Extract and validate the evaluation JSON from the model response."""
+    """Extract and validate the evaluation JSON from the model response.
+
+    Args:
+        text: The text response from the model containing the evaluation JSON.
+
+    Returns:
+        A dictionary representing the parsed evaluation.
+    """
     candidates: list[str] = []
     candidates.append(text.strip())
     fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
@@ -90,7 +110,14 @@ def _parse_eval(text: str) -> dict[str, Any]:
 
 
 def _parse_validator_response(text: str) -> dict[str, Any]:
-    """Extract and validate validator JSON from the model response."""
+    """Extract and validate validator JSON from the model response.
+
+    Args:
+        text: The text response from the model containing the validator JSON.
+
+    Returns:
+        A dictionary representing the parsed validator response.
+    """
     candidates: list[str] = []
     candidates.append(text.strip())
     fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
@@ -122,6 +149,13 @@ def _parse_validator_response(text: str) -> dict[str, Any]:
 
 
 def _is_temperature_unsupported_error(exc: Exception) -> bool:
+    """Determine if the exception indicates that the model does not support the requested temperature.
+
+    Args:
+        exc: The exception raised during the model call.
+    Returns:
+        True if the exception indicates an unsupported temperature, False otherwise.
+    """
     message = str(exc).lower()
     return "temperature" in message and (
         "must be 1" in message
@@ -133,6 +167,14 @@ def _is_temperature_unsupported_error(exc: Exception) -> bool:
 
 
 def _is_top_p_unsupported_error(exc: Exception) -> bool:
+    """Determine if the exception indicates that the model does not support the requested top_p.
+
+    Args:
+        exc: The exception raised during the model call.
+
+    Returns:
+        True if the exception indicates an unsupported top_p, False otherwise.
+    """
     message = str(exc).lower()
     return "top_p" in message or "top p" in message or "topp" in message
 
@@ -147,7 +189,20 @@ def _chat_completion(
     timeout: int = 45,
     max_completion_tokens: int | None = None,
 ) -> str:
-    """Call Azure Foundry chat completion API using the OpenAI Python SDK."""
+    """Call Azure Foundry chat completion API using the OpenAI Python SDK.
+
+    Args:
+        messages: A list of message dictionaries for the chat completion.
+        deployment: The deployment name for the model.
+        temperature: The temperature setting for the model.
+        top_p: The top_p setting for the model (default is 1.0).
+        svc: The service object providing access to configuration and logging.
+        timeout: The timeout in seconds for the model call (default is 45).
+        max_completion_tokens: Optional maximum number of tokens for the completion (default is None).
+
+    Returns:
+        The text content of the model's response.
+    """
     provider_raw = str(getattr(getattr(svc, "config", None), "cloud_provider", "") or "").strip()
     if not provider_raw:
         provider_raw = os.getenv("CLOUD_PROVIDER") or ""
@@ -255,6 +310,20 @@ def _chat_completion_with_empty_retry(
     timeout: int = 45,
     max_completion_tokens: int | None = None,
 ) -> str:
+    """Call the chat completion API and retry once with a different temperature if the response is empty.
+
+    Args:
+        messages: A list of message dictionaries for the chat completion.
+        deployment: The deployment name for the model.
+        temperature: The temperature setting for the model.
+        top_p: The top_p setting for the model (default is 1.0).
+        svc: The service object providing access to configuration and logging.
+        timeout: The timeout in seconds for the model call (default is 45).
+        max_completion_tokens: Optional maximum number of tokens for the completion (default is None).
+
+    Returns:
+        The text content of the model's response.
+    """
     completion_kwargs: dict[str, Any] = {}
     if max_completion_tokens is not None:
         completion_kwargs["max_completion_tokens"] = max_completion_tokens
@@ -319,6 +388,19 @@ def _evaluate(
     svc: Any,
     evaluator_max_completion_tokens: int | None = None,
 ) -> dict[str, Any]:
+    """Call the evaluator model to assess the quality of the answer against the question and context.
+
+    Args:
+        question: The original question text.
+        context: The retrieved context used to generate the answer.
+        answer: The answer text generated by the model.
+        svc: The service object providing access to configuration and logging.
+        evaluator_max_completion_tokens: Optional maximum number of tokens for the evaluator completion (default is None).
+        If not provided, it will use the value from the service configuration or default to 800.
+
+    Returns:
+        A dictionary representing the evaluation result, including acceptability, score, and reason.
+    """
     raw_evaluator_tokens = (
         evaluator_max_completion_tokens
         if evaluator_max_completion_tokens is not None
@@ -351,7 +433,16 @@ def _evaluate(
 
 
 def _call_validator(text: str, *, svc: Any, timeout_s: int = 15) -> dict[str, Any]:
-    """Call validator deployment with strict isolation."""
+    """Call validator deployment with strict isolation.
+
+    Args:
+        text: The text to validate for prompt injection.
+        svc: The service object providing access to configuration and logging.
+        timeout_s: The timeout in seconds for the validator call (default is 15).
+
+    Returns:
+        A dictionary representing the validator's assessment of the text, including maliciousness, confidence, categories, and reason.
+    """
     if not svc.config.prompt_injection_validator_enabled:
         return {}
 

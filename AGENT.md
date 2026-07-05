@@ -71,7 +71,7 @@ The agent should optimise for secure-by-default changes, deterministic infrastru
 
 ## Python and Test Guidance
 
-- Prefer runtime/.venv when available.
+- Prefer repo-root .venv when available.
 - Run targeted tests first, then broader suites when risk is medium/high.
 - Integration tests are expected to run from private network context (for example jumpbox):
   - ops/scripts/azure/run-query-web-integration-tests.sh

@@ -1,3 +1,10 @@
+"""
+Validators for various assessment orchestration models.
+
+Validation functions ensure that the data structures used in the assessment orchestration process conform to expected formats and constraints. These validators are crucial for maintaining data integrity and consistency throughout the assessment workflow.
+
+"""
+
 from __future__ import annotations
 
 from typing import Any, Mapping, cast
@@ -17,19 +24,42 @@ _ALLOWED_IDENTITY_MODES = {"app_only", "delegated"}
 
 
 def _require_non_empty_string(name: str, value: object) -> str:
-    """Run require non empty string."""
+    """Run require non empty string.
+
+    Args:
+        name: The name of the field being validated.
+        value: The value to validate.
+    Returns:
+        The validated non-empty string.
+    Raises:
+        ValueError: If the value is not a non-empty string.
+    """
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must be a non-empty string")
     return value.strip()
 
 
 def _optional_string(value: object) -> str:
-    """Run optional string."""
+    """Run optional string.
+
+    Args:
+        value: The value to validate.
+    Returns:
+        The validated string, or an empty string if the value is not a string.
+    """
     return value.strip() if isinstance(value, str) else ""
 
 
 def validate_identity_mode(value: object) -> str:
-    """Run validate identity mode."""
+    """Run validate identity mode.
+
+    Args:
+        value: The value to validate.
+    Returns:
+        The validated identity mode.
+    Raises:
+        ValueError: If the value is not a valid identity mode.
+    """
     mode = _require_non_empty_string("identity_mode", value)
     if mode not in _ALLOWED_IDENTITY_MODES:
         raise ValueError(f"identity_mode must be one of {sorted(_ALLOWED_IDENTITY_MODES)}")
@@ -37,14 +67,28 @@ def validate_identity_mode(value: object) -> str:
 
 
 def _mapping_to_str_dict(value: object) -> dict[str, Any] | None:
-    """Run mapping to str dict."""
+    """Run mapping to str dict.
+
+    Args:
+        value: The value to validate.
+    Returns:
+        A dictionary with string keys and any values, or None if the value is not a mapping.
+    """
     if not isinstance(value, Mapping):
         return None
     return {str(key): val for key, val in value.items()}
 
 
 def validate_person_reference(payload: Mapping[str, Any]) -> PersonReference:
-    """Run validate person reference."""
+    """Run validate person reference.
+
+    Args:
+        payload: The payload to validate.
+    Returns:
+        The validated PersonReference.
+    Raises:
+        ValueError: If any required field is missing or invalid.
+    """
     return PersonReference(
         principal_id=_require_non_empty_string("principal_id", payload.get("principal_id")),
         display_name=_require_non_empty_string("display_name", payload.get("display_name")),
@@ -53,7 +97,15 @@ def validate_person_reference(payload: Mapping[str, Any]) -> PersonReference:
 
 
 def validate_assessment_job(payload: Mapping[str, Any]) -> AssessmentJob:
-    """Run validate assessment job."""
+    """Run validate assessment job.
+
+    Args:
+        payload: The payload to validate.
+    Returns:
+        The validated AssessmentJob.
+    Raises:
+        ValueError: If any required field is missing or invalid.
+    """
     return AssessmentJob(
         job_id=_require_non_empty_string("job_id", payload.get("job_id")),
         source_type=_require_non_empty_string("source_type", payload.get("source_type")),
@@ -75,7 +127,15 @@ def validate_assessment_job(payload: Mapping[str, Any]) -> AssessmentJob:
 
 
 def validate_resolved_target(payload: Mapping[str, Any]) -> ResolvedTarget:
-    """Run validate resolved target."""
+    """Run validate resolved target.
+
+    Args:
+        payload: The payload to validate.
+    Returns:
+        The validated ResolvedTarget.
+    Raises:
+        ValueError: If any required field is missing or invalid.
+    """
     return ResolvedTarget(
         provider=_require_non_empty_string("provider", payload.get("provider")),
         target_type=_require_non_empty_string("target_type", payload.get("target_type")),
@@ -89,7 +149,15 @@ def validate_resolved_target(payload: Mapping[str, Any]) -> ResolvedTarget:
 
 
 def validate_access_decision(payload: Mapping[str, Any]) -> AccessDecision:
-    """Run validate access decision."""
+    """Run validate access decision.
+
+    Args:
+        payload: The payload to validate.
+    Returns:
+        The validated AccessDecision.
+    Raises:
+        ValueError: If any required field is missing or invalid.
+    """
     granted = payload.get("granted")
     if not isinstance(granted, bool):
         raise ValueError("granted must be a boolean")
@@ -102,7 +170,15 @@ def validate_access_decision(payload: Mapping[str, Any]) -> AccessDecision:
 
 
 def validate_assessed_artifact_package(payload: Mapping[str, Any]) -> AssessedArtifactPackage:
-    """Run validate assessed artifact package."""
+    """Run validate assessed artifact package.
+
+    Args:
+        payload: The payload to validate.
+    Returns:
+        The validated AssessedArtifactPackage.
+    Raises:
+        ValueError: If any required field is missing or invalid.
+    """
     owner_payload = payload.get("owner")
     editor_payload = payload.get("last_editor")
     return AssessedArtifactPackage(
@@ -125,7 +201,15 @@ def validate_assessed_artifact_package(payload: Mapping[str, Any]) -> AssessedAr
 
 
 def validate_corpus_grounding_package(payload: Mapping[str, Any]) -> CorpusGroundingPackage:
-    """Run validate corpus grounding package."""
+    """Run validate corpus grounding package.
+
+    Args:
+        payload: The payload to validate.
+    Returns:
+        The validated CorpusGroundingPackage.
+    Raises:
+        ValueError: If any required field is missing or invalid.
+    """
     return CorpusGroundingPackage(
         corpus_a_results=list(payload.get("corpus_a_results") or []),
         corpus_b_results=list(payload.get("corpus_b_results") or []),
@@ -134,7 +218,15 @@ def validate_corpus_grounding_package(payload: Mapping[str, Any]) -> CorpusGroun
 
 
 def validate_delivery_plan(payload: Mapping[str, Any]) -> DeliveryPlan:
-    """Run validate delivery plan."""
+    """Run validate delivery plan.
+
+    Args:
+        payload: The payload to validate.
+    Returns:
+        The validated DeliveryPlan.
+    Raises:
+        ValueError: If any required field is missing or invalid.
+    """
     recipients = payload.get("email_recipients") or []
     if not isinstance(recipients, list):
         raise ValueError("email_recipients must be a list")
@@ -149,7 +241,15 @@ def validate_delivery_plan(payload: Mapping[str, Any]) -> DeliveryPlan:
 
 
 def validate_delivery_outcome(payload: Mapping[str, Any]) -> DeliveryOutcome:
-    """Run validate delivery outcome."""
+    """Run validate delivery outcome.
+
+    Args:
+        payload: The payload to validate.
+    Returns:
+        The validated DeliveryOutcome.
+    Raises:
+        ValueError: If any required field is missing or invalid.
+    """
     success = payload.get("success")
     if not isinstance(success, bool):
         raise ValueError("success must be a boolean")

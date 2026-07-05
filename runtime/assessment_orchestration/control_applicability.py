@@ -1,6 +1,9 @@
 """
-Control applicability classification — shared logic for deterministic scope and confidence scoring.
-Used at ingestion time to enrich controls, and at runtime for filtering decisions.
+Control Applicability Classification Module.
+
+This module provides functionality to classify controls as technical, process, governance, or mixed.
+It includes regex patterns for identifying technical and process controls, as well as governance ID patterns.
+The classification is based on the control's requirement ID and text content, and returns metadata including confidence scores and matching details.
 """
 
 from __future__ import annotations
@@ -22,7 +25,16 @@ _AZURE_GOVERNANCE_ID_RE = re.compile(r"^(GV(?:\.|-)|ID\.GV\b|AT-\d+|PM-\d+)", re
 
 @dataclass(frozen=True)
 class ControlApplicabilityMetadata:
-    """Applicability classification for a single control."""
+    """Applicability classification for a single control.
+
+    Attributes:
+        scope: The applicability scope of the control ("technical", "process", "governance", or "mixed").
+        confidence: The confidence score of the classification (0.0-1.0).
+        technical_matches: The number of technical matches found in the control text.
+        process_matches: The number of process matches found in the control text.
+        governance_id_match: True if the control's requirement ID matches a known governance pattern.
+        uncertain: True if the confidence score is below 0.70, indicating uncertainty in the classification.
+    """
 
     scope: str  # "technical" | "process" | "governance" | "mixed"
     confidence: float  # 0.0-1.0
@@ -36,6 +48,11 @@ def classify_control_applicability(control: dict[str, Any]) -> ControlApplicabil
     """
     Classify a control as technical, process, governance, or mixed.
     Returns metadata including confidence score and matching details.
+
+    Args:
+        control: A dictionary representing the control to classify.
+    Returns:
+        A ControlApplicabilityMetadata object containing the classification results.
     """
     requirement_id = str(control.get("requirement_id") or "").strip()
 
@@ -86,6 +103,14 @@ def enrich_control_with_applicability(control: dict[str, Any]) -> dict[str, Any]
     """
     Enrich a control document with applicability metadata.
     Mutates the input dict and returns it.
+
+    Args:
+        control: A dictionary representing the control to enrich.
+    Returns:
+        The same control dictionary with added applicability metadata fields:
+            - control_applicability_scope
+            - applicability_confidence
+            - applicability_uncertain
     """
     metadata = classify_control_applicability(control)
     control["control_applicability_scope"] = metadata.scope

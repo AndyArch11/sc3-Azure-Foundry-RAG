@@ -2,6 +2,12 @@
 
 The workbook provides the structured safeguard rows. The PDF provides narrative
 guidance per control (overview, why critical, and procedures/tools).
+
+Usage:
+    from runtime.ingestion.parsers.cis_controls import CisControlsParser
+    parser = CisControlsParser()
+    records = parser.parse()
+    print(f"Parsed {len(records)} CIS Controls requirement records.")
 """
 
 from __future__ import annotations
@@ -36,12 +42,28 @@ _DEFAULT_PDF_PATH = (
 
 
 def _slugify(text: str) -> str:
-    """Run slugify."""
+    """Run slugify.
+
+    Args:
+        text: The input string to slugify.
+
+    Returns:
+        A slugified version of the input string.
+    """
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
 
 
 def _maturity_level_from_igs(ig1: Any, ig2: Any, ig3: Any) -> int | None:
-    """Return the minimum implementation group (1-3) marked with 'x'."""
+    """Return the minimum implementation group (1-3) marked with 'x'.
+
+    Args:
+        ig1: Implementation Group 1 value.
+        ig2: Implementation Group 2 value.
+        ig3: Implementation Group 3 value.
+
+    Returns:
+        The minimum implementation group marked with 'x', or None if none are marked.
+    """
     for level, value in ((1, ig1), (2, ig2), (3, ig3)):
         if str(value or "").strip().lower() == "x":
             return level
@@ -49,7 +71,14 @@ def _maturity_level_from_igs(ig1: Any, ig2: Any, ig3: Any) -> int | None:
 
 
 def _normalise_pdf_text(text: str) -> str:
-    """Run normalise pdf text."""
+    """Run normalise pdf text.
+
+    Args:
+        text: The input string to normalise.
+
+    Returns:
+        A normalised version of the input string.
+    """
     text = text.replace("\xa0", " ")
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -57,7 +86,14 @@ def _normalise_pdf_text(text: str) -> str:
 
 
 def _normalise_guidance_text(text: str) -> str:
-    """Flatten guidance text to avoid hard line-break artifacts from PDF extraction."""
+    """Flatten guidance text to avoid hard line-break artifacts from PDF extraction.
+
+    Args:
+        text: The input string to normalise.
+
+    Returns:
+        A normalised version of the input string.
+    """
     # Repair discretionary hyphenation introduced by line-wrapped PDF extraction.
     text = text.replace("-\n", "-")
     # Collapse all remaining whitespace/newlines into single spaces for stable downstream rendering.
@@ -66,7 +102,16 @@ def _normalise_guidance_text(text: str) -> str:
 
 
 def _extract_section(text: str, start_label: str, end_labels: list[str]) -> str:
-    """Run extract section."""
+    """Run extract section.
+
+    Args:
+        text: The input string to search within.
+        start_label: The label indicating the start of the section.
+        end_labels: A list of labels indicating possible end points of the section.
+
+    Returns:
+        The extracted section text, or an empty string if not found.
+    """
     pattern = re.escape(start_label) + r"\s*(.*?)"
     if end_labels:
         pattern += r"(?=" + "|".join(re.escape(label) for label in end_labels) + r"|\Z)"
@@ -77,7 +122,14 @@ def _extract_section(text: str, start_label: str, end_labels: list[str]) -> str:
 
 
 def _build_control_guidance_map(pdf_path: Path) -> dict[str, str]:
-    """Run build control guidance map."""
+    """Run build control guidance map.
+
+    Args:
+        pdf_path: The path to the PDF file to parse.
+
+    Returns:
+        A dictionary mapping control numbers to their guidance text.
+    """
     if _PdfReader is None:
         raise RuntimeError(
             "pypdf is required for CIS Controls PDF parsing. Install with: pip install pypdf"
@@ -123,7 +175,12 @@ def _build_control_guidance_map(pdf_path: Path) -> dict[str, str]:
 
 
 class CisControlsParser(BaseParser):
-    """CisControlsParser."""
+    """CisControlsParser.
+
+    Attributes:
+        workbook_path: Path to the CIS Controls workbook file.
+        pdf_path: Path to the CIS Controls PDF file.
+    """
 
     def __init__(
         self,
@@ -131,12 +188,21 @@ class CisControlsParser(BaseParser):
         pdf_path: str | Path = _DEFAULT_PDF_PATH,
         **_kwargs: Any,
     ) -> None:
-        """Run init."""
+        """Initialise the CisControlsParser.
+
+        Args:
+            workbook_path: Path to the CIS Controls workbook file.
+            pdf_path: Path to the CIS Controls PDF file.
+        """
         self._workbook_path = Path(workbook_path)
         self._pdf_path = Path(pdf_path)
 
     def parse(self) -> List[RequirementRecord]:
-        """Run parse."""
+        """Parse the CIS Controls workbook and PDF to extract requirement records.
+
+        Returns:
+            A list of RequirementRecord instances parsed from the CIS Controls materials.
+        """
         try:
             import openpyxl  # noqa: PLC0415
         except ImportError as exc:

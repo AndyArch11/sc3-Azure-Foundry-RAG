@@ -21,6 +21,8 @@ from query_web.config import (
     _load_precedence_policy,
     _parse_framework_authority_order,
     _require_env,
+    _thinking_defaults,
+    _thinking_mode_presets_for_ui,
     load_config,
 )
 
@@ -319,7 +321,52 @@ def test_load_config_deep_thinking_mode_applies_defaults() -> None:
         cfg = load_config()
     assert cfg.search_top_k == 8
     assert cfg.controls_top_k == 6
+    assert cfg.default_temperature == 0.2
+    assert cfg.evaluator_temperature == 0.1
+    assert cfg.top_p == 0.85
     assert cfg.max_completion_tokens >= 2200
+
+
+def test_thinking_defaults_progress_monotonically() -> None:
+    quick = _thinking_defaults(
+        mode="quick",
+        default_max_completion_tokens=1400,
+        default_evaluator_max_completion_tokens=800,
+    )
+    balanced = _thinking_defaults(
+        mode="balanced",
+        default_max_completion_tokens=1400,
+        default_evaluator_max_completion_tokens=800,
+    )
+    deep = _thinking_defaults(
+        mode="deep",
+        default_max_completion_tokens=1400,
+        default_evaluator_max_completion_tokens=800,
+    )
+
+    assert (
+        quick["default_temperature"] < balanced["default_temperature"] < deep["default_temperature"]
+    )
+    assert (
+        quick["evaluator_temperature"]
+        <= balanced["evaluator_temperature"]
+        < deep["evaluator_temperature"]
+    )
+    assert quick["top_p"] > balanced["top_p"] > deep["top_p"]
+
+
+def test_thinking_mode_presets_for_ui_include_evaluator_fields() -> None:
+    presets = _thinking_mode_presets_for_ui(
+        default_max_completion_tokens=1400,
+        default_evaluator_max_completion_tokens=800,
+    )
+
+    assert presets["quick"]["evaluator_temperature"] == 0.05
+    assert presets["balanced"]["evaluator_temperature"] == 0.075
+    assert presets["deep"]["evaluator_temperature"] == 0.1
+    assert presets["quick"]["evaluation_threshold"] == 0.70
+    assert presets["balanced"]["evaluation_threshold"] == 0.72
+    assert presets["deep"]["evaluation_threshold"] == 0.78
 
 
 def test_load_config_thinking_mode_keeps_explicit_overrides() -> None:

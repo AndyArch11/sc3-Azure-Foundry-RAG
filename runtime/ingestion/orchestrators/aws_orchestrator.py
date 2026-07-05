@@ -1,3 +1,8 @@
+"""
+AWS orchestrator for ingestion and grounding index management.
+
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -11,11 +16,28 @@ from typing import Any
 
 
 def _truthy_env(name: str, default: str = "false") -> bool:
+    """Return True if the environment variable is set to a truthy value, else False.
+
+    Args:
+        name: The name of the environment variable.
+        default: The default value to use if the environment variable is not set.
+    Returns:
+        True if the environment variable is truthy, False otherwise.
+    """
     raw = os.getenv(name, default).strip().lower()
     return raw not in {"", "0", "false", "no", "off"}
 
 
 def _embed_text_aws(text: str, session: Any, model_id: str) -> list[float]:
+    """Embed text using AWS Bedrock embedding model.
+
+    Args:
+        text: The text to embed.
+        session: The AWS session object.
+        model_id: The ID of the Bedrock embedding model.
+    Returns:
+        A list of floats representing the embedding vector.
+    """
     payload = {"inputText": text}
     bedrock = session.client("bedrock-runtime")
     response = bedrock.invoke_model(
@@ -42,7 +64,13 @@ def _embed_text_aws(text: str, session: Any, model_id: str) -> list[float]:
 
 
 def run_aws(args: argparse.Namespace) -> int:
-    """Run Corpus B ingestion on AWS and publish to OpenSearch."""
+    """Run Corpus B ingestion on AWS and publish to OpenSearch.
+
+    Args:
+        args: The command-line arguments.
+    Returns:
+        An integer exit code: 0 on success, 1 on error.
+    """
 
     try:
         from runtime.credentials import get_credential_provider

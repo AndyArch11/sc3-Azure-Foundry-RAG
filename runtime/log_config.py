@@ -67,6 +67,13 @@ _JWT_RE = re.compile(r"\bey[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+
 
 
 def _redact_str(value: str) -> str:
+    """Redact sensitive values from a string.
+    
+    Args:
+        value: The input string potentially containing sensitive information.
+    Returns:
+        The string with sensitive values redacted.
+    """
     value = _BEARER_RE.sub(r"\1" + _REDACTED, value)
     value = _BASIC_RE.sub(r"\1" + _REDACTED, value)
     value = _JWT_RE.sub(_REDACTED, value)
@@ -74,6 +81,17 @@ def _redact_str(value: str) -> str:
 
 
 def _redact_value(value: Any) -> Any:  # noqa: ANN401
+    """Recursively redact sensitive values from a value.
+
+    Args:
+        value: The input value which can be a string, dict, list, or other type.
+
+    Returns:
+        The value with sensitive information redacted. Strings are processed for
+        sensitive patterns, dicts have their values redacted recursively, and
+        lists/tuples have their elements redacted recursively. Other types are
+        returned unchanged.
+    """
     if isinstance(value, str):
         return _redact_str(value)
     if isinstance(value, dict):
@@ -84,6 +102,14 @@ def _redact_value(value: Any) -> Any:  # noqa: ANN401
 
 
 def _redact_dict(d: dict[str, Any]) -> dict[str, Any]:
+    """Recursively redact sensitive values from a dictionary.
+
+    Args:
+        d: The input dictionary potentially containing sensitive information.
+
+    Returns:
+        A dictionary with sensitive values redacted.
+    """
     out: dict[str, Any] = {}
     for k, v in d.items():
         if isinstance(k, str) and k.lower() in _SENSITIVE_KEYS:
@@ -234,13 +260,31 @@ _LOG_RECORD_BUILT_INS: frozenset[str] = frozenset(
 
 
 class JsonFormatter(logging.Formatter):
-    """Emit one JSON object per log record with a stable schema."""
+    """Emit one JSON object per log record with a stable schema.
+    
+    Attributes:
+        service: The service name to include in each log record.
+
+    """
 
     def __init__(self, service: str) -> None:
+        """Initialise the JsonFormatter with a service name.
+        
+        Args:
+            service: The service name to include in each log record.
+        """
         super().__init__()
         self._service = service
 
     def format(self, record: logging.LogRecord) -> str:  # noqa: A003
+        """Format a log record as a JSON string with redaction and structured fields.
+        
+        Args:
+            record: The log record to format.
+
+        Returns:
+            A JSON string representing the formatted log record.
+        """
         record.message = record.getMessage()
 
         payload: dict[str, Any] = {
@@ -303,6 +347,11 @@ def _runtime_context_getter() -> tuple[str, str, str]:
     Applies ``_sanitise_correlation_id`` and ``_sanitise_tracestate`` from
     ``runtime.trace_context`` so that values reaching log records go through
     the same guards as inbound header values.
+
+    Returns:
+        A tuple of ``(correlation_id, traceparent, tracestate)`` for the
+        current execution context.  Empty strings are returned for any value
+        that is not set or fails sanitisation.
     """
     try:
         from runtime.trace_context import (  # noqa: PLC0415

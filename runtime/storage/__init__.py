@@ -26,7 +26,20 @@ def get_storage_client(
     session: Any = None,
     base_dir: str | None = None,
 ) -> StorageClient:
-    """Return a provider-appropriate StorageClient."""
+    """Return a provider-appropriate StorageClient.
+    
+    Args:
+        cloud_provider: Optional name of the cloud provider ("azure", "aws", or "local"). If not provided, the function will attempt to read from the "CLOUD_PROVIDER" environment variable.
+        credential: Optional credential/session object for SDK clients.
+        account_url: Optional account URL for Azure Blob Storage.
+        region_name: Optional AWS region name for S3 storage.
+        session: Optional AWS session for S3 storage.
+        base_dir: Optional base directory for local file storage.
+    Returns:
+        An instance of a StorageClient appropriate for the specified cloud provider. 
+    Raises:
+        AssertionError: If the specified cloud provider is not supported or required parameters are missing.
+    """
 
     provider_raw = cloud_provider if cloud_provider is not None else os.getenv("CLOUD_PROVIDER")
     provider = DEFAULT_CLOUD_PROVIDER_REGISTRY.get(provider_raw).provider

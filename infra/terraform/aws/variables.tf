@@ -316,13 +316,13 @@ variable "controls_index_name" {
 
 variable "opensearch_grounding_index_knn_enabled" {
   type        = bool
-  description = "Enable index.knn and knn_vector embedding mapping when creating grounding index."
+  description = "Enable index.knn and knn_vector embedding mapping when creating grounding index. Must be chosen before the index is created and cannot be changed without deleting and recreating the index."
   default     = false
 }
 
 variable "opensearch_grounding_embedding_dimensions" {
   type        = number
-  description = "Embedding dimension used for grounding embedding knn_vector mapping."
+  description = "Embedding dimension used for grounding embedding knn_vector mapping. This is part of the created index mapping, so changing it later requires deleting and recreating the index."
   default     = 1024
 }
 

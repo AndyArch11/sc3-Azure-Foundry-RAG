@@ -8,8 +8,8 @@ Covers:
 - Extra structured fields are carried through to the JSON output.
 - query_web.log_config is a shim over runtime.log_config; no duplicate code.
 - context_getter is pluggable: query-web uses request_context public accessors
-  (W3C validation + sanitization guardrails); runtime uses trace_context with
-  its own sanitization helpers.
+  (W3C validation + sanitisation guardrails); runtime uses trace_context with
+  its own sanitisation helpers.
 """
 
 from __future__ import annotations

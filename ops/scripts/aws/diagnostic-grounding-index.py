@@ -15,7 +15,17 @@ except ImportError as exc:
 
 
 def get_signed_headers(session: Any, method: str, url: str, body: str = "") -> dict[str, str]:
-    """Generate AWS SigV4-signed headers for OpenSearch request."""
+    """Generate AWS SigV4-signed headers for OpenSearch request.
+    
+    Args:
+        session: A boto3 session object.
+        method: HTTP method (e.g., "GET", "POST").
+        url: The full URL of the OpenSearch endpoint.
+        body: The request body as a string (default is empty).  
+    
+    Returns:
+            A dictionary of signed headers.
+    """
     from botocore.auth import SigV4Auth
     from botocore.awsrequest import AWSRequest
 
@@ -39,7 +49,10 @@ def get_signed_headers(session: Any, method: str, url: str, body: str = "") -> d
 
 
 def main() -> int:
-    """Query OpenSearch grounding-index for corpus metadata distribution."""
+    """Query OpenSearch grounding-index for corpus metadata distribution.
+    
+    Returns:
+        Exit code: 0 on success, 1 on error."""
     endpoint = os.getenv("OPENSEARCH_ENDPOINT", "").strip()
     index_name = os.getenv("OPENSEARCH_GROUNDING_INDEX_NAME", "grounding-index")
     region = os.getenv("AWS_REGION", "ap-southeast-2")

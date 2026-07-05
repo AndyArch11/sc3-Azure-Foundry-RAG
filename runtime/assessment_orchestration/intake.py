@@ -1,3 +1,11 @@
+"""
+Assessment Orchestration Intake Module.
+
+This module provides functionality to build assessment jobs from provider events or email notifications.
+It includes functions to infer providers from URLs, extract relevant fields from payloads, and construct validated AssessmentJob objects.
+The module also provides a function to build queue messages for assessment jobs, including correlation IDs and traceparent information for distributed tracing.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -12,19 +20,33 @@ from .validators import validate_assessment_job
 
 
 def _utc_now_iso() -> str:
-    """Run utc now iso."""
+    """Run utc now iso.
+    Returns:
+        A string representing the current UTC time in ISO 8601 format.
+    """
     return datetime.now(UTC).isoformat()
 
 
 def _host_is_exact_or_subdomain(host: str, domain: str) -> bool:
-    """Run host is exact or subdomain."""
+    """Run host is exact or subdomain.
+    Args:
+        host: The host to check.
+        domain: The domain to check against.
+    Returns:
+        True if the host is exactly the domain or a subdomain of it, False otherwise.
+    """
     host_l = host.strip().lower()
     domain_l = domain.strip().lower()
     return host_l == domain_l or host_l.endswith(f".{domain_l}")
 
 
 def _infer_provider_from_url(target_url: str) -> str:
-    """Run infer provider from url."""
+    """Run infer provider from url.
+    Args:
+        target_url: The URL to infer the provider from.
+    Returns:
+        The inferred provider as a string.
+    """
     parsed = urlparse(target_url)
     host = (parsed.hostname or "").lower()
     path = parsed.path or ""
@@ -40,7 +62,13 @@ def _infer_provider_from_url(target_url: str) -> str:
 
 
 def _first_non_empty(payload: Mapping[str, Any], keys: list[str]) -> str:
-    """Run first non empty."""
+    """Run first non empty.
+    Args:
+        payload: The dictionary to search for keys.
+        keys: A list of keys to check in order.
+    Returns:
+        The first non-empty string value found, or an empty string if none found.
+    """
     for key in keys:
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
@@ -49,7 +77,13 @@ def _first_non_empty(payload: Mapping[str, Any], keys: list[str]) -> str:
 
 
 def _stable_correlation(source_event_id: str, target_url: str) -> str:
-    """Run stable correlation."""
+    """Run stable correlation.
+    Args:
+        source_event_id: The source event identifier.
+        target_url: The target URL associated with the event.
+    Returns:
+        A stable correlation ID derived from the source event ID and target URL.
+    """
     base = f"{source_event_id}|{target_url}".encode("utf-8")
     return hashlib.sha256(base).hexdigest()[:32]
 
@@ -61,7 +95,15 @@ def build_assessment_job_from_provider_event(
     request_identity_mode: IdentityMode = "app_only",
     delivery_policy: str = "inline_else_email",
 ) -> AssessmentJob:
-    """Run build assessment job from provider event."""
+    """Run build assessment job from provider event.
+    Args:
+        payload: The provider event payload.
+        provider_hint: Optional hint for the provider.
+        request_identity_mode: The identity mode for the request.
+        delivery_policy: The delivery policy for the assessment job.
+    Returns:
+        An AssessmentJob object.
+    """
     target_url = _first_non_empty(payload, ["target_url", "url", "canonical_url"])
     if not target_url:
         raise ValueError("Provider event payload must include target_url")
@@ -109,7 +151,14 @@ def build_assessment_job_from_email_notification(
     request_identity_mode: IdentityMode = "app_only",
     delivery_policy: str = "inline_else_email",
 ) -> AssessmentJob:
-    """Run build assessment job from email notification."""
+    """Run build assessment job from email notification.
+    Args:
+        parsed_email_notification: The parsed email notification payload.
+        request_identity_mode: The identity mode for the request.
+        delivery_policy: The delivery policy for the assessment job.
+    Returns:
+        An AssessmentJob object.
+    """
     target_reference = _first_non_empty(
         parsed_email_notification, ["target_reference", "target_url", "url"]
     )
@@ -159,7 +208,15 @@ def build_queue_message(
     source_event_id: str = "",
     traceparent: str = "",
 ) -> QueueMessage:
-    """Run build queue message."""
+    """Run build queue message.
+    Args:
+        job: The assessment job object.
+        message_type: The type of the queue message.
+        source_event_id: The source event identifier.
+        traceparent: The traceparent for distributed tracing.
+    Returns:
+        A QueueMessage object.
+    """
     payload = {
         "queue_message_id": str(uuid.uuid4()),
         "message_type": message_type,

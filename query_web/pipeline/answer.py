@@ -21,6 +21,12 @@ def _unwrap_answer(text: str) -> str:
 
     If the entire response is wrapped in a code fence, return the fence body even when
     it is not JSON.
+
+    Args:
+        text: The raw response text to unwrap.
+
+    Returns:
+        The extracted answer text, or the original text if no wrapping was detected.
     """
     stripped = text.strip()
     had_code_fence = False
@@ -45,7 +51,14 @@ def _unwrap_answer(text: str) -> str:
 
 
 def _clean_markdown_whitespace(text: str) -> str:
-    """Normalise markdown spacing while preserving paragraph separation."""
+    """Normalise markdown spacing while preserving paragraph separation.
+
+    Args:
+        text: The markdown text to normalise.
+
+    Returns:
+        The normalised markdown text.
+    """
     if not text:
         return ""
 
@@ -57,7 +70,14 @@ def _clean_markdown_whitespace(text: str) -> str:
 
 
 def _ensure_visible_answer(answer: str) -> str:
-    """Prevent silent blank answers from reaching the UI."""
+    """Prevent silent blank answers from reaching the UI.
+
+    Args:
+        answer: The answer text to check.
+
+    Returns:
+        The original answer if it is not blank, otherwise a default message.
+    """
     if answer and answer.strip():
         return answer.strip()
     return (
@@ -69,7 +89,15 @@ def _ensure_visible_answer(answer: str) -> str:
 
 
 def _chunk_reference_label(chunk: dict[str, Any], *, fallback: str = "(unknown source)") -> str:
-    """Return a reader-friendly source label, preferring original filename metadata."""
+    """Return a reader-friendly source label, preferring original filename metadata.
+
+    Args:
+        chunk: The chunk dictionary containing metadata.
+        fallback: The fallback label to use if no other metadata is available.
+
+    Returns:
+        A reader-friendly source label.
+    """
     original_filename = str(chunk.get("original_filename") or "").strip()
     if original_filename:
         return original_filename
@@ -94,14 +122,38 @@ def _chunk_reference_label(chunk: dict[str, Any], *, fallback: str = "(unknown s
 
 # TODO: Refactor so only using a single format for corpus / corpus_role and avoid this dual normalisation logic.
 def _normalise_corpus_value(raw_value: Any) -> str:
+    """Normalise corpus value to a standard lowercase format with hyphens.
+
+    Args:
+        raw_value: The raw corpus value to normalise.
+
+    Returns:
+        The normalised corpus value.
+    """
     return str(raw_value or "").strip().lower().replace("_", "-")
 
 
 def _normalise_corpus_role_value(raw_value: Any) -> str:
+    """Normalise corpus role value to a standard lowercase format with underscores.
+
+    Args:
+        raw_value: The raw corpus role value to normalise.
+
+    Returns:
+        The normalised corpus role value.
+    """
     return str(raw_value or "").strip().lower().replace("-", "_")
 
 
 def _is_corpus_b_chunk(chunk: dict[str, Any]) -> bool:
+    """Determine if a chunk belongs to Corpus B (narrative guidance).
+
+    Args:
+        chunk: The chunk dictionary containing metadata.
+
+    Returns:
+        True if the chunk is identified as belonging to Corpus B, otherwise False.
+    """
     corpus = _normalise_corpus_value(chunk.get("corpus"))
     corpus_role = _normalise_corpus_role_value(chunk.get("corpus_role"))
     return corpus in {"b", "corpus-b"} or corpus_role in {
@@ -119,6 +171,17 @@ def _build_retrieval_based_fallback_answer(
     corpus_b_chunks: list[dict[str, Any]] | None = None,
     corpus_c_chunks: list[dict[str, Any]] | None = None,
 ) -> str:
+    """Construct a retrieval-grounded fallback answer when model completion is unavailable.
+
+    Args:
+        question: The original question text.
+        controls: A list of retrieved Corpus A control dictionaries.
+        chunks: A list of all retrieved chunk dictionaries.
+        corpus_b_chunks: Optional list of retrieved Corpus B chunk dictionaries.
+        corpus_c_chunks: Optional list of retrieved Corpus C chunk dictionaries.
+    Returns:
+        A formatted markdown string representing the fallback answer.
+    """
     resolved_corpus_b_chunks = list(corpus_b_chunks or [])
     resolved_corpus_c_chunks = list(corpus_c_chunks or [])
     if not resolved_corpus_b_chunks and not resolved_corpus_c_chunks and chunks:
@@ -131,6 +194,15 @@ def _build_retrieval_based_fallback_answer(
     framework_text = ", ".join(frameworks) if frameworks else "none"
 
     def _guidance_snippet(control: dict[str, Any], limit: int = 220) -> str:
+        """Return a snippet of the requirement text for a control, truncated to a limit.
+
+        Args:
+            control: The control dictionary containing metadata.
+            limit: The maximum length of the snippet.
+
+        Returns:
+            A truncated snippet of the requirement text.
+        """
         text = sanitise_untrusted_text(str(control.get("requirement_text") or "").strip())
         if not text:
             return "Requirement text unavailable in retrieved control metadata."
@@ -152,6 +224,14 @@ def _build_retrieval_based_fallback_answer(
     focus_terms = _controls_module._question_focus_terms(question)
 
     def _normalise_excerpt_text(text: str) -> str:
+        """Normalise text for excerpt display, removing excessive whitespace and control characters.
+
+        Args:
+            text: The text to normalise.
+
+        Returns:
+            The normalised text suitable for display in excerpts.
+        """
         cleaned = sanitise_untrusted_text(text or "")
         cleaned = cleaned.replace("\t", " ").replace("\r", " ").replace("\n", " ")
         cleaned = re.sub(r"\s+", " ", cleaned)
@@ -159,6 +239,14 @@ def _build_retrieval_based_fallback_answer(
         return cleaned.strip()
 
     def _sentence_candidates(text: str) -> list[str]:
+        """Extract candidate sentences from text for scoring.
+
+        Args:
+            text: The text to extract sentences from.
+
+        Returns:
+            A list of candidate sentences.
+        """
         cleaned = _normalise_excerpt_text(text)
         if not cleaned:
             return []
@@ -166,6 +254,14 @@ def _build_retrieval_based_fallback_answer(
         return [part.strip() for part in parts if part and len(part.strip()) >= 40]
 
     def _sentence_score(sentence: str) -> tuple[int, int, int]:
+        """Score a sentence based on focus terms, signal terms, and noise.
+
+        Args:
+            sentence: The sentence to score.
+
+        Returns:
+            A tuple representing the sentence score.
+        """
         low = sentence.lower()
         focus_hits = sum(1 for term in focus_terms if term in low)
         signal_hits = sum(
@@ -188,6 +284,15 @@ def _build_retrieval_based_fallback_answer(
         return (focus_hits, signal_hits, -noise_penalty)
 
     def _chunk_snippet(chunk: dict[str, Any], *, limit: int = 220) -> str:
+        """Return a snippet of the chunk content, truncated to a limit.
+
+        Args:
+            chunk: The chunk dictionary containing content.
+            limit: The maximum length of the snippet.
+
+        Returns:
+            A truncated snippet of the chunk content.
+        """
         content = _normalise_excerpt_text(str(chunk.get("content") or "").strip())
         if not content:
             return "Narrative guidance retrieved; excerpt unavailable in this chunk."
@@ -202,6 +307,15 @@ def _build_retrieval_based_fallback_answer(
         return content[:limit].rstrip() + ("..." if len(content) > limit else "")
 
     def _corpus_b_narrative(items: list[dict[str, Any]], *, limit: int = 3) -> list[str]:
+        """Generate a narrative for Corpus B items.
+
+        Args:
+            items: A list of Corpus B items.
+            limit: The maximum number of sentences to include in the narrative.
+
+        Returns:
+            A list of narrative sentences for Corpus B.
+        """
         statements: list[tuple[tuple[int, int, int], str, str]] = []
         seen_sentences: set[str] = set()
 
@@ -226,6 +340,16 @@ def _build_retrieval_based_fallback_answer(
     def _unique_source_labels(
         items: list[dict[str, Any]], *, limit: int = 5, include_excerpt: bool = False
     ) -> list[str]:
+        """Return a list of unique source labels for the given items.
+
+        Args:
+            items: A list of items to extract source labels from.
+            limit: The maximum number of unique labels to return.
+            include_excerpt: Whether to include a snippet of the item content.
+
+        Returns:
+            A list of unique source labels.
+        """
         labels: list[str] = []
         seen: set[str] = set()
         for item in items:

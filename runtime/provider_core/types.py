@@ -8,7 +8,15 @@ CloudProvider = Literal["azure", "aws", "local"]
 
 
 def normalise_cloud_provider(value: str | None) -> CloudProvider:
-    """Normalise user/env provider values into the canonical provider key."""
+    """Normalise user/env provider values into the canonical provider key.
+    
+    Args:
+        value: The input provider value (e.g., from env var or user input).
+    Returns:
+        The canonical provider key: "azure", "aws", or "local".
+    Raises:
+        ValueError: If the input value is not a recognised provider.
+    """
 
     provider = (value or "azure").strip().lower()
     if provider in {"local", "dev"}:

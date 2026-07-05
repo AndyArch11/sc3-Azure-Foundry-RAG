@@ -1,3 +1,7 @@
+"""
+Reset ingestion orchestrator for AWS and Azure providers.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -7,7 +11,15 @@ import sys
 
 
 def run_reset_aws(args: argparse.Namespace, *, cloud_provider: str) -> int:
-    """Run reset orchestration for AWS provider."""
+    """Run reset orchestration for AWS provider.
+
+    Args:
+        args: The command-line arguments namespace.
+        cloud_provider: The cloud provider name.
+
+    Returns:
+        An integer exit code.
+    """
 
     try:
         from ...credentials import get_credential_provider
@@ -56,7 +68,15 @@ def run_reset_aws(args: argparse.Namespace, *, cloud_provider: str) -> int:
 
 
 def run_reset_azure(args: argparse.Namespace, *, cloud_provider: str) -> int:
-    """Run reset orchestration for Azure provider."""
+    """Run reset orchestration for Azure provider.
+
+    Args:
+        args: The command-line arguments namespace.
+        cloud_provider: The cloud provider name.
+
+    Returns:
+        An integer exit code.
+    """
 
     from azure.identity import DefaultAzureCredential
 

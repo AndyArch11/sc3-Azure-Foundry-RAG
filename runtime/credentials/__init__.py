@@ -17,7 +17,15 @@ from .abstract import CredentialProvider
 
 
 def get_credential_provider(cloud_provider: str | None = None) -> CredentialProvider:
-    """Return provider adapter for the requested cloud."""
+    """Return provider adapter for the requested cloud.
+    
+    Args:
+        cloud_provider: The cloud provider to get the credential provider for.
+    Returns:
+        The credential provider for the requested cloud.
+    Raises:
+        AssertionError: If the cloud provider is not supported.
+    """
 
     provider_raw = cloud_provider if cloud_provider is not None else os.getenv("CLOUD_PROVIDER")
     provider = DEFAULT_CLOUD_PROVIDER_REGISTRY.get(provider_raw).provider

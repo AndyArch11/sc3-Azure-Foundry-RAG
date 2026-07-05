@@ -1,0 +1,169 @@
+openapi: 3.0.3
+info:
+  title: RAG Query API
+  version: 1.0.0
+  description: |
+    Stable service contract for external integrations that consume the query-web RAG API
+    through an edge gateway (Azure APIM or AWS API Gateway).
+servers:
+  - url: https://api.example.com
+    description: Gateway base URL
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/ask:
+    post:
+      summary: Generate a RAG answer
+      operationId: postAsk
+      description: |
+        Primary integration entry point for question answering.
+        Deployments should expose this operation via APIM/API Gateway and keep query-web private.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AskRequest"
+      responses:
+        "200":
+          description: Ask response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AskResponse"
+        "401":
+          description: Unauthorised request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AskResponse"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+components:
+  schemas:
+    AskRequest:
+      type: object
+      required:
+        - question
+      properties:
+        question:
+          type: string
+          minLength: 1
+        retrieve_k:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 5
+        controls_context_cap:
+          type: integer
+          minimum: 1
+          maximum: 2000
+          nullable: true
+        temperature:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          default: 1.0
+        top_p:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          default: 1.0
+        thinking_mode:
+          type: string
+          default: balanced
+        controls_semantic:
+          type: boolean
+          nullable: true
+        controls_framework:
+          type: string
+          nullable: true
+        controls_comparison_mode:
+          type: string
+          default: auto-detect
+        evidence_corpora_include:
+          type: array
+          items:
+            type: string
+          nullable: true
+        evidence_corpora_exclude:
+          type: array
+          items:
+            type: string
+          nullable: true
+        max_completion_tokens:
+          type: integer
+          minimum: 256
+          maximum: 8192
+          nullable: true
+        evaluator_max_completion_tokens:
+          type: integer
+          minimum: 128
+          maximum: 4096
+          nullable: true
+        advanced_mode:
+          type: boolean
+          default: false
+        auth_token:
+          type: string
+          description: |
+            Internal shared token used by query-web auth.
+            External callers should authenticate at the gateway; the gateway should inject this field.
+          default: ""
+    AskResponse:
+      type: object
+      properties:
+        answer:
+          type: string
+        results:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        controls_results:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        controls_debug:
+          type: object
+          nullable: true
+          additionalProperties: true
+        evaluation:
+          type: object
+          nullable: true
+          additionalProperties: true
+        iterations:
+          type: integer
+          nullable: true
+        metrics:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: number
+        audit:
+          type: object
+          nullable: true
+          additionalProperties: true
+        error:
+          type: string
+          nullable: true
+      required:
+        - answer
+        - results
+        - controls_results

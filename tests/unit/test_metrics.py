@@ -311,7 +311,7 @@ class TestCorrelationIdSanitisedCounter:
         assert _counter_value(CORRELATION_ID_SANITISED_TOTAL) == before
 
     def test_oversized_value_without_unsafe_chars_does_not_increment(self) -> None:
-        # Truncation alone does not count as sanitization (no chars removed, just sliced)
+        # Truncation alone does not count as sanitisation (no chars removed, just sliced)
         from query_web.metrics import CORRELATION_ID_SANITISED_TOTAL
         from query_web.request_context import _sanitise_correlation_id
 

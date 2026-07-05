@@ -6,6 +6,11 @@ Source documents:
 
 The release PDF contains the authoritative numbered PSPF requirements and the
 section-level guidance text that introduces each requirement group.
+Usage:
+    from runtime.ingestion.parsers.pspf import PspfParser
+    parser = PspfParser()
+    records = parser.parse()
+    print(f"Parsed {len(records)} PSPF requirement records.")
 """
 
 from __future__ import annotations
@@ -168,14 +173,28 @@ _ROMAN_OR_PAGE_RE = re.compile(r"^(?:[ivxlcdm]+|\d+)$", re.IGNORECASE)
 
 
 def _flatten(text: str) -> str:
-    """Run flatten."""
+    """Run flatten.
+
+    Args:
+        text: The text to be flattened.
+
+    Returns:
+        The flattened text.
+    """
     text = text.replace("-\n", "-")
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
 def _clean_page_text(text: str) -> str:
-    """Run clean page text."""
+    """Run clean page text.
+
+    Args:
+        text: The raw text of a PDF page.
+
+    Returns:
+        The cleaned text of the page.
+    """
     cleaned: list[str] = []
     for raw_line in (text or "").replace("\xa0", " ").splitlines():
         line = re.sub(r"\s+", " ", raw_line).strip()
@@ -194,7 +213,14 @@ def _clean_page_text(text: str) -> str:
 
 
 def _download_pdf_bytes(url: str) -> bytes:
-    """Run download pdf bytes."""
+    """Run download pdf bytes.
+
+    Args:
+        url: The URL of the PDF to download.
+
+    Returns:
+        The downloaded PDF bytes.
+    """
     response = request_with_instrumentation(
         "GET",
         url,
@@ -209,7 +235,14 @@ def _download_pdf_bytes(url: str) -> bytes:
 
 
 def _extract_full_text(pdf_bytes: bytes) -> str:
-    """Run extract full text."""
+    """Run extract full text.
+
+    Args:
+        pdf_bytes: The bytes of the PDF file.
+
+    Returns:
+        The extracted full text from the PDF.
+    """
     if _PdfReader is None:
         raise RuntimeError(
             "pypdf is required for PSPF PDF parsing. Install with: pip install pypdf"
@@ -221,19 +254,43 @@ def _extract_full_text(pdf_bytes: bytes) -> str:
 
 
 def _heading_level(number: str) -> int:
-    """Run heading level."""
+    """Run heading level.
+
+    Args:
+        number: The heading number string (e.g., "1.2.3").
+
+    Returns:
+        The heading level as an integer.
+    """
     return number.count(".")
 
 
 def _format_heading(number: str, title: str) -> str:
-    """Run format heading."""
+    """Run format heading.
+
+    Args:
+        number: The heading number string (e.g., "1.2.3").
+        title: The heading title string.
+
+    Returns:
+        The formatted heading string.
+    """
     return f"{number} {title}".strip()
 
 
 def _build_source_section(
     domain_code: str, headings: dict[int, tuple[str, str]], requirement_number: str
 ) -> str:
-    """Run build source section."""
+    """Run build source section.
+
+    Args:
+        domain_code: The domain code string.
+        headings: A dictionary of heading levels to (number, title) tuples.
+        requirement_number: The requirement number string.
+
+    Returns:
+        The formatted source section string.
+    """
     parts = [domain_code]
     for level in sorted(headings):
         number, title = headings[level]
@@ -243,7 +300,15 @@ def _build_source_section(
 
 
 def _current_control_family(domain_code: str, headings: dict[int, tuple[str, str]]) -> str:
-    """Run current control family."""
+    """Run current control family.
+
+    Args:
+        domain_code: The domain code string.
+        headings: A dictionary of heading levels to (number, title) tuples.
+
+    Returns:
+        The current control family string.
+    """
     if headings:
         _, title = headings[max(headings)]
         return title
@@ -251,7 +316,15 @@ def _current_control_family(domain_code: str, headings: dict[int, tuple[str, str
 
 
 def _should_ignore_heading(number: str, title: str) -> bool:
-    """Run should ignore heading."""
+    """Run should ignore heading.
+
+    Args:
+        number: The heading number string.
+        title: The heading title string.
+
+    Returns:
+        True if the heading should be ignored, False otherwise.
+    """
     if title.startswith(("Including ", "This includes ")):
         return True
     if number.isdigit() and int(number) > 30:
@@ -260,7 +333,14 @@ def _should_ignore_heading(number: str, title: str) -> bool:
 
 
 def _should_skip_context_line(line: str) -> bool:
-    """Run should skip context line."""
+    """Run should skip context line.
+
+    Args:
+        line: The line of text to check.
+
+    Returns:
+        True if the line should be skipped, False otherwise.
+    """
     if line.startswith("Table ") or line.startswith("Figure "):
         return True
     if line.startswith("Req Number") or line.startswith("Status PSPF Reporting"):
@@ -275,7 +355,14 @@ def _should_skip_context_line(line: str) -> bool:
 
 
 def _should_stop_requirement_capture(line: str) -> bool:
-    """Run should stop requirement capture."""
+    """Run should stop requirement capture.
+
+    Args:
+        line: The line of text to check.
+
+    Returns:
+        True if requirement capture should stop, False otherwise.
+    """
     if _REQ_HEADER_RE.match(line) or _HEADING_RE.match(line):
         return True
     if line.startswith("Table "):
@@ -291,7 +378,17 @@ def _pspf_keywords(
     headings: dict[int, tuple[str, str]],
     requirement_text: str,
 ) -> list[str]:
-    """Run pspf keywords."""
+    """Run pspf keywords.
+
+    Args:
+        domain_code: The domain code string.
+        applicability: The applicability string.
+        headings: A dictionary of heading levels to (number, title) tuples.
+        requirement_text: The requirement text string.
+
+    Returns:
+        A list of keywords.
+    """
     keywords: list[str] = []
     keywords.extend(_DOMAIN_KEYWORDS.get(domain_code, []))
 
@@ -319,7 +416,14 @@ def _pspf_keywords(
 
 
 def _parse_pspf_release_text(full_text: str) -> list[RequirementRecord]:
-    """Run parse pspf release text."""
+    """Run parse pspf release text.
+
+    Args:
+        full_text: The full text of the PSPF release.
+
+    Returns:
+        A list of RequirementRecord objects.
+    """
     lines = [line.strip() for line in full_text.splitlines() if line.strip()]
     headings: dict[int, tuple[str, str]] = {}
     guidance_lines: list[str] = []
@@ -411,14 +515,28 @@ def _parse_pspf_release_text(full_text: str) -> list[RequirementRecord]:
 
 
 class PspfParser(BaseParser):
-    """PspfParser."""
+    """PspfParser.
+
+    Parses the PSPF PDF to extract requirement records.
+
+    Attributes:
+        _release_pdf_url: The URL of the PSPF release PDF.
+    """
 
     def __init__(self, release_pdf_url: str = SOURCE_URI, **_kwargs: Any) -> None:
-        """Run init."""
+        """Run init.
+
+        Args:
+            release_pdf_url: The URL of the PSPF release PDF.
+        """
         self._release_pdf_url = release_pdf_url
 
     def parse(self) -> List[RequirementRecord]:
-        """Run parse."""
+        """Run parse.
+
+        Returns:
+            A list of RequirementRecord objects.
+        """
         pdf_bytes = _download_pdf_bytes(self._release_pdf_url)
         full_text = _extract_full_text(pdf_bytes)
         records = _parse_pspf_release_text(full_text)

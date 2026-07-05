@@ -42,7 +42,14 @@ _LOCAL_QUERY_STOPWORDS = {
 
 
 def _query_tokens(query: str) -> list[str]:
-    """Extract meaningful query terms for local fallback ranking."""
+    """Extract meaningful query terms for local fallback ranking.
+    
+    Args:
+        query: The query string to tokenise.
+
+    Returns:
+        A list of meaningful query tokens.
+    """
 
     tokens = re.findall(r"[a-z0-9][a-z0-9_-]{1,}", query.lower())
     return [tok for tok in tokens if tok not in _LOCAL_QUERY_STOPWORDS and len(tok) >= 3]
@@ -56,15 +63,34 @@ class _SearchResults(list[dict[str, Any]]):
     """List-like search results that expose Azure-style get_count()."""
 
     def __init__(self, items: list[dict[str, Any]], *, total_count: int | None = None) -> None:
+        """Initialise search results with optional total count.
+
+        Args:
+            items: The list of search result documents.
+            total_count: The total count of matching documents, if available.
+        """
         super().__init__(items)
         self._total_count = total_count
 
     def get_count(self) -> int | None:
+        """Return the total count of matching documents, if available.
+
+        Returns:
+            The total count of matching documents, or None if not available.
+        """
         return self._total_count
 
 
 class LocalQdrantSearchClient:
-    """SearchClient backed by Qdrant using Ollama embeddings."""
+    """SearchClient backed by Qdrant using Ollama embeddings.
+    
+    Attributes:
+        _index: The logical index name.
+        _qdrant_url: The URL of the Qdrant instance.
+        _ollama_base_url: The base URL of the Ollama instance.
+        _embedding_model: The embedding model to use.
+        _docs: The in-memory list of documents.
+    """
 
     def __init__(
         self,
@@ -74,6 +100,14 @@ class LocalQdrantSearchClient:
         ollama_base_url: str | None = None,
         embedding_model: str | None = None,
     ) -> None:
+        """Initialise a LocalQdrantSearchClient instance.
+
+        Args:
+            index: The logical index name.
+            qdrant_url: The URL of the Qdrant instance.
+            ollama_base_url: The base URL of the Ollama instance.
+            embedding_model: The embedding model to use.
+        """
         self._index = index
         env_qdrant_url = os.getenv("QDRANT_URL")
         env_ollama_url = os.getenv("OLLAMA_BASE_URL")
@@ -91,9 +125,18 @@ class LocalQdrantSearchClient:
 
     @property
     def index_name(self) -> str:
+        """Return the logical index name."""
         return self._index
 
     def _text_for_embedding(self, doc: dict[str, Any]) -> str:
+        """Extract the text to be used for embedding from a document.
+
+        Args:
+            doc: The document from which to extract text.
+
+        Returns:
+            The text to be used for embedding.
+        """
         return str(
             doc.get("content")
             or doc.get("requirement_text")
@@ -102,6 +145,15 @@ class LocalQdrantSearchClient:
         ).strip()
 
     def _point_id(self, doc: dict[str, Any], ordinal: int) -> int:
+        """Generate a unique point ID for a document.
+
+        Args:
+            doc: The document for which to generate the ID.
+            ordinal: The ordinal position of the document.
+
+        Returns:
+            A unique integer ID for the document.
+        """
         seed = str(doc.get("id") or doc.get("chunk_id") or f"{self._index}:{ordinal}")
         return int(hashlib.sha256(seed.encode("utf-8")).hexdigest()[:15], 16)
 
@@ -116,6 +168,16 @@ class LocalQdrantSearchClient:
         return max(256, budget)
 
     def _embed_text(self, text: str) -> list[float]:
+        """Generate an embedding vector for the given text using Ollama.
+
+        Args:
+            text: The text to embed.
+
+        Returns:
+            A list of floats representing the embedding vector.
+        Raises:
+            RuntimeError: If the text is empty or if the Ollama embedding response is invalid.
+        """
         prompt = text.strip()
         if not prompt:
             raise RuntimeError("Cannot embed empty text")
@@ -153,6 +215,11 @@ class LocalQdrantSearchClient:
             raise RuntimeError("Ollama embedding response did not include vectors")
 
     def load_documents(self, docs: list[dict[str, Any]]) -> None:
+        """Load documents into the Qdrant collection.
+
+        Args:
+            docs: The list of documents to load.
+        """
         from qdrant_client.models import Distance, PointStruct, VectorParams
 
         self._docs = list(docs)
@@ -218,6 +285,15 @@ class LocalQdrantSearchClient:
             return
 
         def _matches(doc: dict[str, Any], selector: dict[str, str]) -> bool:
+            """Check if a document matches a given selector.
+
+            Args:
+                doc: The document to check.
+                selector: The key/value selector to match against.
+
+            Returns:
+                True if the document matches the selector, False otherwise.
+            """
             return all(str(doc.get(k, "")) == v for k, v in selector.items())
 
         self._docs = [
@@ -242,6 +318,14 @@ class LocalQdrantSearchClient:
             pass
 
     def _build_filter(self, filters: str | None) -> Any | None:
+        """Build a Qdrant Filter object from an Azure Search-style filter string.
+        
+        Args:
+            filters: The Azure Search-style filter string.
+
+        Returns:
+            A Qdrant Filter object if the filter string is valid, None otherwise.
+        """
         if not filters:
             return None
 
@@ -267,6 +351,17 @@ class LocalQdrantSearchClient:
         select: list[str] | None,
         include_total_count: bool,
     ) -> _SearchResults:
+        """Perform a fallback text search over the in-memory document set.
+
+        Args:
+            query_text: The search query text.
+            top: The maximum number of results to return.
+            filters: Optional filter expression for search.
+            select: Optional list of fields to include in the results.
+            include_total_count: Whether to include the total count of matching documents.
+        Returns:
+            A _SearchResults object containing the matched documents.
+        """
         effective_query = str(query_text or "").strip()
         if effective_query == "*":
             matched = list(self._docs)
@@ -311,6 +406,19 @@ class LocalQdrantSearchClient:
         select: list[str] | None = None,
         **extra_kwargs: Any,
     ) -> _SearchResults:
+        """Execute a search query against the Qdrant collection.
+        
+        Args:
+            query_text: The search query text.
+            top: The maximum number of results to return.
+            vector_query: Optional vector query for semantic search.
+            filters: Optional filter expression for search.
+            select: Optional list of fields to include in the results.
+            extra_kwargs: Additional provider-specific keyword arguments.
+        
+        Returns:
+            A _SearchResults object containing the matched documents.
+        """
         if query_text is None and "search_text" in extra_kwargs:
             query_text = str(extra_kwargs.get("search_text") or "")
         if filters is None and "filter" in extra_kwargs:

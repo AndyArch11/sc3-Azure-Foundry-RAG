@@ -22,7 +22,7 @@ git pull
 Activate the Python virtual environment before running any Python commands:
 
 ```bash
-source runtime/.venv/bin/activate
+source .venv/bin/activate
 ```
 
 ---
@@ -633,6 +633,6 @@ QUERY_WEB_REQUIRE_CONVERSATIONS=true \
 ./ops/scripts/azure/run-query-web-integration-tests.sh "https://${QUERY_FQDN}" "<optional-auth-token>"
 
 # Run unit tests locally
-source runtime/.venv/bin/activate
+source .venv/bin/activate
 python3 -m pytest tests/unit/ -q
 ```

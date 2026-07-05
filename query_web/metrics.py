@@ -142,6 +142,13 @@ def observe_rag_metrics(metrics: dict[str, float], *, iterations: int = 1) -> No
     ``metrics`` is the dict returned under the ``"metrics"`` key by
     ``rag_pipeline._run_rag``.  Call this once per request after the pipeline
     returns successfully.
+
+    Args:
+        metrics: A dictionary containing timing metrics from the RAG pipeline.
+        iterations: The number of LLM iterations performed for this request (default is 1).
+
+    Returns:
+        None. Updates Prometheus metrics counters and histograms in place.
     """
     RAG_REQUESTS_TOTAL.inc()
     if iterations >= 3:
@@ -172,6 +179,16 @@ def observe_cosmos_schema_access(
 
     Called from ``_log_cosmos_access`` helpers so both the structured log line
     and the Prometheus counter are updated in one place.
+
+    Args:
+        operation: The type of operation performed ("read", "write", "upsert").
+        container: The Cosmos container name (e.g., "conversations", "controls").
+        schema_version_read: The schema version of the document read (if applicable).
+        schema_version_written: The schema version of the document written (if applicable).
+        upcasted: True if the document was upcasted to a newer schema version on read.
+        service: The service name (e.g., "query-web", "query-worker").
+    Returns:
+        None. Updates Prometheus metrics counters in place.
     """
     if operation in ("read", "upsert", "get") and schema_version_read:
         COSMOS_SCHEMA_VERSION_READS.labels(
@@ -196,12 +213,20 @@ def observe_cosmos_schema_access(
 
 
 def metrics_endpoint() -> Response:
-    """Render the Prometheus text exposition format for scraping."""
+    """Render the Prometheus text exposition format for scraping.
+
+    Returns:
+        A FastAPI Response object containing the metrics in Prometheus text format.
+    """
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 def register_metrics_endpoint(app: object) -> None:
-    """Add the ``GET /metrics`` route to a FastAPI application."""
+    """Add the ``GET /metrics`` route to a FastAPI application.
+
+    Args:
+        app: The FastAPI application instance to which the metrics route will be added.
+    """
     # Import here to avoid a circular import; FastAPI is not imported at
     # module level so this file stays importable in tests without the full app.
     from fastapi import FastAPI as _FastAPI  # noqa: PLC0415

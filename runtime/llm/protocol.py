@@ -18,21 +18,20 @@ class LLMClient(Protocol):
     ``Callable[[list[dict[str, str]]], str]`` pattern already used throughout
     ``runtime/assessment_orchestration/`` so the adapter can be dropped in
     without changing call sites.
+
+    Attributes:
+        chat_complete: Method to perform a chat completion request.
+        as_callable: Method to return a plain callable wrapping ``chat_complete``.
+        
     """
 
     def chat_complete(self, messages: list[dict[str, str]]) -> str:
         """Return the assistant's text reply for *messages*.
 
-        Parameters
-        ----------
-        messages:
-            List of ``{"role": "...", "content": "..."}`` dicts in
-            OpenAI/Bedrock Converse format.
-
-        Returns
-        -------
-        str
-            The model's reply (stripped of leading/trailing whitespace).
+        Args:
+            messages: A list of message dicts, each with 'role' and 'content' keys.  Roles can be 'system', 'user', or 'assistant'.
+        Returns:
+            The assistant's reply as a string.
         """
         ...
 
@@ -40,6 +39,9 @@ class LLMClient(Protocol):
         """Return a plain ``Callable[[list[dict]], str]`` wrapping this client.
 
         Useful for passing into code that expects the legacy callable form.
+
+        Returns:
+            A callable that takes a list of messages and returns the assistant's reply.
         """
         ...
 

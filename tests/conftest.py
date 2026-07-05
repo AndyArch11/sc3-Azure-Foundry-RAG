@@ -1,3 +1,7 @@
+"""
+Pytest configuration and fixtures for the test suite.
+"""
+
 from __future__ import annotations
 
 import sys
@@ -26,6 +30,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     cannot be committed.  Tests marked sample_fixtures expect those files to exist
     and will be skipped with a clear message when they are absent, rather than
     failing with an AssertionError.
+
+    Args:
+        config: The pytest configuration object.
+        items: The list of collected test items.
     """
     skip_marker = pytest.mark.skip(
         reason=(

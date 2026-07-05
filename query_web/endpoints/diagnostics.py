@@ -54,6 +54,11 @@ _INTERNAL_ERROR_MESSAGE = "Internal server error; check logs for details."
 
 
 def _target_env_name() -> str:
+    """Determine the current target environment name from environment variables.
+
+    Returns:
+        The target environment name as a lowercase string (e.g., "dev", "staging", "prod").
+    """
     # TARGET_ENV is the canonical flag in this repo; ENV is accepted as fallback.
     return (
         os.getenv("TARGET_ENV", "").strip().lower() or os.getenv("ENV", "").strip().lower() or "dev"
@@ -61,6 +66,11 @@ def _target_env_name() -> str:
 
 
 def _diagnostics_enabled() -> bool:
+    """Check if diagnostics endpoints are enabled based on the target environment.
+
+    Returns:
+        True if diagnostics are enabled, False otherwise.
+    """
     return _target_env_name() != "prod"
 
 
@@ -71,6 +81,17 @@ def check_diagnostics_access(
     is_authorised_request: Any,
     unauthorised_message: Any,
 ) -> JSONResponse | None:
+    """Check if the request is authorised to access diagnostics endpoints.
+
+    Args:
+        request: The incoming HTTP request.
+        auth_token: The authentication token provided by the user (optional).
+        is_authorised_request: A callable to check if the request is authorised.
+        unauthorised_message: A callable or string to generate the unauthorised message.
+
+    Returns:
+        A JSONResponse with an error message if access is denied, or None if access is allowed.
+    """
     if is_authorised_request is None or not is_authorised_request(auth_token, request):
         msg = unauthorised_message(request) if callable(unauthorised_message) else "Unauthorised."
         return JSONResponse({"error": msg}, status_code=401)
@@ -86,7 +107,14 @@ def check_diagnostics_access(
 
 
 def resolve_acr_registry_name(explicit_registry_name: str = "") -> str:
-    """Resolve ACR registry name from environment or explicit param."""
+    """Resolve ACR registry name from environment or explicit param.
+
+    Args:
+        explicit_registry_name: An optional explicit registry name.
+
+    Returns:
+        The resolved ACR registry name.
+    """
     candidates = [
         explicit_registry_name,
         os.getenv("ACR_NAME", ""),
@@ -122,7 +150,20 @@ def list_acr_tags_via_management_api(
     repository: str,
     limit: int,
 ) -> dict[str, Any]:
-    """Fetch ACR repository tags via Management API."""
+    """Fetch ACR repository tags via Management API.
+
+    Args:
+        credential: The Azure credential object.
+        requests_module: The requests module or a compatible interface.
+        subscription_id: The Azure subscription ID.
+        resource_group: The Azure resource group name.
+        registry_name: The ACR registry name.
+        repository: The repository name within the ACR registry.
+        limit: The maximum number of tags to fetch.
+
+    Returns:
+        A dictionary containing the tags and metadata.
+    """
     token = credential.get_token("https://management.azure.com/.default").token
     encoded_repo = quote(repository, safe="")
     base_url = (
@@ -237,7 +278,15 @@ def register_diagnostics_endpoints(
         indexer_name: str,
         limit: int = 10,
     ) -> dict[str, Any]:
-        """Fetch recent indexer execution history with error and warning counts."""
+        """Fetch recent indexer execution history with error and warning counts.
+
+        Args:
+            indexer_name: The name of the indexer.
+            limit: The maximum number of execution history entries to fetch.
+
+        Returns:
+            A dictionary containing the execution history and error/warning counts.
+        """
         search_indexer_client_cls = _svc_attr(
             "SearchIndexerClient",
             _resolve_sdk_class(
@@ -337,7 +386,15 @@ def register_diagnostics_endpoints(
         limit: int = 10,
         include_all_fields: bool = True,
     ) -> dict[str, Any]:
-        """Retrieve document samples from the search index with metadata."""
+        """Retrieve document samples from the search index with metadata.
+
+        Args:
+            limit: The maximum number of documents to retrieve.
+            include_all_fields: Whether to include all fields or only a subset.
+
+        Returns:
+            A dictionary containing the document samples and metadata.
+        """
         try:
             select_fields = None
             if not include_all_fields:
@@ -393,7 +450,16 @@ def register_diagnostics_endpoints(
         sample_size: int = 100,
         include_values: bool = False,
     ) -> dict[str, Any]:
-        """Scan blobs and validate required ingestion metadata."""
+        """Scan blobs and validate required ingestion metadata.
+
+        Args:
+            prefix: The prefix to filter blobs.
+            sample_size: The maximum number of blobs to sample.
+            include_values: Whether to include metadata values in the results.
+
+        Returns:
+            A dictionary containing the validation results and metadata completeness.
+        """
         if not _is_corpus_upload_enabled():
             return {
                 "configured": False,
@@ -492,7 +558,14 @@ def register_diagnostics_endpoints(
     def _test_datasource_connectivity(
         datasource_name: str = "",
     ) -> dict[str, Any]:
-        """Test data source connection and enumerate blobs."""
+        """Test data source connection and enumerate blobs.
+
+        Args:
+            datasource_name: The name of the data source to test.
+
+        Returns:
+            A dictionary containing the connectivity test results and blob enumeration.
+        """
         try:
             search_indexer_client_cls = _svc_attr(
                 "SearchIndexerClient",
@@ -603,7 +676,14 @@ def register_diagnostics_endpoints(
     def _validate_indexer_field_mappings(
         indexer_name: str = "",
     ) -> dict[str, Any]:
-        """Validate that indexer field mappings exist and match index schema."""
+        """Validate that indexer field mappings exist and match index schema.
+
+        Args:
+            indexer_name: The name of the indexer to validate.
+
+        Returns:
+            A dictionary containing the validation results and any errors.
+        """
         try:
             search_index_client_cls = _svc_attr("SearchIndexClient", SearchIndexClient)
             search_indexer_client_cls = _svc_attr(
@@ -691,7 +771,15 @@ def register_diagnostics_endpoints(
     # Register endpoints
     @app.get("/api/diagnostics/search/resources")
     def search_resources_diagnostics(request: Request, auth_token: str = "") -> JSONResponse:
-        """Dev-only diagnostics for Search resources and current indexer state."""
+        """Dev-only diagnostics for Search resources and current indexer state.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: An optional authentication token for access control.
+
+        Returns:
+            A JSONResponse containing the diagnostics information or an error message.
+        """
         denied = _check_diagnostics_access(request, auth_token)
         if denied is not None:
             return denied
@@ -889,7 +977,18 @@ def register_diagnostics_endpoints(
         limit: int = 200,
         include_metadata: bool = False,
     ) -> JSONResponse:
-        """Dev-only diagnostics for blob inventory in the grounding-data container."""
+        """Dev-only diagnostics for blob inventory in the grounding-data container.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: An optional authentication token for access control.
+            prefix: The prefix to filter blobs.
+            limit: The maximum number of blobs to return (capped at 1000).
+            include_metadata: Whether to include blob metadata in the response.
+
+        Returns:
+            A JSONResponse containing the blob diagnostics information or an error message.
+        """
         denied = _check_diagnostics_access(request, auth_token)
         if denied is not None:
             return denied
@@ -978,7 +1077,17 @@ def register_diagnostics_endpoints(
         sample_limit: int = 30,
         include_blob_samples: bool = True,
     ) -> JSONResponse:
-        """Dev-only aggregate diagnostics to troubleshoot ingestion mismatches quickly."""
+        """Dev-only aggregate diagnostics to troubleshoot ingestion mismatches quickly.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: An optional authentication token for access control.
+            sample_limit: The maximum number of samples to return (capped at 120).
+            include_blob_samples: Whether to include blob samples in the response.
+
+        Returns:
+            A JSONResponse containing the ingestion overview diagnostics information or an error message.
+        """
         denied = _check_diagnostics_access(request, auth_token)
         if denied is not None:
             return denied
@@ -1305,7 +1414,19 @@ def register_diagnostics_endpoints(
         registry_name: str = "",
         expected_tag: str = "",
     ) -> JSONResponse:
-        """Dev-only diagnostics for ACR repository tags used by deployments."""
+        """Dev-only diagnostics for ACR repository tags used by deployments.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: An optional authentication token for access control.
+            repository: The name of the ACR repository to inspect.
+            limit: The maximum number of tags to return (capped at 200).
+            registry_name: The name of the ACR registry.
+            expected_tag: The expected tag to check for presence.
+
+        Returns:
+            A JSONResponse containing the ACR image diagnostics information or an error message.
+        """
         denied = _check_diagnostics_access(request, auth_token)
         if denied is not None:
             return denied
@@ -1415,7 +1536,16 @@ def register_diagnostics_endpoints(
         auth_token: str = "",
         limit: int = 10,
     ) -> JSONResponse:
-        """Dev-only diagnostics for recent indexer execution history with error counts."""
+        """Dev-only diagnostics for recent indexer execution history with error counts.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: An optional authentication token for access control.
+            limit: The maximum number of history entries to return (capped at 50).
+
+        Returns:
+            A JSONResponse containing the indexer execution history diagnostics information or an error message.
+        """
         denied = _check_diagnostics_access(request, auth_token)
         if denied is not None:
             return denied
@@ -1491,7 +1621,17 @@ def register_diagnostics_endpoints(
         limit: int = 10,
         include_all_fields: bool = True,
     ) -> JSONResponse:
-        """Dev-only diagnostics to retrieve document samples from the search index."""
+        """Dev-only diagnostics to retrieve document samples from the search index.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: An optional authentication token for access control.
+            limit: The maximum number of samples to return (capped at 50).
+            include_all_fields: Whether to include all fields in the retrieved documents.
+
+        Returns:
+            A JSONResponse containing the search index sample diagnostics information or an error message.
+        """
         denied = _check_diagnostics_access(request, auth_token)
         if denied is not None:
             return denied
@@ -1536,7 +1676,18 @@ def register_diagnostics_endpoints(
         sample_size: int = 100,
         include_values: bool = False,
     ) -> JSONResponse:
-        """Dev-only diagnostics to validate blob metadata completeness."""
+        """Dev-only diagnostics to validate blob metadata completeness.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: An optional authentication token for access control.
+            prefix: The prefix to filter blobs for metadata validation.
+            sample_size: The number of blobs to sample for validation (capped at 500).
+            include_values: Whether to include metadata values in the response.
+
+        Returns:
+            A JSONResponse containing the storage metadata validation diagnostics information or an error message.
+        """
         denied = _check_diagnostics_access(request, auth_token)
         if denied is not None:
             return denied
@@ -1595,7 +1746,16 @@ def register_diagnostics_endpoints(
         auth_token: str = "",
         datasource_name: str = "",
     ) -> JSONResponse:
-        """Dev-only diagnostics to test data source connectivity and blob enumeration."""
+        """Dev-only diagnostics to test data source connectivity and blob enumeration.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: An optional authentication token for access control.
+            datasource_name: The name of the data source to test connectivity for.
+
+        Returns:
+            A JSONResponse containing the data source connectivity diagnostics information or an error message.
+        """
         denied = _check_diagnostics_access(request, auth_token)
         if denied is not None:
             return denied
@@ -1633,7 +1793,16 @@ def register_diagnostics_endpoints(
         auth_token: str = "",
         indexer_name: str = "",
     ) -> JSONResponse:
-        """Dev-only diagnostics to validate indexer field mappings against index schema."""
+        """Dev-only diagnostics to validate indexer field mappings against index schema.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: An optional authentication token for access control.
+            indexer_name: The name of the indexer to validate field mappings for.
+
+        Returns:
+            A JSONResponse containing the field mappings validation diagnostics information or an error message.
+        """
         denied = _check_diagnostics_access(request, auth_token)
         if denied is not None:
             return denied

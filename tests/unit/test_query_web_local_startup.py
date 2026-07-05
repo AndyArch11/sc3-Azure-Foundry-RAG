@@ -193,6 +193,15 @@ def test_load_documents_noop_for_aws_provider(monkeypatch: pytest.MonkeyPatch):
     assert sc.loaded == []
 
 
+def test_load_documents_noop_for_invalid_provider(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("CLOUD_PROVIDER", "azuer")
+    sc = _FakeSearchClient()
+    cc = _FakeSearchClient()
+    load_local_documents_if_needed(sc, cc)  # type: ignore[arg-type]
+    assert sc.loaded == []
+    assert cc.loaded == []
+
+
 def test_load_documents_calls_load_for_local_provider(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):

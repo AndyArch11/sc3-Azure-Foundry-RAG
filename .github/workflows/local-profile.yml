@@ -75,6 +75,11 @@ jobs:
         run: |
           python -m black --check query_web runtime/assessment_orchestration runtime/ingestion tests
 
+      - name: Show lint tool versions
+        run: |
+          python --version
+          python -m pylint --version
+
       - name: Run pylint
         run: |
           python -m pylint --errors-only \

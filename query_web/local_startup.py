@@ -23,6 +23,13 @@ def _infer_local_corpus(source_path: str, explicit_corpus: str) -> str:
     1) Explicit corpus value from payload when provided
     2) Source path hints for corpus-b / corpus-c
     3) Default to corpus-c for local evidence chunks
+
+
+    Args:
+        source_path: The source path of the evidence document.
+        explicit_corpus: The explicitly provided corpus value from the payload.
+    Returns:
+        The inferred corpus label: "a", "b", or "c".
     """
     corpus = (explicit_corpus or "").strip().lower()
     if corpus in {"a", "b", "c"}:
@@ -44,6 +51,9 @@ def _resolve_local_jsonl_paths() -> tuple[str, str]:
     1) Explicit env var value when provided
     2) Workspace-relative default for local/dev runs
     3) Container default path for compose/runtime images
+
+    Returns:
+        A tuple of (evidence_jsonl_path, controls_jsonl_path).
     """
     evidence_path = (
         os.getenv("LOCAL_EVIDENCE_JSONL_PATH", "").strip() or "./runtime/out/chunks.jsonl"
@@ -63,18 +73,16 @@ def _resolve_local_jsonl_paths() -> tuple[str, str]:
 def _load_local_jsonl_documents(path_value: str, *, controls_mode: bool) -> list[dict[str, Any]]:
     """Load JSONL documents from local file(s) for in-memory or Qdrant indexing.
 
-    Parameters
-    ----------
-    path_value : str
-        Path to JSONL file or directory containing JSONL files.
-    controls_mode : bool
-        If True, parse as controls (requirement_id, framework, etc.).
-        If False, parse as evidence chunks (content, source_name, corpus, etc.).
+    Args:
+        path_value: The path to a JSONL file or directory containing JSONL files.
+        controls_mode: If True, parse as controls (requirement_id, framework, etc.).
+                      If False, parse as evidence chunks (content, source_name, corpus, etc.).
 
-    Returns
-    -------
-    list[dict[str, Any]]
-        Parsed and normalised documents ready for search client indexing.
+    Returns:
+        A list of parsed and normalised documents ready for search client indexing.
+
+    Raises:
+        ValueError: If a JSONL line cannot be parsed or is missing required fields based on the mode.
     """
     path_text = (path_value or "").strip()
     if not path_text:
@@ -174,18 +182,20 @@ def load_local_documents_if_needed(
     This function is a no-op when not running in local/dev mode and gracefully
     handles missing JSONL paths.
 
-    Parameters
-    ----------
-    search_client : SearchClient
-        Search client for evidence/documents. Must support load_documents() method.
-    controls_search_client : SearchClient
-        Search client for compliance controls. Must support load_documents() method.
+    Priority for loading:
+    1) Explicit corpus value from payload when provided
+    2) Source path hints for corpus-b / corpus-c
+    3) Default to corpus-c for local evidence chunks
+
+    Args:
+        search_client: Search client for evidence/documents. Must support load_documents() method.
+        controls_search_client: Search client for compliance controls. Must support load_documents() method.
     """
     raw_provider = os.getenv("CLOUD_PROVIDER")
     try:
         provider = normalise_cloud_provider(raw_provider)
     except ValueError:
-        provider = "azure"
+        return
 
     if provider != "local":
         return

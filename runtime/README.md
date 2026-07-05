@@ -13,8 +13,8 @@ Client-side extraction using `pypdf` and `openpyxl`. Use this for unit testing a
 ```bash
 cd runtime
 
-sudo python3 -m venv .venv
-source .venv/bin/activate
+sudo python3 -m venv ../.venv
+source ../.venv/bin/activate
 python3 -m pip install -r ../requirements-dev.txt
 
 python3 -m ingestion.runner \
@@ -24,7 +24,7 @@ python3 -m ingestion.runner \
   --chunk-size 1200 \
   --chunk-overlap 200
 
-.venv/bin/python -m pytest ../tests/unit -q
+../.venv/bin/python -m pytest ../tests/unit -q
 ```
 
 Supported formats in local mode: `.pdf`, `.xlsx`, `.xlsm`, `.xltx`, `.xltm`
@@ -127,7 +127,7 @@ Use the controls runner:
 
 ```bash
 cd runtime
-source .venv/bin/activate
+source ../.venv/bin/activate
 
 # Parse only (writes JSONL to ./parsed-controls)
 python3 -m ingestion.controls_runner --mode parse --framework essential_eight
@@ -291,8 +291,8 @@ FOUNDRY_EP=$(az cognitiveservices account list \
   -o tsv)
 
 cd runtime
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv ../.venv
+source ../.venv/bin/activate
 python3 -m pip install -r requirements/azure.txt
 
 export AZURE_SEARCH_ENDPOINT="${SEARCH_EP}"
@@ -445,7 +445,7 @@ from a private-network host (for example jumpbox):
 
 ```bash
 cd /workspaces/sc3-Azure-Foundry-RAG
-source runtime/.venv/bin/activate
+source .venv/bin/activate
 
 # Required runtime env vars (example names shown; use your environment values)
 export AZURE_COSMOS_ENDPOINT="https://<cosmos-account>.documents.azure.com:443/"
@@ -891,7 +891,7 @@ cd /opt/sc3-ingestion
 
 If exactly one user-assigned managed identity is attached to the VM, `--az-login-client-id` can be omitted and the script auto-discovers it.
 
-The script installs Docker, Python 3.12, Azure CLI, git, unzip, and other required OS packages, creates `runtime/.venv`, installs `requirements-dev.txt`, and optionally runs `./ops/scripts/local/install-terraform-local.sh`. It then authenticates with the managed identity, runs the unit test suite, and prints a smoke-check report across all installed components.
+The script installs Docker, Python 3.12, Azure CLI, git, unzip, and other required OS packages, creates `.venv` at the repository root, installs `requirements-dev.txt`, and optionally runs `./ops/scripts/local/install-terraform-local.sh`. It then authenticates with the managed identity, runs the unit test suite, and prints a smoke-check report across all installed components.
 
 Flags that are not passed are reported as skipped in the smoke report rather than causing failures, so you can run a subset (for example, if Azure CLI is pre-installed by your base image):
 
@@ -917,7 +917,7 @@ cd /opt/sc3-ingestion
 #   --run-unit-tests
 
 cd runtime
-source .venv/bin/activate
+source ../.venv/bin/activate
 
 TARGET_ENV="<env>"
 TF_DIR="../infra/terraform/azure"
@@ -943,7 +943,7 @@ python -m ingestion.runner --mode azure --input-dir ./samples
 python -m ingestion.runner --mode reset
 python -m ingestion.runner --mode reset --purge-blobs
 
-.venv/bin/python -m pytest ../tests/unit -q
+../.venv/bin/python -m pytest ../tests/unit -q
 ```
 
 Use `requirements/azure.txt` when you only need Azure runtime dependencies, `requirements/aws.txt` for AWS-only runtime dependencies, and `requirements/ingestion.txt` when you need a single runtime environment containing all provider dependencies. Use `../requirements-dev.txt` when you also want to run the repository unit tests from the same environment, because those tests import both `runtime/` and `query_web/` modules.

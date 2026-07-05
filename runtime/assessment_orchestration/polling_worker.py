@@ -1,3 +1,11 @@
+"""
+Confluence polling worker module.
+
+This module contains the core logic for the Confluence polling worker.
+It includes functions for processing assessment events, rendering HTML comments,
+and managing the polling state.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -37,22 +45,47 @@ from ._framework_patterns import requested_frameworks_from_text as _requested_fr
 
 
 def _now_utc() -> datetime:
-    """Run now utc."""
+    """Run now utc.
+
+    Returns:
+        Current UTC datetime.
+    """
     return datetime.now(UTC)
 
 
 def _iso(dt: datetime) -> str:
-    """Run iso."""
+    """Run iso.
+
+    Args:
+        dt: The datetime to convert.
+
+    Returns:
+        ISO 8601 formatted string.
+    """
     return dt.isoformat()
 
 
 def _parse_iso(value: str) -> datetime:
-    """Run parse iso."""
+    """Run parse iso.
+
+    Args:
+        value: The ISO 8601 formatted string to parse.
+
+    Returns:
+        A datetime object representing the parsed ISO 8601 string.
+    """
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def _initial_since_from_lookback(lookback: str) -> str:
-    """Convert ISO-like lookback (PT1H/PT30M/P1D) to an absolute since timestamp."""
+    """Convert ISO-like lookback (PT1H/PT30M/P1D) to an absolute since timestamp.
+
+    Args:
+        lookback: The ISO-like lookback string.
+
+    Returns:
+        An ISO 8601 formatted string representing the absolute since timestamp.
+    """
     upper = (lookback or "").strip().upper()
     hours = minutes = days = 0
     m = re.search(r"(\d+)H", upper)
@@ -71,7 +104,14 @@ def _initial_since_from_lookback(lookback: str) -> str:
 
 
 def _event_sort_key(event: dict[str, Any]) -> tuple[str, str, str]:
-    """Run event sort key."""
+    """Run event sort key.
+
+    Args:
+        event: The event dictionary.
+
+    Returns:
+        A tuple representing the sort key for the event.
+    """
     occurred_at = str(event.get("occurred_at") or "")
     title = str(event.get("title") or "")
     event_id = str(event.get("event_id") or "")
@@ -82,7 +122,14 @@ CONFLUENCE_COMMENT_MAX_CHARS = 32_767
 
 
 def _render_finding_html(finding: dict[str, Any]) -> str:
-    """Run render finding html."""
+    """Render finding HTML.
+
+    Args:
+        finding: The finding dictionary.
+
+    Returns:
+        A string containing the HTML representation of the finding.
+    """
     requirement_id = escape(str(finding.get("requirement_id") or "unknown"))
     framework = escape(str(finding.get("framework") or "Unknown"))
     status = escape(str(finding.get("status") or "unknown").replace("_", " "))
@@ -118,7 +165,13 @@ def _render_assessment_comment_sections(assessment: dict[str, Any]) -> list[str]
     """Return the assessment as a list of self-contained HTML sections.
 
     Each section is independently valid HTML.  Callers can pack them into
-    one or more Confluence comments respecting the 32 767-character limit.
+    one or more Confluence comments respecting the 32,767-character limit.
+
+    Args:
+        assessment: The assessment dictionary.
+
+    Returns:
+        A list of HTML sections representing the assessment.
     """
     summary = str(assessment.get("executive_summary") or "Assessment completed.")
     findings = list(assessment.get("findings") or [])
@@ -185,6 +238,12 @@ def _pack_comment_bodies(
 
     If a single section exceeds *limit* it is hard-truncated with a suffix so
     the comment remains valid and within the Confluence storage limit.
+
+    Args:
+        sections: A list of HTML sections to pack into comment bodies.
+        limit: The maximum character limit for each comment body.
+    Returns:
+        A list of comment bodies, each within the specified character limit.
     """
     comments: list[str] = []
     current: list[str] = []
@@ -218,6 +277,11 @@ def _render_assessment_comment(assessment: dict[str, Any]) -> str:
 
     Kept for backward compatibility. Use :func:`_pack_comment_bodies` with
     :func:`_render_assessment_comment_sections` for multi-comment splitting.
+
+    Args:
+        assessment: The assessment dictionary.
+    Returns:
+        A single HTML string representing the assessment.
     """
     return "".join(_render_assessment_comment_sections(assessment))
 
@@ -231,7 +295,18 @@ def _post_assessment_comments(
     idempotency_key: str,
     limit: int = CONFLUENCE_COMMENT_MAX_CHARS,
 ) -> None:
-    """Render and post assessment, splitting across multiple comments when needed."""
+    """Render and post assessment, splitting across multiple comments when needed.
+
+    Args:
+        server: The server instance to post comments to.
+        target_id: The ID of the target where comments will be posted.
+        assessment: The assessment dictionary.
+        identity_mode: The identity mode for posting comments.
+        idempotency_key: The idempotency key for ensuring unique comment posting.
+        limit: The maximum character limit for each comment body.
+    Raises:
+        RuntimeError: If posting any part of the assessment comment fails.
+    """
     sections = _render_assessment_comment_sections(assessment)
     bodies = _pack_comment_bodies(sections, limit=limit)
     total = len(bodies)
@@ -254,7 +329,14 @@ def _post_assessment_comments(
 
 
 def _render_no_change_comment(*, framework_scope: str, page_version: str) -> str:
-    """Run render no change comment."""
+    """Run render no change comment.
+
+    Args:
+        framework_scope: The scope of the framework.
+        page_version: The version of the page.
+    Returns:
+        A string representing the no change comment.
+    """
     label = framework_scope or _DEFAULT_FRAMEWORK_SCOPE
     safe_label = escape(label)
     safe_version = escape(page_version)
@@ -268,7 +350,11 @@ def _render_no_change_comment(*, framework_scope: str, page_version: str) -> str
 
 
 def _render_framework_clarification_comment() -> str:
-    """Run render framework clarification comment."""
+    """Run render framework clarification comment.
+
+    Returns:
+        A string representing the framework clarification comment.
+    """
     return (
         "<p><strong>Automated compliance review</strong></p>"
         "<p>Your request did not clearly specify a supported framework, so an assessment was not run.</p>"
@@ -289,13 +375,25 @@ def _render_framework_clarification_comment() -> str:
 
 
 def _content_hash(value: str) -> str:
-    """Run content hash."""
+    """Run content hash.
+
+    Args:
+        value: The string value to hash.
+    Returns:
+        A string representing the SHA-256 hash of the input value.
+    """
     normalised = value.strip().encode("utf-8")
     return hashlib.sha256(normalised).hexdigest()
 
 
 def _requested_frameworks_for_event(event: dict[str, Any]) -> tuple[str, ...]:
-    """Run requested frameworks for event."""
+    """Run requested frameworks for event.
+
+    Args:
+        event: The event dictionary containing trigger text and title.
+    Returns:
+        A tuple of requested frameworks.
+    """
     trigger_text = str(event.get("trigger_text") or "")
     requested_from_trigger = _requested_frameworks_from_text(trigger_text)
     if requested_from_trigger:
@@ -312,7 +410,17 @@ def _requested_frameworks_from_discussion_context(
     triggering_comment_id: str = "",
     server: ConfluenceMCPServer | None = None,
 ) -> tuple[str, ...]:
-    """Run requested frameworks from discussion context."""
+    """Run requested frameworks from discussion context.
+
+    Args:
+        discussion_context: A list of dictionaries representing the discussion context.
+        mentioner_account_id: The account ID of the mentioner.
+        triggering_comment_id: The ID of the triggering comment.
+        server: The Confluence server instance.
+
+    Returns:
+        A tuple of requested frameworks.
+    """
     mentioner = mentioner_account_id.strip()
     mention_markers = ("@compliance-agent", "@assessment-agent")
     triggering_id = triggering_comment_id.strip()
@@ -439,7 +547,18 @@ def _requested_frameworks_from_discussion_context(
 
 @dataclass(frozen=True)
 class PollerConfig:
-    """PollerConfig."""
+    """PollerConfig.
+
+    Attributes:
+        source: The source of the polling events (default: "confluence").
+        poll_interval_seconds: The interval in seconds between poll cycles (default: 75).
+        lease_ttl_seconds: The time-to-live in seconds for the lease (default: 300).
+        initial_lookback: The initial lookback period in ISO 8601 duration format (default: "PT1H").
+        max_event_attempts: The maximum number of attempts for processing an event (default: 3).
+        dry_run: Whether to run in dry-run mode (default: False).
+        space_keys: A tuple of space keys to filter events (default: empty tuple).
+        assessment_strategy: The assessment strategy to use (default: "single_pass").
+    """
 
     source: str = "confluence"
     poll_interval_seconds: int = 75
@@ -453,7 +572,15 @@ class PollerConfig:
 
 @dataclass(frozen=True)
 class PollCycleResult:
-    """PollCycleResult."""
+    """PollCycleResult.
+
+    Attributes:
+        acquired_lease: Whether the lease was acquired for this poll cycle.
+        fetched_events: The number of events fetched during the poll cycle.
+        processed_events: The number of events successfully processed during the poll cycle.
+        terminal_failures: The number of events that failed processing after maximum attempts.
+        watermark: The watermark timestamp after the poll cycle.
+    """
 
     acquired_lease: bool
     fetched_events: int
@@ -469,7 +596,16 @@ def _build_recent_mentions_query(
     window_end: datetime,
     space_keys: Iterable[str],
 ) -> list[dict[str, Any]]:
-    """Run build recent mentions query."""
+    """Run build recent mentions query.
+
+    Args:
+        server: The Confluence server instance.
+        since_iso: The ISO 8601 formatted string representing the start of the query window.
+        window_end: The datetime representing the end of the query window.
+        space_keys: An iterable of space keys to filter the mentions.
+    Returns:
+        A list of dictionaries representing the recent mentions.
+    """
     scope = {"space_keys": list(space_keys)} if list(space_keys) else None
     result = server.get_recent_mentions(since=since_iso, scope_filter=scope)
     mentions = list(result.get("mentions") or [])
@@ -503,7 +639,19 @@ def _process_assessment_event(
     dry_run: bool,
     assessment_strategy: str = "single_pass",
 ) -> None:
-    """Run process assessment event."""
+    """Run process assessment event.
+
+    Args:
+        adapter: The orchestrator adapter instance.
+        server: The Confluence server instance.
+        state_store: The polling state store instance.
+        source: The source identifier.
+        event: The event dictionary.
+        dry_run: Whether to perform a dry run.
+        assessment_strategy: The assessment strategy to use.
+    Raises:
+        ValueError: If the event is missing required target reference fields.
+    """
     target_url = str(event.get("target_url") or "")
     target_id = str(event.get("target_id") or "")
     if not target_url or not target_id:
@@ -692,7 +840,18 @@ def run_poll_cycle(
     adapter: OrchestratorAdapter,
     process_event: Callable[[dict[str, Any]], None] | None = None,
 ) -> PollCycleResult:
-    """Run run poll cycle."""
+    """Run run poll cycle.
+
+    Args:
+        config: The poller configuration.
+        state_store: The polling state store instance.
+        server: The Confluence server instance.
+        adapter: The orchestrator adapter instance.
+        process_event: Optional callable to process each event.
+
+    Returns:
+        A PollCycleResult instance representing the result of the poll cycle.
+    """
     run_id = str(uuid.uuid4())
     cycle_started = _now_utc()
     since_iso = ""
@@ -832,7 +991,14 @@ def run_forever(
     server: ConfluenceMCPServer,
     adapter: OrchestratorAdapter,
 ) -> None:
-    """Run run forever."""
+    """Run run forever.
+
+    Args:
+        config: The poller configuration.
+        state_store: The polling state store instance.
+        server: The Confluence server instance.
+        adapter: The orchestrator adapter instance.
+    """
     while True:
         run_poll_cycle(config=config, state_store=state_store, server=server, adapter=adapter)
         time.sleep(max(1, config.poll_interval_seconds))
@@ -850,6 +1016,13 @@ def create_cosmos_state_store_from_env(
       otherwise defaults to runtime/out/local_state.db.
     - aws: DynamoDB-backed state using DYNAMODB_TABLE.
     - azure/default: Cosmos-backed state (requires endpoint + database).
+
+    Args:
+        env: Optional dictionary of environment variables to use instead of os.environ.
+        aws_session: Optional AWS session to use for DynamoDB state store.
+
+    Returns:
+        An instance of PollingStateStore appropriate for the configured cloud provider.
     """
     values = dict(os.environ) if env is None else dict(env)
     provider = normalise_cloud_provider(values.get("CLOUD_PROVIDER"))
@@ -905,7 +1078,13 @@ def create_cosmos_state_store_from_env(
 
 
 def load_poller_config_from_env(env: dict[str, str] | None = None) -> PollerConfig:
-    """Run load poller config from env."""
+    """Run load poller config from env.
+
+    Args:
+        env: Optional dictionary of environment variables to use instead of os.environ.
+    Returns:
+        An instance of PollerConfig populated from environment variables.
+    """
     values = dict(os.environ) if env is None else dict(env)
     poll_interval_seconds = int(values.get("CONFLUENCE_POLL_INTERVAL_SECONDS") or "75")
     lease_ttl_seconds = int(values.get("CONFLUENCE_POLL_LEASE_TTL_SECONDS") or "300")
@@ -931,7 +1110,11 @@ def load_poller_config_from_env(env: dict[str, str] | None = None) -> PollerConf
 
 
 def run_forever_from_env(env: dict[str, str] | None = None) -> None:
-    """Run run forever from env."""
+    """Run run forever from env.
+
+    Args:
+        env: Optional dictionary of environment variables to use instead of os.environ.
+    """
     values = dict(os.environ) if env is None else dict(env)
     config = load_poller_config_from_env(values)
     state_store = create_cosmos_state_store_from_env(values)

@@ -21,6 +21,16 @@ _BULK_BATCH_SIZE = 100
 
 
 def _signed_headers(session: Any, method: str, url: str, body: str) -> dict[str, str]:
+    """Generate AWS SigV4 signed headers for an OpenSearch request.
+
+    Args:
+        session: The boto3 session object.
+        method: The HTTP method (e.g., "GET", "POST").
+        url: The full URL of the request.
+        body: The request body as a string.
+    Returns:
+        A dictionary of signed headers for the request.
+    """
     from botocore.auth import SigV4Auth
     from botocore.awsrequest import AWSRequest
 
@@ -48,7 +58,15 @@ def _bulk_index_chunks(
     session: Any,
     chunks: list[dict[str, Any]],
 ) -> tuple[int, int]:
-    """Bulk-index a batch of chunk documents. Returns (indexed, failed)."""
+    """Bulk-index a batch of chunk documents. Returns (indexed, failed).
+
+    Args:
+        config: The AWSGroundingIndexConfig object containing OpenSearch configuration.
+        session: The boto3 session object.
+        chunks: A list of chunk documents to index.
+    Returns:
+        A tuple containing the number of successfully indexed documents and the number of failed documents.
+    """
     if not chunks:
         return 0, 0
 
@@ -118,6 +136,15 @@ def upload_grounding_chunks_aws(
 
     When ``replace_existing`` is True, existing documents with matching chunk_ids are
     overwritten (index operation is idempotent by default in OpenSearch).
+
+    Args:
+        config: The AWSGroundingIndexConfig object containing OpenSearch configuration.
+        session: The boto3 session object.
+        chunks: A list of chunk documents to index.
+        replace_existing: If True, existing documents with matching chunk_ids will be replaced.
+
+    Returns:
+        A dictionary containing counts of records indexed, skipped, and failed.
     """
     if not replace_existing:
         # Check if the index already has documents from the same source_path / dedupe_hash
@@ -165,7 +192,16 @@ def _fetch_existing_dedupe_hashes(
     session: Any,
     chunks: list[dict[str, Any]],
 ) -> set[str]:
-    """Return the set of dedupe_hash values already present in the grounding index."""
+    """Return the set of dedupe_hash values already present in the grounding index.
+
+    Args:
+        config: The AWSGroundingIndexConfig object containing OpenSearch configuration.
+        session: The boto3 session object.
+        chunks: A list of chunk documents to index.
+
+    Returns:
+        A set of dedupe_hash values already present in the grounding index.
+    """
     candidate_hashes = {
         str(c.get("dedupe_hash") or "").strip()
         for c in chunks

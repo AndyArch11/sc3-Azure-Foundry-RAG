@@ -25,10 +25,29 @@ def register_status_endpoints(
     _is_ingestion_job_trigger_enabled,
     COMPLIANCE_REPORT_SCHEMA_VERSION,
 ) -> None:
-    """Register status and configuration endpoints with the FastAPI app."""
+    """Register status and configuration endpoints with the FastAPI app.
+
+    Args:
+        app: The FastAPI application instance.
+        config: The application configuration object.
+        search_client: The SearchClient for the grounding index.
+        controls_search_client: The SearchClient for the controls index.
+        QUERY_WEB_VERSION_SIGNATURE: The version signature of the query web service.
+        precedence_policy: The precedence policy object.
+        _CONTROLS_FRAMEWORK_FILTERS: The controls framework filters.
+        _CORPUS_A_FRAMEWORKS: The supported frameworks for Corpus A.
+        _is_corpus_upload_enabled: Function to check if corpus upload is enabled.
+        _is_ingestion_job_trigger_enabled: Function to check if ingestion job trigger is enabled.
+        COMPLIANCE_REPORT_SCHEMA_VERSION: The version of the compliance report schema.
+    """
 
     @app.get("/health")
     def health() -> JSONResponse:
+        """Health check endpoint — returns service status and configuration details.
+
+        Returns:
+            A JSONResponse containing the health status and configuration details of the service.
+        """
         return JSONResponse(
             {
                 "status": "ok",
@@ -56,7 +75,11 @@ def register_status_endpoints(
 
     @app.get("/api/index-status")
     def index_status() -> JSONResponse:
-        """Diagnostic endpoint — returns document counts and reachability for both indexes."""
+        """Diagnostic endpoint — returns document counts and reachability for both indexes.
+
+        Returns:
+            A JSONResponse containing the reachability and document counts for the grounding and controls indexes.
+        """
 
         def _probe(client: SearchClient, index_name: str) -> dict[str, Any]:
             try:
@@ -82,6 +105,11 @@ def register_status_endpoints(
 
     @app.get("/api/config")
     def api_config() -> JSONResponse:
+        """Configuration endpoint — returns the current service configuration details.
+
+        Returns:
+            A JSONResponse containing the current service configuration details.
+        """
         return JSONResponse(
             {
                 "version_signature": QUERY_WEB_VERSION_SIGNATURE,

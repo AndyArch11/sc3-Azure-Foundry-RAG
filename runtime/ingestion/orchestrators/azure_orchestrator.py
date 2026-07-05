@@ -9,7 +9,13 @@ from pathlib import Path
 
 
 def run_azure(args: argparse.Namespace) -> int:
-    """Run Azure ingestion mode orchestration."""
+    """Run Azure ingestion mode orchestration.
+
+    Args:
+        args: The command-line arguments.
+    Returns:
+        An integer exit code: 0 on success, 1 on error.
+    """
 
     from azure.identity import DefaultAzureCredential
 

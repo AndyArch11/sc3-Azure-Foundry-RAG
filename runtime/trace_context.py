@@ -1,3 +1,11 @@
+"""
+    Trace context management for cross-service correlation propagation.
+
+    This module provides utilities for managing W3C Trace Context headers
+    (`traceparent` and `tracestate`) and a custom `x-correlation-id` header
+    within the runtime. It includes functions for setting, resetting, and
+    scoping trace context, as well as building outbound headers for HTTP requests.
+"""
 from __future__ import annotations
 
 import re
@@ -27,11 +35,26 @@ _TRACESTATE: ContextVar[str] = ContextVar("runtime_tracestate", default="")
 
 
 def _clean(value: str | None) -> str:
+    """Sanitise a string value for trace context headers.
+
+    Args:
+        value: The string value to sanitise.
+    
+    Returns:
+        The sanitised string value, or an empty string if the input was None.
+    """
     return (value or "").strip()
 
 
 def _sanitise_correlation_id(value: str) -> str:
-    """Strip log-unsafe characters and cap length (log injection / DoS guard)."""
+    """Strip log-unsafe characters and cap length (log injection / DoS guard).
+
+    Args:
+        value: The correlation ID to sanitise.
+
+    Returns:
+        The sanitised correlation ID.
+    """
     return _CORRELATION_ID_SAFE_RE.sub("", value)[:_MAX_CORRELATION_ID_LEN]
 
 
@@ -39,13 +62,19 @@ def _validate_traceparent(value: str) -> str:
     """Validate traceparent per W3C Trace Context spec §3.2.
 
     - Version ``00``: fully validated; all-zero trace-id or parent-id → dropped.
-    - Unknown future versions (``01``–``fe``): attempt field extraction and
+    - Unknown future versions (``01``-``fe``): attempt field extraction and
       re-emit as a version-00 header so downstream vendors remain compatible.
     - Version ``ff``: reserved; always dropped.
     - Malformed input: dropped (returns empty string).
 
     The sampled flag (bit 0 of trace-flags) is propagated faithfully without
     behavioural change — sampling decisions are the vendor's responsibility.
+
+    Args:
+        value: The traceparent header value to validate.
+
+    Returns:
+        The validated traceparent header value, or an empty string if invalid.
     """
     s = _clean(value).lower()
     if not s or len(s) < 2:
@@ -68,7 +97,14 @@ def _validate_traceparent(value: str) -> str:
 
 
 def _sanitise_tracestate(value: str) -> str:
-    """Cap tracestate at the spec's 512-character maximum (DoS / log-bloat guard)."""
+    """Cap tracestate at the spec's 512-character maximum (DoS / log-bloat guard).
+
+    Args:
+        value: The tracestate header value to sanitise.
+
+    Returns:
+        The sanitised tracestate header value.
+    """
     return _clean(value)[:_MAX_TRACESTATE_LEN]
 
 
@@ -86,6 +122,11 @@ def set_trace_context(
 
 
 def reset_trace_context(tokens: tuple[Token[str], Token[str], Token[str]]) -> None:
+    """Reset the trace context to the previous state using the provided tokens.
+
+    Args:
+        tokens: A tuple of tokens returned by `set_trace_context`.
+    """
     correlation_token, traceparent_token, tracestate_token = tokens
     _CORRELATION_ID.reset(correlation_token)
     _TRACEPARENT.reset(traceparent_token)
@@ -96,6 +137,16 @@ def reset_trace_context(tokens: tuple[Token[str], Token[str], Token[str]]) -> No
 def scoped_trace_context(
     *, correlation_id: str = "", traceparent: str = "", tracestate: str = ""
 ):
+    """Context manager for temporarily setting trace context headers.
+
+    Args:
+        correlation_id: The correlation ID to set.
+        traceparent: The traceparent header value to set.
+        tracestate: The tracestate header value to set.
+
+    Yields:
+        None
+    """
     tokens = set_trace_context(
         correlation_id=correlation_id,
         traceparent=traceparent,
@@ -116,6 +167,14 @@ def outbound_trace_headers(
     """Build outbound headers for cross-service correlation propagation.
 
     Includes tracestate alongside traceparent per W3C Trace Context spec §3.3.
+
+    Args:
+        correlation_id: Optional correlation ID to propagate. If not provided, the current context value is used.
+        traceparent: Optional traceparent header value to propagate. If not provided, the current context value is used.
+        tracestate: Optional tracestate header value to propagate. If not provided, the current context value is used.
+
+    Returns:
+        A dictionary of headers to include in outbound HTTP requests for trace propagation.
     """
     corr = _clean(correlation_id) or _clean(_CORRELATION_ID.get())
     tp = _clean(traceparent) or _clean(_TRACEPARENT.get())

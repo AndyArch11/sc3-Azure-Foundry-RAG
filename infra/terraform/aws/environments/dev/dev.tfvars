@@ -25,6 +25,7 @@ opensearch_grounding_embedding_dimensions = 1024 # Number of dimensions for vect
 grounding_embed_on_ingest                = true # Set to true to automatically generate and store vector embeddings for document chunks at ingest time (requires opensearch_grounding_embedding_dimensions to be set, and Bedrock embedding model to be configured). If false, embeddings will need to be generated and ingested separately (e.g. through a custom Lambda function or external process).
 
 # Mantle models require using Bedrock Mantle which batches and processes requests asynchronously — this is suitable for longer-running tasks like document ingestion, but not for real-time question answering.
+# AWS is pushing Mantle as the preferred way to use Bedrock, so we recommend using Mantle for ingestion and consider runtime models for real-time question answering.
 # bedrock_model_id           = "mistral.mistral-large-3-675b-instruct" # Strong general-purpose model, good for both question answering and document ingestion, but one of the more expensive options.
 bedrock_model_id           = "qwen.qwen3-32b" # for a budget option
 # Runtime models can be used with Bedrock API calls in real-time (e.g. for question answering)
@@ -63,6 +64,6 @@ confluence_poller_memory_mb      = 1024
 
 # initial_confluence_api_token = "<set-me>"
 
-ingestion_image_tag = "202606241435-9d0c81d"
-query_web_image_tag = "202606241435-9d0c81d"
+ingestion_image_tag = "202607051419-ae4ebf1"
+query_web_image_tag = "202607051419-ae4ebf1"
 confluence_poller_image_tag = "202605111406-be80d2b"

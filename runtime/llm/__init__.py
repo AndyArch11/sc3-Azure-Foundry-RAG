@@ -41,38 +41,25 @@ def get_llm_client(
 ) -> LLMClient:
     """Return an ``LLMClient`` for the configured cloud provider.
 
-    Parameters
-    ----------
-    cloud_provider:
-        Override the ``CLOUD_PROVIDER`` env var.
-    openai_endpoint:
-        Azure OpenAI endpoint URL (Azure path).
-    deployment:
-        Model deployment name (Azure: completion deployment; AWS: ignored in
-        favour of ``model_id``).
-    credential:
-        Azure credential (Azure path, e.g. ``DefaultAzureCredential``).
-    temperature:
-        Sampling temperature (Azure/Bedrock paths).
-    model_id:
-        Bedrock model ID (AWS path, default ``anthropic.claude-3-5-sonnet-20241022-v2:0``).
-    region_name:
-        AWS region (AWS path).
-    bedrock_session:
-        ``boto3.Session`` to use (AWS path).
-    bedrock_api_mode:
-        AWS Bedrock API path. ``runtime`` (default) uses boto3 ``bedrock-runtime``;
-        ``mantle`` uses Bedrock Mantle OpenAI-compatible chat completions endpoint.
-    bedrock_api_key:
-        Optional API key override for Bedrock Mantle path
-        (defaults to ``BEDROCK_API_KEY`` env var).
-    bedrock_base_url:
-        Optional Bedrock Mantle base URL override
-        (defaults to ``BEDROCK_MANTLE_BASE_URL`` env var or region-derived URL).
-    ollama_base_url:
-        Ollama base URL (local path, default ``http://localhost:11434``).
-    ollama_model:
-        Ollama model name (local path, default ``llama3``).
+    Args:
+        cloud_provider: Optional override for the cloud provider (e.g., "azure", "aws", "local").
+        openai_endpoint: Azure OpenAI endpoint URL (for Azure provider).
+        deployment: Azure OpenAI deployment name (for Azure provider).
+        credential: Credential object for Azure OpenAI (for Azure provider).
+        temperature: Sampling temperature for LLM responses.
+        top_p: Top-p sampling parameter for LLM responses.
+        model_id: Model ID for AWS Bedrock (for AWS provider).
+        region_name: AWS region name (for AWS provider).
+        bedrock_session: Boto3 session for AWS Bedrock (for AWS provider).
+        bedrock_api_mode: Mode for AWS Bedrock ("runtime" or "mantle").
+        bedrock_api_key: API key for AWS Bedrock (for AWS provider).
+        bedrock_base_url: Base URL for AWS Bedrock (for AWS provider).
+        max_tokens: Maximum tokens for LLM responses (optional).
+        ollama_base_url: Base URL for Ollama (for local provider).
+        ollama_model: Model name for Ollama (for local provider). 
+
+    Returns:
+        An instance of ``LLMClient`` appropriate for the specified cloud provider.
     """
     provider_raw = cloud_provider if cloud_provider is not None else os.getenv("CLOUD_PROVIDER")
     provider = DEFAULT_CLOUD_PROVIDER_REGISTRY.get(provider_raw).provider

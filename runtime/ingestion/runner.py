@@ -1,3 +1,7 @@
+"""
+Ingestion runtime entrypoint for local, Azure and AWS execution modes.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -42,14 +46,25 @@ _CONTROLS_SOURCE_TARGET_FILENAMES = {
 
 
 def _is_missing_controls_source_error(exc: Exception) -> bool:
-    """Return True when a parser error indicates missing local source files."""
+    """Return True when a parser error indicates missing local source files.
+
+    Args:
+        exc: The exception to check.
+
+    Returns:
+        True if the exception indicates missing local source files, False otherwise.
+    """
     from .orchestrators.controls_source_orchestrator import is_missing_controls_source_error
 
     return is_missing_controls_source_error(exc)
 
 
 def parse_args() -> argparse.Namespace:
-    """Run parse args."""
+    """Run parse args.
+
+    Returns:
+        The parsed command-line arguments as an argparse.Namespace object.
+    """
     from .orchestrators.runner_facade import parse_args as facade_parse_args
 
     return facade_parse_args(argv=list(sys.argv[1:]))
@@ -60,7 +75,16 @@ def _download_controls_source_files(
     source_prefix: str,
     credential: TokenCredential,
 ) -> list[str]:
-    """Run download controls source files."""
+    """Run download controls source files.
+
+    Args:
+        framework: The framework for which to download controls source files.
+        source_prefix: The prefix for the source files.
+        credential: The TokenCredential object for authenticating with Azure services.
+
+    Returns:
+        A list of downloaded controls source file paths.
+    """
     from .orchestrators.controls_source_orchestrator import download_controls_source_files_azure
 
     return download_controls_source_files_azure(
@@ -77,7 +101,17 @@ def _download_controls_source_files_aws(
     aws_session: object,
     s3_bucket_name: str,
 ) -> list[str]:
-    """Download staged controls source documents from S3 into runtime samples dir."""
+    """Download staged controls source documents from S3 into runtime samples dir.
+
+    Args:
+        framework: The framework for which to download controls source files.
+        source_prefix: The prefix for the source files.
+        aws_session: The AWS session object for authenticating with S3.
+        s3_bucket_name: The name of the S3 bucket containing the source files.
+
+    Returns:
+        A list of downloaded controls source file paths.
+    """
     from .orchestrators.controls_source_orchestrator import download_controls_source_files_aws
 
     return download_controls_source_files_aws(
@@ -90,7 +124,14 @@ def _download_controls_source_files_aws(
 
 
 def _run_local(args: argparse.Namespace) -> int:
-    """Run run local."""
+    """Run run local.
+
+    Args:
+        args: The parsed command-line arguments as an argparse.Namespace object.
+
+    Returns:
+        The exit code of the local run.
+    """
     from .orchestrators.local_orchestrator import run_local
 
     return run_local(
@@ -102,7 +143,14 @@ def _run_local(args: argparse.Namespace) -> int:
 
 
 def _run_azure(args: argparse.Namespace) -> int:
-    """Run run azure."""
+    """Run run azure.
+
+    Args:
+        args: The parsed command-line arguments as an argparse.Namespace object.
+
+    Returns:
+        The exit code of the Azure run.
+    """
     from .orchestrators.azure_orchestrator import run_azure
 
     return run_azure(args)
@@ -115,6 +163,12 @@ def _run_aws(args: argparse.Namespace) -> int:
     uploaded via the query-web /api/corpus-b/ingest endpoint) and only the indexing step
     runs.  The S3 prefix to index is taken from ``--storage-container-query`` (which maps
     to ``AWS_S3_PREFIX``) or defaults to ``corpus-b/by-dedupe/``.
+
+    Args:
+        args: The parsed command-line arguments as an argparse.Namespace object.
+
+    Returns:
+        The exit code of the AWS run.
     """
     from .orchestrators.aws_orchestrator import run_aws
 
@@ -122,21 +176,44 @@ def _run_aws(args: argparse.Namespace) -> int:
 
 
 def _run_reset_aws(args: argparse.Namespace, *, cloud_provider: str) -> int:
-    """Run reset orchestration for AWS provider."""
+    """Run reset orchestration for AWS provider.
+
+    Args:
+        args: The parsed command-line arguments as an argparse.Namespace object.
+        cloud_provider: The cloud provider string (e.g., "aws").
+
+    Returns:
+        The exit code of the AWS reset run.
+    """
     from .orchestrators.reset_orchestrator import run_reset_aws
 
     return run_reset_aws(args, cloud_provider=cloud_provider)
 
 
 def _run_reset_azure(args: argparse.Namespace, *, cloud_provider: str) -> int:
-    """Run reset orchestration for Azure provider."""
+    """Run reset orchestration for Azure provider.
+
+    Args:
+        args: The parsed command-line arguments as an argparse.Namespace object.
+        cloud_provider: The cloud provider string (e.g., "azure").
+
+    Returns:
+        The exit code of the Azure reset run.
+    """
     from .orchestrators.reset_orchestrator import run_reset_azure
 
     return run_reset_azure(args, cloud_provider=cloud_provider)
 
 
 def _run_reset(args: argparse.Namespace) -> int:
-    """Run run reset."""
+    """Run run reset.
+
+    Args:
+        args: The parsed command-line arguments as an argparse.Namespace object.
+
+    Returns:
+        The exit code of the reset run.
+    """
     cloud_provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower() or "azure"
     if cloud_provider in {"local", "dev"}:
         cloud_provider = "azure"
@@ -155,7 +232,14 @@ def _run_reset(args: argparse.Namespace) -> int:
 
 
 def _run_controls(args: argparse.Namespace) -> int:
-    """Run run controls."""
+    """Run run controls.
+
+    Args:
+        args: The parsed command-line arguments as an argparse.Namespace object.
+
+    Returns:
+        The exit code of the controls run.
+    """
     cloud_provider = os.getenv("CLOUD_PROVIDER", "azure").strip().lower() or "azure"
     if cloud_provider in {"local", "dev"}:
         cloud_provider = "azure"
@@ -196,7 +280,17 @@ def _run_controls_aws(
     source_prefix: str,
     skip_missing_source_files: bool,
 ) -> int:
-    """Run controls orchestration for AWS provider."""
+    """Run controls orchestration for AWS provider.
+
+    Args:
+        args: The parsed command-line arguments as an argparse.Namespace object.
+        cloud_provider: The cloud provider string (e.g., "aws").
+        source_prefix: The source prefix string.
+        skip_missing_source_files: Whether to skip missing source files.
+
+    Returns:
+        The exit code of the AWS controls run.
+    """
     from .orchestrators.controls_orchestrator import run_controls_aws
 
     return run_controls_aws(
@@ -216,7 +310,17 @@ def _run_controls_azure(
     source_prefix: str,
     skip_missing_source_files: bool,
 ) -> int:
-    """Run controls orchestration for Azure provider."""
+    """Run controls orchestration for Azure provider.
+
+    Args:
+        args: The parsed command-line arguments as an argparse.Namespace object.
+        cloud_provider: The cloud provider string (e.g., "azure").
+        source_prefix: The source prefix string.
+        skip_missing_source_files: Whether to skip missing source files.
+
+    Returns:
+        The exit code of the Azure controls run.
+    """
     from .orchestrators.controls_orchestrator import run_controls_azure
 
     return run_controls_azure(
@@ -230,14 +334,28 @@ def _run_controls_azure(
 
 
 def _normalise_control_plane_provider(provider: str | None) -> str:
-    """Normalise env provider for reset/controls control-plane operations."""
+    """Normalise env provider for reset/controls control-plane operations.
+
+    Args:
+        provider: The cloud provider string (e.g., "aws", "azure") or None.
+
+    Returns:
+        The normalised cloud provider string.
+    """
     from .orchestrators.runner_facade import normalise_control_plane_provider
 
     return normalise_control_plane_provider(provider)
 
 
 def _resolve_provider_for_mode(mode: str) -> str:
-    """Resolve CLOUD_PROVIDER value for a given runner mode."""
+    """Resolve CLOUD_PROVIDER value for a given runner mode.
+
+    Args:
+        mode: The runner mode string (e.g., "local", "azure", "aws", "reset", "controls").
+
+    Returns:
+        The resolved cloud provider string for the given mode.
+    """
 
     from .orchestrators.runner_facade import resolve_provider_for_mode
 
@@ -245,7 +363,11 @@ def _resolve_provider_for_mode(mode: str) -> str:
 
 
 def _mode_orchestrators() -> dict[str, ModeOrchestrator]:
-    """Build mode orchestrator registry for main() dispatch."""
+    """Build mode orchestrator registry for main() dispatch.
+
+    Returns:
+        A dictionary mapping runner modes to their corresponding ModeOrchestrator objects.
+    """
 
     from .orchestrators.runner_facade import build_mode_orchestrators
 
@@ -262,7 +384,11 @@ def _mode_orchestrators() -> dict[str, ModeOrchestrator]:
 
 
 def main() -> int:
-    """Run main."""
+    """Run main.
+
+    Returns:
+        The exit code of the ingestion runner.
+    """
     logger.warning("Ingestion version signature: %s", INGESTION_VERSION_SIGNATURE)
     args = parse_args()
     registry = _mode_orchestrators()

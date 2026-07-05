@@ -1,3 +1,10 @@
+"""
+Runtime wiring module for assessment orchestration.
+
+This module provides functions to create and configure the components required for assessment orchestration, including the Confluence MCP server, orchestrator adapter, and assessment agent.
+It also defines default implementations for the assessment agent, delivery publisher, and audit sink, which can be used for runtime wiring smoke flows or as placeholders for testing and development.
+"""
+
 from __future__ import annotations
 
 import os
@@ -16,12 +23,21 @@ from .skill_catalog import SkillCatalog, load_skill_catalog
 
 
 class DefaultAssessmentAgent:
-    """Minimal default assessment agent used for runtime wiring smoke flows."""
+    """Minimal default assessment agent used for runtime wiring smoke flows.
+
+    This agent provides basic implementations of the methods required by the assessment agent interface, returning empty or placeholder results.
+    """
 
     def retrieve_corpus_grounding(
         self, artifact: AssessedArtifactPackage
     ) -> CorpusGroundingPackage:
-        """Run retrieve corpus grounding."""
+        """Run retrieve corpus grounding.
+
+        Args:
+            artifact: The assessed artifact package for which to retrieve corpus grounding.
+        Returns:
+            An empty CorpusGroundingPackage instance.
+        """
         return CorpusGroundingPackage(corpus_a_results=[], corpus_b_results=[])
 
     def generate_assessment(
@@ -31,7 +47,15 @@ class DefaultAssessmentAgent:
         *,
         validation_mode: str = "hard",
     ) -> dict[str, Any]:
-        """Run generate assessment."""
+        """Run generate assessment.
+
+        Args:
+            artifact: The assessed artifact package for which to generate the assessment.
+            grounding: The corpus grounding package to use for the assessment.
+            validation_mode: The validation mode to use ("hard" or "soft").
+        Returns:
+            A dictionary representing the generated assessment.
+        """
         summary = f"Assessment scaffold generated for {artifact.title}"
         return {
             "schema_version": "v1.1",
@@ -52,12 +76,24 @@ class DefaultAssessmentAgent:
         *,
         progress_cb: Callable[[int, int, str, str], None] | None = None,
     ) -> dict[str, Any]:
-        """Run generate per control assessment."""
+        """Run generate per control assessment.
+
+        Args:
+            artifact: The assessed artifact package for which to generate the per control assessment.
+            grounding: The corpus grounding package to use for the assessment.
+            progress_cb: Optional callback function to report progress.
+        Returns:
+            A dictionary representing the generated per control assessment.
+        """
         return self.generate_assessment(artifact, grounding)
 
 
 class DefaultDeliveryPublisher:
-    """Default delivery publisher placeholder for orchestrator runtime composition."""
+    """Default delivery publisher placeholder for orchestrator runtime composition.
+
+    This publisher provides basic implementations of the methods required by the delivery publisher interface, returning successful delivery outcomes without performing any actual delivery.
+
+    """
 
     def post_comment(
         self,
@@ -67,7 +103,16 @@ class DefaultDeliveryPublisher:
         identity_mode: str,
         idempotency_key: str,
     ) -> DeliveryOutcome:
-        """Run post comment."""
+        """Run post comment.
+
+        Args:
+            target_id: The ID of the target for the comment.
+            comment_body: The body of the comment.
+            identity_mode: The identity mode to use.
+            idempotency_key: The idempotency key for the operation.
+        Returns:
+            A DeliveryOutcome representing the result of the operation.
+        """
         return DeliveryOutcome(success=True, attempted_channels=("inline",))
 
     def send_email(
@@ -78,7 +123,16 @@ class DefaultDeliveryPublisher:
         body: str,
         idempotency_key: str,
     ) -> DeliveryOutcome:
-        """Run send email."""
+        """Run send email.
+
+        Args:
+            recipients: The list of email recipients.
+            subject: The subject of the email.
+            body: The body of the email.
+            idempotency_key: The idempotency key for the operation.
+        Returns:
+            A DeliveryOutcome representing the result of the operation.
+        """
         return DeliveryOutcome(success=True, attempted_channels=("email",))
 
 
@@ -86,7 +140,13 @@ class StdoutAuditSink:
     """Simple audit sink that logs stage transitions to stdout."""
 
     def record_stage(self, job, stage: str, payload: dict[str, Any]) -> None:
-        """Run record stage."""
+        """Run record stage.
+
+        Args:
+            job: The job object associated with the stage.
+            stage: The name of the stage.
+            payload: The payload data for the stage.
+        """
         print(
             {
                 "event": "assessment_stage",
@@ -99,7 +159,16 @@ class StdoutAuditSink:
 
 
 def _required(env: Mapping[str, str], key: str) -> str:
-    """Run required."""
+    """Run required.
+
+    Args:
+        env: The environment variables mapping.
+        key: The key of the required environment variable.
+    Returns:
+        The value of the required environment variable.
+    Raises:
+        ValueError: If the required environment variable is missing.
+    """
     value = (env.get(key) or "").strip()
     if not value:
         raise ValueError(f"Missing required environment variable: {key}")
@@ -107,7 +176,16 @@ def _required(env: Mapping[str, str], key: str) -> str:
 
 
 def _resolve_cloud_id(base_url: str, timeout_s: float = 10.0) -> str:
-    """Run resolve cloud id."""
+    """Run resolve cloud id.
+
+    Args:
+        base_url: The base URL of the Atlassian instance.
+        timeout_s: The timeout for the request in seconds.
+    Returns:
+        The resolved cloud ID.
+    Raises:
+        ValueError: If the cloud ID could not be resolved.
+    """
     resp = requests.get(
         f"{base_url.rstrip('/')}/_edge/tenant_info",
         timeout=timeout_s,
@@ -123,7 +201,15 @@ def _resolve_cloud_id(base_url: str, timeout_s: float = 10.0) -> str:
 def create_confluence_mcp_server_from_env(
     env: Mapping[str, str] | None = None,
 ) -> ConfluenceMCPServer:
-    """Run create confluence mcp server from env."""
+    """Run create confluence mcp server from env.
+
+    Args:
+        env: The environment variables mapping.
+    Returns:
+        A ConfluenceMCPServer instance.
+    Raises:
+        ValueError: If required environment variables are missing or invalid.
+    """
     values = dict(os.environ) if env is None else dict(env)
     base_url = _required(values, "CONFLUENCE_BASE_URL")
     auth_mode = (values.get("CONFLUENCE_AUTH_MODE") or "basic").strip().lower()
@@ -193,7 +279,15 @@ def create_confluence_mcp_server_from_env(
 def create_orchestrator_adapter_from_env(
     env: Mapping[str, str] | None = None,
 ) -> OrchestratorAdapter:
-    """Run create orchestrator adapter from env."""
+    """Run create orchestrator adapter from env.
+
+    Args:
+        env: The environment variables mapping.
+    Returns:
+        An OrchestratorAdapter instance.
+    Raises:
+        ValueError: If required environment variables are missing or invalid.
+    """
     values = dict(os.environ) if env is None else dict(env)
     content_client = create_confluence_mcp_server_from_env(env)
     try:

@@ -1,3 +1,8 @@
+"""
+AWS reset mode: remove indexed data and optional S3 source objects on AWS.
+
+"""
+
 from __future__ import annotations
 
 import json
@@ -18,7 +23,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class AWSResetConfig:
-    """Configuration for AWS reset mode."""
+    """Configuration for AWS reset mode.
+
+    Attributes:
+        opensearch_endpoint: The endpoint URL for the OpenSearch cluster.
+        opensearch_index_name: The name of the OpenSearch index to reset.
+        s3_bucket_name: The name of the S3 bucket containing source objects.
+        s3_prefix: An optional prefix for S3 objects to delete.
+    """
 
     opensearch_endpoint: str
     opensearch_index_name: str
@@ -27,7 +39,12 @@ class AWSResetConfig:
 
     @classmethod
     def from_env(cls) -> "AWSResetConfig":
-        """Build AWS reset configuration from environment variables."""
+        """Build AWS reset configuration from environment variables.
+
+        Args:
+            cls: The class itself.
+        Returns:
+            An instance of AWSResetConfig populated with values from environment variables."""
         endpoint = os.getenv("OPENSEARCH_ENDPOINT", "").strip() or ""
         index_name = (
             os.getenv("OPENSEARCH_INDEX", "").strip()
@@ -54,6 +71,16 @@ class AWSResetConfig:
 
 
 def _signed_headers(session: Any, method: str, url: str, body: str) -> dict[str, str]:
+    """Generate AWS SigV4 signed headers for an OpenSearch request.
+
+    Args:
+        session: The boto3 session object.
+        method: The HTTP method (e.g., "GET", "POST").
+        url: The full URL of the request.
+        body: The request body as a string.
+    Returns:
+        A dictionary of signed headers for the request.
+    """
     from botocore.auth import SigV4Auth
     from botocore.awsrequest import AWSRequest
 
@@ -77,6 +104,15 @@ def _signed_headers(session: Any, method: str, url: str, body: str) -> dict[str,
 
 
 def _delete_index_documents(config: AWSResetConfig, session: Any) -> int:
+    """Delete all documents in the specified OpenSearch index.
+
+    Args:
+        config: The AWSResetConfig object containing OpenSearch configuration.
+        session: The boto3 session object.
+
+    Returns:
+        The number of documents deleted.
+    """
     url = (
         f"{config.opensearch_endpoint.rstrip('/')}/"
         f"{config.opensearch_index_name}/_delete_by_query?conflicts=proceed&refresh=true"
@@ -109,6 +145,15 @@ def _delete_index_documents(config: AWSResetConfig, session: Any) -> int:
 
 
 def _purge_s3_objects(config: AWSResetConfig, storage_client: Any) -> int:
+    """Delete all objects in the specified S3 bucket and prefix.
+
+    Args:
+        config: The AWSResetConfig object containing S3 configuration.
+        storage_client: The S3 client object.
+
+    Returns:
+        The number of objects deleted.
+    """
     keys = storage_client.list_objects(config.s3_bucket_name, prefix=config.s3_prefix)
     deleted = 0
     for key in keys:
@@ -124,7 +169,16 @@ def reset_loaded_data_aws(
     *,
     purge_objects: bool = False,
 ) -> dict[str, Any]:
-    """Remove indexed data and optional S3 source objects on AWS."""
+    """Remove indexed data and optional S3 source objects on AWS.
+
+    Args:
+        config: The AWSResetConfig object containing OpenSearch and S3 configuration.
+        session: The boto3 session object for signing requests.
+        storage_client: The S3 client object for deleting objects.
+        purge_objects: If True, delete S3 source objects under the specified prefix.
+    Returns:
+        A dictionary containing counts of deleted index documents and source objects.
+    """
     deleted_docs = _delete_index_documents(config, session)
     deleted_objects = 0
 

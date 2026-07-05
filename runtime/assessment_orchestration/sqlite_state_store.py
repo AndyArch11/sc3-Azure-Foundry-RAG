@@ -56,6 +56,11 @@ CREATE INDEX IF NOT EXISTS idx_docs_expires
 
 
 def _default_db_path() -> str:
+    """Get default database path from environment variable or use in-memory.
+
+    Returns:
+        The database path as a string.
+    """
     return os.environ.get("LOCAL_STATE_DB_PATH", ":memory:")
 
 
@@ -64,10 +69,19 @@ class SqlitePollingStateStore:
 
     Drop-in replacement for ``InMemoryPollingStateStore`` that survives
     process restarts when ``LOCAL_STATE_DB_PATH`` points to a file.
+
+    Attributes:
+        _path: The path to the SQLite database file.
+        _lock: A threading lock to ensure thread-safe access to the database.
+        _conn: The SQLite connection object.
     """
 
     def __init__(self, db_path: str | None = None) -> None:
-        """Initialise and create schema if needed."""
+        """Initialise and create schema if needed.
+
+        Args:
+            db_path: The path to the SQLite database file. If None, uses the default path.
+        """
         self._path = db_path if db_path is not None else _default_db_path()
         if self._path != ":memory:":
             Path(self._path).parent.mkdir(parents=True, exist_ok=True)
@@ -90,6 +104,15 @@ class SqlitePollingStateStore:
     # ------------------------------------------------------------------
 
     def _read(self, source: str, doc_id: str) -> dict[str, Any] | None:
+        """Read a document from the SQLite store.
+
+        Args:
+            source: The source of the document.
+            doc_id: The ID of the document.
+
+        Returns:
+            The document as a dictionary, or None if not found or expired.
+        """
         row = self._conn.execute(
             "SELECT data FROM docs WHERE source=? AND doc_id=?", (source, doc_id)
         ).fetchone()
@@ -113,6 +136,17 @@ class SqlitePollingStateStore:
     def _upsert(
         self, source: str, doc_id: str, doc_type: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
+        """Insert or update a document in the SQLite store.
+
+        Args:
+            source: The source of the document.
+            doc_id: The ID of the document.
+            doc_type: The type of the document.
+            payload: The document data as a dictionary.
+
+        Returns:
+            The document data as a dictionary.
+        """
         expires_at = str(payload.get("expires_at") or "")
         data = json.dumps(payload, separators=(",", ":"), sort_keys=True)
         with self._lock:
@@ -130,6 +164,17 @@ class SqlitePollingStateStore:
         return payload
 
     def _list(self, source: str, doc_type: str, since_iso: str, limit: int) -> list[dict[str, Any]]:
+        """List documents from the SQLite store.
+
+        Args:
+            source: The source of the documents.
+            doc_type: The type of the documents.
+            since_iso: ISO timestamp to filter documents.
+            limit: Maximum number of documents to return.
+
+        Returns:
+            A list of document dictionaries.
+        """
         rows = self._conn.execute(
             "SELECT data FROM docs WHERE source=? AND doc_type=? ORDER BY rowid DESC LIMIT ?",
             (source, doc_type, max(1, limit) * 4),  # over-fetch then filter
@@ -155,6 +200,14 @@ class SqlitePollingStateStore:
     # ------------------------------------------------------------------
 
     def load_state(self, source: str) -> PollingState:
+        """Load the polling state for a given source.
+
+        Args:
+            source: The source of the polling state.
+
+        Returns:
+            The polling state as a PollingState instance.
+        """
         payload = self._read(source, f"{source}:state") or {"source": source}
         return _coerce_state(payload)
 
@@ -182,6 +235,16 @@ class SqlitePollingStateStore:
         return _coerce_state(saved)
 
     def try_acquire_lease(self, source: str, *, owner_run_id: str, ttl_seconds: int) -> bool:
+        """Attempt to acquire a lease for a given source.
+
+        Args:
+            source: The source of the lease.
+            owner_run_id: The ID of the owner attempting to acquire the lease.
+            ttl_seconds: The time-to-live for the lease in seconds.
+
+        Returns:
+            True if the lease was successfully acquired, False otherwise.
+        """
         now = datetime.now(UTC)
         lock = self._read(source, f"{source}:lock")
         if lock:
@@ -203,6 +266,16 @@ class SqlitePollingStateStore:
         return True
 
     def renew_lease(self, source: str, *, owner_run_id: str, ttl_seconds: int) -> bool:
+        """Renew a lease for a given source.
+
+        Args:
+            source: The source of the lease.
+            owner_run_id: The ID of the owner attempting to renew the lease.
+            ttl_seconds: The time-to-live for the lease in seconds.
+
+        Returns:
+            True if the lease was successfully renewed, False otherwise.
+        """
         now = datetime.now(UTC)
         lock = self._read(source, f"{source}:lock")
         if not lock or str(lock.get("owner_run_id") or "") != owner_run_id:
@@ -213,6 +286,12 @@ class SqlitePollingStateStore:
         return True
 
     def release_lease(self, source: str, *, owner_run_id: str) -> None:
+        """Release a lease for a given source.
+
+        Args:
+            source: The source of the lease.
+            owner_run_id: The ID of the owner attempting to release the lease.
+        """
         lock = self._read(source, f"{source}:lock")
         if lock and str(lock.get("owner_run_id") or "") == owner_run_id:
             with self._lock:
@@ -222,6 +301,15 @@ class SqlitePollingStateStore:
                 )
 
     def is_event_processed(self, source: str, event_id: str) -> bool:
+        """Check if an event has already been processed.
+
+        Args:
+            source: The source of the event.
+            event_id: The ID of the event.
+
+        Returns:
+            True if the event has been processed, False otherwise.
+        """
         doc_id = f"{source}:processed:{event_id}"
         row = self._read(source, doc_id)
         return row is not None
@@ -229,6 +317,14 @@ class SqlitePollingStateStore:
     def mark_processed_event(
         self, source: str, *, event_id: str, run_id: str, ttl_hours: int = 48
     ) -> None:
+        """Mark an event as processed.
+
+        Args:
+            source: The source of the event.
+            event_id: The ID of the event.
+            run_id: The ID of the run processing the event.
+            ttl_hours: The time-to-live for the processed event record in hours.
+        """
         doc_id = f"{source}:processed:{event_id}"
         expires_at = (datetime.now(UTC) + timedelta(hours=ttl_hours)).isoformat()
         payload = {
@@ -243,6 +339,17 @@ class SqlitePollingStateStore:
     def increment_failure_count(
         self, source: str, *, event_id: str, error_message: str, run_id: str
     ) -> int:
+        """Increment the failure count for an event.
+
+        Args:
+            source: The source of the event.
+            event_id: The ID of the event.
+            error_message: The error message associated with the failure.
+            run_id: The ID of the run processing the event.
+
+        Returns:
+            The updated failure count.
+        """
         doc_id = f"{source}:failure:{event_id}"
         doc = self._read(source, doc_id) or {
             "source": source,
@@ -261,6 +368,14 @@ class SqlitePollingStateStore:
     def mark_terminal_failure(
         self, source: str, *, event_id: str, error_message: str, run_id: str
     ) -> None:
+        """Mark an event as having a terminal failure.
+
+        Args:
+            source: The source of the event.
+            event_id: The ID of the event.
+            error_message: The error message associated with the failure.
+            run_id: The ID of the run processing the event.
+        """
         doc_id = f"{source}:failure:{event_id}"
         doc = self._read(source, doc_id) or {
             "source": source,
@@ -276,6 +391,16 @@ class SqlitePollingStateStore:
     def get_assessment_snapshot(
         self, source: str, *, target_id: str, framework_scope: str
     ) -> AssessmentSnapshot | None:
+        """Retrieve an assessment snapshot.
+
+        Args:
+            source: The source of the assessment.
+            target_id: The ID of the target.
+            framework_scope: The scope of the framework.
+
+        Returns:
+            An AssessmentSnapshot if found, None otherwise.
+        """
         doc_id = f"{source}:assessment:{target_id}:{framework_scope}"
         payload = self._read(source, doc_id)
         if payload is None:
@@ -298,6 +423,18 @@ class SqlitePollingStateStore:
         page_version: str,
         content_hash: str,
     ) -> AssessmentSnapshot:
+        """Upsert an assessment snapshot.
+
+        Args:
+            source: The source of the assessment.
+            target_id: The ID of the target.
+            framework_scope: The scope of the framework.
+            page_version: The version of the page.
+            content_hash: The hash of the content.
+
+        Returns:
+            The upserted AssessmentSnapshot.
+        """
         doc_id = f"{source}:assessment:{target_id}:{framework_scope}"
         payload = {
             "source": source,
@@ -311,6 +448,14 @@ class SqlitePollingStateStore:
         return AssessmentSnapshot(**saved)
 
     def get_latest_poll_run_summary(self, source: str) -> PollRunSummary | None:
+        """Retrieve the latest poll run summary.
+
+        Args:
+            source: The source of the poll run.
+
+        Returns:
+            A PollRunSummary if found, None otherwise.
+        """
         payload = self._read(source, f"{source}:poll_run_summary")
         if payload is None:
             return None
@@ -366,6 +511,16 @@ class SqlitePollingStateStore:
     def list_recent_page_assessments(
         self, source: str, *, since_iso: str, limit: int = 100
     ) -> list[PageAssessmentRecord]:
+        """List recent page assessments.
+
+        Args:
+            source: The source of the assessments.
+            since_iso: The ISO timestamp to filter assessments.
+            limit: The maximum number of assessments to return.
+
+        Returns:
+            A list of PageAssessmentRecord instances.
+        """
         docs = self._list(source, "page_assessment", since_iso, limit)
         return [
             PageAssessmentRecord(
@@ -431,6 +586,16 @@ class SqlitePollingStateStore:
     def list_recent_failures(
         self, source: str, *, since_iso: str, limit: int = 50
     ) -> list[FailureRecord]:
+        """List recent failures.
+
+        Args:
+            source: The source of the failures.
+            since_iso: The ISO timestamp to filter failures.
+            limit: The maximum number of failures to return.
+
+        Returns:
+            A list of FailureRecord instances.
+        """
         docs = self._list(source, "failure", since_iso, limit)
         return [
             FailureRecord(

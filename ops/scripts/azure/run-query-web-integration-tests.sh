@@ -61,9 +61,9 @@ export QUERY_WEB_PREFLIGHT_ONLY="${QUERY_WEB_PREFLIGHT_ONLY:-false}"
 PYTEST_ARGS=("$@")
 
 PYTEST_CMD=()
-if [[ -x "${ROOT_DIR}/runtime/.venv/bin/python" ]] \
-  && "${ROOT_DIR}/runtime/.venv/bin/python" -m pytest --version >/dev/null 2>&1; then
-  PYTEST_CMD=("${ROOT_DIR}/runtime/.venv/bin/python" -m pytest)
+if [[ -x "${ROOT_DIR}/.venv/bin/python" ]] \
+  && "${ROOT_DIR}/.venv/bin/python" -m pytest --version >/dev/null 2>&1; then
+  PYTEST_CMD=("${ROOT_DIR}/.venv/bin/python" -m pytest)
 elif command -v pytest >/dev/null 2>&1; then
   PYTEST_CMD=(pytest)
 elif command -v python3 >/dev/null 2>&1 && python3 -m pytest --version >/dev/null 2>&1; then

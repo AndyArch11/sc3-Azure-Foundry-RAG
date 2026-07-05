@@ -323,6 +323,7 @@
     setVal('retrieve_k', preset.retrieve_k, false);
     setVal('controls_context_cap', preset.controls_top_k, false);
     setVal('temperature', preset.temperature, false);
+    setVal('top_p', preset.top_p, false);
     setVal('max_completion_tokens', preset.max_completion_tokens, true);
     setVal('evaluator_max_completion_tokens', preset.evaluator_max_completion_tokens, true);
   }
@@ -349,6 +350,7 @@
     }
     setVal(prefix + '-controls-top-k', preset.controls_top_k);
     setVal(prefix + '-temperature', preset.temperature);
+    setVal(prefix + '-top-p', preset.top_p);
     setVal(prefix + '-max-completion-tokens', preset.max_completion_tokens);
     setVal(prefix + '-evaluator-max-completion-tokens', preset.evaluator_max_completion_tokens);
   }

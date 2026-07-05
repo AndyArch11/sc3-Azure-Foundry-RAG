@@ -9,6 +9,12 @@ Source file must be downloaded by the operator from:
 Licensing: PCI DSS is © 2006-2024 PCI Security Standards Council, LLC. The
 operator is responsible for complying with any terms associated with downloading
 and using the document. Derived artefacts should not be redistributed.
+
+Usage:
+    from runtime.ingestion.parsers.pci_dss import PciDssParser
+    parser = PciDssParser()
+    records = parser.parse()
+    print(f"Parsed {len(records)} PCI DSS requirement records.")
 """
 
 from __future__ import annotations
@@ -120,7 +126,14 @@ _PAGE_HEADER_RE = re.compile(
 
 
 def _flatten(text: str) -> str:
-    """Collapse whitespace and newlines to single spaces, trim the result."""
+    """Collapse whitespace and newlines to single spaces, trim the result.
+
+    Args:
+        text: The input string to be flattened.
+
+    Returns:
+        The flattened string with collapsed whitespace and newlines.
+    """
     text = text.replace("-\n", "-")
     text = re.sub(r"\s+", " ", text)
     return text.strip()
@@ -135,6 +148,13 @@ def _strip_testing_procedure_tail(req_id: str, req_text_raw: str) -> str:
 
     Keep only the normative portion by truncating at the first repeated
     requirement marker that introduces testing steps.
+
+    Args:
+        req_id: The requirement ID (e.g., "1.2.1").
+        req_text_raw: The raw requirement text block extracted from the PDF.
+
+    Returns:
+        The requirement text with any trailing testing procedure lines removed.
     """
     # Example: "1.2.1 Examine ..." (same requirement ID followed by testing verb)
     inline_testing_re = re.compile(
@@ -160,7 +180,16 @@ def _strip_testing_procedure_tail(req_id: str, req_text_raw: str) -> str:
 
 
 def _extract_full_text(pdf_path: Path) -> str:
-    """Extract and clean page text from the PDF, skipping preamble pages."""
+    """Extract and clean page text from the PDF, skipping preamble pages.
+
+    Args:
+        pdf_path: Path to the PCI DSS PDF file.
+
+    Returns:
+        The extracted and cleaned text from the PDF.
+    Raises:
+        RuntimeError: If the pypdf library is not installed.
+    """
     if _PdfReader is None:
         raise RuntimeError(
             "pypdf is required for PCI DSS PDF parsing. Install with: pip install pypdf"
@@ -175,7 +204,14 @@ def _extract_full_text(pdf_path: Path) -> str:
 
 
 def _build_section_title_map(full_text: str) -> dict[str, str]:
-    """Map sub-section IDs (e.g. "1.2") to their title text."""
+    """Map sub-section IDs (e.g. "1.2") to their title text.
+
+    Args:
+        full_text: The full text extracted from the PCI DSS PDF.
+
+    Returns:
+        A dictionary mapping sub-section IDs to their title text.
+    """
     result: dict[str, str] = {}
     for m in re.finditer(r"^(\d+\.\d+)\s{1,4}([A-Z].{10,}?)\.?\s*$", full_text, re.MULTILINE):
         key = m.group(1)
@@ -191,6 +227,14 @@ def _build_requirement_and_guidance_maps(
 
     requirement_texts : "1.1.1" → normative requirement text
     section_guidance  : "1.1"   → consolidated section-level guidance text
+
+    Args:
+        full_text: The full text extracted from the PCI DSS PDF.
+
+    Returns:
+        A tuple containing two dictionaries:
+        - requirement_texts: Maps sub-section IDs to their normative requirement text.
+        - section_guidance: Maps section IDs to their consolidated guidance text.
     """
     # Split the document into x.y section blocks based on section headers.
     # Pattern matches lines like "1.2  Network security controls (NSCs) are configured…"
@@ -290,18 +334,29 @@ def _build_requirement_and_guidance_maps(
 
 
 class PciDssParser(BaseParser):
-    """PciDssParser."""
+    """PciDssParser.
+
+    Parses the PCI DSS v4.0.1 PDF to extract requirement records.
+    """
 
     def __init__(
         self,
         pdf_path: str | Path = _DEFAULT_PDF_PATH,
         **_kwargs: Any,
     ) -> None:
-        """Run init."""
+        """Initialize the PciDssParser.
+
+        Args:
+            pdf_path: Path to the PCI DSS PDF file.
+        """
         self._pdf_path = Path(pdf_path)
 
     def parse(self) -> List[RequirementRecord]:
-        """Run parse."""
+        """Parse the PCI DSS PDF and extract requirement records.
+
+        Returns:
+            A list of RequirementRecord objects.
+        """
         if not self._pdf_path.exists():
             raise RuntimeError(
                 f"PCI DSS PDF not found: {self._pdf_path}\n"

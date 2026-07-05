@@ -1,6 +1,6 @@
 {
   "pythonVersion": "3.12",
-  "venvPath": "runtime",
+  "venvPath": ".",
   "venv": ".venv",
   "extraPaths": ["."],
   "pythonPlatform": "Linux",
@@ -9,7 +9,6 @@
   "exclude": [
     "**/node_modules",
     "**/.*",
-    "runtime/.venv",
     ".venv",
     "**/__pycache__",
     ".git"

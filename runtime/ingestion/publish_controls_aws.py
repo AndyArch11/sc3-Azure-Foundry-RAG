@@ -1,3 +1,8 @@
+"""
+ingestion publish controls to AWS OpenSearch
+
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -20,11 +25,21 @@ logger = logging.getLogger(__name__)
 
 
 def _controls_embedding_enabled() -> bool:
+    """Check if controls embedding is enabled via environment variable.
+    Returns:
+        True if embedding is enabled, False otherwise.
+    """
     raw = os.getenv("CONTROLS_EMBED_ON_PUBLISH", "false").strip().lower()
     return raw not in {"0", "false", "no", "off"}
 
 
 def _controls_embedding_text(record: dict[str, Any]) -> str:
+    """Generate embedding text for a control record.
+    Args:
+        record: A dictionary representing a control record.
+    Returns:
+        A string containing the combined text for embedding, truncated to 6000 characters.
+    """
     requirement_text = str(record.get("requirement_text") or "").strip()
     guidance_text = str(record.get("guidance_text") or "").strip()
     keywords = record.get("keywords") or []
@@ -37,6 +52,12 @@ def _controls_embedding_text(record: dict[str, Any]) -> str:
 
 
 def _controls_manifest_hash(records: list[dict[str, Any]]) -> str:
+    """Compute a manifest hash for a list of control records.
+    Args:
+        records: A list of dictionaries representing control records.
+    Returns:
+        A SHA-256 hash of the canonical JSON representation of the records.
+    """
     canonical_rows: list[dict[str, Any]] = []
     for record in records:
         canonical_rows.append(
@@ -62,6 +83,13 @@ def _controls_manifest_hash(records: list[dict[str, Any]]) -> str:
 
 
 def _embed_text_aws(text: str, session: Any) -> list[float] | None:
+    """Generate an embedding vector for the given text using AWS Bedrock.
+    Args:
+        text: The input text to embed.
+        session: The boto3 session object for signing requests.
+    Returns:
+        A list of floats representing the embedding vector, or None if embedding is not available.
+    """
     model_id = os.getenv("BEDROCK_EMBEDDING_MODEL_ID", "").strip()
     if not model_id:
         return None
@@ -87,6 +115,16 @@ def _embed_text_aws(text: str, session: Any) -> list[float] | None:
 
 
 def _signed_headers(session: Any, method: str, url: str, body: str) -> dict[str, str]:
+    """Generate signed headers for AWS OpenSearch requests.
+
+    Args:
+        session: The boto3 session object.
+        method: The HTTP method (e.g., "GET", "POST").
+        url: The full URL of the request.
+        body: The request body as a string.
+    Returns:
+        A dictionary of signed headers for the request.
+    """
     from botocore.auth import SigV4Auth
     from botocore.awsrequest import AWSRequest
 
@@ -115,6 +153,17 @@ def _search_existing_framework_version(
     framework: str,
     framework_version: str,
 ) -> tuple[list[str], set[str]]:
+    """Search for existing framework versions in AWS OpenSearch.
+
+    Args:
+        config: The AWSControlsIndexConfig object containing OpenSearch configuration.
+        session: The boto3 session object.
+        framework: The name of the framework to search for.
+        framework_version: The version of the framework to search for.
+
+    Returns:
+        A tuple containing a list of requirement IDs and a set of ingestion manifest hashes.
+    """
     search_url = f"{config.opensearch_endpoint.rstrip('/')}/{config.controls_index_name}/_search"
     body_payload = {
         "size": 1000,
@@ -167,6 +216,12 @@ def _bulk_delete_requirements(
     session: Any,
     requirement_ids: list[str],
 ) -> None:
+    """Bulk delete requirements from AWS OpenSearch.
+    Args:
+        config: The AWSControlsIndexConfig object containing OpenSearch configuration.
+        session: The boto3 session object.
+        requirement_ids: A list of requirement IDs to delete.
+    """
     if not requirement_ids:
         return
 
@@ -205,7 +260,19 @@ def upload_controls_records_aws(
     replace_existing: bool = False,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    """Upload control records to OpenSearch using upsert semantics."""
+    """Upload control records to OpenSearch using upsert semantics.
+
+    Args:
+        config: The AWSControlsIndexConfig object containing OpenSearch configuration.
+        session: The boto3 session object for signing requests.
+        records: A list of dictionaries representing control records to upload.
+        batch_size: The number of records to process in each batch (default: 200).
+        replace_existing: Whether to replace existing records with the same framework and version (default: False).
+        dry_run: If True, perform a dry run without making any changes (default: False).
+
+        Returns:
+            A dictionary containing the results of the upload operation.
+    """
     framework = str(records[0].get("framework", "")).strip()
     framework_version = str(records[0].get("framework_version", "")).strip()
     manifest_hash = _controls_manifest_hash(records)

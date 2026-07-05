@@ -14,6 +14,12 @@ RequirementRecord per control objective.
 
 Licensing: NIST AI RMF documentation is public domain. Derived artefacts
 should maintain appropriate attribution to NIST.
+
+Usage:
+    from runtime.ingestion.parsers.nist_ai_rmf import NistAiRmfParser
+    parser = NistAiRmfParser()
+    records = parser.parse()
+    print(f"Parsed {len(records)} NIST AI RMF requirement records.")
 """
 
 from __future__ import annotations

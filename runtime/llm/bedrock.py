@@ -31,16 +31,14 @@ def bedrock_embed_text(
 ) -> list[float]:
     """Generate an embedding vector using AWS Bedrock Runtime.
 
-    Parameters
-    ----------
-    text:
-        Input text to embed.
-    model_id:
-        Bedrock embedding model ID (for example, ``amazon.titan-embed-text-v2:0``).
-    region_name:
-        AWS region override.
-    session:
-        Optional ``boto3.Session`` to reuse.
+    Args:
+        text: The input text to embed.
+        model_id: The Bedrock model ID to use for embedding.
+        region_name: Optional AWS region name (ignored if session is provided).
+        session: Optional boto3 session (if None, a default session is created). 
+
+    Returns:
+        A list of floats representing the embedding vector.
     """
     if not model_id.strip():
         raise RuntimeError("BEDROCK_EMBEDDING_MODEL_ID (or explicit model_id) is required")
@@ -87,22 +85,23 @@ def bedrock_embed_text(
 class BedrockLLMClient:
     """LLMClient backed by the AWS Bedrock Converse API.
 
-    Parameters
-    ----------
-    model_id:
-        Bedrock model ID.  Defaults to the ``BEDROCK_MODEL_ID`` env var, then
-        ``anthropic.claude-3-5-sonnet-20241022-v2:0``.
-    session:
-        A ``boto3.Session`` (or compatible).  When *None* a default session is
-        constructed via ``boto3.Session()``.
-    region_name:
-        AWS region.  Ignored when *session* is provided.
-    temperature:
-        Sampling temperature (0 - 1).
-    top_p:
-        Nucleus sampling probability mass (0 - 1).
-    max_tokens:
-        Maximum tokens in the model reply.
+    This path uses the Bedrock Converse API via boto3, with AWS credentials
+    and region configured in the environment or via an explicit boto3 session.
+
+    The Converse API supports any Bedrock model that implements the Converse interface, including Claude 3.x, Llama, Mistral, and others.
+
+    Default model: ``anthropic.claude-3-5-sonnet-20241022-v2:0``
+
+    Note:
+        The Bedrock Converse API is not OpenAI-compatible; it uses a different request/response format.  
+        This client wraps the Converse API and provides a simplified interface for chat completions.
+
+    Attributes:
+        _model_id: The Bedrock model ID to use for Converse requests.
+        _temperature: Sampling temperature for LLM responses.
+        _top_p: Top-p sampling parameter for LLM responses.
+        _max_tokens: Maximum tokens for LLM responses.
+        _client: The boto3 Bedrock Runtime client.  
     """
 
     def __init__(
@@ -115,6 +114,16 @@ class BedrockLLMClient:
         top_p: float = 1.0,
         max_tokens: int = 1400,
     ) -> None:
+        """Initialise the BedrockLLMClient.
+        
+        Args:
+            model_id: The Bedrock model ID to use for Converse requests.
+            session: Optional boto3 session (if None, a default session is created).
+            region_name: Optional AWS region name (ignored if session is provided).
+            temperature: Sampling temperature for LLM responses.
+            top_p: Top-p sampling parameter for LLM responses.
+            max_tokens: Maximum tokens for LLM responses.
+        """
         self._model_id = (
             model_id
             or os.getenv("BEDROCK_MODEL_ID")
@@ -138,13 +147,10 @@ class BedrockLLMClient:
     def chat_complete(self, messages: list[dict[str, str]]) -> str:
         """Run a Converse API call and return the assistant text.
 
-        Parameters
-        ----------
-        messages:
-            OpenAI-style list of ``{"role": "...", "content": "..."}`` dicts.
-            ``system`` role messages are extracted and passed as the Converse
-            ``system`` parameter; all other messages are passed as the
-            ``messages`` list.
+        Args:
+            messages: A list of message dicts, each with 'role' and 'content' keys.  Roles can be 'system', 'user', or 'assistant'.
+        Returns:
+            The assistant's reply as a string.
         """
         system_parts: list[dict[str, Any]] = []
         converse_messages: list[dict[str, Any]] = []
@@ -189,7 +195,10 @@ class BedrockLLMClient:
         return " ".join(t.strip() for t in texts if t.strip())
 
     def as_callable(self) -> Callable[[list[dict[str, str]]], str]:
-        """Return a plain callable wrapping ``chat_complete``."""
+        """Return a plain callable wrapping ``chat_complete``.
+        
+        Returns:
+            A callable that takes a list of messages and returns the assistant's reply."""
         return self.chat_complete
 
 
@@ -198,6 +207,8 @@ class BedrockMantleLLMClient:
 
     This path uses the Bedrock Mantle endpoint with API-key authentication:
     ``https://bedrock-mantle.{region}.api.aws/v1/chat/completions``.
+
+    AWS is encouraging users to migrate from the Converse API to the Mantle API for OpenAI-compatible usage.
     """
 
     def __init__(
@@ -211,6 +222,17 @@ class BedrockMantleLLMClient:
         api_key: str | None = None,
         base_url: str | None = None,
     ) -> None:
+        """Initialise the BedrockLLMClient.
+
+        Args:
+            model_id: The Bedrock model ID to use for Converse requests.
+            region_name: Optional AWS region name (ignored if base_url is provided).
+            temperature: Sampling temperature for LLM responses.
+            top_p: Top-p sampling parameter for LLM responses.
+            max_tokens: Maximum tokens for LLM responses.
+            api_key: API key for Bedrock Mantle (or set via BEDROCK_API_KEY).
+            base_url: Base URL for Bedrock Mantle (or set via BEDROCK_MANTLE_BASE_URL).
+        """
         self._model_id = model_id or os.getenv("BEDROCK_MODEL_ID") or _DEFAULT_MODEL
         self._temperature = max(0.0, min(1.0, float(temperature)))
         self._top_p = max(0.0, min(1.0, float(top_p)))
@@ -233,7 +255,12 @@ class BedrockMantleLLMClient:
             )
 
     def chat_complete(self, messages: list[dict[str, str]]) -> str:
-        """Run an OpenAI-compatible chat completions call and return assistant text."""
+        """Run an OpenAI-compatible chat completions call and return assistant text.
+        
+        Args:
+            messages: A list of message dicts, each with 'role' and 'content' keys.  Roles can be 'system', 'user', or 'assistant'.
+        Returns:
+            The assistant's reply as a string."""
         openai_messages: list[dict[str, Any]] = []
         has_non_system = False
 
@@ -299,5 +326,7 @@ class BedrockMantleLLMClient:
         return ""
 
     def as_callable(self) -> Callable[[list[dict[str, str]]], str]:
-        """Return a plain callable wrapping ``chat_complete``."""
+        """Return a plain callable wrapping ``chat_complete``.
+        Returns:
+            A callable that takes a list of messages and returns the assistant's reply."""
         return self.chat_complete

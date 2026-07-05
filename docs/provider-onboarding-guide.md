@@ -115,7 +115,7 @@ Recommended unit test modules:
 Run:
 
 ```bash
-source runtime/.venv/bin/activate
+source .venv/bin/activate
 python -m pytest tests/unit -q
 ```
 

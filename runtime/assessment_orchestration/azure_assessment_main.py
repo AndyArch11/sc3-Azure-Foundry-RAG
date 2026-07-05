@@ -1,3 +1,11 @@
+"""
+Azure Assessment Main Module.
+
+This module serves as the entry point for the Azure compliance assessment CLI.
+It handles command-line argument parsing, logging configuration, and orchestrates the execution of the assessment process by invoking the run_azure_assessment function from the azure_assessment module.
+
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -12,7 +20,13 @@ from .azure_assessment import run_azure_assessment
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run main."""
+    """Run main.
+
+    Args:
+        argv: Optional list of command-line arguments. If None, defaults to sys.argv[1:].
+    Returns:
+        Exit code: 0 on success, 1 on error.
+    """
     parser = argparse.ArgumentParser(description="Azure compliance assessment CLI")
     parser.add_argument("--subscription-id", required=True, help="Azure subscription identifier")
     parser.add_argument("--resource-group", default="", help="Azure resource group name")

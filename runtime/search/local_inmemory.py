@@ -37,19 +37,40 @@ _LOCAL_QUERY_STOPWORDS = {
 
 
 def _query_tokens(query: str) -> list[str]:
-    """Extract meaningful query terms for local substring-style ranking."""
+    """Extract meaningful query terms for local substring-style ranking.
+    
+    Args:
+        query: The search query string.
+    Returns:
+        A list of lowercased query tokens, excluding stopwords and short terms.
+    """
     tokens = re.findall(r"[a-z0-9][a-z0-9_-]{1,}", query.lower())
     return [tok for tok in tokens if tok not in _LOCAL_QUERY_STOPWORDS and len(tok) >= 3]
 
 
 class _SearchResults(list[dict[str, Any]]):
-    """List-like search results that expose Azure-style get_count()."""
+    """List-like search results that expose Azure-style get_count().
+    
+    Attributes:
+        _total_count: The total count of matching documents, if available.
+    """
 
     def __init__(self, items: list[dict[str, Any]], *, total_count: int | None = None) -> None:
+        """Initialise search results with optional total count.
+
+        Args:
+            items: The list of search result documents.
+            total_count: The total count of matching documents, if available.
+        """
         super().__init__(items)
         self._total_count = total_count
 
     def get_count(self) -> int | None:
+        """Return the total count of matching documents, if available.
+
+        Returns:
+            The total count of matching documents, or None if not available.
+        """
         return self._total_count
 
 
@@ -58,22 +79,41 @@ class LocalInMemorySearchClient:
 
     Useful for tests and offline development. Performs naive full-text
     substring match and ignores vector queries.
+
+    Attributes:
+        _index: The logical index name.
+        _docs: The in-memory list of documents.
     """
 
     def __init__(self, index: str, documents: list[dict[str, Any]] | None = None) -> None:
+        """Initialise a LocalInMemorySearchClient instance.
+
+        Args:
+            index: The logical index name.
+            documents: Optional initial list of documents to load into the index.
+        """
         self._index = index
         self._docs: list[dict[str, Any]] = list(documents or [])
 
     @property
     def index_name(self) -> str:
+        """Return the logical index name."""
         return self._index
 
     def load_documents(self, docs: list[dict[str, Any]]) -> None:
-        """Replace the in-memory document set."""
+        """Replace the in-memory document set.
+
+        Args:
+            docs: The list of documents to load into the in-memory index.
+        """
         self._docs = list(docs)
 
     def delete_documents(self, *, documents: list[dict[str, Any]]) -> None:
-        """Delete documents by Azure Search-style key/value selectors."""
+        """Delete documents by Azure Search-style key/value selectors.
+
+        Args:
+            documents: The list of documents to delete from the in-memory index.
+        """
         selectors: list[dict[str, str]] = []
         for item in documents:
             if not isinstance(item, dict):
@@ -90,6 +130,15 @@ class LocalInMemorySearchClient:
             return
 
         def _matches(doc: dict[str, Any], selector: dict[str, str]) -> bool:
+            """Check if a document matches a given selector.
+
+            Args:
+                doc: The document to check.
+                selector: The key/value selector to match against.
+
+            Returns:
+                True if the document matches the selector, False otherwise.
+            """
             return all(str(doc.get(k, "")) == v for k, v in selector.items())
 
         self._docs = [
@@ -106,7 +155,19 @@ class LocalInMemorySearchClient:
         select: list[str] | None = None,
         **extra_kwargs: Any,
     ) -> _SearchResults:
-        """Naive substring search across all string fields."""
+        """Naive substring search across all string fields.
+
+        Args:
+            query_text: The text to search for.
+            top: The maximum number of results to return.
+            vector_query: Unused in local implementation.
+            filters: Unused in local implementation.
+            select: The list of fields to include in the results.
+            **extra_kwargs: Additional keyword arguments.
+
+        Returns:
+            _SearchResults: The search results.
+        """
         if query_text is None and "search_text" in extra_kwargs:
             query_text = str(extra_kwargs.get("search_text") or "")
         if filters is None and "filter" in extra_kwargs:

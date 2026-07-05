@@ -2,7 +2,7 @@
 
 # Shared HTTP/LLM client deps
 requests>=2.33.1
-openai==2.41.1
+openai==2.43.0
 httpx==0.28.1
 
 # Azure SDK

@@ -14,7 +14,7 @@ Usage::
     from runtime.ingestion.parsers.essential_eight import EssentialEightParser
     parser = EssentialEightParser()
     records = parser.parse()
-    print(parser.to_jsonl(records))
+    print(f"Parsed {len(records)} Essential Eight requirement records.")
 """
 
 from __future__ import annotations
@@ -194,7 +194,14 @@ _HEADER_CELL_VALUES = frozenset(
 
 
 def _slugify(text: str) -> str:
-    """Convert *text* to a lowercase hyphen-delimited slug."""
+    """Convert *text* to a lowercase hyphen-delimited slug.
+
+    Args:
+        text: The input string to convert.
+
+    Returns:
+        A lowercase hyphen-delimited slug.
+    """
     slug = text.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     slug = slug.strip("-")
@@ -202,7 +209,14 @@ def _slugify(text: str) -> str:
 
 
 def _normalise_family_name(raw: str) -> Optional[str]:
-    """Match *raw* text to one of the canonical control family names."""
+    """Match *raw* text to one of the canonical control family names.
+
+    Args:
+        raw: The input string to match.
+
+    Returns:
+        The canonical control family name if a match is found, otherwise None.
+    """
     raw_clean = raw.strip()
     if not raw_clean:
         return None
@@ -221,7 +235,14 @@ def _normalise_family_name(raw: str) -> Optional[str]:
 
 
 def _fetch_soup(url: str):
-    """Fetch *url* and return a BeautifulSoup parse tree."""
+    """Fetch *url* and return a BeautifulSoup parse tree.
+
+    Args:
+        url: The URL to fetch.
+
+    Returns:
+        A BeautifulSoup parse tree of the fetched HTML content.
+    """
     try:
         from bs4 import BeautifulSoup  # noqa: PLC0415
     except ImportError as exc:
@@ -246,7 +267,14 @@ def _fetch_soup(url: str):
 
 
 def _extract_introduction(soup) -> str:
-    """Return the prose text of the Introduction section of a guidance page."""
+    """Return the prose text of the Introduction section of a guidance page.
+
+    Args:
+        soup: A BeautifulSoup parse tree of the HTML content.
+
+    Returns:
+        The prose text of the Introduction section.
+    """
     intro_heading = None
     for tag in soup.find_all(["h2", "h3", "h4"]):
         if "introduction" in tag.get_text(strip=True).lower():
@@ -279,7 +307,14 @@ def _extract_introduction(soup) -> str:
 
 
 def _extract_cell_requirements(cell) -> List[str]:
-    """Extract individual requirement statements embedded in a single <td>."""
+    """Extract individual requirement statements embedded in a single <td>.
+
+    Args:
+        cell: A BeautifulSoup tag representing a table cell.
+
+    Returns:
+        A list of requirement statements extracted from the cell.
+    """
     # Prefer <li> items (most explicit boundary)
     li_items = cell.find_all("li")
     if li_items:
@@ -307,7 +342,18 @@ def _parse_requirement_table(
     source_section: str,
     guidance_map: Dict[str, str],
 ) -> List[RequirementRecord]:
-    """Parse a single HTML table into RequirementRecord objects."""
+    """Parse a single HTML table into RequirementRecord objects.
+
+    Args:
+        table: A BeautifulSoup tag representing the HTML table.
+        maturity_level: The maturity level associated with the requirements.
+        source_uri: The URI of the source document.
+        source_section: The section of the source document.
+        guidance_map: A dictionary mapping control families to guidance text.
+
+    Returns:
+        A list of RequirementRecord objects parsed from the table.
+    """
     records: List[RequirementRecord] = []
     current_family: Optional[str] = None
     family_counters: Dict[str, int] = {}
@@ -380,7 +426,16 @@ def _parse_maturity_model_page(
     source_url: str,
     guidance_map: Dict[str, str],
 ) -> List[RequirementRecord]:
-    """Extract all requirement records from the maturity model HTML page."""
+    """Extract all requirement records from the maturity model HTML page.
+
+    Args:
+        soup: A BeautifulSoup parse tree of the HTML content.
+        source_url: The URL of the source document.
+        guidance_map: A dictionary mapping control families to guidance text.
+
+    Returns:
+        A list of RequirementRecord objects parsed from the maturity model page.
+    """
     # Locate the main article body (several selectors tried in order)
     content = (
         soup.find("div", class_=lambda c: c and "field--name-body" in c)
@@ -439,7 +494,12 @@ class ASDGuidanceParser:
     """
 
     def __init__(self, control_family: str, url: str) -> None:
-        """Run init."""
+        """Initialise the ASDGuidanceParser.
+
+        Args:
+            control_family: The control family associated with the guidance page.
+            url: The URL of the guidance page.
+        """
         self.control_family = control_family
         self.url = url
 
@@ -476,13 +536,23 @@ class EssentialEightParser(BaseParser):
         maturity_model_url: str = MATURITY_MODEL_URL,
         fetch_guidance: bool = True,
     ) -> None:
-        """Run init."""
+        """Initialise the EssentialEightParser.
+
+        Args:
+            maturity_model_url: URL of the main maturity model page.
+            fetch_guidance: When *True* (default), fetch each supplementary
+                guidance page and embed its introduction text.
+        """
         self.maturity_model_url = maturity_model_url
         self.fetch_guidance = fetch_guidance
 
     def parse(self) -> List[RequirementRecord]:
+        """Run parse.
+
+        Returns:
+            A list of RequirementRecord instances parsed from the Essential Eight maturity model.
+        """
         # 1. Optionally build a guidance_text map keyed by control family.
-        """Run parse."""
         guidance_map: Dict[str, str] = {}
         if self.fetch_guidance:
             seen_urls: Dict[str, str] = {}  # url -> already-fetched guidance text

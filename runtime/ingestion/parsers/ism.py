@@ -6,10 +6,9 @@ The catalog is fetched at parse time from the official GitHub mirror:
 
 The ISM is structured as numbered controls (e.g. ISM-1997) across ~23 guideline
 chapters plus a set of labelled cyber security principles (GOV-01, etc.).
-Controls are emitted as one ``RequirementRecord`` per OSCAL control (1 000+).
+Controls are emitted as one ``RequirementRecord`` per OSCAL control (1,000+).
 
 Usage::
-
     from runtime.ingestion.parsers.ism import IsmParser
     records = IsmParser().parse()
     print(len(records))  # 1130+ depending on ISM version
@@ -69,7 +68,14 @@ _APPLICABILITY_LABELS: Dict[str, str] = {
 
 
 def _slugify(text: str) -> str:
-    """Convert arbitrary text to a lowercase slug."""
+    """Convert arbitrary text to a lowercase slug.
+
+    Args:
+        text: The input string to slugify.
+
+    Returns:
+        A slugified version of the input string, suitable for use in identifiers or URLs.
+    """
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
 
 
@@ -79,6 +85,12 @@ def _requirement_id(oscal_id: str) -> str:
     Examples:
         ``ism-1997``               → ``ISM-1997``
         ``ism-principle-gov-01``   → ``ISM-GOV-01``
+
+    Args:
+        oscal_id: The OSCAL control identifier string.
+
+    Returns:
+        A stable requirement_id string derived from the OSCAL id.
     """
     # Principles have the pattern ism-principle-<label-lowercase>
     # e.g. ism-principle-gov-01 → GOV-01
@@ -97,7 +109,14 @@ def _requirement_id(oscal_id: str) -> str:
 
 
 def _extract_statement(control: dict) -> str:
-    """Return the statement prose from a control's parts list."""
+    """Return the statement prose from a control's parts list.
+
+    Args:
+        control: The control dictionary from which to extract the statement.
+
+    Returns:
+        The statement prose as a string, or an empty string if not found.
+    """
     for part in control.get("parts", []):
         if part.get("name") == "statement":
             return part.get("prose", "").strip()
@@ -110,7 +129,14 @@ def _collect_controls(
     section: str,
     results: List[Tuple[dict, str, str, str]],
 ) -> None:
-    """Recursively walk OSCAL groups and collect (control, guideline, section, subsection)."""
+    """Recursively walk OSCAL groups and collect (control, guideline, section, subsection).
+
+    Args:
+        group: The OSCAL group dictionary to process.
+        guideline: The current guideline context.
+        section: The current section context.
+        results: The list to append collected control tuples to.
+    """
     title = group.get("title", "")
 
     for control in group.get("controls", []):
@@ -135,15 +161,16 @@ def _collect_controls(
 class IsmParser(BaseParser):
     """Parse the ASD Information Security Manual from its OSCAL catalog.
 
-    Parameters
-    ----------
-    catalog_url:
-        URL to the ISM OSCAL JSON catalog. Defaults to the GitHub mirror main
-        branch, which always reflects the latest published release.
+    Attributes:
+        _catalog_url: The URL of the OSCAL catalog to fetch and parse.
     """
 
     def __init__(self, catalog_url: str = _OSCAL_CATALOG_URL, **_kwargs) -> None:
-        """Run init."""
+        """Initialise the IsmParser.
+
+        Args:
+            catalog_url: The URL of the OSCAL catalog to fetch and parse.
+        """
         self._catalog_url = catalog_url
 
     # ------------------------------------------------------------------
@@ -151,7 +178,11 @@ class IsmParser(BaseParser):
     # ------------------------------------------------------------------
 
     def parse(self) -> List[RequirementRecord]:
-        """Run parse."""
+        """Run parse.
+
+        Returns:
+            A list of RequirementRecord instances parsed from the ISM OSCAL catalog.
+        """
         logger.info("Fetching ISM OSCAL catalog from %s", self._catalog_url)
         catalog_data = self._fetch_catalog()
         return self._build_records(catalog_data)
@@ -161,7 +192,11 @@ class IsmParser(BaseParser):
     # ------------------------------------------------------------------
 
     def _fetch_catalog(self) -> dict:
-        """Run fetch catalog."""
+        """Run fetch catalog.
+
+        Returns:
+            The OSCAL catalog data as a dictionary.
+        """
         response = request_with_instrumentation(
             "GET",
             self._catalog_url,
@@ -181,7 +216,14 @@ class IsmParser(BaseParser):
         return json.loads(raw)
 
     def _build_records(self, data: dict) -> List[RequirementRecord]:
-        """Run build records."""
+        """Run build records.
+
+        Args:
+            data: The OSCAL catalog data as a dictionary.
+
+        Returns:
+            A list of RequirementRecord instances parsed from the ISM OSCAL catalog.
+        """
         catalog = data.get("catalog", data)
         meta = catalog.get("metadata", {})
 

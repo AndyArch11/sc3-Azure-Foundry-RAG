@@ -17,7 +17,14 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_provider_adapter(cloud_provider: str | None):
-    """Resolve cloud provider adapter with a safe Azure fallback."""
+    """Resolve cloud provider adapter with a safe Azure fallback.
+
+    Args:
+        cloud_provider: The raw cloud provider string (e.g., "aws", "azure", "gcp").
+
+    Returns:
+        The corresponding provider adapter from the DEFAULT_CLOUD_PROVIDER_REGISTRY.
+    """
 
     try:
         return DEFAULT_CLOUD_PROVIDER_REGISTRY.get(cloud_provider)
@@ -26,6 +33,14 @@ def _resolve_provider_adapter(cloud_provider: str | None):
 
 
 def _is_missing_index_error(exc: Exception) -> bool:
+    """Determine if the exception indicates that the search index is missing.
+
+    Args:
+        exc: The exception raised during the search operation.
+
+    Returns:
+        True if the exception indicates a missing index, False otherwise.
+    """
     response = getattr(exc, "response", None)
     status_code = getattr(response, "status_code", None)
     return isinstance(exc, requests.exceptions.HTTPError) and status_code == 404
@@ -44,6 +59,18 @@ def _client_search(
     """Dispatch client.search() with provider-appropriate keyword arguments.
 
     Uses provider-core adapter mapping so this function remains provider-neutral.
+
+    Args:
+        client: The search client instance to use for the search operation.
+        query_text: The search query text (default is "*").
+        filter_expr: The filter expression for the search (default is "").
+        top: The maximum number of results to return.
+        select: Optional list of fields to select in the search results.
+        include_total_count: Whether to include the total count of matching documents (default is False).
+        cloud_provider: Optional cloud provider string to override the default (default is None).
+
+    Returns:
+        The search results from the client.search() call.
     """
 
     provider_raw = cloud_provider
@@ -63,6 +90,14 @@ def _client_search(
 
 
 def _embed_query(question: str, *, svc: Any) -> list[float]:
+    """Embed the query text using the configured embedding model.
+
+    Args:
+        question: The query text to embed.
+        svc: The service object providing access to configuration and logging.
+    Returns:
+        A list of floats representing the embedding vector for the query text.
+    """
     provider_raw = (
         str(getattr(getattr(svc, "config", None), "cloud_provider", "") or "").strip().lower()
     )
@@ -151,6 +186,17 @@ def _hybrid_search(
 
     This path is resilient: if the grounding-index does not exist yet (e.g., ingestion
     not yet run), it returns an empty result set rather than failing the query.
+
+    Args:
+        question: The query text to search for.
+        retrieve_k: The maximum number of results to retrieve.
+        evidence_filter: Optional filter expression to apply to the search.
+        svc: The service object providing access to configuration and logging.
+
+    Returns:
+        A tuple containing:
+            - A list of dictionaries representing the search results.
+            - A dictionary of timing metrics for embedding and search operations.
     """
     timings: dict[str, float] = {}
 
@@ -256,6 +302,18 @@ def _delete_search_documents_by_filter(
     page_size: int = 500,
     max_rounds: int = 50,
 ) -> dict[str, int]:
+    """Delete documents from the search index matching the specified filter expression.
+
+    Args:
+        client: The search client instance to use for the delete operation.
+        filter_expr: The filter expression to identify documents for deletion.
+        key_field: The field name used as the unique identifier for documents in the index.
+        page_size: The maximum number of documents to retrieve per page (default is 500).
+        max_rounds: The maximum number of rounds to attempt deletion (default is 50).
+
+    Returns:
+        A dictionary containing the number of deleted documents and the number of rounds attempted.
+    """
     deleted = 0
     rounds = 0
     while rounds < max_rounds:
@@ -294,6 +352,14 @@ def _count_search_documents_by_filter(
     *,
     filter_expr: str,
 ) -> dict[str, int]:
+    """Count documents in the search index matching the specified filter expression.
+
+    Args:
+        client: The search client instance to use for the count operation.
+        filter_expr: The filter expression to identify documents for counting.
+    Returns:
+        A dictionary containing the number of documents that would be deleted based on the filter expression.
+    """
     try:
         pager = _client_search(
             client,
@@ -322,6 +388,16 @@ def _list_search_documents_by_filter(
     select_fields: list[str],
     limit: int,
 ) -> dict[str, Any]:
+    """List documents in the search index matching the specified filter expression.
+
+    Args:
+        client: The search client instance to use for the list operation.
+        filter_expr: The filter expression to identify documents for listing.
+        select_fields: The list of fields to include in the returned documents.
+        limit: The maximum number of documents to return (capped at 200).
+    Returns:
+        A dictionary containing the total count, returned count, and the list of items.
+    """
     capped_limit = max(1, min(limit, 200))
     try:
         pager = _client_search(
@@ -358,6 +434,14 @@ def _list_search_documents_by_filter(
 
 
 def _count_search_documents_total_by_filter(client: Any, *, filter_expr: str) -> int:
+    """Count total documents in the search index matching the specified filter expression.
+
+    Args:
+        client: The search client instance to use for the count operation.
+        filter_expr: The filter expression to identify documents for counting.
+    Returns:
+        The total number of documents matching the filter expression.
+    """
     try:
         pager = _client_search(
             client,

@@ -1,3 +1,11 @@
+"""
+Schema validation utilities.
+
+This module provides functions for loading YAML contracts, resolving schema references, and asserting that values conform to specified schemas.
+It is designed to be used in the context of assessment orchestration, where schema validation is necessary for ensuring that data structures adhere to expected formats and constraints.
+
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
@@ -6,13 +14,24 @@ from typing import Any
 
 
 class SchemaValidationError(ValueError):
-    """SchemaValidationError."""
+    """SchemaValidationError.
+
+    This exception is raised when a schema validation error occurs.
+    """
 
     pass
 
 
 def load_yaml_contract(path: str) -> dict[str, Any]:
-    """Run load yaml contract."""
+    """Run load yaml contract.
+
+    Args:
+        path: The path to the YAML contract file.
+    Returns:
+        The loaded YAML contract as a dictionary.
+    Raises:
+        SchemaValidationError: If the YAML contract is invalid or not a dictionary.
+    """
     import yaml  # type: ignore[import-untyped]
 
     with Path(path).open("r", encoding="utf-8") as handle:
@@ -23,14 +42,29 @@ def load_yaml_contract(path: str) -> dict[str, Any]:
 
 
 def to_plain_data(value: Any) -> Any:
-    """Run to plain data."""
+    """Run to plain data.
+
+    Args:
+        value: The value to convert.
+    Returns:
+        The plain data representation of the value.
+    """
     if is_dataclass(value) and not isinstance(value, type):
         return asdict(value)
     return value
 
 
 def resolve_schema_ref(root: dict[str, Any], ref: str) -> dict[str, Any]:
-    """Run resolve schema ref."""
+    """Run resolve schema ref.
+
+    Args:
+        root: The root dictionary containing the schemas.
+        ref: The schema reference string (e.g., "#/schemas/MySchema").
+    Returns:
+        The resolved schema as a dictionary.
+    Raises:
+        SchemaValidationError: If the schema reference is invalid or the referenced schema is not found.
+    """
     if not ref.startswith("#/schemas/"):
         raise SchemaValidationError(f"Unsupported schema ref: {ref}")
     schema_name = ref.split("/", 2)[-1]
@@ -44,7 +78,15 @@ def resolve_schema_ref(root: dict[str, Any], ref: str) -> dict[str, Any]:
 
 
 def assert_schema_value(root: dict[str, Any], schema: dict[str, Any], value: Any) -> None:
-    """Run assert schema value."""
+    """Run assert schema value.
+
+    Args:
+        root: The root dictionary containing the schemas.
+        schema: The schema dictionary to validate against.
+        value: The value to validate.
+    Raises:
+        SchemaValidationError: If the value does not conform to the schema.
+    """
     has_value_constraint = False
 
     if "$ref" in schema:
@@ -114,7 +156,15 @@ def assert_schema_value(root: dict[str, Any], schema: dict[str, Any], value: Any
 
 
 def assert_named_schema(root: dict[str, Any], schema_name: str, value: Any) -> None:
-    """Run assert named schema."""
+    """Run assert named schema.
+
+    Args:
+        root: The root dictionary containing the schemas.
+        schema_name: The name of the schema to validate against.
+        value: The value to validate.
+    Raises:
+        SchemaValidationError: If the value does not conform to the named schema.
+    """
     schemas = root.get("schemas")
     if not isinstance(schemas, dict):
         raise SchemaValidationError("Root payload does not include schemas object")

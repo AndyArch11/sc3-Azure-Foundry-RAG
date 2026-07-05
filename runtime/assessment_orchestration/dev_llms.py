@@ -1,19 +1,20 @@
-"""LLM backend factory for Azure vs local Ollama.
+"""
+LLM backend factory for Azure vs local Ollama.
 
 Environment variables:
-    LLM_BACKEND: 'azure' (default) or 'ollama'
-    OLLAMA_HOST: Ollama endpoint — Ollama's own env var (e.g. http://host.docker.internal:11434)
-    OLLAMA_BASE_URL: Alternative endpoint override (OLLAMA_HOST takes precedence if both set)
-    OLLAMA_MODEL: Ollama chat model (default: gemma3:27b)
-    OLLAMA_CHAT_MODEL: Legacy chat model alias (preferred when both are set)
-    OLLAMA_EMBEDDING_MODEL: Ollama embedding model (default: nomic-embed-text)
-    OLLAMA_EMBED_MODEL: Legacy embedding model alias (used when OLLAMA_EMBEDDING_MODEL is unset)
-    OLLAMA_NUM_CTX: Context window in tokens (default: adaptive by GPU VRAM when
-        available, else host RAM/CPU; approx 4K on constrained hosts up to 128K on
-        high-memory hosts). Adaptive detection probes the local runtime environment;
-        if Ollama is running on a different host (WSL, remote container, etc.) set
-        this explicitly so the context window matches that host's actual resources.
-    OLLAMA_FORCE_JSON: Enable Ollama JSON mode (default: true)
+LLM_BACKEND: 'azure' (default) or 'ollama'
+OLLAMA_HOST: Ollama endpoint — Ollama's own env var (e.g. http://host.docker.internal:11434)
+OLLAMA_BASE_URL: Alternative endpoint override (OLLAMA_HOST takes precedence if both set)
+OLLAMA_MODEL: Ollama chat model (default: gemma3:27b)
+OLLAMA_CHAT_MODEL: Legacy chat model alias (preferred when both are set)
+OLLAMA_EMBEDDING_MODEL: Ollama embedding model (default: nomic-embed-text)
+OLLAMA_EMBED_MODEL: Legacy embedding model alias (used when OLLAMA_EMBEDDING_MODEL is unset)
+OLLAMA_NUM_CTX: Context window in tokens (default: adaptive by GPU VRAM when
+    available, else host RAM/CPU; approx 4K on constrained hosts up to 128K on
+    high-memory hosts). Adaptive detection probes the local runtime environment;
+    if Ollama is running on a different host (WSL, remote container, etc.) set
+    this explicitly so the context window matches that host's actual resources.
+OLLAMA_FORCE_JSON: Enable Ollama JSON mode (default: true)
 """
 
 from __future__ import annotations
@@ -34,7 +35,14 @@ logger = logging.getLogger(__name__)
 
 
 def _detect_host_resources() -> tuple[float, int]:
-    """Best-effort host resource detection (RAM GiB, CPU cores)."""
+    """Best-effort host resource detection (RAM GiB, CPU cores).
+
+    Attempts to detect RAM and CPU count using multiple methods, falling back to
+    default values if detection fails.
+
+    Returns:
+        A tuple containing the amount of RAM in GiB and the number of CPU cores.
+    """
     cpu_count = os.cpu_count() or 1
     try:
         page_size = os.sysconf("SC_PAGE_SIZE")
@@ -69,6 +77,9 @@ def _detect_gpu_vram_gib() -> float | None:
 
     Returns the largest detected VRAM value across all visible GPUs, or None when
     no reliable signal is available.
+
+    Returns:
+        The largest detected GPU VRAM in GiB, or None if no GPUs are detected.
     """
 
     values_gib: list[float] = []
@@ -80,7 +91,11 @@ def _detect_gpu_vram_gib() -> float | None:
 
 
 def _detect_nvidia_gpu_vram_gibs() -> list[float]:
-    """Detect NVIDIA GPU VRAM values in GiB using nvidia-smi."""
+    """Detect NVIDIA GPU VRAM values in GiB using nvidia-smi.
+
+    Returns:
+        A list of detected NVIDIA GPU VRAM values in GiB.
+    """
     nvidia_smi = shutil.which("nvidia-smi")
     values_gib: list[float] = []
     if nvidia_smi:
@@ -106,7 +121,11 @@ def _detect_nvidia_gpu_vram_gibs() -> list[float]:
 
 
 def _detect_linux_drm_gpu_vram_gibs() -> list[float]:
-    """Detect Linux DRM GPU VRAM values in GiB from sysfs when available."""
+    """Detect Linux DRM GPU VRAM values in GiB from sysfs when available.
+
+    Returns:
+        A list of detected Linux DRM GPU VRAM values in GiB.
+    """
     values_gib: list[float] = []
 
     # Linux AMD path (when sysfs is exposed by the kernel/driver stack).
@@ -125,7 +144,14 @@ def _detect_linux_drm_gpu_vram_gibs() -> list[float]:
 
 
 def _recommended_ollama_num_ctx_from_host(ram_gib: float, cpu_count: int) -> int:
-    """Heuristic context window from host RAM/CPU only."""
+    """Heuristic context window from host RAM/CPU only.
+
+    Args:
+        ram_gib: The amount of RAM in GiB.
+        cpu_count: The number of CPU cores.
+    Returns:
+        The recommended context window size in tokens based on host RAM and CPU count.
+    """
     if ram_gib < 8 or cpu_count <= 4:
         return 8192
     if ram_gib < 16 or cpu_count <= 8:
@@ -138,7 +164,13 @@ def _recommended_ollama_num_ctx_from_host(ram_gib: float, cpu_count: int) -> int
 
 
 def _recommended_ollama_num_ctx_from_gpu(gpu_vram_gib: float) -> int:
-    """Heuristic context window from GPU VRAM only."""
+    """Heuristic context window from GPU VRAM only.
+
+    Args:
+        gpu_vram_gib: The amount of GPU VRAM in GiB.
+    Returns:
+        The recommended context window size in tokens based on GPU VRAM.
+    """
     if gpu_vram_gib < 6:
         return 4096
     if gpu_vram_gib < 10:
@@ -160,6 +192,11 @@ def _is_remote_ollama_url(url: str) -> bool:
       - 0.0.0.0  (all-interfaces bind; Ollama itself uses this)
     Addresses that are considered remote (Ollama runs in a different environment):
       - host.docker.internal, wsl.localhost, named hosts, external IPs
+
+    Args:
+        url: The Ollama base URL to check.
+    Returns:
+        True if the URL points to a remote host, False if it points to a local/loopback host.
     """
     try:
         from urllib.parse import urlparse
@@ -176,7 +213,14 @@ def _is_remote_ollama_url(url: str) -> bool:
 
 
 def _recommended_ollama_num_ctx(ollama_url: str | None = None) -> int:
-    """Adaptive default context window for Ollama on local/dev hosts."""
+    """Adaptive default context window for Ollama on local/dev hosts.
+
+    Args:
+        ollama_url: The Ollama base URL (optional).
+
+    Returns:
+        The recommended context window size in tokens based on local host resources and GPU VRAM.
+    """
     ram_gib, cpu_count = _detect_host_resources()
     host_ctx = _recommended_ollama_num_ctx_from_host(ram_gib, cpu_count)
     gpu_vram_gib = _detect_gpu_vram_gib()
@@ -201,7 +245,11 @@ def _recommended_ollama_num_ctx(ollama_url: str | None = None) -> int:
 
 
 def get_llm_backend() -> str:
-    """Get configured LLM backend: 'azure' or 'ollama'."""
+    """Get configured LLM backend: 'azure' or 'ollama'.
+
+    Returns:
+        The configured LLM backend as a lowercase string.
+    """
     backend = os.environ.get("LLM_BACKEND", "azure").lower().strip()
     if backend not in ("azure", "ollama"):
         logger.warning(f"Invalid LLM_BACKEND '{backend}'; defaulting to 'azure'")
@@ -264,12 +312,18 @@ def create_chat_completion_fn(
             )
 
             def ollama_wrapper(messages: list[dict[str, str]]) -> str:
-                """Run ollama wrapper."""
+                """Run ollama wrapper.
+                Args:
+                    messages: List of messages in OpenAI format.
+
+                Returns:
+                    The response from the Ollama model as a string.
+                """
                 return ollama_chat_completion(
                     messages,
                     model=ollama_model,
                     base_url=ollama_url,
-                    temperature=1.0,
+                    temperature=max(0.0, min(1.0, float(getattr(config, "temperature", 0.2)))),
                     top_p=max(0.0, min(1.0, float(getattr(config, "top_p", 1.0)))),
                     timeout=120,
                     force_json=force_json,
@@ -291,7 +345,11 @@ def create_chat_completion_fn(
         def azure_wrapper(messages: list[dict[str, str]]) -> str:
             """Run azure wrapper."""
             return assessment_runtime._chat_completion(
-                messages, config=config, credential=credential
+                messages,
+                config=config,
+                credential=credential,
+                temperature=float(getattr(config, "temperature", 0.2)),
+                top_p=float(getattr(config, "top_p", 1.0)),
             )
 
         return azure_wrapper
@@ -366,7 +424,12 @@ def create_embedding_fn(
         )
 
         def azure_wrapper(text: str) -> list[float]:
-            """Run azure wrapper."""
+            """Run azure wrapper.
+            Args:
+                text: The input text to embed.
+            Returns:
+                A list of floats representing the embedding vector.
+            """
             return assessment_runtime._embed_query(text, config=config, credential=credential)
 
         return azure_wrapper

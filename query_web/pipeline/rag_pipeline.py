@@ -18,22 +18,56 @@ _CONTROL_GUID_MIN_CHARS: int = 100
 
 
 def _proportional_limit(n_items: int, per_item_max: int, total_budget: int, min_chars: int) -> int:
-    """Return per-item char limit that keeps n_items * limit within total_budget."""
+    """Return per-item char limit that keeps n_items * limit within total_budget.
+
+    Args:
+        n_items: The number of items to consider.
+        per_item_max: The maximum number of characters allowed per item.
+        total_budget: The total character budget for all items combined.
+        min_chars: The minimum number of characters allowed per item.
+
+    Returns:
+        The per-item character limit that respects the total budget and minimum constraints.
+    """
     if n_items <= 0:
         return per_item_max
     return min(per_item_max, max(min_chars, total_budget // n_items))
 
 
 def _normalise_corpus_value(raw_value: Any) -> str:
+    """Normalise corpus value to a lowercase string with hyphens instead of underscores.
+
+    Args:
+        raw_value: The raw corpus value to normalise.
+
+    Returns:
+        The normalised corpus value as a string.
+    """
     value = str(raw_value or "").strip().lower().replace("_", "-")
     return value
 
 
 def _normalise_corpus_role_value(raw_value: Any) -> str:
+    """Normalise corpus role value to a lowercase string with underscores instead of hyphens.
+
+    Args:
+        raw_value: The raw corpus role value to normalise.
+
+    Returns:
+        The normalised corpus role value as a string.
+    """
     return str(raw_value or "").strip().lower().replace("-", "_")
 
 
 def _is_corpus_b_chunk(chunk: dict[str, Any]) -> bool:
+    """Determine if a chunk belongs to Corpus B (narrative guidance).
+
+    Args:
+        chunk: A dictionary representing a chunk of evidence, expected to contain 'corpus' and 'corpus_role' keys.
+
+    Returns:
+        True if the chunk is identified as belonging to Corpus B, False otherwise.
+    """
     corpus = _normalise_corpus_value(chunk.get("corpus"))
     corpus_role = _normalise_corpus_role_value(chunk.get("corpus_role"))
     return corpus in {"b", "corpus-b"} or corpus_role in {
@@ -44,6 +78,14 @@ def _is_corpus_b_chunk(chunk: dict[str, Any]) -> bool:
 
 
 def _is_corpus_c_chunk(chunk: dict[str, Any]) -> bool:
+    """Determine if a chunk belongs to Corpus C (assessed artifact).
+
+    Args:
+        chunk: A dictionary representing a chunk of evidence, expected to contain 'corpus' and 'corpus_role' keys.
+
+    Returns:
+        True if the chunk is identified as belonging to Corpus C, False otherwise.
+    """
     corpus = _normalise_corpus_value(chunk.get("corpus"))
     corpus_role = _normalise_corpus_role_value(chunk.get("corpus_role"))
     return corpus in {"c", "corpus-c"} or corpus_role in {
@@ -71,6 +113,28 @@ def _run_rag(
     max_completion_tokens: int | None = None,
     evaluator_max_completion_tokens: int | None = None,
 ) -> dict[str, Any]:
+    """Run the RAG pipeline: retrieve evidence, query controls, and generate a grounded answer.
+
+    Args:
+        question: The user's question to answer.
+        retrieve_k: The number of top chunks to retrieve from the evidence index.
+        temperature: The temperature setting for the LLM response generation.
+        controls_semantic: Whether to use semantic search for controls retrieval.
+        svc: The service object providing access to configuration, logging, and search clients.
+        top_p: The top-p setting for the LLM response generation (default is 1.0).
+        controls_context_cap: Optional cap on the number of controls to retrieve (default is None).
+        controls_framework: Optional framework filter for controls retrieval (default is None).
+        controls_comparison_mode: The mode for comparing controls (default is "auto-detect").
+        evidence_corpora_include: Optional list of evidence corpora to include (default is None).
+        evidence_corpora_exclude: Optional list of evidence corpora to exclude (default is None).
+        conversation_history: Optional list of previous conversation turns (default is None).
+        feedback_context: Optional context for feedback (default is "").
+        max_completion_tokens: Optional maximum number of tokens for the LLM completion (default is None).
+        evaluator_max_completion_tokens: Optional maximum number of tokens for the evaluator LLM completion (default is None).
+
+    Returns:
+        A dictionary containing the answer, retrieved results, controls results, evaluation metrics, and other relevant information.
+    """
     started = time.perf_counter()
 
     validator_fn = svc._call_validator if svc.config.prompt_injection_validator_enabled else None

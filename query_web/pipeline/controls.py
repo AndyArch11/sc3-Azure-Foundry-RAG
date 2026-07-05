@@ -152,6 +152,14 @@ _POLICY_KEYWORD_EXPANSION: dict[str, tuple[str, ...]] = {
 
 
 def _normalise_evidence_corpus(raw_value: str) -> str | None:
+    """Normalise an evidence corpus value to a canonical form.
+
+    Args:
+        raw_value: The raw evidence corpus value.
+
+    Returns:
+        The normalised evidence corpus value, or None if it cannot be normalised.
+    """
     value = (raw_value or "").strip().lower()
     if not value:
         return None
@@ -159,6 +167,14 @@ def _normalise_evidence_corpus(raw_value: str) -> str | None:
 
 
 def _normalise_evidence_corpora(values: Iterable[str] | None) -> list[str] | None:
+    """Normalise a list of evidence corpus values to their canonical forms.
+
+    Args:
+        values: An iterable of raw evidence corpus values.
+
+    Returns:
+        A list of normalised evidence corpus values, or None if the input is None.
+    """
     if values is None:
         return None
 
@@ -174,6 +190,14 @@ def _normalise_evidence_corpora(values: Iterable[str] | None) -> list[str] | Non
 
 
 def _parse_evidence_corpora_csv(raw_value: str | None) -> list[str] | None:
+    """Parse a CSV string of evidence corpora and normalise them.
+
+    Args:
+        raw_value: The raw CSV string of evidence corpora.
+
+    Returns:
+        A list of normalised evidence corpora, or None if the input is empty.
+    """
     text = (raw_value or "").strip()
     if not text:
         return None
@@ -187,6 +211,16 @@ def _resolve_evidence_corpora(
     *,
     default_corpora: Iterable[str] | None = None,
 ) -> list[str]:
+    """Resolve the final list of evidence corpora to use, based on include/exclude lists.
+
+    Args:
+        include: An iterable of evidence corpora to include.
+        exclude: An iterable of evidence corpora to exclude.
+        default_corpora: An optional iterable of default evidence corpora to use if include is None.
+
+    Returns:
+        A list of resolved evidence corpora, in the order of default_corpora or _EVIDENCE_CORPUS_ORDER.
+    """
     include_normalised = _normalise_evidence_corpora(include)
     exclude_normalised = set(_normalise_evidence_corpora(exclude) or [])
 
@@ -199,6 +233,14 @@ def _resolve_evidence_corpora(
 
 
 def _build_evidence_corpus_filter(selected_corpora: Iterable[str]) -> str | None:
+    """Build a filter string for the selected evidence corpora.
+
+    Args:
+        selected_corpora: An iterable of selected evidence corpora.
+
+    Returns:
+        A filter string for the selected evidence corpora, or None if all corpora are selected.
+    """
     selected_set = set(selected_corpora)
     selected = [c for c in _EVIDENCE_CORPUS_ORDER if c in selected_set]
     if not selected:
@@ -230,6 +272,15 @@ def _build_evidence_corpus_filter(selected_corpora: Iterable[str]) -> str | None
 
 
 def _normalise_framework_filter(raw_value: str | None, svc: Any) -> str | None:
+    """Normalise a framework filter value to a canonical form.
+
+    Args:
+        raw_value: The raw framework filter value.
+        svc: The service object providing access to the precedence policy.
+
+    Returns:
+        The canonical framework filter value, or None if the input is invalid.
+    """
     if raw_value is None:
         return None
 
@@ -244,6 +295,14 @@ def _normalise_framework_filter(raw_value: str | None, svc: Any) -> str | None:
 
 
 def _normalise_controls_comparison_mode(raw_value: str | None) -> str:
+    """Normalise a controls comparison mode value to a canonical form.
+
+    Args:
+        raw_value: The raw controls comparison mode value.
+
+    Returns:
+        The canonical controls comparison mode value.
+    """
     value = (raw_value or "").strip().lower()
     if not value:
         return "auto-detect"
@@ -260,6 +319,15 @@ def _normalise_controls_comparison_mode(raw_value: str | None) -> str:
 
 
 def _framework_authority_rank(framework_name: str, svc: Any) -> int:
+    """Return the authority rank of a framework based on the precedence policy.
+
+    Args:
+        framework_name: The name of the framework.
+        svc: The service object providing access to the precedence policy.
+
+    Returns:
+        The authority rank of the framework, or a default value if not found.
+    """
     normalised = framework_name.strip().lower()
     for idx, configured in enumerate(svc.precedence_policy.default_framework_order):
         if normalised == configured.strip().lower():
@@ -268,6 +336,15 @@ def _framework_authority_rank(framework_name: str, svc: Any) -> int:
 
 
 def _preferred_framework_for_question(question: str, svc: Any) -> str | None:
+    """Determine the preferred framework for a given question based on the precedence policy.
+
+    Args:
+        question: The question text to evaluate.
+        svc: The service object providing access to the precedence policy.
+
+    Returns:
+        The preferred framework for the question, or None if not found.
+    """
     context = _preferred_framework_context_for_question(question, svc)
     if not context:
         return None
@@ -278,6 +355,15 @@ def _preferred_framework_for_question(question: str, svc: Any) -> str | None:
 
 
 def _preferred_framework_context_for_question(question: str, svc: Any) -> dict[str, Any] | None:
+    """Determine the preferred framework context for a given question based on the precedence policy.
+
+    Args:
+        question: The question text to evaluate.
+        svc: The service object providing access to the precedence policy.
+
+    Returns:
+        A dictionary containing the preferred framework context, or None if not found.
+    """
     text = question.strip().lower()
     if not text:
         return None
@@ -353,6 +439,14 @@ def _preferred_framework_context_for_question(question: str, svc: Any) -> dict[s
 
 
 def _precedence_policy_summary(svc: Any) -> str:
+    """Generate a summary of the precedence policy.
+
+    Args:
+        svc: The service object providing access to the precedence policy.
+
+    Returns:
+        A string summarizing the precedence policy.
+    """
     order = " > ".join(svc.precedence_policy.default_framework_order)
     default_fw = getattr(svc.precedence_policy, "default_framework", "") or (
         svc.precedence_policy.default_framework_order[0]
@@ -402,6 +496,16 @@ def _controls_coverage_disclaimer(
     comparison_detected: bool,
     comparison_mode: str,
 ) -> str | None:
+    """Generate a coverage disclaimer for controls.
+
+    Args:
+        controls_debug: A dictionary containing debug information about controls.
+        comparison_detected: A boolean indicating if a comparison was detected.
+        comparison_mode: The mode of the controls comparison.
+
+    Returns:
+        A string containing the coverage disclaimer, or None if not applicable.
+    """
     if not controls_debug:
         return None
 
@@ -428,6 +532,15 @@ def _controls_coverage_disclaimer(
 
 
 def _prepend_disclaimer(answer: str, disclaimer: str | None) -> str:
+    """Prepend a disclaimer to the answer text if not already present.
+
+    Args:
+        answer: The original answer text.
+        disclaimer: The disclaimer text to prepend.
+
+    Returns:
+        The answer text with the disclaimer prepended if applicable.
+    """
     text = (answer or "").strip()
     if not disclaimer:
         return text
@@ -444,6 +557,14 @@ def _prepend_disclaimer(answer: str, disclaimer: str | None) -> str:
 
 
 def _question_focus_terms(question: str) -> list[str]:
+    """Extract focus terms from a question for query expansion.
+
+    Args:
+        question: The question text to process.
+
+    Returns:
+        A list of focus terms extracted from the question.
+    """
     tokens = re.findall(r"[a-z0-9][a-z0-9_-]{1,}", (question or "").lower())
     focus_terms: list[str] = []
     seen_terms: set[str] = set()
@@ -460,6 +581,14 @@ def _question_focus_terms(question: str) -> list[str]:
 
 
 def _controls_query_variants(question: str) -> list[str]:
+    """Generate query variants for a given question.
+
+    Args:
+        question: The question text to process.
+
+    Returns:
+        A list of query variants.
+    """
     text = (question or "").strip()
     if not text:
         return [""]
@@ -494,6 +623,15 @@ def _merge_control_candidates(
     base_items: list[dict[str, Any]],
     new_items: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    """Merge two lists of control candidates, avoiding duplicates.
+
+    Args:
+        base_items: The base list of control candidates.
+        new_items: The new list of control candidates to merge.
+
+    Returns:
+        A merged list of control candidates.
+    """
     merged = list(base_items)
     seen_keys = {
         (
@@ -522,7 +660,15 @@ def _fuse_controls_rankings(
     lexical_items: list[dict[str, Any]],
     vector_items: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Fuse lexical and vector rankings with reciprocal-rank fusion."""
+    """Fuse lexical and vector rankings with reciprocal-rank fusion.
+
+    Args:
+        lexical_items: A list of control candidates ranked by lexical search.
+        vector_items: A list of control candidates ranked by vector search.
+
+    Returns:
+        A list of control candidates ranked by fused scores.
+    """
 
     if not vector_items:
         return lexical_items
@@ -574,6 +720,16 @@ def _fetch_controls(
     """Execute a controls-index search and return hydrated items.
 
     Raises exceptions on error so callers can decide how to handle them.
+
+    Args:
+        search_text: The text to search for in the controls index.
+        retrieve_k: The maximum number of items to retrieve.
+        use_semantic: Whether to use semantic search.
+        framework_filter: An optional framework filter to apply.
+        svc: The service object providing access to the controls search client.
+
+    Returns:
+        A list of control candidates retrieved from the controls index.
     """
     _SELECT = [
         "requirement_id",
@@ -596,6 +752,14 @@ def _fetch_controls(
         )
 
     def _search_with_vector(vector_query: list[float] | None) -> list[dict[str, Any]]:
+        """Perform a search with optional vector query and return hydrated items.
+
+        Args:
+            vector_query: An optional vector query for semantic search.
+
+        Returns:
+            A list of control candidates retrieved from the controls index.
+        """
         items: list[dict[str, Any]] = []
         kwargs = dict(neutral_kwargs)
         if vector_query is not None:
@@ -648,6 +812,14 @@ def _fetch_controls(
 
 
 def _is_cross_framework_comparison_intent(question: str) -> bool:
+    """Determine if a question indicates cross-framework comparison intent.
+
+    Args:
+        question: The question text to analyse.
+
+    Returns:
+        True if the question indicates cross-framework comparison intent, False otherwise.
+    """
     text = (question or "").strip().lower()
     if not text:
         return False
@@ -690,6 +862,15 @@ def _is_cross_framework_comparison_intent(question: str) -> bool:
 
 
 def _select_diverse_controls(items: list[dict[str, Any]], top_k: int) -> list[dict[str, Any]]:
+    """Select a diverse set of controls from the given items.
+
+    Args:
+        items: A list of control items to select from.
+        top_k: The maximum number of items to select.
+
+    Returns:
+        A list of selected control items.
+    """
     if top_k <= 0 or not items:
         return []
 
@@ -702,15 +883,39 @@ def _select_diverse_controls(items: list[dict[str, Any]], top_k: int) -> list[di
     family_counts: dict[str, int] = {}
 
     def _item_key(item: dict[str, Any]) -> str:
+        """Generate a unique key for a control item based on its requirement ID, source URI, and requirement text.
+
+        Args:
+            item: A control item dictionary.
+
+        Returns:
+            A unique string key representing the control item.
+        """
         requirement_id = str(item.get("requirement_id") or "").strip()
         source_uri = str(item.get("source_uri") or "").strip()
         requirement_text = str(item.get("requirement_text") or "").strip()
         return "||".join((requirement_id, source_uri, requirement_text[:120]))
 
     def _framework(item: dict[str, Any]) -> str:
+        """Get the framework of a control item.
+
+        Args:
+            item: A control item dictionary.
+
+        Returns:
+            The framework of the control item as a lowercase string.
+        """
         return str(item.get("framework") or "").strip().lower()
 
     def _family(item: dict[str, Any]) -> str:
+        """Get the control family of a control item.
+
+        Args:
+            item: A control item dictionary.
+
+        Returns:
+            The control family of the control item as a lowercase string.
+        """
         return str(item.get("control_family") or "").strip().lower()
 
     for item in items:
@@ -759,6 +964,18 @@ def _summarise_controls_distribution(
     preferred_framework: str | None = None,
     preferred_framework_debug: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """
+    Summarise the distribution of controls.
+
+    Args:
+        controls: A list of control items.
+        controls_timings: A dictionary of control timings.
+        preferred_framework: An optional preferred framework.
+        preferred_framework_debug: An optional dictionary for preferred framework debug information.
+
+    Returns:
+        A dictionary summarising the distribution of controls.
+    """
     framework_counts: dict[str, int] = {}
     family_counts: dict[str, int] = {}
 
@@ -830,11 +1047,29 @@ def _apply_framework_authority_preference(
     question: str,
     svc: Any = None,
 ) -> list[dict[str, Any]]:
-    """Apply relevance-first ordering with authority preference as a tie-breaker."""
+    """Apply relevance-first ordering with authority preference as a tie-breaker.
+
+    Args:
+        items: A list of control items to rank.
+        top_k: The maximum number of items to return.
+        question: The question text to use for focus term extraction.
+        svc: The service object providing access to the precedence policy.
+
+    Returns:
+        A list of ranked control items, limited to top_k.
+    """
     preferred_framework = _preferred_framework_for_question(question, svc)
     focus_terms = _question_focus_terms(question)
 
     def _concept_overlap(item: dict[str, Any]) -> int:
+        """Count the number of focus terms that appear in the control item.
+
+        Args:
+            item: A control item dictionary.
+
+        Returns:
+            The number of focus terms that appear in the control item.
+        """
         if not focus_terms:
             return 0
         haystack = " ".join(
@@ -847,6 +1082,14 @@ def _apply_framework_authority_preference(
         return sum(1 for term in focus_terms if term in haystack)
 
     def _preferred_rank(item: dict[str, Any]) -> int:
+        """Determine the rank of a control item based on whether it matches the preferred framework.
+
+        Args:
+            item: A control item dictionary.
+
+        Returns:
+            The rank of the control item based on preferred framework match.
+        """
         if not preferred_framework:
             return 0
         framework = str(item.get("framework") or "").strip().lower()
@@ -865,6 +1108,15 @@ def _apply_framework_authority_preference(
 
 
 def _control_concept_overlap_count(item: dict[str, Any], focus_terms: list[str]) -> int:
+    """Count the number of focus terms that appear in the control item.
+
+    Args:
+        item: A control item dictionary.
+        focus_terms: A list of focus terms to check for in the control item.
+
+    Returns:
+        The number of focus terms that appear in the control item.
+    """
     if not focus_terms:
         return 0
     haystack = " ".join(
@@ -887,6 +1139,14 @@ def _is_acceptable_preferred_backfill_candidate(
     This prevents low-match filler controls from displacing stronger top-k items,
     while still allowing preferred-framework controls to backfill when cap crowding
     suppresses acceptable matches.
+
+    Args:
+        candidate: A control item dictionary to evaluate.
+        question: The question text to use for focus term extraction.
+        current_slice: The current slice of top-k control items.
+
+    Returns:
+        True if the candidate is relevant enough to be included, False otherwise.
     """
 
     focus_terms = _question_focus_terms(question)
@@ -929,6 +1189,17 @@ def controls_search(
     Resilient: falls back from semantic to keyword on FeatureNotSupported, and
     returns empty results (not an exception) for any other search failure so the
     query can still proceed with grounding-index context alone.
+
+    Args:
+        question: The question text to search for.
+        retrieve_k: The maximum number of items to retrieve.
+        use_semantic: Whether to use semantic search.
+        framework_filter_override: An optional framework filter to apply.
+        comparison_mode: The mode of the controls comparison, either "auto-detect" or "force_cross_framework_comparison".
+        svc: The service object providing access to the controls search client.
+
+    Returns:
+        A tuple containing a list of control candidates and a dictionary of timings.
     """
     timings: dict[str, float] = {}
     timings["controls_semantic_enabled"] = 1.0 if use_semantic else 0.0
@@ -973,6 +1244,16 @@ def controls_search(
         top_k: int,
         framework_name: str | None,
     ) -> list[dict[str, Any]]:
+        """Fetch controls with a fallback from semantic to keyword search.
+
+        Args:
+            search_text: The text to search for in the controls index.
+            top_k: The maximum number of items to retrieve.
+            framework_name: An optional framework filter to apply.
+
+        Returns:
+            A list of control candidates.
+        """
         try:
             return svc_fetch_controls(
                 search_text,
@@ -1114,7 +1395,14 @@ def controls_search(
 
 
 def _controls_framework_ingestion_status(*, svc: Any) -> dict[str, Any]:
-    """Return per-framework ingestion status by querying the controls search index."""
+    """Return per-framework ingestion status by querying the controls search index.
+
+    Args:
+        svc: The service object providing access to the controls search client.
+
+    Returns:
+        A dictionary containing the ingestion status for each framework.
+    """
     status: dict[str, Any] = {}
 
     for key, framework_name in _CONTROLS_FRAMEWORK_FILTERS.items():

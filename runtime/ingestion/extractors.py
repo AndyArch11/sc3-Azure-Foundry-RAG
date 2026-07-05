@@ -1,3 +1,9 @@
+"""
+extractors
+
+Extract text from source documents (PDF, Excel) for ingestion into the RAG pipeline.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -11,7 +17,14 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_pdf_text_ocr(path: Path) -> str:
-    """Run extract pdf text ocr."""
+    """Run extract pdf text ocr.
+
+    Args:
+        path: The path to the PDF file.
+
+    Returns:
+        The extracted text from the PDF file using OCR.
+    """
     try:
         import pypdfium2 as pdfium
         import pytesseract
@@ -35,7 +48,16 @@ def _extract_pdf_text_ocr(path: Path) -> str:
 
 
 def _extract_pdf_text(path: Path, *, enable_ocr: bool = False, min_text_chars: int = 80) -> str:
-    """Run extract pdf text."""
+    """Run extract pdf text.
+
+    Args:
+        path: The path to the PDF file.
+        enable_ocr: Whether to enable OCR for scanned/image-heavy PDFs.
+        min_text_chars: The minimum number of characters required to skip OCR.
+
+    Returns:
+        The extracted text from the PDF file.
+    """
     try:
         from pypdf import PdfReader
     except ImportError as exc:
@@ -69,7 +91,14 @@ def _extract_pdf_text(path: Path, *, enable_ocr: bool = False, min_text_chars: i
 
 
 def _extract_excel_text(path: Path) -> str:
-    """Run extract excel text."""
+    """Run extract excel text.
+
+    Args:
+        path: The path to the Excel file.
+
+    Returns:
+        The extracted text from the Excel file.
+    """
     try:
         from openpyxl import load_workbook
     except ImportError as exc:
@@ -101,7 +130,16 @@ def extract_source_document(
     enable_ocr: bool = False,
     ocr_min_text_chars: int = 80,
 ) -> SourceDocument:
-    """Run extract source document."""
+    """Run extract source document.
+
+    Args:
+        path: The path to the source document.
+        enable_ocr: Whether to enable OCR for scanned/image-heavy PDFs.
+        ocr_min_text_chars: The minimum number of characters required to skip OCR.
+
+    Returns:
+        A SourceDocument instance containing the extracted text and metadata.
+    """
     suffix = path.suffix.lower()
     if suffix == ".pdf":
         text = _extract_pdf_text(
@@ -120,7 +158,14 @@ def extract_source_document(
 
 
 def discover_supported_files(input_dir: Path) -> list[Path]:
-    """Run discover supported files."""
+    """Run discover supported files.
+
+    Args:
+        input_dir: The directory to search for supported source documents.
+
+    Returns:
+        A list of paths to the supported source documents found in the input directory.
+    """
     files = [
         p for p in input_dir.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
     ]

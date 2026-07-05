@@ -4,8 +4,8 @@ Table layout
 ------------
 Each item in the table uses a two-attribute primary key:
 
-  PK  (partition key) : source         – e.g. "confluence"
-  SK  (sort key)      : doc_key        – e.g. "state", "lock", "processed:abc123"
+  PK  (partition key) : source         - e.g. "confluence"
+  SK  (sort key)      : doc_key        - e.g. "state", "lock", "processed:abc123"
 
 A single DynamoDB table therefore replaces the single Cosmos container.  All
 operations are scoped to the (source, doc_key) pair, mirroring the Cosmos
@@ -48,15 +48,12 @@ logger = logging.getLogger(__name__)
 class DynamoDBPollingStateStore:
     """PollingStateStore backed by a single AWS DynamoDB table.
 
-    Parameters
-    ----------
-    table_name:
-        DynamoDB table name.  Falls back to the ``DYNAMODB_TABLE`` env var.
-    session:
-        A ``boto3.Session`` (or compatible).  When *None* a default session is
-        created via ``boto3.Session()``.
-    region_name:
-        AWS region for the DynamoDB client.  Ignored when *session* is provided.
+    All items are stored in a single DynamoDB table, with a composite primary key of (source, doc_key).
+
+    Attributes:
+        _table_name: The name of the DynamoDB table to use.
+        _dynamo: The boto3 DynamoDB resource.
+        _table: The DynamoDB Table object for the specified table name.
     """
 
     def __init__(
@@ -66,6 +63,13 @@ class DynamoDBPollingStateStore:
         session: Any = None,
         region_name: str | None = None,
     ) -> None:
+        """Initialise the DynamoDBPollingStateStore.
+
+        Args:
+            table_name: The name of the DynamoDB table to use. If None, falls back to the DYNAMODB_TABLE environment variable.
+            session: An optional boto3.Session or compatible session. If None, a default session is created via ``boto3.Session()``.
+            region_name: The AWS region for the DynamoDB client. Ignored if a session is provided.
+        """
         self._table_name = table_name or os.getenv("DYNAMODB_TABLE", "")
         if not self._table_name:
             raise ValueError("table_name must be supplied or DYNAMODB_TABLE env var must be set")
@@ -85,10 +89,25 @@ class DynamoDBPollingStateStore:
     # ------------------------------------------------------------------
 
     def _get(self, source: str, doc_key: str) -> dict[str, Any] | None:
+        """Retrieve an item from the DynamoDB table by source and doc_key.
+
+        Args:
+            source: The source identifier (partition key).
+            doc_key: The document key (sort key).
+        Returns:
+            The retrieved item as a dictionary, or None if not found.
+        """
         resp = self._table.get_item(Key={"source": source, "doc_key": doc_key})
         return resp.get("Item")
 
     def _put(self, item: dict[str, Any]) -> dict[str, Any]:
+        """Insert or replace an item in the DynamoDB table.
+
+        Args:
+            item: The item dictionary to insert or replace.
+        Returns:
+            The inserted or replaced item as a dictionary.
+        """
         self._table.put_item(Item=item)
         return item
 
@@ -101,6 +120,18 @@ class DynamoDBPollingStateStore:
         expr_names: dict[str, str] | None = None,
         expr_values: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Update an item in the DynamoDB table.
+
+        Args:
+            source: The source identifier (partition key).
+            doc_key: The document key (sort key).
+            updates: A dictionary of attribute updates.
+            condition_expr: An optional condition expression for the update.
+            expr_names: An optional dictionary of expression attribute names.
+            expr_values: An optional dictionary of expression attribute values.
+        Returns:
+            The updated item as a dictionary.
+        """
         set_parts = [f"#{k} = :{k}" for k in updates]
         update_expr = "SET " + ", ".join(set_parts)
 
@@ -130,6 +161,13 @@ class DynamoDBPollingStateStore:
     # ------------------------------------------------------------------
 
     def load_state(self, source: str) -> PollingState:
+        """Load the polling state for a given source.
+
+        Args:
+            source: The source identifier (partition key).
+        Returns:
+            The polling state as a PollingState object.
+        """
         payload = self._get(source, "state") or {"source": source, "poll_count": 0}
         return _coerce_state(payload)
 
@@ -143,6 +181,18 @@ class DynamoDBPollingStateStore:
         poll_count_increment: int = 0,
         expected_etag: str = "",
     ) -> PollingState:
+        """Commit the polling state for a given source.
+
+        Args:
+            source: The source identifier (partition key).
+            watermark: The watermark value.
+            last_processed_event_id: The ID of the last processed event.
+            last_error: The last error encountered, if any.
+            poll_count_increment: The increment for the poll count.
+            expected_etag: The expected ETag for conditional updates.
+        Returns:
+            The updated polling state as a PollingState object.
+        """
         current = self._get(source, "state") or {
             "source": source,
             "doc_key": "state",
@@ -192,6 +242,15 @@ class DynamoDBPollingStateStore:
     # ------------------------------------------------------------------
 
     def try_acquire_lease(self, source: str, *, owner_run_id: str, ttl_seconds: int) -> bool:
+        """Attempt to acquire a lease for a given source.
+
+        Args:
+            source: The source identifier (partition key).
+            owner_run_id: The run ID of the owner attempting to acquire the lease.
+            ttl_seconds: The time-to-live for the lease in seconds.
+        Returns:
+            True if the lease was successfully acquired, False otherwise.
+        """
         now = datetime.now(UTC)
         expires_at = (now + timedelta(seconds=ttl_seconds)).isoformat()
         ttl_epoch = int(now.timestamp()) + ttl_seconds
@@ -222,6 +281,15 @@ class DynamoDBPollingStateStore:
         return True
 
     def renew_lease(self, source: str, *, owner_run_id: str, ttl_seconds: int) -> bool:
+        """Renew an existing lease for a given source.
+
+        Args:
+            source: The source identifier (partition key).
+            owner_run_id: The run ID of the owner attempting to renew the lease.
+            ttl_seconds: The time-to-live for the lease in seconds.
+        Returns:
+            True if the lease was successfully renewed, False otherwise.
+        """
         current = self._get(source, "lock")
         if not current or str(current.get("owner_run_id") or "") != owner_run_id:
             return False
@@ -240,6 +308,12 @@ class DynamoDBPollingStateStore:
         return True
 
     def release_lease(self, source: str, *, owner_run_id: str) -> None:
+        """Release a lease for a given source.
+
+        Args:
+            source: The source identifier (partition key).
+            owner_run_id: The run ID of the owner attempting to release the lease.
+        """
         current = self._get(source, "lock")
         if current and str(current.get("owner_run_id") or "") == owner_run_id:
             self._table.delete_item(Key={"source": source, "doc_key": "lock"})
@@ -249,6 +323,14 @@ class DynamoDBPollingStateStore:
     # ------------------------------------------------------------------
 
     def is_event_processed(self, source: str, event_id: str) -> bool:
+        """Check if an event has already been processed.
+
+        Args:
+            source: The source identifier (partition key).
+            event_id: The ID of the event to check.
+        Returns:
+            True if the event has been processed, False otherwise.
+        """
         doc_key = f"processed:{event_id}"
         item = self._get(source, doc_key)
         if not item:
@@ -262,6 +344,14 @@ class DynamoDBPollingStateStore:
     def mark_processed_event(
         self, source: str, *, event_id: str, run_id: str, ttl_hours: int = 48
     ) -> None:
+        """Mark an event as processed.
+
+        Args:
+            source: The source identifier (partition key).
+            event_id: The ID of the event to mark as processed.
+            run_id: The run ID associated with the processing of the event.
+            ttl_hours: The time-to-live for the processed event record in hours.
+        """
         ttl_epoch = int(time.time()) + ttl_hours * 3600
         self._put(
             {
@@ -281,6 +371,16 @@ class DynamoDBPollingStateStore:
     def increment_failure_count(
         self, source: str, *, event_id: str, error_message: str, run_id: str
     ) -> int:
+        """Increment the failure count for a given event.
+
+        Args:
+            source: The source identifier (partition key).
+            event_id: The ID of the event that failed.
+            error_message: The error message associated with the failure.
+            run_id: The run ID associated with the processing of the event.
+        Returns:
+            The new failure count for the event.
+        """
         doc_key = f"failure:{event_id}"
         current = self._get(source, doc_key) or {
             "source": source,
@@ -305,6 +405,14 @@ class DynamoDBPollingStateStore:
     def mark_terminal_failure(
         self, source: str, *, event_id: str, error_message: str, run_id: str
     ) -> None:
+        """Mark an event as having a terminal failure.
+
+        Args:
+            source: The source identifier (partition key).
+            event_id: The ID of the event that failed.
+            error_message: The error message associated with the failure.
+            run_id: The run ID associated with the processing of the event.
+        """
         doc_key = f"failure:{event_id}"
         current = self._get(source, doc_key) or {
             "source": source,
@@ -329,6 +437,15 @@ class DynamoDBPollingStateStore:
     def get_assessment_snapshot(
         self, source: str, *, target_id: str, framework_scope: str
     ) -> AssessmentSnapshot | None:
+        """Retrieve the latest assessment snapshot for a given target and framework.
+
+        Args:
+            source: The source identifier (partition key).
+            target_id: The target identifier for the assessment.
+            framework_scope: The framework scope for the assessment.
+        Returns:
+            An AssessmentSnapshot object if found, or None if not found.
+        """
         doc_key = f"assessment:{target_id}:{framework_scope}"
         payload = self._get(source, doc_key)
         if payload is None:
@@ -351,6 +468,17 @@ class DynamoDBPollingStateStore:
         page_version: str,
         content_hash: str,
     ) -> AssessmentSnapshot:
+        """Upsert an assessment snapshot for a given target and framework.
+
+        Args:
+            source: The source identifier (partition key).
+            target_id: The target identifier for the assessment.
+            framework_scope: The framework scope for the assessment.
+            page_version: The version of the assessment page.
+            content_hash: The hash of the assessment content.
+        Returns:
+            An AssessmentSnapshot object representing the upserted snapshot.
+        """
         doc_key = f"assessment:{target_id}:{framework_scope}"
         payload = {
             "source": source,
@@ -376,6 +504,13 @@ class DynamoDBPollingStateStore:
     # ------------------------------------------------------------------
 
     def get_latest_poll_run_summary(self, source: str) -> PollRunSummary | None:
+        """Retrieve the latest poll run summary for a given source.
+
+        Args:
+            source: The source identifier (partition key).
+        Returns:
+            A PollRunSummary object if found, or None if not found.
+        """
         payload = self._get(source, "poll_run_summary")
         if payload is None:
             return None
@@ -404,6 +539,21 @@ class DynamoDBPollingStateStore:
         error_message: str = "",
         space_keys: tuple[str, ...] = (),
     ) -> PollRunSummary:
+        """Upsert a poll run summary for a given source.
+
+        Args:
+            source: The source identifier (partition key).
+            polled_at: The timestamp when the poll was performed.
+            since_iso: The ISO timestamp since when the poll was performed.
+            watermark: The watermark value after the poll.
+            mentions_found: The number of mentions found during the poll.
+            jobs_queued: The number of jobs queued as a result of the poll.
+            terminal_failures: The number of terminal failures encountered during the poll.
+            error_message: An optional error message if the poll encountered errors.
+            space_keys: An optional tuple of space keys associated with the poll.
+        Returns:
+            A PollRunSummary object representing the upserted summary.
+        """
         payload = {
             "source": source,
             "doc_key": "poll_run_summary",
@@ -436,6 +586,14 @@ class DynamoDBPollingStateStore:
     def list_recent_page_assessments(
         self, source: str, *, since_iso: str, limit: int = 100
     ) -> list[PageAssessmentRecord]:
+        """List recent page assessments for a given source.
+        Args:
+            source: The source identifier (partition key).
+            since_iso: The ISO timestamp to filter assessments that were assessed after this time.
+            limit: The maximum number of assessments to return.
+        Returns:
+            A list of PageAssessmentRecord objects representing the recent assessments.
+        """
         from boto3.dynamodb.conditions import Attr, Key
 
         try:
@@ -488,6 +646,23 @@ class DynamoDBPollingStateStore:
         assessed_at: str,
         page_version: str,
     ) -> PageAssessmentRecord:
+        """Upsert a page assessment record for a given target and framework.
+
+        Args:
+            source: The source identifier (partition key).
+            target_id: The target identifier for the assessment.
+            framework_scope: The framework scope for the assessment.
+            title: The title of the assessed page.
+            target_url: The URL of the assessed page.
+            space_key: The space key associated with the assessed page.
+            status: The assessment status (e.g., "assessed", "failed").
+            overall_risk: The overall risk level of the assessment (e.g., "low", "medium", "high").
+            findings_count: The number of findings identified in the assessment.
+            assessed_at: The ISO timestamp when the assessment was performed.
+            page_version: The version of the assessed page.
+        Returns:
+            A PageAssessmentRecord object representing the upserted assessment.
+        """
         doc_key = f"page_assessment:{target_id}:{framework_scope}"
         payload = {
             "source": source,
@@ -525,6 +700,14 @@ class DynamoDBPollingStateStore:
     def list_recent_failures(
         self, source: str, *, since_iso: str, limit: int = 50
     ) -> list[FailureRecord]:
+        """List recent failure records for a given source.
+        Args:
+            source: The source identifier (partition key).
+            since_iso: The ISO timestamp to filter failures that occurred after this time.
+            limit: The maximum number of failure records to return.
+        Returns:
+            A list of FailureRecord objects representing the recent failures.
+        """
         from boto3.dynamodb.conditions import Attr, Key
 
         try:

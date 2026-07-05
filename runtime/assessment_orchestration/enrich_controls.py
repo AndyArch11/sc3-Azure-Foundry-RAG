@@ -1,6 +1,10 @@
 """
-Enrich control documents with applicability metadata.
-Can be used as a standalone script for bulk control enrichment at ingestion time.
+Enrich Controls Module.
+
+This module provides functionality to enrich control documents with applicability metadata.
+It includes functions to classify controls as technical, process, governance, or mixed, and to add the corresponding metadata fields to control documents.
+The enrichment process can be applied to individual controls or to a batch of controls read from an input JSONL file, with the enriched controls written to an output JSONL file or stdout.
+
 """
 
 from __future__ import annotations
@@ -68,7 +72,13 @@ def enrich_controls_file(
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run main."""
+    """Run main.
+    Args:
+        argv: List of command-line arguments (or None to use sys.argv).
+
+    Returns:
+        Exit code (0 for success, 1 for error).
+    """
     parser = argparse.ArgumentParser(
         description="Enrich control documents with applicability metadata."
     )

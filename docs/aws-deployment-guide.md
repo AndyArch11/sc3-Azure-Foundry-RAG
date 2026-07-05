@@ -95,6 +95,7 @@ aws sts get-caller-identity
 5. Roll out those tags through `rollout-app-hosting.sh`.
 6. Upload evidence and control data into S3 / OpenSearch, run the ingestion job, and load control data.
 7. Run integration smoke tests against the query-web ECS service URL.
+8. Optional: publish a decoupled gateway API surface (APIM/API Gateway/local gateway) using [docs/contracts/rag-api-v1.openapi.yaml](docs/contracts/rag-api-v1.openapi.yaml) and the guidance in [docs/gateway-integration-deployment-option.md](docs/gateway-integration-deployment-option.md).
 
 ---
 
@@ -675,6 +676,17 @@ Use the standard CloudWatch log group names for log routing:
 
 Log queries use CloudWatch Log Insights; the same logql patterns from the local Loki
 setup translate directly — filter on `correlation_id`, `trace_id`, or `level`.
+
+---
+
+## Optional Decoupled Gateway Publication
+
+This is an additional deployment option and does not replace the core ECS query-web deployment.
+
+- Publish the contract: [docs/contracts/rag-api-v1.openapi.yaml](docs/contracts/rag-api-v1.openapi.yaml)
+- Follow gateway setup guidance: [docs/gateway-integration-deployment-option.md](docs/gateway-integration-deployment-option.md)
+- Keep query-web private and authenticate callers at the gateway edge.
+- Inject the query-web `auth_token` at the gateway boundary using Secrets Manager, Key Vault-backed configuration, or local secret management.
 
 ---
 

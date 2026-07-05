@@ -1,7 +1,7 @@
 -r cloud.txt
 # Local dev/embedding backends
-pypdf>=6.13.2
+pypdf>=6.14.2
 openpyxl==3.1.5
-pypdfium2==5.9.0
+pypdfium2==5.10.1
 pytesseract==0.3.13
 qdrant-client==1.18.0

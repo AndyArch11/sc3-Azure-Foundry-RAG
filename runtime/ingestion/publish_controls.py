@@ -1,3 +1,10 @@
+"""
+ingestion publish controls
+- publish controls to Azure AI Search or AWS OpenSearch
+- supports optional embedding of control text for semantic search
+- supports optional enrichment of control applicability via Foundry assessment orchestration
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -36,11 +43,23 @@ OPTIONAL_APPLICABILITY_FIELDS = {
 
 
 def _controls_embedding_enabled() -> bool:
+    """Check if control embedding is enabled based on environment variable.
+    Returns:
+        True if embedding is enabled, False otherwise.
+    """
     raw = os.getenv("CONTROLS_EMBED_ON_PUBLISH", "false").strip().lower()
     return raw not in {"0", "false", "no", "off"}
 
 
 def _controls_embedding_text(record: dict[str, Any]) -> str:
+    """Generate embedding text for a control record.
+
+    Args:
+        record: A dictionary representing a control record.
+
+    Returns:
+        A string containing the text to be used for embedding.
+    """
     requirement_text = str(record.get("requirement_text") or "").strip()
     guidance_text = str(record.get("guidance_text") or "").strip()
     keywords = record.get("keywords") or []
@@ -53,6 +72,13 @@ def _controls_embedding_text(record: dict[str, Any]) -> str:
 
 
 def _embed_text_azure(text: str, credential: TokenCredential) -> list[float] | None:
+    """Generate an embedding vector for the given text using Azure OpenAI.
+    Args:
+        text: The input text to embed.
+        credential: An Azure TokenCredential for authentication.
+    Returns:
+        A list of floats representing the embedding vector, or None if embedding is not available.
+    """
     endpoint = (
         os.getenv("AZURE_OPENAI_ENDPOINT", "").strip() or os.getenv("OPENAI_ENDPOINT", "").strip()
     ).rstrip("/")
@@ -80,7 +106,14 @@ def _embed_text_azure(text: str, credential: TokenCredential) -> list[float] | N
 
 
 def load_controls_jsonl(path: Path) -> list[dict[str, Any]]:
-    """Run load controls jsonl."""
+    """Load control records from a JSONL file.
+
+    Args:
+        path: The path to the JSONL file.
+
+    Returns:
+        A list of dictionaries representing control records.
+    """
     records: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as f:
         for line_no, line in enumerate(f, start=1):
@@ -109,12 +142,27 @@ def load_controls_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def _batched(items: list[dict[str, Any]], batch_size: int) -> list[list[dict[str, Any]]]:
-    """Run batched."""
+    """Run batched.
+
+    Args:
+        items: A list of items to batch.
+        batch_size: The maximum size of each batch.
+
+    Returns:
+        A list of batches, where each batch is a list of items.
+    """
     return [items[i : i + batch_size] for i in range(0, len(items), batch_size)]
 
 
 def _controls_manifest_hash(records: list[dict[str, Any]]) -> str:
-    """Compute a stable manifest hash for a framework/version payload."""
+    """Compute a stable manifest hash for a framework/version payload.
+
+    Args:
+        records: A list of control records.
+
+    Returns:
+        A string representing the stable manifest hash.
+    """
     canonical_rows: list[dict[str, Any]] = []
     for record in records:
         canonical_rows.append(
@@ -143,7 +191,16 @@ def _framework_version_state(
     framework: str,
     framework_version: str,
 ) -> tuple[list[str], set[str]]:
-    """Run framework version state."""
+    """Run framework version state.
+
+    Args:
+        client: The SearchClient object for interacting with Azure AI Search.
+        framework: The framework name.
+        framework_version: The framework version.
+
+    Returns:
+        A tuple containing a list of requirement IDs and a set of manifest hashes.
+    """
     escaped_framework = framework.replace("'", "''")
     escaped_version = framework_version.replace("'", "''")
     filter_expr = (
@@ -172,7 +229,13 @@ def _framework_version_state(
 def _delete_requirements(
     client: SearchClient, requirement_ids: list[str], batch_size: int = 500
 ) -> None:
-    """Run delete requirements."""
+    """Run delete requirements.
+
+    Args:
+        client: The SearchClient object for interacting with Azure AI Search.
+        requirement_ids: A list of requirement IDs to delete.
+        batch_size: The maximum number of requirements to delete in a single batch.
+    """
     if not requirement_ids:
         return
     for batch in [
@@ -191,7 +254,19 @@ def upload_controls_records(
     replace_existing: bool = False,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    """Upload control records to Azure AI Search using upsert semantics."""
+    """Upload control records to Azure AI Search using upsert semantics.
+
+    Args:
+        config: The ControlsIndexConfig object containing index configuration.
+        credential: The TokenCredential object for authentication.
+        records: A list of control records to upload.
+        batch_size: The maximum number of records to upload in a single batch.
+        replace_existing: Whether to replace existing records with the same framework/version.
+        dry_run: If True, do not actually upload records, just simulate the operation.
+
+    Returns:
+        A dictionary containing the upload results.
+    """
     client = SearchClient(
         endpoint=config.search_endpoint,
         index_name=config.controls_index_name,

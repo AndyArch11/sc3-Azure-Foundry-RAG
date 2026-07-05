@@ -16,7 +16,11 @@ import re
 
 
 def _resolve_policy_path() -> str:
-    """Run resolve policy path."""
+    """Resolve the path to the precedence policy JSON file.
+
+    Returns:
+        The resolved path to the precedence policy JSON file.
+    """
     env_path = os.getenv("PRECEDENCE_POLICY_PATH", "").strip()
     if env_path:
         return env_path
@@ -157,7 +161,14 @@ _INFER_PRIORITY: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
 
 
 def is_explicit_all_framework_request(text: str) -> bool:
-    """Return ``True`` if *text* unambiguously requests all frameworks."""
+    """Check if the text unambiguously requests all frameworks.
+
+    Args:
+        text: The input text to check for all-frameworks intent.
+
+    Returns:
+        True if the text unambiguously requests all frameworks, False otherwise.
+    """
     value = text.strip()
     if not value:
         return False
@@ -165,10 +176,16 @@ def is_explicit_all_framework_request(text: str) -> bool:
 
 
 def requested_frameworks_from_text(text: str) -> tuple[str, ...]:
-    """Return every framework explicitly named or implied in *text*.
+    """Return a tuple of canonical framework names inferred from the input text.
 
-    Returns :data:`ALL_FRAMEWORK_ORDER` when an all-frameworks intent phrase
-    is detected.  Returns ``()`` when no framework can be resolved.
+    Uses a specificity-first priority order (:data:`_INFER_ORDER`) to minimise
+    false-positive matches on short tokens.  Returns an empty tuple when no framework is recognised.
+
+    Args:
+        text: The input text to infer frameworks from.
+
+    Returns:
+        A tuple of canonical framework names inferred from the input text.
     """
     import logging
 
@@ -205,6 +222,12 @@ def infer_single_framework(text: str) -> str | None:
 
     Use :func:`requested_frameworks_from_text` when multi-framework detection
     or all-frameworks expansion is needed.
+
+    Args:
+        text: The input text to infer a single framework from.
+
+    Returns:
+        The single highest-priority framework inferred from the input text, or ``None`` if no framework is recognised.
     """
     value = text.strip()
     if not value:

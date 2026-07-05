@@ -11,14 +11,38 @@ from fastapi import Request
 
 
 def _normalise_object_id(value: str) -> str:
+    """Normalise Entra ID object ID to lowercase string with no whitespace.
+
+    Args:
+        value: The raw object ID value to normalise.
+
+    Returns:
+        The normalised object ID.
+    """
     return value.strip().lower()
 
 
 def _split_group_values(raw_value: str) -> set[str]:
+    """Split a raw string of group values into a set of normalised object IDs.
+
+    Args:
+        raw_value: A string containing group values, separated by commas, semicolons, or whitespace.
+
+    Returns:
+        A set of normalised Entra ID object IDs.
+    """
     return {_normalise_object_id(part) for part in re.split(r"[,;\s]+", raw_value) if part.strip()}
 
 
 def _decode_client_principal(encoded_principal: str) -> dict[str, Any] | None:
+    """Decode the X-MS-CLIENT-PRINCIPAL header value into a principal dictionary.
+
+    Args:
+        encoded_principal: The base64-encoded string from the X-MS-CLIENT-PRINCIPAL header.
+
+    Returns:
+        A dictionary representing the decoded principal, or None if decoding fails.
+    """
     if not encoded_principal:
         return None
 
@@ -36,6 +60,12 @@ def _groups_from_client_principal_header(encoded_principal: str) -> set[str]:
     """Extract Entra group object IDs from X-MS-CLIENT-PRINCIPAL header.
 
     Expected shape is the platform-auth principal object with a ``claims`` array.
+
+    Args:
+        encoded_principal: The base64-encoded string from the X-MS-CLIENT-PRINCIPAL header.
+
+    Returns:
+        A set of normalised Entra ID object IDs extracted from the claims, or an empty set if none are found or decoding fails.
     """
     principal = _decode_client_principal(encoded_principal)
     if not principal:
@@ -63,6 +93,14 @@ def _groups_from_client_principal_header(encoded_principal: str) -> set[str]:
 
 
 def _principal_has_group_overage(encoded_principal: str) -> bool:
+    """Determine if the principal has group overage (i.e., group claims are not inline).
+
+    Args:
+        encoded_principal: The base64-encoded string from the X-MS-CLIENT-PRINCIPAL header.
+
+    Returns:
+        True if the principal has group overage, False otherwise.
+    """
     principal = _decode_client_principal(encoded_principal)
     if not principal:
         return False
@@ -89,6 +127,14 @@ def _principal_has_group_overage(encoded_principal: str) -> bool:
 
 
 def _request_groups(request: Request | None) -> set[str]:
+    """Extract Entra ID group claims from the request headers.
+
+    Args:
+        request: The incoming HTTP request.
+
+    Returns:
+        A set of normalised Entra ID object IDs extracted from the request headers, or an empty set if none are found.
+    """
     if request is None:
         return set()
 
@@ -105,6 +151,14 @@ def _request_groups(request: Request | None) -> set[str]:
 
 
 def _group_auth_failure_message(request: Request | None) -> str:
+    """Generate an appropriate failure message for Entra ID group authorisation.
+
+    Args:
+        request: The incoming HTTP request.
+
+    Returns:
+        A string describing the reason for the authorisation failure.
+    """
     if request is None:
         return "Unauthorised. Request context unavailable for Entra ID group validation."
 
@@ -139,7 +193,15 @@ def _group_auth_failure_message(request: Request | None) -> str:
 
 
 def is_authorised(auth_token: str, config: Any) -> bool:
-    """Legacy shared-token + Entra group check (no request context)."""
+    """Legacy shared-token + Entra group check (no request context).
+
+    Args:
+        auth_token: The shared access token provided in the request.
+        config: The application configuration object containing auth settings.
+
+    Returns:
+        True if the request is authorised based on the shared token and Entra group settings, False otherwise.
+    """
     # Legacy shared token auth (optional)
     if config.auth_token and auth_token.strip() != config.auth_token:
         return False
@@ -153,7 +215,16 @@ def is_authorised(auth_token: str, config: Any) -> bool:
 
 
 def is_authorised_request(auth_token: str, request: Request | None, config: Any) -> bool:
-    """Full auth check: shared token + Entra group from request headers."""
+    """Full auth check: shared token + Entra group from request headers.
+
+    Args:
+        auth_token: The shared access token provided in the request.
+        request: The incoming HTTP request containing potential Entra ID headers.
+        config: The application configuration object containing auth settings.
+
+    Returns:
+        True if the request is authorised based on the shared token and Entra group settings, False otherwise.
+    """
     # Legacy shared token auth (optional)
     if config.auth_token and auth_token.strip() != config.auth_token:
         return False
@@ -171,7 +242,15 @@ def is_authorised_request(auth_token: str, request: Request | None, config: Any)
 
 
 def unauthorised_message(request: Request | None, config: Any) -> str:
-    """Return the appropriate auth failure message for the active auth mode."""
+    """Return the appropriate auth failure message for the active auth mode.
+
+    Args:
+        request: The incoming HTTP request containing potential Entra ID headers.
+        config: The application configuration object containing auth settings.
+
+    Returns:
+        A string message indicating the reason for the unauthorised status.
+    """
 
     if config.required_group_object_id:
         return _group_auth_failure_message(request)

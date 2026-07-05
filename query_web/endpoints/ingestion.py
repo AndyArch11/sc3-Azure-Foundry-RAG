@@ -74,18 +74,37 @@ class IngestionService:
     The service receives an explicit dependency container so helper
     lookups happen at runtime while preserving existing patch.object
     test behaviour through thin wrappers in app.py.
+
+    Attributes:
+        deps: A dependency container with required attributes for ingestion operations.
     """
 
     def __init__(self, deps: Any) -> None:
+        """Initialise the IngestionService with a dependency container.
+
+        Args:
+            deps: A dependency container with required attributes for ingestion operations.
+        """
         self.deps = deps
 
     def _dep_attr(self, name: str, default: Any) -> Any:
-        """Resolve an attribute from the injected dependency container with fallback."""
+        """Resolve an attribute from the injected dependency container with fallback.
 
+        Args:
+            name: The name of the attribute to resolve.
+            default: The default value to return if the attribute is not found.
+
+        Returns:
+            The resolved attribute value, either from the dependency container or the default.
+        """
         return getattr(self.deps, name, default)
 
     def _current_provider(self) -> str:
-        """Return canonical cloud provider with safe fallback for invalid env values."""
+        """Return canonical cloud provider with safe fallback for invalid env values.
+
+        Returns:
+            The canonical cloud provider name.
+        """
 
         try:
             return normalise_cloud_provider(os.getenv("CLOUD_PROVIDER"))
@@ -93,19 +112,38 @@ class IngestionService:
             return "azure"
 
     def _is_aws_provider(self) -> bool:
+        """Return True when the current cloud provider is AWS.
+
+        Returns:
+            True if the current cloud provider is AWS, False otherwise.
+        """
         return self._current_provider() == "aws"
 
     def is_corpus_upload_enabled(self) -> bool:
-        """Return whether storage-backed corpus upload is configured."""
+        """Return whether storage-backed corpus upload is configured.
+
+        Returns:
+            True if storage-backed corpus upload is configured, False otherwise.
+        """
 
         if self._is_aws_provider():
             return bool(self.deps.config.s3_bucket_name)
         return bool(self.deps.config.storage_account_name)
 
     def _is_local_provider(self) -> bool:
+        """Return True when the current cloud provider is local.
+
+        Returns:
+            True if the current cloud provider is local, False otherwise.
+        """
         return self._current_provider() == "local"
 
     def _persist_local_evidence_docs(self, docs: list[dict[str, Any]]) -> None:
+        """Persist local evidence docs to a JSONL file for local/dev ingestion.
+
+        Args:
+            docs: A list of document dictionaries to persist.
+        """
         if not docs:
             return
 
@@ -124,7 +162,17 @@ class IngestionService:
         corpus: str,
         corpus_role: str,
     ) -> dict[str, Any]:
-        """Local/dev upload path: parse files and index directly into local search client."""
+        """Local/dev upload path: parse files and index directly into local search client.
+
+        Args:
+            files: A list of uploaded files to process.
+            user_id: The ID of the user uploading the files.
+            corpus: The name of the corpus to which the files belong.
+            corpus_role: The role of the corpus.
+
+        Returns:
+            A dictionary containing the results of the upload process.
+        """
 
         from runtime.ingestion.chunking import chunk_document
         from runtime.ingestion.extractors import extract_source_document
@@ -280,7 +328,11 @@ class IngestionService:
         }
 
     def is_ingestion_job_trigger_enabled(self) -> bool:
-        """Return whether Azure Container Apps job trigger settings are configured."""
+        """Return whether Azure Container Apps job trigger settings are configured.
+
+        Returns:
+            True if Azure Container Apps job trigger settings are configured, False otherwise.
+        """
 
         return bool(
             self.deps.config.ingestion_job_subscription_id
@@ -289,7 +341,11 @@ class IngestionService:
         )
 
     def is_aws_ecs_trigger_enabled(self) -> bool:
-        """Return whether AWS ECS run-task parameters are configured."""
+        """Return whether AWS ECS run-task parameters are configured.
+
+        Returns:
+            True if AWS ECS run-task parameters are configured, False otherwise.
+        """
 
         return bool(
             self.deps.config.ecs_cluster_name
@@ -299,7 +355,14 @@ class IngestionService:
         )
 
     def get_ecs_recent_executions(self, *, limit: int = 5) -> list[dict[str, Any]]:
-        """Fetch recent ECS ingestion task executions and map them to a portable status shape."""
+        """Fetch recent ECS ingestion task executions and map them to a portable status shape.
+
+        Args:
+            limit: The maximum number of recent executions to fetch.
+
+        Returns:
+            A list of dictionaries representing the recent ECS ingestion task executions.
+        """
 
         if not self.is_aws_ecs_trigger_enabled():
             return []
@@ -334,6 +397,14 @@ class IngestionService:
         tasks: list[dict[str, Any]] = describe_resp.get("tasks", [])
 
         def _map_status(task: dict[str, Any]) -> str:
+            """Map ECS task lastStatus to a portable status string.
+
+            Args:
+                task: A dictionary representing an ECS task.
+
+            Returns:
+                A string representing the portable status of the ECS task.
+            """
             last = task.get("lastStatus", "UNKNOWN")
             if last in (
                 "RUNNING",
@@ -399,7 +470,14 @@ class IngestionService:
         return results
 
     def trigger_ecs_task_with_args(self, args: list[str]) -> dict[str, Any]:
-        """Launch an ECS Fargate one-off ingestion task with an explicit args list."""
+        """Launch an ECS Fargate one-off ingestion task with an explicit args list.
+
+        Args:
+            args: A list of arguments to pass to the ECS task.
+
+        Returns:
+            A dictionary containing information about the launched ECS task.
+        """
 
         if not self.is_aws_ecs_trigger_enabled():
             raise RuntimeError(
@@ -468,7 +546,17 @@ class IngestionService:
         dry_run: bool = False,
         no_guidance: bool = False,
     ) -> dict[str, Any]:
-        """Launch an ECS Fargate one-off task to ingest a controls framework."""
+        """Launch an ECS Fargate one-off task to ingest a controls framework.
+
+        Args:
+            framework: The name of the controls framework to ingest.
+            replace_existing: If True, replace any existing framework with the same name.
+            dry_run: If True, perform a dry run without actually ingesting the framework.
+            no_guidance: If True, skip ingesting guidance documents for the framework.
+
+        Returns:
+            A dictionary containing information about the launched ECS task.
+        """
 
         cmd: list[str] = ["--mode", "controls", "--controls-framework", framework]
         if replace_existing:
@@ -488,6 +576,12 @@ class IngestionService:
         On Azure calls ``trigger_ingestion_job_with_args``; on AWS calls
         ``trigger_ecs_task_with_args``. This lets corpus B/C upload callers stay
         provider-agnostic.
+
+        Args:
+            args_override: A list of arguments to override the default ingestion job arguments.
+
+        Returns:
+            A dictionary containing information about the launched ingestion task.
         """
 
         if self._is_aws_provider():
@@ -501,12 +595,23 @@ class IngestionService:
         return self.trigger_ingestion_job_with_args(args_override)
 
     def trigger_ingestion_job(self) -> dict[str, Any]:
-        """Trigger the ingestion job with its default container arguments."""
+        """Trigger the ingestion job with its default container arguments.
+
+        Returns:
+            A dictionary containing information about the launched ingestion job.
+        """
 
         return self.trigger_ingestion_job_with_args(None)
 
     def is_indexer_running(self, status: Any) -> bool:
-        """Return True when an Azure Search indexer status indicates an active run."""
+        """Return True when an Azure Search indexer status indicates an active run.
+
+        Args:
+            status: The status object returned by the Azure Search indexer.
+
+        Returns:
+            True if the indexer is currently running, False otherwise.
+        """
 
         try:
             last_result = getattr(status, "last_result", None)
@@ -519,7 +624,15 @@ class IngestionService:
         return False
 
     def wait_for_indexer_idle(self, indexer_name: str, timeout_seconds: int = 900) -> bool:
-        """Poll indexer status until it is idle or timeout is reached."""
+        """Poll indexer status until it is idle or timeout is reached.
+
+        Args:
+            indexer_name: The name of the Azure Search indexer to monitor.
+            timeout_seconds: The maximum number of seconds to wait for the indexer to become idle.
+
+        Returns:
+            True if the indexer becomes idle within the timeout period, False otherwise.
+        """
 
         search_indexer_client_cls = self._dep_attr("SearchIndexerClient", SearchIndexerClient)
         client = search_indexer_client_cls(
@@ -542,7 +655,11 @@ class IngestionService:
         return False
 
     def reset_grounding_indexer_state(self) -> str:
-        """Reset the configured grounding indexer, waiting if an active run blocks reset."""
+        """Reset the configured grounding indexer, waiting if an active run blocks reset.
+
+        Returns:
+            The name of the reset indexer.
+        """
 
         indexer_name = os.getenv(
             "AZURE_SEARCH_INDEXER_NAME",
@@ -580,7 +697,14 @@ class IngestionService:
         return indexer_name
 
     def get_ingestion_job_template_container(self, token: str) -> dict[str, Any]:
-        """Fetch the configured ingestion job and return its first template container."""
+        """Fetch the configured ingestion job and return its first template container.
+
+        Args:
+            token: The authentication token for accessing the Azure Management API.
+
+        Returns:
+            A dictionary containing the first template container of the ingestion job.
+        """
 
         requests_module = self._dep_attr("requests", requests)
         get_url = (
@@ -604,7 +728,14 @@ class IngestionService:
         return dict(containers[0])
 
     def trigger_ingestion_job_with_args(self, args_override: list[str] | None) -> dict[str, Any]:
-        """Start the ingestion job, optionally overriding container args for one run."""
+        """Start the ingestion job, optionally overriding container args for one run.
+
+        Args:
+            args_override: A list of arguments to override the default ingestion job arguments.
+
+        Returns:
+            A dictionary containing the response from the ingestion job start request.
+        """
 
         if not self.is_ingestion_job_trigger_enabled():
             raise RuntimeError(
@@ -663,7 +794,14 @@ class IngestionService:
         }
 
     def blob_has_required_ingestion_metadata(self, metadata: dict[str, str] | None) -> bool:
-        """Validate that a blob metadata dict contains all required ingestion fields."""
+        """Validate that a blob metadata dict contains all required ingestion fields.
+
+        Args:
+            metadata: A dictionary of blob metadata to validate.
+
+        Returns:
+            True if all required ingestion metadata keys are present and non-empty, False otherwise.
+        """
 
         if not metadata:
             return False
@@ -675,7 +813,16 @@ class IngestionService:
     def mark_dedupe_blobs_for_reindex(
         self, corpus: str, dedupe_hashes: list[str], *, user_id: str
     ) -> dict[str, Any]:
-        """Mark deduplicated blobs for reindex by stamping reindex metadata keys."""
+        """Mark deduplicated blobs for reindex by stamping reindex metadata keys.
+
+        Args:
+            corpus: The name of the corpus to which the blobs belong.
+            dedupe_hashes: A list of deduplication hashes identifying the blobs to mark.
+            user_id: The ID of the user requesting the reindex.
+
+        Returns:
+            A dictionary containing the results of the reindex operation.
+        """
 
         if not dedupe_hashes:
             return {"requested": 0, "touched": 0, "not_found": [], "failed": []}
@@ -729,7 +876,11 @@ class IngestionService:
         }
 
     def latest_ingestion_job_execution(self) -> dict[str, Any] | None:
-        """Return summary details for the latest ingestion job execution, if any."""
+        """Return summary details for the latest ingestion job execution, if any.
+
+        Returns:
+            A dictionary containing the latest ingestion job execution details, or None if no executions exist.
+        """
 
         if not self.is_ingestion_job_trigger_enabled():
             return None
@@ -777,7 +928,17 @@ class IngestionService:
         corpus: str,
         corpus_role: str,
     ) -> dict[str, Any]:
-        """Upload corpus files to S3 with dedupe metadata."""
+        """Upload corpus files to S3 with dedupe metadata.
+
+        Args:
+            files: A list of files to upload.
+            user_id: The ID of the user uploading the files.
+            corpus: The name of the corpus to which the files belong.
+            corpus_role: The role of the corpus.
+
+        Returns:
+            A dictionary containing the results of the upload operation.
+        """
 
         from runtime.storage.aws_s3 import AWSS3StorageClient
 
@@ -898,7 +1059,17 @@ class IngestionService:
         corpus: str,
         corpus_role: str,
     ) -> dict[str, Any]:
-        """Upload corpus files with dedupe metadata and repair stale dedupe artifacts."""
+        """Upload corpus files with dedupe metadata and repair stale dedupe artifacts.
+
+        Args:
+            files: A list of files to upload.
+            user_id: The ID of the user uploading the files.
+            corpus: The name of the corpus to which the files belong.
+            corpus_role: The role of the corpus.
+
+        Returns:
+            A dictionary containing the results of the upload operation.
+        """
 
         if not self.is_corpus_upload_enabled():
             if self._is_local_provider():
@@ -1054,7 +1225,15 @@ class IngestionService:
         }
 
     def upload_corpus_b_files(self, files: list[UploadFile], user_id: str) -> dict[str, Any]:
-        """Upload files into Corpus B (narrative guidance)."""
+        """Upload files into Corpus B (narrative guidance).
+
+        Args:
+            files: A list of files to upload.
+            user_id: The ID of the user uploading the files.
+
+        Returns:
+            A dictionary containing the results of the upload operation.
+        """
 
         return self.upload_corpus_files(
             files,
@@ -1064,7 +1243,15 @@ class IngestionService:
         )
 
     def upload_corpus_c_files(self, files: list[UploadFile], user_id: str) -> dict[str, Any]:
-        """Upload files into Corpus C (assessed artifacts)."""
+        """Upload files into Corpus C (assessed artifacts).
+
+        Args:
+            files: A list of files to upload.
+            user_id: The ID of the user uploading the files.
+
+        Returns:
+            A dictionary containing the results of the upload operation.
+        """
 
         return self.upload_corpus_files(
             files,
@@ -1080,7 +1267,16 @@ class IngestionService:
         *,
         framework: str,
     ) -> dict[str, Any]:
-        """Upload framework reference source files for Corpus A ingestion."""
+        """Upload framework reference source files for Corpus A ingestion.
+
+        Args:
+            files: A list of files to upload.
+            user_id: The ID of the user uploading the files.
+            framework: The name of the framework to which the files belong.
+
+        Returns:
+            A dictionary containing the results of the upload operation.
+        """
 
         if not self.is_corpus_upload_enabled():
             raise RuntimeError(

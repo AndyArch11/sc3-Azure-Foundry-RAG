@@ -266,8 +266,8 @@ No Qdrant or seeding step needed. JSONL files load directly into memory at app s
 
 ```bash
 # Install dependencies
-sudo python3 -m venv runtime/.venv
-source runtime/.venv/bin/activate
+sudo python3 -m venv .venv
+source .venv/bin/activate
 python3 -m pip install -r requirements-dev.txt
 
 # Pull Ollama models once
@@ -516,8 +516,8 @@ Run the environment build scripts in order (can take over 1 hour to provision th
 #### Optional install verification
 
 ```bash
-sudo python3 -m venv runtime/.venv
-source runtime/.venv/bin/activate
+sudo python3 -m venv .venv
+source .venv/bin/activate
 python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements-dev.txt
 ```
@@ -869,7 +869,8 @@ az ad app update --id <00000000-0000-0000-0000-000000000000> --web-redirect-uris
 # cis_controls and pci_dss require staging local reference files in runtime/samples/api/corpus-a/ first
 SEARCH_EP=$(terraform -chdir=infra/terraform/azure output -raw search_endpoint)
 export AZURE_SEARCH_ENDPOINT="${SEARCH_EP}"
-cd runtime && source .venv/bin/activate
+source .venv/bin/activate
+cd runtime
 python3 -m ingestion.controls_runner --mode parse-and-publish --framework aescsf
 cd ..
 

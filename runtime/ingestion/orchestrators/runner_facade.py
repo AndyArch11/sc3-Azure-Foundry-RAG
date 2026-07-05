@@ -1,3 +1,7 @@
+"""
+Ingestion runner orchestrator facade for PDF and Excel documents.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -7,14 +11,23 @@ from typing import Callable, Mapping, Sequence
 
 @dataclass(frozen=True)
 class ModeOrchestrator:
-    """Registry entry for mode-specific provider selection and execution."""
+    """Registry entry for mode-specific provider selection and execution.
+
+    Attributes:
+        provider_resolver: A callable that returns the cloud provider name for the mode.
+        handler: A callable that takes argparse.Namespace and returns an integer exit code.
+    """
 
     provider_resolver: Callable[[], str]
     handler: Callable[[argparse.Namespace], int]
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    """Create ingestion runner argument parser."""
+    """Create ingestion runner argument parser.
+
+    Returns:
+        An argparse.ArgumentParser instance.
+    """
 
     parser = argparse.ArgumentParser(
         description="Ingest PDF and Excel documents",
@@ -145,13 +158,26 @@ modes:
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse ingestion runner CLI arguments."""
+    """Parse ingestion runner CLI arguments.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, defaults to sys.argv.
+
+    Returns:
+        An argparse.Namespace containing the parsed arguments.
+    """
 
     return build_arg_parser().parse_args(argv)
 
 
 def normalise_control_plane_provider(provider: str | None) -> str:
-    """Normalise env provider for reset/controls control-plane operations."""
+    """Normalise env provider for reset/controls control-plane operations.
+
+    Args:
+        provider: The cloud provider name (e.g., "azure", "aws", "local").
+    Returns:
+        A normalised cloud provider name: "azure", "aws", or "local".
+    """
 
     value = (provider or "azure").strip().lower() or "azure"
     if value in {"local", "dev"}:
@@ -160,7 +186,15 @@ def normalise_control_plane_provider(provider: str | None) -> str:
 
 
 def resolve_provider_for_mode(mode: str, *, cloud_provider: str | None) -> str:
-    """Resolve CLOUD_PROVIDER value for a given runner mode."""
+    """Resolve CLOUD_PROVIDER value for a given runner mode.
+
+    Args:
+        mode: The runner mode (e.g., "azure", "aws", "local", "reset", "controls").
+        cloud_provider: The cloud provider name (e.g., "azure", "aws", "local").
+
+    Returns:
+        A normalised cloud provider name: "azure", "aws", or "local".
+    """
 
     if mode == "azure":
         return "azure"
@@ -178,7 +212,14 @@ def build_mode_orchestrators(
     handlers: Mapping[str, Callable[[argparse.Namespace], int]],
     cloud_provider_resolver: Callable[[], str | None],
 ) -> dict[str, ModeOrchestrator]:
-    """Build mode orchestrator registry for main() dispatch."""
+    """Build mode orchestrator registry for main() dispatch.
+
+    Args:
+        handlers: A mapping of mode names to their corresponding handler functions.
+        cloud_provider_resolver: A callable that returns the cloud provider name (or None).
+    Returns:
+        A dictionary mapping mode names to ModeOrchestrator instances.
+    """
 
     return {
         "azure": ModeOrchestrator(

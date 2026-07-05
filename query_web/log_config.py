@@ -62,6 +62,9 @@ def _query_web_context_getter() -> tuple[str, str, str]:
     Delegates to the public getter functions which enforce W3C validation,
     CRLF stripping, and length caps — the same guards applied to inbound
     HTTP headers by the request-context middleware.
+
+    Returns:
+        A tuple of (correlation_id, traceparent, tracestate) for the current request context, or empty strings if not available.
     """
     from query_web.request_context import (  # noqa: PLC0415
         get_correlation_id,

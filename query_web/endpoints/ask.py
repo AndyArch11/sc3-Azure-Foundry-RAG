@@ -25,12 +25,27 @@ logger = logging.getLogger(__name__)
 
 
 def _has_missing_dependencies(values: list[Any]) -> bool:
-    """Return True when at least one required dependency is missing."""
+    """Return True when at least one required dependency is missing.
+
+    Args:
+        values: A list of dependency values to check.
+
+    Returns:
+        True if at least one required dependency is missing, False otherwise.
+    """
     return any(value is None for value in values)
 
 
 def _user_visible_ask_error(default_message: str, exc: Exception) -> str:
-    """Map internal failures to safe, actionable user-facing ask errors."""
+    """Map internal failures to safe, actionable user-facing ask errors.
+
+    Args:
+        default_message: The default error message to return.
+        exc: The exception that was raised.
+
+    Returns:
+        A user-friendly error message.
+    """
     message = str(exc).lower()
     if "ollama" in message and ("timed out" in message or "readtimeout" in message):
         return (
@@ -64,10 +79,44 @@ def register_ask_endpoints(
     branding_ctx: Any | None = None,
     internal_error_message: str | None = None,
 ) -> None:
-    """Register ask form and API endpoints."""
+    """Register ask form and API endpoints.
+
+    Args:
+        app: The FastAPI application instance.
+        svc: Optional service object containing helper methods.
+        ask_request_model: Pydantic model for ask API request validation.
+        ask_response_model: Pydantic model for ask API response validation.
+        templates: Optional Jinja2 templates object for rendering HTML responses.
+        config: Optional configuration object.
+        conversation_message_cls: Optional class for conversation messages.
+        get_user_id: Optional function to retrieve user ID from auth token.
+        form_bool: Optional function to parse boolean form values.
+        is_authorised_request: Optional function to check request authorisation.
+        unauthorised_message: Optional function to generate unauthorised message.
+        normalise_controls_comparison_mode: Optional function to normalise controls comparison mode.
+        normalise_framework_filter: Optional function to normalise framework filter.
+        normalise_evidence_corpora: Optional function to normalise evidence corpora.
+        load_conversation: Optional function to load conversation from storage.
+        build_feedback_context: Optional function to build feedback context.
+        run_rag: Optional function to run the RAG process.
+        save_conversation: Optional function to save conversation to storage.
+        utc_now_iso: Optional function to get current UTC time in ISO format.
+        branding_ctx: Optional function to get branding context for templates.
+        internal_error_message: Optional default message for internal errors.
+
+    Rearranges the ask endpoints to use the provided dependencies, allowing for flexible configuration and testing.
+    """
     # pylint: disable=too-many-statements
 
     def _query_model_display(resolved_config: Any) -> str:
+        """Determine the display name for the query model based on the cloud provider.
+
+        Args:
+            resolved_config: The resolved configuration object.
+
+        Returns:
+            A string representing the display name of the query model.
+        """
         try:
             provider = normalise_cloud_provider(os.getenv("CLOUD_PROVIDER"))
         except ValueError:
@@ -77,6 +126,15 @@ def register_ask_endpoints(
         return str(getattr(resolved_config, "query_deployment", "")).strip()
 
     def _dep(name: str, value: Any) -> Any:
+        """Retrieve a dependency value, either from the provided value or from the service object.
+
+        Args:
+            name: The name of the dependency.
+            value: The provided value for the dependency.
+
+        Returns:
+            The resolved dependency value.
+        """
         if value is not None:
             return value
         if svc is None:
@@ -85,6 +143,14 @@ def register_ask_endpoints(
 
     @app.get("/ask", response_class=HTMLResponse)
     def ask_get(request: Request) -> RedirectResponse:
+        """Redirect GET requests to the ask endpoint to the root with optional auth token.
+
+        Args:
+            request: The incoming HTTP request.
+
+        Returns:
+            A RedirectResponse to the root URL with the optional auth token.
+        """
         auth_token = str(request.query_params.get("auth_token", "")).strip()
         if auth_token:
             return RedirectResponse(url=f"/?auth_token={auth_token}", status_code=307)
@@ -110,6 +176,30 @@ def register_ask_endpoints(
         session_id: str = Form(default=""),
         conversation_id: str = Form(default=""),
     ) -> HTMLResponse:
+        """Handle POST requests to the ask endpoint, processing the question and returning an HTML response.
+
+        Args:
+            request: The incoming HTTP request.
+            question: The user's question from the form.
+            retrieve_k: The number of top results to retrieve.
+            controls_context_cap: The maximum context capacity for controls.
+            temperature: The temperature setting for the model.
+            top_p: The top-p setting for the model.
+            max_completion_tokens: The maximum number of tokens for completion.
+            evaluator_max_completion_tokens: The maximum number of tokens for the evaluator.
+            controls_semantic: The semantic controls setting.
+            controls_framework: The framework controls setting.
+            controls_comparison_mode: The comparison mode for controls.
+            evidence_corpora_include: The list of evidence corpora to include.
+            advanced_mode: The advanced mode setting.
+            thinking_mode: The thinking mode setting.
+            auth_token: The authentication token.
+            session_id: The session ID.
+            conversation_id: The conversation ID.
+
+        Returns:
+            An HTMLResponse containing the rendered template with the results of the ask operation.
+        """
         # pylint: disable=too-many-statements
         resolved_templates = _dep("templates", templates)
         resolved_config = _dep("config", config)
@@ -181,6 +271,8 @@ def register_ask_endpoints(
             )
         if temperature is None or temperature == 0.0:
             temperature = float(mode_defaults.get("default_temperature", 1.0))
+        if top_p is None or top_p == 1.0:
+            top_p = float(mode_defaults.get("top_p", getattr(resolved_config, "top_p", 1.0)))
 
         max_tokens_value = (max_completion_tokens or "").strip()
         evaluator_tokens_value = (evaluator_max_completion_tokens or "").strip()
@@ -422,6 +514,16 @@ def register_ask_endpoints(
 
     @app.post("/api/ask", response_model=ask_response_model)
     def ask_api(request: Request, payload: dict[str, Any]) -> Any:
+        """Handle POST requests to the ask API endpoint, processing the question and returning a structured response.
+
+        Args:
+            request: The incoming HTTP request.
+            payload: The JSON payload containing the ask request parameters.
+
+
+        Returns:
+            A structured response containing the answer, results, and any relevant metadata or error messages.
+        """
         resolved_config = _dep("config", config)
         resolved_is_authorised_request = _dep("_is_authorised_request", is_authorised_request)
         resolved_unauthorised_message = _dep("_unauthorised_message", unauthorised_message)
@@ -485,7 +587,9 @@ def register_ask_endpoints(
         if api_temperature == 1.0 and api_thinking_mode:
             api_temperature = float(api_mode_defaults.get("default_temperature", 1.0))
         if api_top_p == 1.0 and api_thinking_mode:
-            api_top_p = 1.0
+            api_top_p = float(
+                api_mode_defaults.get("top_p", getattr(resolved_config, "top_p", 1.0))
+            )
 
         required_dependencies = [
             resolved_is_authorised_request,

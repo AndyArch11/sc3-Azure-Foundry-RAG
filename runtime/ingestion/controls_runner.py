@@ -1,9 +1,17 @@
+"""
+Controls runner for parsing and publishing controls to Azure Cognitive Search.
+This script provides a command-line interface to parse various security and compliance frameworks
+into a structured JSONL format and publish them to a dedicated Azure Cognitive Search index.
+
+"""
+
 from __future__ import annotations
 
 import argparse
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 try:
     from runtime.log_config import configure_logging as _configure_logging
@@ -16,27 +24,46 @@ logger = logging.getLogger(__name__)
 
 
 def ensure_controls_index(config, credential) -> None:
-    """Lazy wrapper retained for compatibility with test monkeypatching."""
+    """Lazy wrapper retained for compatibility with test monkeypatching.
+    Args:
+        config: The ControlsIndexConfig instance containing Azure Cognitive Search configuration.
+        credential: The TokenCredential instance used for authenticating with Azure Cognitive Search.
+    """
     from .controls_index import ensure_controls_index as _ensure_controls_index
 
     _ensure_controls_index(config, credential)
 
 
-def DefaultAzureCredential():
-    """Lazy wrapper retained for compatibility with test monkeypatching."""
+def DefaultAzureCredential() -> Any:
+    """Lazy wrapper retained for compatibility with test monkeypatching.
+
+    Returns:
+        An instance of DefaultAzureCredential from azure.identity for authenticating with Azure services.
+    """
     from azure.identity import DefaultAzureCredential as _DefaultAzureCredential
 
     return _DefaultAzureCredential()
 
 
 def _is_missing_source_error(exc: Exception) -> bool:
-    """Run is missing source error."""
+    """Run is missing source error.
+
+    Args:
+        exc: The exception instance to check.
+
+    Returns:
+        True if the exception indicates a missing source error, False otherwise.
+    """
     message = str(exc).lower()
     return "not found" in message or "no such file" in message
 
 
 def _build_parser_registry() -> dict[str, dict]:
-    """Run build parser registry."""
+    """Run build parser registry.
+
+    Returns:
+        A dictionary mapping framework names to their corresponding parser factory functions and output filenames.
+    """
     from .parsers.aescsf import AescsfParser  # noqa: PLC0415
     from .parsers.cis_controls import CisControlsParser  # noqa: PLC0415
     from .parsers.essential_eight import EssentialEightParser  # noqa: PLC0415
@@ -87,14 +114,26 @@ def _build_parser_registry() -> dict[str, dict]:
 
 
 def _selected_frameworks(framework: str, registry: dict[str, dict]) -> list[str]:
-    """Run selected frameworks."""
+    """Run selected frameworks.
+
+    Args:
+        framework: The framework name specified by the user.
+        registry: The dictionary mapping framework names to their corresponding parser factory functions and output filenames.
+
+    Returns:
+        A list of selected framework names.
+    """
     if framework == "all":
         return sorted(registry.keys())
     return [framework]
 
 
 def parse_args() -> argparse.Namespace:
-    """Run parse args."""
+    """Run parse args.
+
+    Returns:
+        An argparse.Namespace object containing the parsed command-line arguments.
+    """
     parser = argparse.ArgumentParser(
         description="Parse controls JSONL and publish to dedicated Azure AI Search controls index"
     )
@@ -173,7 +212,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def _resolve_controls_index_config(args: argparse.Namespace):
-    """Run resolve controls index config."""
+    """Run resolve controls index config.
+
+    Args:
+        args: The argparse.Namespace object containing the parsed command-line arguments.
+
+    Returns:
+        A ControlsIndexConfig object with the resolved configuration.
+    """
     from .controls_index import ControlsIndexConfig
 
     if args.search_endpoint:
@@ -196,7 +242,16 @@ def _resolve_controls_index_config(args: argparse.Namespace):
 
 
 def _run_parse(framework: str, output_dir: Path, no_guidance: bool) -> dict[str, Path]:
-    """Run run parse."""
+    """Run run parse.
+
+    Args:
+        framework: The framework name specified by the user.
+        output_dir: The directory where the parsed output will be saved.
+        no_guidance: Whether to skip supplementary guidance fetch.
+
+    Returns:
+        A dictionary mapping framework names to their corresponding output file paths.
+    """
     outputs, _skipped = _run_parse_detailed(
         framework=framework,
         output_dir=output_dir,
@@ -210,7 +265,18 @@ def _run_parse_detailed(
     output_dir: Path,
     no_guidance: bool,
 ) -> tuple[dict[str, Path], list[dict[str, str]]]:
-    """Run run parse detailed."""
+    """Run run parse detailed.
+
+    Args:
+        framework: The framework name specified by the user.
+        output_dir: The directory where the parsed output will be saved.
+        no_guidance: Whether to skip supplementary guidance fetch.
+
+    Returns:
+        A tuple containing:
+            - A dictionary mapping framework names to their corresponding output file paths.
+            - A list of dictionaries containing information about skipped frameworks.
+    """
     registry = _build_parser_registry()
     frameworks = _selected_frameworks(framework, registry)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -261,7 +327,18 @@ def _run_publish(
     replace_existing: bool,
     dry_run: bool,
 ) -> dict:
-    """Run run publish."""
+    """Run run publish.
+
+    Args:
+        config: The ControlsIndexConfig instance containing Azure Cognitive Search configuration.
+        jsonl_path: The path to the JSONL file to publish.
+        batch_size: The number of records to upload in each batch.
+        replace_existing: Whether to replace existing documents for the same framework/version if the manifest differs.
+        dry_run: If True, preview the dedupe/publish action without writing to the controls index.
+
+    Returns:
+        A dictionary containing the results of the publish operation, including counts of uploaded, skipped, and failed records.
+    """
     from .controls_index import ensure_controls_index
     from .publish_controls import load_controls_jsonl, upload_controls_records
 
@@ -287,7 +364,13 @@ def _log_framework_all_summary(
     parsed_outputs: dict[str, Path],
     skipped_frameworks: list[dict[str, str]],
 ) -> None:
-    """Run log framework all summary."""
+    """Run log framework all summary.
+
+    Args:
+        mode: The mode of operation (parse, publish, parse-and-publish).
+        parsed_outputs: A dictionary mapping framework names to their corresponding output file paths.
+        skipped_frameworks: A list of dictionaries containing information about skipped frameworks.
+    """
     parsed_names = sorted(parsed_outputs.keys())
     skipped_names = [entry.get("framework", "unknown") for entry in skipped_frameworks]
     logger.info(
@@ -301,7 +384,11 @@ def _log_framework_all_summary(
 
 
 def main() -> int:
-    """Run main."""
+    """Run main.
+
+    Returns:
+        An integer exit code (0 for success, non-zero for failure).
+    """
     args = parse_args()
     logging.getLogger().setLevel(args.log_level)
 

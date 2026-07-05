@@ -32,6 +32,8 @@ class _AskRequest(BaseModel):
     retrieve_k: int = 5
     controls_context_cap: int | None = None
     temperature: float = 0.5
+    top_p: float = 1.0
+    thinking_mode: str = "balanced"
     controls_semantic: bool | None = None
     controls_framework: str | None = None
     controls_comparison_mode: str = "auto-detect"
@@ -83,6 +85,7 @@ def _make_svc() -> SimpleNamespace:
             embedding_deployment="embed",
             query_deployment="query",
             evaluation_threshold=0.7,
+            top_p=0.9,
             auth_token="auth-required",
         ),
         _branding_ctx=lambda: {"brand": "x"},
@@ -339,6 +342,44 @@ def test_api_ask_success_uses_default_controls_semantic_when_none() -> None:
     assert response.json()["error"] == ""
     assert captured["controls_semantic"] is True
     assert captured["controls_context_cap"] == 4
+
+
+def test_api_ask_thinking_mode_applies_top_p_preset_when_not_overridden() -> None:
+    svc = _make_svc()
+    captured: dict[str, Any] = {}
+
+    def _run_rag(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {
+            "answer": "ok",
+            "results": [],
+            "controls_results": [],
+            "controls_debug": None,
+            "evaluation": {"acceptable": True, "score": 1.0},
+            "iterations": 1,
+            "metrics": {"total_s": 0.1},
+            "audit": {"x": 1},
+        }
+
+    svc._run_rag = _run_rag
+    client = _make_client(svc)
+
+    response = client.post(
+        "/api/ask",
+        json={
+            "question": "hello",
+            "retrieve_k": 5,
+            "temperature": 1.0,
+            "top_p": 1.0,
+            "thinking_mode": "deep",
+            "auth_token": "ok",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["error"] == ""
+    assert captured["temperature"] == 0.2
+    assert captured["top_p"] == 0.85
 
 
 def test_api_ask_exception_returns_internal_error() -> None:

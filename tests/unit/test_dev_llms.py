@@ -34,7 +34,9 @@ def test_create_chat_completion_fn_azure_requires_config_and_credential() -> Non
 
 def test_create_chat_completion_fn_azure_wrapper(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        assessment_runtime, "_chat_completion", lambda messages, config, credential: "azure-ok"
+        assessment_runtime,
+        "_chat_completion",
+        lambda messages, config, credential, temperature, top_p: "azure-ok",
     )
 
     fn = dev_llms.create_chat_completion_fn("azure", config=_CFG, credential=_CRED)
@@ -42,6 +44,14 @@ def test_create_chat_completion_fn_azure_wrapper(monkeypatch: pytest.MonkeyPatch
 
 
 def test_create_chat_completion_fn_ollama_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = assessment_runtime.AssessmentRuntimeConfig(
+        search_endpoint="https://search.example",
+        openai_endpoint="https://openai.example",
+        query_deployment="gpt-test",
+        embedding_deployment="embed-test",
+        temperature=0.33,
+        top_p=0.77,
+    )
     calls: dict[str, Any] = {}
 
     def _chat(messages, **kwargs):
@@ -60,10 +70,12 @@ def test_create_chat_completion_fn_ollama_available(monkeypatch: pytest.MonkeyPa
     monkeypatch.setenv("OLLAMA_NUM_CTX", "8192")
     monkeypatch.setenv("OLLAMA_FORCE_JSON", "true")
 
-    fn = dev_llms.create_chat_completion_fn("ollama", config=_CFG, credential=_CRED)
+    fn = dev_llms.create_chat_completion_fn("ollama", config=cfg, credential=_CRED)
     assert fn([{"role": "user", "content": "hi"}]) == "ollama-ok"
     assert calls["kwargs"]["model"] == "gemma3:27b"
     assert calls["kwargs"]["num_ctx"] == 8192
+    assert calls["kwargs"]["temperature"] == 0.33
+    assert calls["kwargs"]["top_p"] == 0.77
 
 
 def test_create_chat_completion_fn_ollama_model_alias(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -223,7 +235,7 @@ def test_create_chat_completion_fn_ollama_falls_back_to_azure(
     monkeypatch.setattr(
         assessment_runtime,
         "_chat_completion",
-        lambda messages, config, credential: "azure-fallback",
+        lambda messages, config, credential, temperature, top_p: "azure-fallback",
     )
 
     fn = dev_llms.create_chat_completion_fn("ollama", config=_CFG, credential=_CRED)

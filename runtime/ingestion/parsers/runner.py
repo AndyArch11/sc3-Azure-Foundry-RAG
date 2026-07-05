@@ -42,10 +42,14 @@ logger = logging.getLogger(__name__)
 def _build_registry():
     """Run build registry."""
     from .aescsf import AescsfParser  # noqa: PLC0415
+    from .cis_controls import CisControlsParser  # noqa: PLC0415
     from .essential_eight import FRAMEWORK_VERSION, EssentialEightParser, _slugify  # noqa: PLC0415
     from .ism import IsmParser  # noqa: PLC0415
+    from .nist_ai_rmf import NistAiRmfParser  # noqa: PLC0415
     from .nist_csf import FRAMEWORK_VERSION as CSF_VERSION  # noqa: PLC0415
     from .nist_csf import NistCsfParser  # noqa: PLC0415
+    from .pci_dss import PciDssParser  # noqa: PLC0415
+    from .pspf import PspfParser  # noqa: PLC0415
 
     FRAMEWORK_VERSION_SLUG = _slugify(FRAMEWORK_VERSION)
 
@@ -60,21 +64,53 @@ def _build_registry():
             "output_filename": f"essential_eight_{FRAMEWORK_VERSION_SLUG}.jsonl",
             "description": "ASD Essential Eight Maturity Model (all three levels)",
         },
+        "cis_controls": {
+            "factory": lambda fetch_guidance, **kwargs: CisControlsParser(
+                fetch_guidance=fetch_guidance, **kwargs
+            ),
+            "output_filename": "cis_controls_v8.jsonl",
+            "description": "CIS Controls v8 (all safeguards)",
+        },
         "ism": {
             "factory": lambda fetch_guidance: IsmParser(),
             "output_filename": "ism_latest.jsonl",
             "description": "ASD Information Security Manual (all controls, latest OSCAL release)",
+        },
+        "nist_ai_rmf": {
+            "factory": lambda fetch_guidance: NistAiRmfParser(fetch_guidance=fetch_guidance),
+            "output_filename": "nist_ai_rmf_1-0.jsonl",
+            "description": "NIST AI RMF 1.0 (all control objectives)",
         },
         "nist_csf": {
             "factory": lambda fetch_guidance: NistCsfParser(fetch_guidance=fetch_guidance),
             "output_filename": f"nist_csf_{_slugify(CSF_VERSION)}.jsonl",
             "description": "NIST Cybersecurity Framework 2.0 (all 106 subcategories)",
         },
+        "pci_dss": {
+            "factory": lambda fetch_guidance, **kwargs: PciDssParser(
+                fetch_guidance=fetch_guidance, **kwargs
+            ),
+            "output_filename": "pci_dss_v4_0_1.jsonl",
+            "description": "PCI DSS v4.0.1 (all requirements)",
+        },
+        "pspf": {
+            "factory": lambda fetch_guidance: PspfParser(fetch_guidance=fetch_guidance),
+            "output_filename": "pspf_release_2025.jsonl",
+            "description": "Australian Government PSPF Release 2025 (all requirements)",
+        },
     }
 
 
 def _parse_args(argv=None) -> argparse.Namespace:
-    """Run parse args."""
+    """Run parse args.
+
+    Args:
+        argv: Optional list of command-line arguments. If None, defaults to sys.argv[1:].
+    Returns:
+        An argparse.Namespace object containing the parsed arguments.
+    """
+    framework_choices = sorted(_build_registry().keys())
+
     parser = argparse.ArgumentParser(
         prog="python -m runtime.ingestion.parsers.runner",
         description="Pre-parse standards documents into JSONL RequirementRecord files.",
@@ -82,7 +118,7 @@ def _parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument(
         "--framework",
         required=True,
-        choices=["aescsf", "essential_eight", "ism", "nist_csf"],
+        choices=framework_choices,
         help="Framework to parse.",
     )
     parser.add_argument(
@@ -97,6 +133,26 @@ def _parse_args(argv=None) -> argparse.Namespace:
         help="Skip fetching supplementary guidance pages (omits guidance_text field).",
     )
     parser.add_argument(
+        "--cis-workbook-path",
+        default="",
+        help=(
+            "Optional path override for CIS Controls workbook "
+            "(used when --framework cis_controls)."
+        ),
+    )
+    parser.add_argument(
+        "--cis-pdf-path",
+        default="",
+        help=(
+            "Optional path override for CIS Controls PDF " "(used when --framework cis_controls)."
+        ),
+    )
+    parser.add_argument(
+        "--pci-pdf-path",
+        default="",
+        help=("Optional path override for PCI DSS PDF " "(used when --framework pci_dss)."),
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -106,7 +162,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
 
 
 def main(argv=None) -> int:
-    """Run main."""
+    """Run main.
+
+    Args:
+        argv: Optional list of command-line arguments. If None, defaults to sys.argv[1:].
+    Returns:
+        Exit code: 0 on success, 1 on error."""
     args = _parse_args(argv)
     logging.getLogger().setLevel(args.log_level)
 
@@ -125,7 +186,17 @@ def main(argv=None) -> int:
     if not fetch_guidance:
         logger.info("Guidance fetching disabled (--no-guidance)")
 
-    parser_instance = entry["factory"](fetch_guidance=fetch_guidance)
+    parser_kwargs: dict[str, str] = {}
+    if args.framework == "cis_controls":
+        if args.cis_workbook_path.strip():
+            parser_kwargs["workbook_path"] = args.cis_workbook_path.strip()
+        if args.cis_pdf_path.strip():
+            parser_kwargs["pdf_path"] = args.cis_pdf_path.strip()
+    elif args.framework == "pci_dss":
+        if args.pci_pdf_path.strip():
+            parser_kwargs["pdf_path"] = args.pci_pdf_path.strip()
+
+    parser_instance = entry["factory"](fetch_guidance=fetch_guidance, **parser_kwargs)
 
     try:
         records = parser_instance.parse()

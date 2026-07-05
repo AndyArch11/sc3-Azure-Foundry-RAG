@@ -1,3 +1,7 @@
+"""
+Local ingestion orchestrator for PDF and Excel files.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -10,7 +14,15 @@ from ..models import ChunkRecord, SourceDocument
 
 
 class _ExtractSourceDocumentFn(Protocol):
-    """Callable shape for source extraction function."""
+    """Callable shape for source extraction function.
+
+    A function that takes a file path and returns a SourceDocument, potentially using OCR if enabled.
+
+    Attributes:
+        path: The path to the source file.
+        enable_ocr: Whether to enable OCR for text extraction.
+        ocr_min_text_chars: The minimum number of characters required for OCR to be applied.
+    """
 
     def __call__(
         self,
@@ -40,7 +52,17 @@ def run_local(
     extract_source_document: _ExtractSourceDocumentFn,
     chunk_documents: _ChunkDocumentsFn,
 ) -> int:
-    """Run local ingestion mode orchestration."""
+    """Run local ingestion mode orchestration.
+
+    Args:
+        args: The command-line arguments namespace.
+        discover_supported_files: A function to discover supported files in a directory.
+        extract_source_document: A function to extract source documents from files.
+        chunk_documents: A function to chunk extracted documents.
+
+    Returns:
+        An integer exit code.
+    """
 
     if args.input_dir is None:
         print("--input-dir is required for local mode", file=sys.stderr)

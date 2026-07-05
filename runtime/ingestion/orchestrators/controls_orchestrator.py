@@ -1,3 +1,7 @@
+"""
+Controls ingestion orchestrator for AWS and Azure providers.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -20,7 +24,18 @@ def run_controls_aws(
     download_controls_source_files_aws: Callable[[str, str, object, str], list[str]],
     is_missing_controls_source_error: Callable[[Exception], bool],
 ) -> int:
-    """Run controls orchestration for AWS provider."""
+    """Run controls orchestration for AWS provider.
+
+    Args:
+        args: The command-line arguments.
+        cloud_provider: The cloud provider name.
+        source_prefix: The prefix for source files.
+        skip_missing_source_files: Whether to skip missing source files.
+        download_controls_source_files_aws: Function to download controls source files from AWS.
+        is_missing_controls_source_error: Function to check if an error is due to missing controls source files.
+    Returns:
+        An integer exit code: 0 on success, 1 on error.
+    """
 
     logger = logging.getLogger("ingestion-runner")
     from ..controls_index_aws import AWSControlsIndexConfig, ensure_controls_index_aws
@@ -175,7 +190,18 @@ def run_controls_azure(
     download_controls_source_files: Callable[[str, str, TokenCredential], list[str]],
     is_missing_controls_source_error: Callable[[Exception], bool],
 ) -> int:
-    """Run controls orchestration for Azure provider."""
+    """Run controls orchestration for Azure provider.
+
+    Args:
+        args: The command-line arguments.
+        cloud_provider: The cloud provider name.
+        source_prefix: The prefix for source files.
+        skip_missing_source_files: Whether to skip missing source files.
+        download_controls_source_files: Function to download controls source files from Azure.
+        is_missing_controls_source_error: Function to check if an error is due to missing controls source files.
+    Returns:
+        An integer exit code: 0 on success, 1 on error.
+    """
 
     from azure.identity import DefaultAzureCredential
 

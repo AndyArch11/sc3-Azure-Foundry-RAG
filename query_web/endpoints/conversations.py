@@ -49,7 +49,16 @@ def _log_cosmos_access(
     upcasted: bool,
     correlation_id: str = "",
 ) -> None:
-    """Emit a structured cosmos_schema_access log line for monitoring schema version usage."""
+    """Emit a structured cosmos_schema_access log line for monitoring schema version usage."
+
+    Args:
+        operation: The type of operation performed (e.g., "read", "upsert").
+        container: The name of the CosmosDB container accessed.
+        schema_version_read: The schema version read from the document (if applicable).
+        schema_version_written: The schema version written to the document (if applicable).
+        upcasted: Whether the document was upcasted to a newer schema version.
+        correlation_id: Optional correlation ID for tracing requests.
+    """
     logger.info(
         "cosmos_schema_access",
         extra={
@@ -74,7 +83,13 @@ def _log_cosmos_access(
 
 @dataclass
 class ConversationMessage:
-    """A single message in a conversation."""
+    """A single message in a conversation.
+
+    Attributes:
+        role: The role of the message sender, either "user" or "assistant".
+        content: The text content of the message.
+        timestamp: The ISO 8601 timestamp when the message was created.
+    """
 
     role: str  # "user" or "assistant"
     content: str
@@ -83,7 +98,14 @@ class ConversationMessage:
 
 @dataclass
 class ResponseRating:
-    """User rating and TODO feedback for a prior assistant response."""
+    """User rating and TODO feedback for a prior assistant response.
+
+    Attributes:
+        rating: An integer rating from 1 to 5.
+        todo: A string containing TODO feedback for the assistant.
+        assistant_timestamp: The ISO 8601 timestamp of the assistant's response being rated.
+        timestamp: The ISO 8601 timestamp when the rating was created.
+    """
 
     rating: int  # 1..5
     todo: str = ""
@@ -93,7 +115,18 @@ class ResponseRating:
 
 @dataclass
 class ConversationSession:
-    """Conversation session stored in CosmosDB."""
+    """Conversation session stored in CosmosDB.
+
+    Attributes:
+        session_id: A unique identifier for the session.
+        user_id: A stable identifier for the user, derived from auth token or session ID.
+        conversation_id: A unique identifier for the conversation.
+        messages: A list of ConversationMessage objects representing the conversation history.
+        response_ratings: A list of ResponseRating objects representing user feedback on assistant responses.
+        created_at: The ISO 8601 timestamp when the session was created.
+        updated_at: The ISO 8601 timestamp when the session was last updated.
+        evaluation_threshold: A float representing the threshold for evaluating assistant responses.
+    """
 
     session_id: str
     user_id: str  # auth_token hash or session token
@@ -105,6 +138,11 @@ class ConversationSession:
     evaluation_threshold: float = 0.72
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert the ConversationSession to a dictionary suitable for CosmosDB storage.
+
+        Returns:
+            A dictionary representation of the ConversationSession.
+        """
         # Sanitise ID by replacing hyphens from UUIDs with underscores for Cosmos compatibility
         sanitised_id = f"{self.user_id.replace('-', '_')}_{self.conversation_id.replace('-', '_')}"
         return {
@@ -134,6 +172,13 @@ class ConversationSession:
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "ConversationSession":
+        """Create a ConversationSession from a dictionary retrieved from CosmosDB.
+
+        Args:
+            data: A dictionary representation of a ConversationSession.
+        Returns:
+            A ConversationSession object.
+        """
         messages = [
             ConversationMessage(
                 role=m["role"], content=m["content"], timestamp=m.get("timestamp", _utc_now_iso())
@@ -162,7 +207,15 @@ class ConversationSession:
 
 
 def _get_user_id(auth_token: str, session_id: str) -> str:
-    """Generate a stable user identifier from auth token or session ID."""
+    """Generate a stable user identifier from auth token or session ID.
+
+    Args:
+        auth_token: The authentication token provided by the user.
+        session_id: The session ID for the current conversation.
+
+    Returns:
+        A stable user identifier string.
+    """
     import hashlib
 
     if auth_token.strip():
@@ -177,7 +230,17 @@ def _load_conversation(
     *,
     correlation_id: str = "",
 ) -> ConversationSession:
-    """Load conversation from CosmosDB or create new one."""
+    """Load conversation from CosmosDB or create new one.
+
+    Args:
+        user_id: The stable user identifier.
+        conversation_id: The unique identifier for the conversation.
+        container: The CosmosDB container instance.
+        correlation_id: An optional correlation ID for tracing.
+
+    Returns:
+        A ConversationSession object.
+    """
     if not container:
         # Fallback to in-memory new conversation
         return ConversationSession(
@@ -224,7 +287,16 @@ def _save_conversation(
     *,
     correlation_id: str = "",
 ) -> None:
-    """Save conversation to CosmosDB."""
+    """Save conversation to CosmosDB.
+
+    Args:
+        session: The ConversationSession object to save.
+        container: The CosmosDB container instance.
+        correlation_id: An optional correlation ID for tracing.
+
+    Returns:
+        None
+    """
     if not container:
         return
     try:
@@ -247,7 +319,15 @@ def _save_conversation(
 
 
 def _build_feedback_context(session: ConversationSession, limit: int = 5) -> str:
-    """Build short feedback context from recent user ratings/TODO notes."""
+    """Build short feedback context from recent user ratings/TODO notes.
+
+    Args:
+        session: The ConversationSession object containing response ratings.
+        limit: The maximum number of recent ratings to include in the context (default is 5).
+
+    Returns:
+        A string containing the recent feedback context.
+    """
     if not session.response_ratings:
         return ""
 
@@ -265,11 +345,27 @@ def register_conversations_endpoints(
     _is_authorised_request: Any,
     _unauthorised_message: Any,
 ) -> None:
-    """Register conversation management endpoints."""
+    """Register conversation management endpoints.
+
+    Args:
+        app: The FastAPI application instance.
+        conversations_container: The CosmosDB container for storing conversations.
+        _is_authorised_request: A function to check if a request is authorised.
+        _unauthorised_message: A function to generate an unauthorised message for responses.
+    """
 
     @app.get("/api/conversations/{user_id}")
     def get_conversations(request: Request, user_id: str, auth_token: str = "") -> JSONResponse:
-        """List all conversations for a user."""
+        """List all conversations for a user.
+
+        Args:
+            request: The incoming HTTP request.
+            user_id: The stable user identifier.
+            auth_token: The authentication token provided by the user (optional).
+
+        Returns:
+            A JSONResponse containing the list of conversations or an error message.
+        """
         if not _is_authorised_request(auth_token, request):
             return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
@@ -298,7 +394,17 @@ def register_conversations_endpoints(
     def get_conversation_history(
         request: Request, user_id: str, conversation_id: str, auth_token: str = ""
     ) -> JSONResponse:
-        """Get full conversation history."""
+        """Get full conversation history.
+
+        Args:
+            request: The incoming HTTP request.
+            user_id: The stable user identifier.
+            conversation_id: The unique identifier for the conversation.
+            auth_token: The authentication token provided by the user (optional).
+
+        Returns:
+            A JSONResponse containing the conversation history or an error message.
+        """
         if not _is_authorised_request(auth_token, request):
             return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
@@ -341,7 +447,15 @@ def register_conversations_endpoints(
 
     @app.post("/api/conversations/new")
     def create_conversation(request: Request, auth_token: str = Form("")) -> JSONResponse:
-        """Create a new conversation session."""
+        """Create a new conversation session.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: The authentication token provided by the user (optional).
+
+        Returns:
+            A JSONResponse containing the new conversation details or an error message.
+        """
         if not _is_authorised_request(auth_token, request):
             return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
@@ -381,7 +495,19 @@ def register_conversations_endpoints(
         content: str = Form(...),
         auth_token: str = Form(""),
     ) -> JSONResponse:
-        """Add a message to a conversation."""
+        """Add a message to a conversation.
+
+        Args:
+            request: The incoming HTTP request.
+            conversation_id: The unique identifier for the conversation.
+            user_id: The stable user identifier.
+            role: The role of the message sender (e.g., "user" or "assistant").
+            content: The content of the message.
+            auth_token: The authentication token provided by the user (optional).
+
+        Returns:
+            A JSONResponse containing the message details or an error message.
+        """
         if not _is_authorised_request(auth_token, request):
             return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 
@@ -426,7 +552,20 @@ def register_conversations_endpoints(
         assistant_timestamp: str = Form(default=""),
         auth_token: str = Form(""),
     ) -> JSONResponse:
-        """Store user rating/TODO feedback for a prior assistant response."""
+        """Store user rating/TODO feedback for a prior assistant response.
+
+        Args:
+            request: The incoming HTTP request.
+            conversation_id: The unique identifier for the conversation.
+            user_id: The stable user identifier.
+            rating: An integer rating from 1 to 5.
+            todo: Optional TODO feedback from the user.
+            assistant_timestamp: Optional timestamp of the assistant message being rated.
+            auth_token: The authentication token provided by the user (optional).
+
+        Returns:
+            A JSONResponse containing the updated rating details or an error message.
+        """
         if not _is_authorised_request(auth_token, request):
             return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
 

@@ -1,3 +1,7 @@
+"""
+Azure reset mode: remove indexed data and optional source blobs on Azure.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -17,7 +21,16 @@ logger = logging.getLogger(__name__)
 def _purge_index_documents(
     config: IngestionConfig, credential: TokenCredential, batch_size: int = 500
 ) -> int:
-    """Delete all indexed chunk documents while preserving the index schema."""
+    """Delete all indexed chunk documents while preserving the index schema.
+
+    Args:
+        config: The IngestionConfig object containing Azure Search configuration.
+        credential: The TokenCredential object for authenticating with Azure Search.
+        batch_size: The number of documents to delete in each batch.
+
+    Returns:
+        The number of documents deleted.
+    """
     client = SearchClient(
         endpoint=config.search_endpoint,
         index_name=config.search_index_name,
@@ -41,7 +54,15 @@ def _purge_index_documents(
 
 
 def _reset_indexer_state(config: IngestionConfig, credential: TokenCredential) -> bool:
-    """Reset indexer high-watermark so unchanged blobs can be reprocessed."""
+    """Reset indexer high-watermark so unchanged blobs can be reprocessed.
+
+    Args:
+        config: The IngestionConfig object containing Azure Search configuration.
+        credential: The TokenCredential object for authenticating with Azure Search.
+
+    Returns:
+        True if the indexer was successfully reset, False otherwise.
+    """
     client = SearchIndexerClient(endpoint=config.search_endpoint, credential=credential)
     try:
         client.reset_indexer(config.indexer_name)
@@ -52,7 +73,15 @@ def _reset_indexer_state(config: IngestionConfig, credential: TokenCredential) -
 
 
 def _purge_source_blobs(config: IngestionConfig, credential: TokenCredential) -> int:
-    """Delete all blobs in the ingestion source container."""
+    """Delete all blobs in the ingestion source container.
+
+    Args:
+        config: The IngestionConfig object containing Azure Storage configuration.
+        credential: The TokenCredential object for authenticating with Azure Storage.
+
+    Returns:
+        The number of blobs deleted.
+    """
     account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
     blob_service = BlobServiceClient(account_url=account_url, credential=credential)
     container_client = blob_service.get_container_client(config.storage_container_name)
@@ -84,6 +113,14 @@ def reset_loaded_data(
     - Purges all indexed documents from the Search index.
     - Resets indexer state so a later run can reprocess unchanged blobs.
     - Optionally purges source blobs from the configured storage container.
+
+    Args:
+        config: The IngestionConfig object containing Azure Search and Storage configuration.
+        credential: The TokenCredential object for authenticating with Azure services.
+        purge_blobs: If True, delete source blobs from the configured storage container.
+
+    Returns:
+        A dictionary containing counts of deleted index documents, source blobs, and indexer reset status.
     """
     deleted_docs = 0
     deleted_blobs = 0
