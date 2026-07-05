@@ -1,7 +1,7 @@
 -r base.txt
 
 # Shared HTTP/LLM client deps
-requests>=2.33.1
+requests>=2.34.2
 openai==2.43.0
 httpx==0.28.1
 
