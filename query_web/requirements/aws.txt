@@ -6,4 +6,4 @@ openai==2.43.0
 httpx==0.28.1
 
 # AWS SDK
-boto3==1.43.36
+boto3==1.43.40
