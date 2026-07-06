@@ -3,7 +3,7 @@
 # Local extraction (used by --mode local)
 pypdf>=6.14.2
 openpyxl==3.1.5
-pypdfium2==5.10.1
+pypdfium2==5.11.0
 pytesseract==0.3.13
 
 # Local development (CLOUD_PROVIDER=local with LOCAL_VECTOR_BACKEND=qdrant)
