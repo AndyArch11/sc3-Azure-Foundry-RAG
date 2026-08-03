@@ -1,7 +1,7 @@
 -r base.txt
 
 # AWS SDK (used when CLOUD_PROVIDER=aws)
-boto3==1.43.36
+boto3==1.43.61
 
 # Controls ingestion parser deps (AESCSF/CIS require openpyxl; NIST AI RMF/PSPF/PCI/CIS PDF parsing requires pypdf)
 openpyxl==3.1.5
