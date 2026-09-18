@@ -26,6 +26,7 @@ _CORPUS_A_FRAMEWORKS: dict[str, str] = {
     "ism": "ISM",
     "nist_ai_rmf": "NIST AI RMF",
     "nist_csf": "NIST CSF",
+    "nist_sp_800_53": "NIST SP 800-53",
     "pci_dss": "PCI DSS",
     "pspf": "PSPF",
 }
@@ -70,6 +71,17 @@ def _normalise_corpus_a_framework_key(raw: str) -> str | None:
 
     if key in {"nist", "nist csf", "csf", "csf 2.0"}:
         return "nist_csf"
+    if key in {
+        "nist sp 800-53",
+        "nist_sp_800_53",
+        "nist sp800-53",
+        "sp 800-53",
+        "sp800-53",
+        "800-53",
+        "80053",
+        "nist 800-53",
+    }:
+        return "nist_sp_800_53"
     if key in {"nist ai rmf", "ai rmf", "nist_ai_rmf", "airmf"}:
         return "nist_ai_rmf"
     if key in {"essential eight", "e8"}:

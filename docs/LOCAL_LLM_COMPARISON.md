@@ -17,7 +17,7 @@ Cons:
 Pros:
 - Lightweight native runtime.
 - Fast startup for direct local inference.
-- Good fit for constrained environments with pre-quantized GGUF models.
+- Good fit for constrained environments with pre-quantised GGUF models.
 
 Cons:
 - Additional integration effort and runtime compatibility testing.

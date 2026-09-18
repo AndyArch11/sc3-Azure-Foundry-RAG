@@ -134,13 +134,15 @@ class _LocalAdapter:
             include_total_count: Whether to include the total count of matching documents.
         Returns:
             A dictionary of provider-specific keyword arguments for the search client."""
-        del include_total_count
-        return {
+        kwargs: dict[str, Any] = {
             "query_text": query_text,
             "filters": filter_expr or None,
             "top": top,
             "select": select,
         }
+        if include_total_count:
+            kwargs["include_total_count"] = True
+        return kwargs
 
 
 class CloudProviderRegistry:

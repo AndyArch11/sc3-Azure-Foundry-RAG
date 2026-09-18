@@ -163,14 +163,15 @@ def test_api_ask_forwards_evidence_corpus_filters() -> None:
     assert body["audit"]["evidence_corpus_filter_expr"] == "corpus eq 'b'"
     kwargs = run_mock.call_args.kwargs
     assert kwargs["evidence_corpora_include"] == ["b", "c"]
-    assert kwargs["evidence_corpora_exclude"] == ["legacy"]
+    # Legacy corpus values are unsupported and are normalised out.
+    assert kwargs["evidence_corpora_exclude"] == []
 
 
 def test_call_validator_parses_fenced_json_response() -> None:
     test_config = replace(
         app_module.config,
         prompt_injection_validator_enabled=True,
-        prompt_injection_validator_deployment="gpt-4.1-mini",
+        prompt_injection_validator_deployment="gpt-5.1-mini",
     )
 
     with (
@@ -196,7 +197,7 @@ def test_call_validator_parses_prose_wrapped_json_response() -> None:
     test_config = replace(
         app_module.config,
         prompt_injection_validator_enabled=True,
-        prompt_injection_validator_deployment="gpt-4.1-mini",
+        prompt_injection_validator_deployment="gpt-5.1-mini",
     )
 
     with (

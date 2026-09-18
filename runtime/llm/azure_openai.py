@@ -11,6 +11,7 @@ import logging
 import os
 from typing import Any, Callable
 
+from runtime.llm.token_usage import record_token_usage
 from runtime.trace_context import outbound_trace_headers
 
 logger = logging.getLogger(__name__)
@@ -169,6 +170,13 @@ class AzureOpenAILLMClient:
                 finally:
                     self._top_p = original_top_p
 
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            record_token_usage(
+                prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+                completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+                total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
+            )
         return str(response.choices[0].message.content or "").strip()
 
     def as_callable(self) -> Callable[[list[dict[str, str]]], str]:

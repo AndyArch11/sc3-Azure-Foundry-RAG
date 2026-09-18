@@ -30,7 +30,7 @@ Add these environment variables to enable the validator:
 PROMPT_INJECTION_VALIDATOR_ENABLED=true
 
 # Which deployment to use for validation
-PROMPT_INJECTION_VALIDATOR_DEPLOYMENT=gpt-4.1-mini
+PROMPT_INJECTION_VALIDATOR_DEPLOYMENT=gpt-5.1-mini
 
 # Confidence threshold above which validator blocks (0.0-1.0)
 PROMPT_INJECTION_VALIDATOR_THRESHOLD=0.85

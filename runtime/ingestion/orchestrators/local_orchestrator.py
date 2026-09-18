@@ -45,6 +45,29 @@ class _ChunkDocumentsFn(Protocol):
     ) -> Sequence[ChunkRecord]: ...
 
 
+def _infer_corpus_from_path(source_path: str) -> str:
+    """Infer the corpus label ('a', 'b', or 'c') from a source file path.
+
+    Matches "corpus-a"/"corpus-b"/"corpus-c" as a path component (not a
+    fragile substring) so any relative or absolute --input-dir form is
+    tagged correctly; defaults to 'c' when no hint is present, matching the
+    seed/load-time fallback for ad-hoc local evidence.
+
+    Args:
+        source_path: The chunk's source file path.
+
+    Returns:
+        The inferred corpus label.
+    """
+    normalised = source_path.replace("\\", "/").strip("/").lower()
+    parts = set(normalised.split("/")) if normalised else set()
+    if "corpus-a" in parts:
+        return "a"
+    if "corpus-b" in parts:
+        return "b"
+    return "c"
+
+
 def run_local(
     args: argparse.Namespace,
     *,
@@ -114,6 +137,7 @@ def run_local(
                         "source_type": chunk.source_type,
                         "chunk_index": chunk.chunk_index,
                         "content": chunk.content,
+                        "corpus": _infer_corpus_from_path(chunk.source_path),
                     },
                     ensure_ascii=True,
                 )

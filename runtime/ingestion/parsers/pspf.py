@@ -28,6 +28,7 @@ except ImportError:  # Container layout copies modules to /app, not /app/runtime
     from outbound_instrumentation import request_with_instrumentation
 
 from .base import BaseParser, RequirementRecord, keywordise_values
+from .utils import fetch_bytes_with_instrumentation
 
 logger = logging.getLogger(__name__)
 
@@ -221,17 +222,15 @@ def _download_pdf_bytes(url: str) -> bytes:
     Returns:
         The downloaded PDF bytes.
     """
-    response = request_with_instrumentation(
-        "GET",
-        url,
+    return fetch_bytes_with_instrumentation(
+        url=url,
         logger=logger,
         timeout=60,
         system="protective-security",
         operation="download_pspf_pdf",
+        instrumenter=request_with_instrumentation,
         request_callable=requests.get,
     )
-    response.raise_for_status()
-    return response.content
 
 
 def _extract_full_text(pdf_bytes: bytes) -> str:

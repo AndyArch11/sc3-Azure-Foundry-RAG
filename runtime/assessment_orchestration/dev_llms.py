@@ -5,7 +5,7 @@ Environment variables:
 LLM_BACKEND: 'azure' (default) or 'ollama'
 OLLAMA_HOST: Ollama endpoint — Ollama's own env var (e.g. http://host.docker.internal:11434)
 OLLAMA_BASE_URL: Alternative endpoint override (OLLAMA_HOST takes precedence if both set)
-OLLAMA_MODEL: Ollama chat model (default: gemma3:27b)
+OLLAMA_MODEL: Ollama chat model (default: gemma4:26b)
 OLLAMA_CHAT_MODEL: Legacy chat model alias (preferred when both are set)
 OLLAMA_EMBEDDING_MODEL: Ollama embedding model (default: nomic-embed-text)
 OLLAMA_EMBED_MODEL: Legacy embedding model alias (used when OLLAMA_EMBEDDING_MODEL is unset)
@@ -287,7 +287,7 @@ def create_chat_completion_fn(
 
         ollama_url = _resolve_base_url(os.environ.get("OLLAMA_BASE_URL") or None)
         ollama_model = (
-            os.environ.get("OLLAMA_CHAT_MODEL") or os.environ.get("OLLAMA_MODEL") or "gemma3:27b"
+            os.environ.get("OLLAMA_CHAT_MODEL") or os.environ.get("OLLAMA_MODEL") or "gemma4:26b"
         )
 
         if not is_ollama_available(ollama_url):
@@ -375,7 +375,7 @@ def create_embedding_fn(
 
     Note:
         For development (ollama backend), consider keyword-only search
-        since Ollama embeddings have different dimensionality than ada-002.
+        since Ollama embeddings have different dimensionality than text-embedding-3-small.
 
     Example:
         embed_fn = create_embedding_fn()

@@ -10,6 +10,7 @@ from typing import Any
 import requests
 
 from runtime.outbound_instrumentation import InstrumentedRequestsSession
+from runtime.search.result_hygiene import compute_search_limit, dedupe_results
 
 logger = logging.getLogger(__name__)
 
@@ -422,10 +423,15 @@ class AWSOpenSearchClient:
         extra_kwargs.pop("include_total_count", None)
 
         filters = self._translate_filter_expression(filters)
+        fetch_limit = compute_search_limit(
+            top=top,
+            provider_key="opensearch",
+            default_dedupe_enabled=False,
+        )
 
         body_payload = self._build_query_body(
             query_text=query_text,
-            top=top,
+            top=fetch_limit,
             vector_query=vector_query,
             filters=filters,
         )
@@ -472,7 +478,7 @@ class AWSOpenSearchClient:
                 )
                 body_payload = self._build_query_body(
                     query_text=query_text,
-                    top=top,
+                    top=fetch_limit,
                     vector_query=None,
                     filters=filters,
                 )
@@ -522,6 +528,15 @@ class AWSOpenSearchClient:
             if select:
                 doc = {field: doc[field] for field in select if field in doc}
             results.append(doc)
+
+        results = list(
+            dedupe_results(
+                results,
+                top=top,
+                provider_key="opensearch",
+                default_dedupe_enabled=False,
+            )
+        )
 
         return _SearchResults(items=results, total_count=total_count)
 

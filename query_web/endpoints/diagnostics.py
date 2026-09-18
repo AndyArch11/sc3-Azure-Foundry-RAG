@@ -9,6 +9,8 @@ import requests
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from query_web.endpoints.problem_details import problem_response as _problem_response
+
 _SearchIndexClientImpl: Any
 _SearchIndexerClientImpl: Any
 _IndexerStatusImpl: Any
@@ -94,14 +96,19 @@ def check_diagnostics_access(
     """
     if is_authorised_request is None or not is_authorised_request(auth_token, request):
         msg = unauthorised_message(request) if callable(unauthorised_message) else "Unauthorised."
-        return JSONResponse({"error": msg}, status_code=401)
+        return _problem_response(
+            status=401,
+            title="Unauthorised",
+            detail=str(msg),
+            instance=str(request.url.path),
+        )
     if not _diagnostics_enabled():
-        return JSONResponse(
-            {
-                "error": "Diagnostics endpoints are disabled when TARGET_ENV is 'prod'.",
-                "target_env": _target_env_name(),
-            },
-            status_code=403,
+        return _problem_response(
+            status=403,
+            title="Forbidden",
+            detail="Diagnostics endpoints are disabled when TARGET_ENV is 'prod'.",
+            instance=str(request.url.path),
+            extensions={"target_env": _target_env_name()},
         )
     return None
 
@@ -226,9 +233,36 @@ def register_diagnostics_endpoints(
     *,
     deps: dict | None = None,
 ) -> None:
-    """Register all diagnostics endpoints with the FastAPI app."""
+    """Register all diagnostics endpoints with the FastAPI app.
+
+    Args:
+        app: The FastAPI app instance.
+        credential: The Azure credential.
+        config: The configuration object.
+        search_client: The Azure Search client.
+        _is_corpus_upload_enabled: Flag indicating if corpus upload is enabled.
+        _is_ingestion_job_trigger_enabled: Flag indicating if ingestion job trigger is enabled.
+        _latest_ingestion_job_execution: The latest ingestion job execution.
+        _count_blob_prefix: Function to count blob prefix.
+        _count_search_documents_total_by_filter: Function to count search documents by filter.
+        _utc_now_iso: Function to get the current UTC time in ISO format.
+        _REQUIRED_INGESTION_METADATA_KEYS: Required ingestion metadata keys.
+        svc: Optional service object.
+        deps: Optional dictionary of dependencies.
+
+    """
 
     def _resolve_sdk_class(module_path: str, attr: str, fallback: Any) -> Any:
+        """Resolve a class from a module path, with fallback if not found.
+
+        Args:
+            module_path: The module path to import.
+            attr: The attribute name to retrieve from the module.
+            fallback: The fallback value to return if import fails.
+
+        Returns:
+            The resolved class or the fallback value.
+        """
         try:
             module = __import__(module_path, fromlist=[attr])
             return getattr(module, attr)
@@ -236,6 +270,15 @@ def register_diagnostics_endpoints(
             return fallback
 
     def _svc_attr(name: str, default: Any) -> Any:
+        """Retrieve an attribute from the service object or dependencies.
+
+        Args:
+            name: The name of the attribute to retrieve.
+            default: The default value to return if the attribute is not found.
+
+        Returns:
+            The value of the attribute or the default value.
+        """
         if isinstance(deps, dict) and name in deps:
             candidate = deps[name]
             return candidate() if callable(candidate) else candidate
@@ -244,6 +287,14 @@ def register_diagnostics_endpoints(
         return getattr(svc, name, default)
 
     def _check_diagnostics_access(request: Request, auth_token: str) -> JSONResponse | None:
+        """Check if the request is authorised to access diagnostics endpoints.
+
+        Args:
+            request: The incoming HTTP request.
+            auth_token: The authentication token provided by the user (optional).
+        Returns:
+            A JSONResponse with an error message if access is denied, or None if access is allowed.
+        """
         return check_diagnostics_access(
             request,
             auth_token,
@@ -254,6 +305,13 @@ def register_diagnostics_endpoints(
         )
 
     def _resolve_acr_registry_name(explicit_registry_name: str = "") -> str:
+        """Resolve ACR registry name from environment or explicit param.
+
+        Args:
+            explicit_registry_name: An optional explicit registry name.
+        Returns:
+            The resolved ACR registry name.
+        """
         return resolve_acr_registry_name(explicit_registry_name)
 
     def _list_acr_tags_via_management_api(
@@ -264,6 +322,17 @@ def register_diagnostics_endpoints(
         repository: str,
         limit: int,
     ) -> dict[str, Any]:
+        """Fetch ACR repository tags via Management API.
+
+        Args:
+            subscription_id: The Azure subscription ID.
+            resource_group: The Azure resource group name.
+            registry_name: The ACR registry name.
+            repository: The repository name within the ACR registry.
+            limit: The maximum number of tags to fetch.
+        Returns:
+            A dictionary containing the tags and metadata.
+        """
         return list_acr_tags_via_management_api(
             credential=_svc_attr("credential", credential),
             requests_module=_svc_attr("requests", requests),
@@ -1068,7 +1137,12 @@ def register_diagnostics_endpoints(
                 "Failed storage blobs diagnostics request",
                 extra={"event": "diagnostics_storage_blobs_failed", "exc_type": type(exc).__name__},
             )
-            return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=_INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.get("/api/diagnostics/ingestion/overview")
     def ingestion_overview_diagnostics(
@@ -1517,17 +1591,19 @@ def register_diagnostics_endpoints(
                 "Failed ACR images diagnostics request",
                 extra={"event": "diagnostics_acr_images_failed", "exc_type": type(exc).__name__},
             )
-            return JSONResponse(
-                {
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=_INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+                extensions={
                     "mode": "acr-images-diagnostics",
                     "configured": True,
                     "target_env": _target_env_name(),
                     "registry_name": resolved_registry_name,
                     "repository": repo,
                     "expected_tag": expected_tag_value or None,
-                    "error": _INTERNAL_ERROR_MESSAGE,
                 },
-                status_code=500,
             )
 
     @app.get("/api/diagnostics/search/indexer-history")
@@ -1612,7 +1688,12 @@ def register_diagnostics_endpoints(
                     "exc_type": type(exc).__name__,
                 },
             )
-            return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=_INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.get("/api/diagnostics/search/index-samples")
     def index_samples_diagnostics(
@@ -1666,7 +1747,12 @@ def register_diagnostics_endpoints(
                 "Failed search index samples diagnostics request",
                 extra={"event": "diagnostics_index_samples_failed", "exc_type": type(exc).__name__},
             )
-            return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=_INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.get("/api/diagnostics/storage/metadata-validation")
     def storage_metadata_validation_diagnostics(
@@ -1738,7 +1824,12 @@ def register_diagnostics_endpoints(
                     "exc_type": type(exc).__name__,
                 },
             )
-            return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=_INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.get("/api/diagnostics/search/datasource-connectivity")
     def datasource_connectivity_diagnostics(
@@ -1785,7 +1876,12 @@ def register_diagnostics_endpoints(
                 "Failed data source connectivity diagnostics request",
                 extra={"event": "diagnostics_data_source_failed", "exc_type": type(exc).__name__},
             )
-            return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=_INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.get("/api/diagnostics/search/field-mappings")
     def field_mappings_validation_diagnostics(
@@ -1837,4 +1933,9 @@ def register_diagnostics_endpoints(
                     "exc_type": type(exc).__name__,
                 },
             )
-            return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=_INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )

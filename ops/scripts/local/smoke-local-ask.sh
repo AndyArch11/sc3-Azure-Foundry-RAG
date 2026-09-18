@@ -104,11 +104,22 @@ with urllib.request.urlopen(req, timeout=120) as resp:
 ')"
 fi
 
+if [[ -z "${response_json//[[:space:]]/}" ]]; then
+  echo "[smoke-local-ask] ERROR: service returned an empty response body" >&2
+  exit 1
+fi
+
 python3 - <<'PY' "${response_json}"
 import json
 import sys
 
-payload = json.loads(sys.argv[1])
+raw = sys.argv[1]
+try:
+  payload = json.loads(raw)
+except json.JSONDecodeError as exc:
+  snippet = raw[:400].replace("\n", " ")
+  raise SystemExit(f"[smoke-local-ask] ERROR: non-JSON response ({exc}): {snippet}")
+
 error = (payload.get("error") or "").strip()
 answer = (payload.get("answer") or "").strip()
 

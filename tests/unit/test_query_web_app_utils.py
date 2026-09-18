@@ -475,6 +475,62 @@ def test_diagnostics_disabled_in_prod() -> None:
         assert app_module._diagnostics_enabled() is False
 
 
+def test_resolve_query_model_capabilities_caches_probe_once() -> None:
+    with patch.dict(
+        os.environ,
+        {
+            "QUERY_WEB_RUNTIME_HINTS_PROBE_MODEL_CAPABILITIES": "true",
+            "CLOUD_PROVIDER": "local",
+        },
+        clear=False,
+    ):
+        with patch.object(app_module, "_QUERY_MODEL_CAPABILITIES_CACHE", {}):
+            with patch.object(app_module, "_QUERY_MODEL_CAPABILITIES_CACHE_INITIALISED", False):
+                with patch.object(
+                    app_module,
+                    "_probe_ollama_model_capabilities",
+                    return_value={
+                        "source": "model_metadata",
+                        "context_window_tokens": 65536,
+                        "max_output_tokens": 2200,
+                    },
+                ) as probe:
+                    first = app_module._resolve_query_model_capabilities()
+                    second = app_module._resolve_query_model_capabilities()
+                    assert first == second
+                    first["context_window_tokens"] = 1
+                    third = app_module._resolve_query_model_capabilities()
+
+    assert probe.call_count == 1
+    assert third["context_window_tokens"] == 65536
+
+
+def test_probe_ollama_model_capabilities_includes_configured_models(monkeypatch) -> None:
+    monkeypatch.setenv("OLLAMA_MODEL", "chat-model")
+    monkeypatch.setenv("OLLAMA_EMBEDDING_MODEL", "embed-model")
+
+    class _Response:
+        def __init__(self, model: str) -> None:
+            self.model = model
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            context = 32768 if self.model == "chat-model" else 8192
+            return {"model_info": {"llama.context_length": context}}
+
+    def _post(_url, *, json, timeout):
+        return _Response(str(json["name"]))
+
+    with patch.object(app_module.requests, "post", side_effect=_post):
+        capabilities = app_module._probe_ollama_model_capabilities()
+
+    assert capabilities["context_window_tokens"] == 32768
+    assert capabilities["models"]["chat-model"]["context_window_tokens"] == 32768
+    assert capabilities["models"]["embed-model"]["context_window_tokens"] == 8192
+
+
 # ---------------------------------------------------------------------------
 # _branding_ctx
 # ---------------------------------------------------------------------------

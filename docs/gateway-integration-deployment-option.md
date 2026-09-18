@@ -7,7 +7,7 @@ This option publishes a stable external API contract without changing the core q
 - Keep query-web private on internal networking.
 - Authenticate external callers at an edge gateway.
 - Inject query-web shared token at the gateway boundary.
-- Forward requests to query-web `/api/ask` using the published service contract.
+- Forward requests to query-web `/api/v1/ask` using the published service contract.
 
 Contract reference: [docs/contracts/rag-api-v1.openapi.yaml](docs/contracts/rag-api-v1.openapi.yaml)
 
@@ -21,12 +21,25 @@ Contract reference: [docs/contracts/rag-api-v1.openapi.yaml](docs/contracts/rag-
    - Validate JWT issuer/audience.
    - Read shared token from Key Vault-backed named value.
    - Set or overwrite request body field `auth_token` before backend call.
-6. Backend: private query-web origin URL.
+6. Rewrite the published `/api/v1/...` paths to the private query-web `/api/...` paths.
+7. Backend: private query-web origin URL.
+
+For APIM MCP exposure, publish the read-only graph operations as tools from the OpenAPI contract:
+
+- `getGraphNode`
+- `getGraphRelated`
+- `queryGraph`
+- `getGraphExport` only when bounded export is an approved agent capability
+
+The `queryGraph` operation is the preferred agent graph tool because it supports bounded seed traversal,
+framework/node/edge/community filters, confidence filtering, and explicit result limits. Do not publish
+`POST /api/graph/build` as an MCP tool. APIM should inject the internal `auth_token` after validating the
+agent identity; callers and tool schemas should never provide that field.
 
 ## Option B: AWS API Gateway (recommended for AWS consumers)
 
 1. Import [docs/contracts/rag-api-v1.openapi.yaml](docs/contracts/rag-api-v1.openapi.yaml).
-2. Use IAM SigV4 or JWT authorizer for caller authentication.
+2. Use IAM SigV4 or JWT authoriser for caller authentication.
 3. Store query-web shared token in Secrets Manager.
 4. Integration mapping:
    - Inject `auth_token` into JSON body.
@@ -41,8 +54,53 @@ Contract reference: [docs/contracts/rag-api-v1.openapi.yaml](docs/contracts/rag-
 4. Store query-web shared token as a local secret or environment variable.
 5. Gateway request transform:
    - Inject `auth_token` into JSON request body.
-   - Forward to local query-web `/api/ask` backend.
+   - Forward to local query-web `/api/ask` backend from external `/api/v1/ask`.
 6. For Docker Compose, run the gateway as a separate service so this remains an additive option.
+
+### Repository quick start (local)
+
+1. Set local gateway env values in `.env.local`:
+    - `RAG_GATEWAY_HOST_PORT=18081`
+    - `GATEWAY_BEARER_TOKEN=<optional-edge-token>`
+    - `QUERY_WEB_AUTH_TOKEN=<query-web-shared-token-or-empty>`
+2. Start local stack with gateway profile:
+
+```bash
+docker compose \
+   -f docker-compose.local.yml \
+   --env-file .env.local \
+   --profile gateway \
+   up --build
+```
+
+3. Verify gateway and contract publication:
+
+```bash
+curl -fsS http://localhost:18081/gateway/health
+curl -fsS http://localhost:18081/openapi/v1/rag-api-v1.openapi.yaml | head -n 5
+```
+If running commands from a managed Docker container, use
+`http://host.docker.internal:18081/` rather than `http://localhost:18081`.
+The gateway smoke script tries the localhost URL first and automatically falls
+back to the equivalent `host.docker.internal` URL when loopback is unavailable.
+
+4. Run smoke test through gateway path:
+
+```bash
+ops/scripts/local/smoke-local-gateway-ask.sh
+```
+
+The local gateway also exposes the bounded graph tool at
+`POST /api/v1/graph/query`, forwarding to query-web `/api/graph/query` with the
+same bearer validation and internal token injection used by the Ask route.
+Agents should use the gateway URL (`http://localhost:18081` by default), not the
+`rag-query-web-local` container directly.
+
+5. If `GATEWAY_BEARER_TOKEN` is set, callers must include:
+
+```text
+Authorization: Bearer <GATEWAY_BEARER_TOKEN>
+```
 
 ### Local OpenResty example
 
@@ -67,7 +125,7 @@ http {
                   proxy_pass http://query-web:8080/health;
             }
 
-            location = /api/ask {
+            location = /api/v1/ask {
                   content_by_lua_block {
                         ngx.req.read_body()
                         local cjson = require("cjson.safe")
@@ -97,19 +155,19 @@ http {
 ```yaml
 services:
    rag-gateway-local:
-      image: openresty/openresty:alpine
+      build:
+         context: .
+         dockerfile: ops/local-gateway/Dockerfile
       container_name: rag-gateway-local
       ports:
          - "18081:8081"
       environment:
          - QUERY_WEB_AUTH_TOKEN=${QUERY_WEB_AUTH_TOKEN}
-      volumes:
-         - ./ops/local-gateway/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
       depends_on:
          - query-web
 ```
 
-Callers then target `http://localhost:18081/api/ask` and do not send `auth_token` directly.
+Callers then target `http://localhost:18081/api/v1/ask` and do not send `auth_token` directly.
 
 ## Security model
 
@@ -121,4 +179,4 @@ Callers then target `http://localhost:18081/api/ask` and do not send `auth_token
 
 - Treat this as an additional deployment option, not a replacement for existing web deployment scripts.
 - Keep API contract versioned (`v1`, `v2`) and avoid breaking schema changes in place.
-- Add automated smoke tests that call the gateway endpoint and assert `/api/ask` response shape.
+- Add automated smoke tests that call the gateway endpoint and assert `/api/v1/ask` response shape.

@@ -31,7 +31,7 @@ locals {
 }
 
 moved {
-  from = azapi_resource.model_deployment["text-embedding-ada-002"]
+  from = azapi_resource.model_deployment["text-embedding-3-small"]
   to   = azapi_resource.model_deployment_embedding[0]
 }
 
@@ -41,7 +41,7 @@ moved {
 }
 
 moved {
-  from = azapi_resource.model_deployment["gpt-4.1-mini"]
+  from = azapi_resource.model_deployment["gpt-5.1-mini"]
   to   = azapi_resource.model_deployment_evaluation[0]
 }
 

@@ -7,6 +7,7 @@ from .essential_eight import EssentialEightParser
 from .ism import IsmParser
 from .nist_ai_rmf import NistAiRmfParser
 from .nist_csf import NistCsfParser
+from .nist_sp_800_53 import NistSp80053Parser
 from .pci_dss import PciDssParser
 from .pspf import PspfParser
 
@@ -19,6 +20,7 @@ __all__ = [
     "IsmParser",
     "NistAiRmfParser",
     "NistCsfParser",
+    "NistSp80053Parser",
     "PciDssParser",
     "PspfParser",
 ]

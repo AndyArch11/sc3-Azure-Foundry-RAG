@@ -1,6 +1,7 @@
 """Status and configuration endpoints for diagnostic and info retrieval."""
 
 import logging
+import os
 from typing import Any
 
 from fastapi import FastAPI
@@ -24,6 +25,7 @@ def register_status_endpoints(
     _is_corpus_upload_enabled,
     _is_ingestion_job_trigger_enabled,
     COMPLIANCE_REPORT_SCHEMA_VERSION,
+    resolve_query_model_capabilities: Any | None = None,
 ) -> None:
     """Register status and configuration endpoints with the FastAPI app.
 
@@ -39,7 +41,107 @@ def register_status_endpoints(
         _is_corpus_upload_enabled: Function to check if corpus upload is enabled.
         _is_ingestion_job_trigger_enabled: Function to check if ingestion job trigger is enabled.
         COMPLIANCE_REPORT_SCHEMA_VERSION: The version of the compliance report schema.
+        resolve_query_model_capabilities: Optional callable returning query model capability metadata.
     """
+
+    def _coerce_positive_int(value: Any) -> int | None:
+        """Coerce a value to a positive integer, returning None for invalid or non-positive values.
+
+        Args:
+            value: The value to coerce.
+
+        Returns:
+            The coerced positive integer, or None if the value is invalid or non-positive.
+        """
+        try:
+            parsed = int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
+
+    def _resolve_request_timeout_hint_seconds() -> int | None:
+        """Resolve the request timeout hint in seconds from environment variables.
+
+        Returns:
+            The resolved request timeout hint in seconds, or None if not set.
+        """
+        for name in (
+            "QUERY_WEB_ASK_TIMEOUT_S",
+            "LLM_CHAT_TIMEOUT_S",
+            "OLLAMA_CHAT_TIMEOUT",
+        ):
+            timeout_hint = _coerce_positive_int(os.getenv(name))
+            if timeout_hint is not None:
+                return timeout_hint
+        return None
+
+    def _runtime_hints_payload() -> dict[str, Any]:
+        """Generate the runtime hints payload.
+
+        Returns:
+            A dictionary containing runtime hints.
+        """
+        model_capabilities: dict[str, Any] = {}
+        if callable(resolve_query_model_capabilities):
+            try:
+                candidate = resolve_query_model_capabilities()
+                if isinstance(candidate, dict):
+                    model_capabilities = candidate
+            except Exception:
+                model_capabilities = {}
+
+        model_context_hint = _coerce_positive_int(
+            model_capabilities.get("context_window_tokens")
+            or model_capabilities.get("max_position_embeddings")
+            or model_capabilities.get("max_context_tokens")
+        )
+        model_output_cap = _coerce_positive_int(
+            model_capabilities.get("max_output_tokens")
+            or model_capabilities.get("max_completion_tokens")
+            or model_capabilities.get("output_token_limit")
+        )
+        model_source = str(model_capabilities.get("source") or "model_metadata")
+
+        configured_query_cap = max(256, int(getattr(config, "max_completion_tokens", 1400)))
+        configured_evaluator_cap = max(
+            128,
+            int(getattr(config, "evaluator_max_completion_tokens", 800)),
+        )
+
+        if model_output_cap is not None:
+            max_completion_tokens_effective = min(configured_query_cap, model_output_cap)
+            evaluator_max_completion_tokens_effective = min(
+                configured_evaluator_cap,
+                model_output_cap,
+            )
+            max_completion_tokens_source = model_source
+        else:
+            max_completion_tokens_effective = configured_query_cap
+            evaluator_max_completion_tokens_effective = configured_evaluator_cap
+            max_completion_tokens_source = "runtime_config"
+
+        if model_context_hint is not None:
+            context_window_tokens_hint = model_context_hint
+            context_window_source = model_source
+        else:
+            context_window_tokens_hint = None
+            context_window_source = "unknown"
+
+        return {
+            "context_window_tokens_hint": context_window_tokens_hint,
+            "context_window_source": context_window_source,
+            "model_capabilities": model_capabilities.get("models", {}),
+            "max_completion_tokens_effective": max_completion_tokens_effective,
+            "max_completion_tokens_source": max_completion_tokens_source,
+            "evaluator_max_completion_tokens_effective": (
+                evaluator_max_completion_tokens_effective
+            ),
+            "request_timeout_seconds_hint": _resolve_request_timeout_hint_seconds(),
+            "provider_constraints_note": (
+                "Runtime limits vary by provider/model and deployment configuration. "
+                "Treat hints as advisory."
+            ),
+        }
 
     @app.get("/health")
     def health() -> JSONResponse:
@@ -152,5 +254,21 @@ def register_status_endpoints(
                 "evaluation_threshold": config.evaluation_threshold,
                 "auth_enabled": bool(config.auth_token),
                 "entra_group_auth_enabled": bool(config.required_group_object_id),
+            }
+        )
+
+    @app.get("/api/provider-status")
+    def provider_status() -> JSONResponse:
+        """Provider/runtime discovery endpoint with pre-ask operational hints.
+
+        Returns:
+            A JSONResponse containing provider metadata and advisory runtime limits.
+        """
+        return JSONResponse(
+            {
+                "provider": str(getattr(config, "cloud_provider", "") or "unknown"),
+                "query_deployment": str(getattr(config, "query_deployment", "") or ""),
+                "embedding_deployment": str(getattr(config, "embedding_deployment", "") or ""),
+                "runtime_hints": _runtime_hints_payload(),
             }
         )

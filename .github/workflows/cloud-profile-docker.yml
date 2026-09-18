@@ -62,7 +62,7 @@ jobs:
             -e AZURE_COSMOS_DATABASE_NAME=ci-db \
             -e AZURE_COSMOS_CONTAINER_NAME=ci-container \
             -e PRECEDENCE_POLICY_PATH=/app/policies/precedence_policy.json \
-            -e OLLAMA_MODEL=gemma3:27b \
+            -e OLLAMA_MODEL=gemma4:26b \
             -e OLLAMA_EMBEDDING_MODEL=nomic-embed-text \
             ci-query-web-cloud-profile >/dev/null
 

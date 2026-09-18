@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
+import tempfile
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import requests
 from fastapi.testclient import TestClient
@@ -92,6 +95,44 @@ def test_corpus_b_clear_dry_run_uses_count_paths() -> None:
     count_blobs.assert_called_once_with("corpus-b/by-dedupe/")
     delete_index.assert_not_called()
     delete_blobs.assert_not_called()
+
+
+def test_corpus_b_clear_real_purges_local_evidence_jsonl() -> None:
+    client = _test_client()
+
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(app_module, "_delete_search_documents_by_filter", return_value={"deleted": 3}),
+        patch.object(
+            app_module._ingestion_svc, "delete_local_evidence_docs_by_corpus", return_value=3
+        ) as purge_mock,
+    ):
+        response = client.post(
+            "/api/corpus-b/clear",
+            json={"dry_run": False, "clear_blobs": False, "auth_token": ""},
+        )
+
+    assert response.status_code == 200
+    purge_mock.assert_called_once_with("b")
+
+
+def test_corpus_c_clear_real_purges_local_evidence_jsonl() -> None:
+    client = _test_client()
+
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(app_module, "_delete_search_documents_by_filter", return_value={"deleted": 5}),
+        patch.object(
+            app_module._ingestion_svc, "delete_local_evidence_docs_by_corpus", return_value=5
+        ) as purge_mock,
+    ):
+        response = client.post(
+            "/api/corpus-c/clear",
+            json={"dry_run": False, "clear_blobs": False, "auth_token": ""},
+        )
+
+    assert response.status_code == 200
+    purge_mock.assert_called_once_with("c")
 
 
 def test_compliance_report_soft_mode_normalises_incomplete_payload() -> None:
@@ -633,6 +674,49 @@ def test_compliance_report_uses_corpus_b_upload_batch_filter() -> None:
     assert body["audit"]["corpus_c_filter_expr"] == "corpus eq 'c'"
 
 
+def test_compliance_report_can_skip_corpus_b_guidance() -> None:
+    client = _test_client()
+
+    valid_report_json = (
+        '{"schema_version":"v1.1","executive_summary":"Summary",'
+        '"scope_and_inputs":["Corpus A","Corpus C"],"controls_assessed":["REQ-1"],'
+        '"guidance_applied":[],"findings":[{"finding_id":"F-1",'
+        '"requirement_id":"REQ-1","framework":"NIST CSF","status":"compliant",'
+        '"severity":"low","rationale":"Met","evidence_sources":["doc1"],'
+        '"gaps":[],"recommendations":["Continue"]}],"overall_risk_rating":"low",'
+        '"missing_evidence":[],"recommended_actions":["Continue"],"citations":["REQ-1:doc1"]}'
+    )
+
+    with (
+        patch.object(app_module, "config", _open_auth_config()),
+        patch.object(app_module, "_count_search_documents_total_by_filter", return_value=1),
+        patch.object(
+            app_module, "_controls_search", return_value=([], {"controls_search_s": 0.01})
+        ),
+        patch.object(
+            app_module,
+            "_hybrid_search",
+            return_value=([], {"search_s": 0.02}),
+        ) as hybrid_mock,
+        patch.object(app_module, "_chat_completion", return_value=valid_report_json),
+    ):
+        response = client.post(
+            "/api/compliance/report",
+            json={
+                "question": "Assess control coverage.",
+                "include_corpus_b": False,
+                "auth_token": "",
+            },
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert hybrid_mock.call_count == 1
+    assert hybrid_mock.call_args.kwargs["evidence_filter"] == "corpus eq 'c'"
+    assert body["audit"]["corpus_b_filter_expr"] is None
+    assert body["corpus_b_count"] == 0
+
+
 def test_compliance_report_respects_evidence_corpus_include_exclude() -> None:
     client = _test_client()
 
@@ -1088,7 +1172,8 @@ def test_corpus_a_upload_rejects_unsupported_framework() -> None:
 
     body = response.json()
     assert response.status_code == 400
-    assert "supports cis_controls, pci_dss, or auto mode" in body["error"]
+    assert body["title"] == "Bad Request"
+    assert "supports cis_controls, pci_dss, or auto mode" in body["detail"]
 
 
 def test_corpus_a_upload_auto_stages_multiple_frameworks_and_triggers_jobs() -> None:
@@ -1167,6 +1252,59 @@ def test_corpus_a_upload_auto_stages_multiple_frameworks_and_triggers_jobs() -> 
     assert trigger_mock.call_count == 2
 
 
+def test_corpus_a_upload_local_stages_sources_and_skips_trigger() -> None:
+    client = _test_client()
+
+    with (
+        patch.object(
+            app_module,
+            "config",
+            replace(_open_auth_config(), cloud_provider="local"),
+        ),
+        patch.object(
+            app_module,
+            "_upload_corpus_a_reference_files",
+            return_value={
+                "framework": "pci_dss",
+                "framework_name": "PCI DSS",
+                "upload_batch_id": "batch-local-1",
+                "source_prefix": "local://runtime/samples/api/corpus-a/pci_dss/batch-local-1",
+                "uploaded": [{"target_filename": "PCI-DSS-v4_0_1.pdf"}],
+                "failed": [],
+                "local_staged": True,
+            },
+        ),
+        patch.object(app_module, "_trigger_ingestion_task_with_args") as trigger_mock,
+    ):
+        response = client.post(
+            "/api/corpus-a/upload",
+            data={
+                "framework": "pci_dss",
+                "trigger_job": "true",
+                "auth_token": "",
+            },
+            files=[
+                (
+                    "files",
+                    (
+                        "PCI-DSS-v4_0_1.pdf",
+                        b"pdf-bytes",
+                        "application/pdf",
+                    ),
+                ),
+            ],
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["mode"] == "corpus-a-upload"
+    assert body["framework"] == "pci_dss"
+    assert body["uploaded_count"] == 1
+    assert body["triggered_job"] is False
+    assert "unavailable in local mode" in body["message"].lower()
+    trigger_mock.assert_not_called()
+
+
 def test_corpus_a_ingest_skips_frameworks_requiring_source_upload() -> None:
     client = _test_client()
 
@@ -1214,6 +1352,67 @@ def test_corpus_a_ingest_skips_frameworks_requiring_source_upload() -> None:
         "pci_dss": "source_upload_required",
     }
     trigger_mock.assert_called_once()
+
+
+def test_corpus_a_ingest_local_runs_controls_parse_and_load() -> None:
+    client = _test_client()
+
+    fake_output = {
+        "framework": "NIST CSF",
+        "framework_version": "2.0",
+        "requirement_id": "NIST-CSF-ID.AM-01",
+        "ingestion_loaded_at": "2026-01-01T00:00:00Z",
+    }
+
+    with (
+        patch.object(
+            app_module,
+            "config",
+            replace(_open_auth_config(), cloud_provider="local"),
+        ),
+        patch.object(
+            app_module,
+            "_controls_framework_ingestion_status",
+            return_value={
+                "nist_csf": {"ingested": False},
+                "cis_controls": {"ingested": False},
+            },
+        ),
+        patch.object(
+            app_module,
+            "controls_search_client",
+            SimpleNamespace(_docs=[], load_documents=Mock()),
+        ) as controls_client_mock,
+        patch("runtime.ingestion.controls_runner._run_parse_detailed") as parse_mock,
+        patch.object(app_module, "_trigger_ingestion_task_with_args") as trigger_mock,
+    ):
+        with tempfile.TemporaryDirectory(prefix="corpus-a-local-test-") as temp_dir:
+            output_path = Path(temp_dir) / "nist_csf_2-0.jsonl"
+            output_path.write_text(json.dumps(fake_output) + "\n", encoding="utf-8")
+            parse_mock.return_value = ({"nist_csf": output_path}, [])
+
+            response = client.post(
+                "/api/corpus-a/ingest",
+                json={
+                    "frameworks": ["nist_csf", "cis_controls"],
+                    "replace_existing": False,
+                    "dry_run": False,
+                    "no_guidance": False,
+                    "auth_token": "",
+                },
+            )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["mode"] == "corpus-a-ingest"
+    assert body["provider"] == "local"
+    assert [item["framework"] for item in body["triggered"]] == ["nist_csf"]
+    assert any(item["reason"] == "source_upload_required" for item in body["skipped"])
+    assert parse_mock.call_count == 2
+    called_frameworks = {call.kwargs.get("framework") for call in parse_mock.call_args_list}
+    assert called_frameworks == {"nist_csf", "cis_controls"}
+    controls_client_mock.load_documents.assert_called_once()
+    trigger_mock.assert_not_called()
 
 
 def test_corpus_b_list_with_upload_batch_filter() -> None:
@@ -1320,8 +1519,9 @@ def test_corpus_a_ingest_returns_aws_operator_guidance_when_not_configured() -> 
         )
 
     body = response.json()
-    assert response.status_code == 500
-    assert "ECS_CLUSTER_NAME" in body["error"]
+    assert response.status_code == 503
+    assert body["title"] == "Service Unavailable"
+    assert "ECS_CLUSTER_NAME" in body["detail"]
 
 
 def test_corpus_a_ingest_triggers_ecs_task_on_aws() -> None:

@@ -7,7 +7,7 @@ Usage:
   ./ops/scripts/azure/phase3-data-ai.sh <env> [plan|apply]
 
 Runs Phase 3 Terraform targets for observability, data services, Foundry,
-private endpoints, identity, and bastion/jumpbox.
+APIM, private endpoints, identity, and bastion/jumpbox.
 
 The bastion and jumpbox live here (not phase 2) because they depend on the
 identity module which provides the runtime managed identity.
@@ -122,7 +122,10 @@ TARGET_ARGS=(
   "-target=module.observability"
   "-target=module.data_services"
   "-target=module.foundry"
+  "-target=azurerm_api_management.this"
+  "-target=azurerm_api_management_api.mcp"
   "-target=module.private_endpoints"
+  "-target=azapi_update_resource.api_management_disable_public_access"
   "-target=module.identity"
   "-target=module.app_secrets"
   "-target=module.bastion_jumpbox"

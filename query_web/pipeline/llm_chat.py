@@ -12,6 +12,7 @@ from openai.types.chat import ChatCompletionMessageParam
 from query_web.request_context import outbound_trace_headers
 from query_web.security.prompt_injection_guard import BLOCKED_PROMPT_INJECTION_MESSAGE
 from runtime.llm import get_llm_client
+from runtime.llm.token_usage import record_token_usage
 from runtime.outbound_instrumentation import sdk_call_with_instrumentation
 from runtime.provider_core import normalise_cloud_provider
 
@@ -297,6 +298,13 @@ def _chat_completion(
             )
         else:
             raise
+    usage = getattr(response, "usage", None)
+    if usage is not None:
+        record_token_usage(
+            prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+            completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+            total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
+        )
     return (response.choices[0].message.content or "").strip()
 
 
@@ -426,6 +434,7 @@ def _evaluate(
         eval_messages,
         deployment=svc.config.evaluator_deployment,
         temperature=svc.config.evaluator_temperature,
+        top_p=getattr(svc.config, "evaluator_top_p", 1.0),
         timeout=40,
         max_completion_tokens=evaluator_tokens,
     )
@@ -455,6 +464,7 @@ def _call_validator(text: str, *, svc: Any, timeout_s: int = 15) -> dict[str, An
             validator_messages,
             deployment=svc.config.prompt_injection_validator_deployment,
             temperature=svc.config.prompt_injection_validator_temperature,
+            top_p=getattr(svc.config, "prompt_injection_validator_top_p", 1.0),
             timeout=timeout_s,
         )
 

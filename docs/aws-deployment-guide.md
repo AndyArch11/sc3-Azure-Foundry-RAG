@@ -97,6 +97,79 @@ aws sts get-caller-identity
 7. Run integration smoke tests against the query-web ECS service URL.
 8. Optional: publish a decoupled gateway API surface (APIM/API Gateway/local gateway) using [docs/contracts/rag-api-v1.openapi.yaml](docs/contracts/rag-api-v1.openapi.yaml) and the guidance in [docs/gateway-integration-deployment-option.md](docs/gateway-integration-deployment-option.md).
 
+## AWS Graph Snapshot Environment
+
+If you are enabling the elationship-graph rollout path on AWS, add
+the following environment variables to the query-web ECS service.
+
+Read path only:
+
+```bash
+GRAPH_ENABLED=true
+GRAPH_BACKEND=aws
+GRAPH_AWS_ARTIFACTS_BUCKET=<s3-bucket-name>
+GRAPH_AWS_ARTIFACTS_PREFIX=graph/dev
+```
+
+Build + publish + read path:
+
+```bash
+GRAPH_ENABLED=true
+GRAPH_BACKEND=aws
+GRAPH_AWS_ARTIFACTS_BUCKET=<s3-bucket-name>
+GRAPH_AWS_ARTIFACTS_PREFIX=graph/dev
+GRAPH_AWS_PUBLISH_ENABLED=true
+```
+
+Notes:
+
+- `GRAPH_AWS_ARTIFACTS_BUCKET` defaults to `S3_BUCKET_NAME` when unset, but an explicit graph bucket is preferred for operational clarity.
+- Published objects currently include `nodes.jsonl`, `edges.jsonl`, and `graph_build_report.json` under the configured prefix.
+- The current AWS rollout path is snapshot-backed. It does not yet provide a fully AWS-native graph persistence/query backend.
+- Runtime access uses the existing AWS task credential/session path and S3 client abstraction.
+- `POST /api/graph/build` is an internal/admin operation. Do not expose it through API Gateway, ALB-backed public routes, or other external contracts; only graph query/export endpoints should be externally published.
+
+### AWS Graph Smoke Validation
+
+Detailed runbook: [docs/aws-graph-snapshot-validation.md](docs/aws-graph-snapshot-validation.md)
+
+Use the AWS graph smoke script for repeatable validation:
+
+```bash
+./ops/scripts/aws/run-query-web-graph-smoke.sh "https://<query-web-fqdn>" "<token>"
+```
+
+Required environment:
+
+```bash
+export QUERY_GRAPH_NODE_ID="a:nist-csf-gv-gv-oc-01"
+```
+
+Optional build + publish validation:
+
+```bash
+cp ./ops/scripts/aws/graph-smoke-payload.sample.json /tmp/graph-smoke-payload.json
+export QUERY_GRAPH_BUILD_PAYLOAD_FILE=/tmp/graph-smoke-payload.json
+./ops/scripts/aws/run-query-web-graph-smoke.sh "https://<query-web-fqdn>" "<token>"
+```
+
+Local preflight-only validation of the sample payload before contacting a deployed endpoint:
+
+```bash
+QUERY_GRAPH_PREFLIGHT_ONLY=true \
+QUERY_GRAPH_BUILD_PAYLOAD_FILE=./ops/scripts/aws/graph-smoke-payload.sample.json \
+QUERY_GRAPH_NODE_ID="a:nist-csf-gv-gv-oc-01" \
+./ops/scripts/aws/run-query-web-graph-smoke.sh
+```
+
+The smoke script performs:
+
+- `/health` preflight
+- optional `POST /api/graph/build`
+- `GET /api/graph/export`
+- `GET /api/graph/nodes/{id}`
+- `GET /api/graph/related`
+
 ---
 
 ## Provision Infrastructure
@@ -550,12 +623,12 @@ echo "${QUERY_WEB_BASE_URL}/?auth_token=${ENCODED_TOKEN}"
 Validate the token works before opening in a browser:
 
 ```bash
-curl -sS -o qw_home.html -w "http_code=%{http_code}\n" \
+curl -sS -o /tmp/query-web-home.html -w "http_code=%{http_code}\n" \
   --get --data-urlencode "auth_token=${QUERY_WEB_AUTH_TOKEN}" \
   "${QUERY_WEB_BASE_URL}/"
 ```
 
-Expected: `http_code=200` and `qw_home.html` contains the RAG Query Console HTML.
+Expected: `http_code=200` and `/tmp/query-web-home.html` contains the RAG Query Console HTML.
 If you see `http_code=401` and "Unauthorised", the token in Secrets Manager does not match the one you are passing.
 
 ### Confluence Poller Validation

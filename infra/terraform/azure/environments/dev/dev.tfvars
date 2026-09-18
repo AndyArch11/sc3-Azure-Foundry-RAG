@@ -7,35 +7,54 @@ instance                     = "20260408"
 vnet_cidr                    = "10.20.0.0/16"
 private_endpoint_subnet_cidr = "10.20.1.0/24"
 agent_subnet_cidr            = "10.20.2.0/24"
+api_management_subnet_cidr   = "10.20.6.0/24"
 container_apps_subnet_cidr   = "10.20.5.0/24"
 jumpbox_subnet_cidr          = "10.20.3.0/24"
 azure_bastion_subnet_cidr    = "10.20.4.0/26"
 jumpbox_admin_ssh_public_key = "<set-me-ssh-public-key>"
-jumpbox_vm_size              = "Standard_D2s_v3"
+jumpbox_vm_size              = "Standard_D2s_v6"
 enable_model_deployments     = true
 enable_ingestion_job         = true
 enable_query_web_app         = true
 enable_confluence_poller_app = true
-query_web_public_endpoint    = true                   # Set true for public query web ingress. Creation-level: switching later requires CAE replacement.
+query_web_public_endpoint    = false                  # Keep false so non-internal API traffic is forced through APIM.
 ingestion_job_image_tag      = "202604281509-18b6447" # Immutable tag. Update when a new ingestion image is pushed.
 query_web_image_tag          = "202604281510-18b6447" # Immutable tag. Update when a new query-web image is pushed.
 confluence_poller_image_tag  = "202604281512-18b6447" # Immutable tag. Update when a new confluence poller image is pushed.
 search_index_name            = "grounding-index"
 controls_index_name          = "controls-index"
 # Optional overrides for globally-unique resource names (use when 409 name collisions occur).
-search_service_name_override  = "srch-dev-aue-20260408"
-foundry_account_name_override = "foundry-dev-aue-20260408"
-storage_account_name_override = "stdevaue04or4t4u"
-acr_name_override             = "acrdevaue04"
-cosmos_account_name_override  = "cosmos-dev-aue-04"
+search_service_name_override          = "srch-dev-aue-20260408"
+foundry_account_name_override         = "foundry-dev-aue-20260408"
+storage_account_name_override         = "stdevaue04or4t4u"
+acr_name_override                     = "acrdevaue04"
+cosmos_account_name_override          = "cosmos-dev-aue-04"
 log_analytics_workspace_name_override = "law-dev-aue-04"
 monitor_workspace_name_override       = "amw-dev-aue-20260408"
 agent_runtime_identity_name_override  = "id-agent-runtime-dev-aue-04"
-query_top_k                   = 5
-query_default_temperature     = 1.0
-query_evaluator_temperature   = 1.0
-query_eval_threshold          = 0.72
-control_llm_review_enabled    = false
+api_management_name_override          = "apim-dev-aue-20260408"
+
+# APIM API publication definitions.
+# service_url is optional; when omitted it is derived from deployed query_web endpoint.
+mcp_endpoints = {
+  rag-api-v1 = {
+    display_name           = "RAG API v1"
+    path                   = "rag/v1"
+    openapi_spec_path      = "../../docs/contracts/rag-api-v1.openapi.yaml"
+    openapi_content_format = "openapi"
+    subscription_required  = false
+    revision               = "1"
+    protocols              = ["https"]
+  }
+}
+
+query_top_k                            = 5
+query_default_temperature              = 1.0
+query_default_top_p                    = 1.0
+query_evaluator_temperature            = 1.0
+query_evaluator_top_p                  = 1.0
+query_eval_threshold                   = 0.72
+control_llm_review_enabled             = false
 control_llm_review_heuristic_threshold = 0.75
 
 # Confluence poller settings (keep secrets out of tfvars where possible; pass via secure pipeline vars).
@@ -54,16 +73,17 @@ confluence_poll_initial_lookback   = "P2D"
 confluence_poll_dry_run            = false
 
 # Prompt injection validator settings.
-prompt_injection_validator_enabled   = true
-prompt_injection_validator_mode      = "shadow"
-prompt_injection_validator_threshold = 0.85
+prompt_injection_validator_enabled     = true
+prompt_injection_validator_mode        = "shadow"
+prompt_injection_validator_threshold   = 0.85
 prompt_injection_validator_temperature = 0.5
-prompt_injection_validator_timeout_s = 15
-guardrail_metrics_in_response        = true
-# prompt_injection_validator_deployment = "gpt-4.1-mini" # Optional existing deployment override. Leave unset to use validator_model.name.
+prompt_injection_validator_top_p       = 1.0
+prompt_injection_validator_timeout_s   = 15
+guardrail_metrics_in_response          = true
+# prompt_injection_validator_deployment = "gpt-5.1-mini" # Optional existing deployment override. Leave unset to use validator_model.name.
 # validator_model = {
-#   name     = "gpt-4.1-mini"
-#   version  = "2025-04-14"
+#   name     = "gpt-5.1-mini"
+#   version  = "2025-11-13"
 #   capacity = 1
 # }
 

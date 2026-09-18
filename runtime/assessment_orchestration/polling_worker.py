@@ -362,6 +362,7 @@ def _render_framework_clarification_comment() -> str:
         "<ul>"
         "<li>@compliance-agent Essential Eight</li>"
         "<li>@compliance-agent NIST CSF</li>"
+        "<li>@compliance-agent NIST SP 800-53</li>"
         "<li>@compliance-agent ISM</li>"
         "<li>@compliance-agent PSPF</li>"
         "<li>@compliance-agent PCI DSS</li>"
@@ -370,7 +371,7 @@ def _render_framework_clarification_comment() -> str:
         "<li>@compliance-agent all frameworks</li>"
         "</ul>"
         "<p>Any comment that includes a supported framework name will be recognised. "
-        "Supported frameworks: Essential Eight, ISM, AESCSF, NIST CSF, PSPF, PCI DSS, CIS Controls.</p>"
+        "Supported frameworks: Essential Eight, ISM, AESCSF, NIST AI RMF, NIST SP 800-53, NIST CSF, PSPF, PCI DSS, CIS Controls.</p>"
     )
 
 

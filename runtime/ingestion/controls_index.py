@@ -111,6 +111,14 @@ def ensure_controls_index(config: ControlsIndexConfig, credential: TokenCredenti
             retrievable=True,
         ),
         SearchField(
+            name="control_baselines",
+            type="Collection(Edm.String)",
+            searchable=True,
+            filterable=True,
+            facetable=True,
+            retrievable=True,
+        ),
+        SearchField(
             name="requirement_text",
             type="Edm.String",
             searchable=True,

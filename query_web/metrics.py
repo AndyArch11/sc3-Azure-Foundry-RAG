@@ -130,6 +130,39 @@ HTTP_REQUEST_DURATION = Histogram(
     buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
 )
 
+# ---------------------------------------------------------------------------
+# Graph build/query metrics
+# ---------------------------------------------------------------------------
+
+GRAPH_OPERATION_DURATION = Histogram(
+    "graph_operation_duration_seconds",
+    "Graph operation latency by operation type",
+    labelnames=["operation"],
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0],
+)
+
+GRAPH_OPERATIONS_TOTAL = Counter(
+    "graph_operations_total",
+    "Total graph operations by operation and outcome",
+    labelnames=["operation", "outcome"],
+)
+
+GRAPH_NODES_WRITTEN_TOTAL = Counter(
+    "graph_nodes_written_total",
+    "Total graph nodes written by build operations",
+)
+
+GRAPH_EDGES_WRITTEN_TOTAL = Counter(
+    "graph_edges_written_total",
+    "Total graph edges written by build operations",
+)
+
+GRAPH_QUERY_TRUNCATED_TOTAL = Counter(
+    "graph_query_truncated_total",
+    "Total graph query/export operations that returned truncated results",
+    labelnames=["operation"],
+)
+
 
 # ---------------------------------------------------------------------------
 # Public helpers called from other modules
@@ -205,6 +238,39 @@ def observe_cosmos_schema_access(
             container=container,
             service=service,
         ).inc()
+
+
+def observe_graph_operation(
+    *,
+    operation: str,
+    duration_s: float,
+    outcome: str = "success",
+    nodes_written: int = 0,
+    edges_written: int = 0,
+    truncated: bool = False,
+) -> None:
+    """Record graph operation telemetry.
+
+    Args:
+        operation: Graph operation name (for example: build, node_get, related, export).
+        duration_s: Duration of the operation in seconds.
+        outcome: Operation outcome label (for example: success, error, unauthorised).
+        nodes_written: Number of nodes written for build operations.
+        edges_written: Number of edges written for build operations.
+        truncated: True when returned graph payload was truncated by budget limits.
+    """
+
+    op = str(operation or "unknown").strip().lower() or "unknown"
+    result = str(outcome or "unknown").strip().lower() or "unknown"
+    GRAPH_OPERATION_DURATION.labels(operation=op).observe(max(0.0, float(duration_s)))
+    GRAPH_OPERATIONS_TOTAL.labels(operation=op, outcome=result).inc()
+
+    if nodes_written > 0:
+        GRAPH_NODES_WRITTEN_TOTAL.inc(nodes_written)
+    if edges_written > 0:
+        GRAPH_EDGES_WRITTEN_TOTAL.inc(edges_written)
+    if truncated:
+        GRAPH_QUERY_TRUNCATED_TOTAL.labels(operation=op).inc()
 
 
 # ---------------------------------------------------------------------------

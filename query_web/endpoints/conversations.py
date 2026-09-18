@@ -30,6 +30,7 @@ else:
     CosmosResourceNotFoundError = _CosmosResourceNotFoundError
 
 from query_web.constants import COSMOS_CONVERSATION_SCHEMA_VERSION, SERVICE_NAME
+from query_web.endpoints.problem_details import problem_response as _problem_response
 from query_web.metrics import observe_cosmos_schema_access
 from query_web.request_context import get_correlation_id
 from query_web.utils import _utc_now_iso
@@ -367,7 +368,12 @@ def register_conversations_endpoints(
             A JSONResponse containing the list of conversations or an error message.
         """
         if not _is_authorised_request(auth_token, request):
-            return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=str(_unauthorised_message(request)),
+                instance=str(request.url.path),
+            )
 
         if not conversations_container:
             return JSONResponse({"conversations": []})
@@ -388,7 +394,12 @@ def register_conversations_endpoints(
             return JSONResponse({"conversations": items})
         except Exception as exc:
             logger.exception("Failed to list conversations for user_id=%s: %s", user_id, exc)
-            return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=_INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.get("/api/conversations/{user_id}/{conversation_id}")
     def get_conversation_history(
@@ -406,7 +417,12 @@ def register_conversations_endpoints(
             A JSONResponse containing the conversation history or an error message.
         """
         if not _is_authorised_request(auth_token, request):
-            return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=str(_unauthorised_message(request)),
+                instance=str(request.url.path),
+            )
 
         try:
             session = _load_conversation(
@@ -443,7 +459,12 @@ def register_conversations_endpoints(
                 conversation_id,
                 exc,
             )
-            return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=_INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.post("/api/conversations/new")
     def create_conversation(request: Request, auth_token: str = Form("")) -> JSONResponse:
@@ -457,7 +478,12 @@ def register_conversations_endpoints(
             A JSONResponse containing the new conversation details or an error message.
         """
         if not _is_authorised_request(auth_token, request):
-            return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=str(_unauthorised_message(request)),
+                instance=str(request.url.path),
+            )
 
         session_id = str(uuid.uuid4())
         conversation_id = str(uuid.uuid4())
@@ -484,7 +510,12 @@ def register_conversations_endpoints(
             )
         except Exception as exc:
             logger.exception("Failed to create conversation for user_id=%s: %s", user_id, exc)
-            return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=_INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.post("/api/conversations/{conversation_id}/message")
     def add_message_to_conversation(
@@ -509,7 +540,12 @@ def register_conversations_endpoints(
             A JSONResponse containing the message details or an error message.
         """
         if not _is_authorised_request(auth_token, request):
-            return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=str(_unauthorised_message(request)),
+                instance=str(request.url.path),
+            )
 
         try:
             session = _load_conversation(
@@ -540,7 +576,12 @@ def register_conversations_endpoints(
                 conversation_id,
                 exc,
             )
-            return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=_INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.post("/api/conversations/{conversation_id}/rating")
     def add_response_rating(
@@ -567,10 +608,20 @@ def register_conversations_endpoints(
             A JSONResponse containing the updated rating details or an error message.
         """
         if not _is_authorised_request(auth_token, request):
-            return JSONResponse({"error": _unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=str(_unauthorised_message(request)),
+                instance=str(request.url.path),
+            )
 
         if rating < 1 or rating > 5:
-            return JSONResponse({"error": "rating must be between 1 and 5"}, status_code=400)
+            return _problem_response(
+                status=400,
+                title="Bad Request",
+                detail="rating must be between 1 and 5",
+                instance=str(request.url.path),
+            )
 
         try:
             session = _load_conversation(
@@ -586,9 +637,11 @@ def register_conversations_endpoints(
                     for m in session.messages
                 )
                 if not has_target:
-                    return JSONResponse(
-                        {"error": "assistant message not found for assistant_timestamp"},
-                        status_code=404,
+                    return _problem_response(
+                        status=404,
+                        title="Not Found",
+                        detail="assistant message not found for assistant_timestamp",
+                        instance=str(request.url.path),
                     )
 
             session.response_ratings.append(
@@ -618,4 +671,9 @@ def register_conversations_endpoints(
                 conversation_id,
                 exc,
             )
-            return JSONResponse({"error": _INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=_INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )

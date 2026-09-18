@@ -258,6 +258,143 @@ az resource list \
 | `_list_resources_in_group()` | 372-386 | ✅ Works | Paginates ARM API, respects max_resources cap |
 | `_extract_policy_context()` | 300-330 | ✅ Works | Retrieves policy assignments and definitions |
 
+---
+
+## Relationship Graph Snapshot Validation
+
+The relationship graph Azure rollout currently uses an Azure Blob-backed snapshot
+pattern rather than a fully Azure-native graph database. The local build path can
+publish graph artifacts to object storage, and the Azure graph backend can read
+those published artifacts through container/prefix configuration.
+
+### Required Configuration
+
+For Azure graph snapshot reads:
+
+```bash
+export GRAPH_ENABLED=true
+export GRAPH_BACKEND=azure
+export GRAPH_AZURE_ARTIFACTS_CONTAINER="<container-name>"
+export GRAPH_AZURE_ARTIFACTS_PREFIX="<optional/prefix>"
+```
+
+For Azure graph snapshot publishing from `POST /api/graph/build`:
+
+```bash
+export GRAPH_AZURE_PUBLISH_ENABLED=true
+export GRAPH_AZURE_ARTIFACTS_CONTAINER="<container-name>"
+export GRAPH_AZURE_ARTIFACTS_PREFIX="<optional/prefix>"
+```
+
+The app reuses the existing Azure Blob credential path based on:
+
+- `AZURE_STORAGE_ACCOUNT_NAME`
+- repo runtime credential resolution (`get_credential_provider().get_sdk_credential()`)
+
+### Published Objects
+
+When publishing is enabled, graph build writes these objects to the configured
+container/prefix:
+
+- `nodes.jsonl`
+- `edges.jsonl`
+- `graph_build_report.json`
+
+Example effective keys with `GRAPH_AZURE_ARTIFACTS_PREFIX=env/dev/graph`:
+
+- `env/dev/graph/nodes.jsonl`
+- `env/dev/graph/edges.jsonl`
+- `env/dev/graph/graph_build_report.json`
+
+### Validation Flow
+
+1. Trigger a graph build:
+
+```bash
+curl -X POST http://localhost:8080/api/graph/build \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "auth_token": "<token>",
+    "controls": [...],
+    "chunks": [...],
+    "persist_store": false
+  }'
+```
+
+2. Confirm response contains `report.published_snapshot`.
+
+3. Verify blobs exist in Azure storage:
+
+```bash
+az storage blob list \
+  --account-name "$AZURE_STORAGE_ACCOUNT_NAME" \
+  --container-name "$GRAPH_AZURE_ARTIFACTS_CONTAINER" \
+  --prefix "$GRAPH_AZURE_ARTIFACTS_PREFIX" \
+  --auth-mode login
+```
+
+4. Query through Azure backend mode:
+
+```bash
+curl "http://localhost:8080/api/graph/export?auth_token=<token>&format=json"
+curl "http://localhost:8080/api/graph/nodes/<node-id>?auth_token=<token>"
+```
+
+### Smoke Script
+
+For repeatable private-network validation, use:
+
+```bash
+./ops/scripts/azure/run-query-web-graph-smoke.sh "https://<query-web-fqdn>" "<token>"
+```
+
+Required environment:
+
+```bash
+export QUERY_GRAPH_NODE_ID="a:nist-csf-gv-gv-oc-01"
+```
+
+Optional build + publish validation:
+
+```bash
+cp ./ops/scripts/azure/graph-smoke-payload.sample.json /tmp/graph-smoke-payload.json
+# Replace the placeholder auth token if required by your deployment.
+export QUERY_GRAPH_BUILD_PAYLOAD_FILE=/tmp/graph-smoke-payload.json
+./ops/scripts/azure/run-query-web-graph-smoke.sh "https://<query-web-fqdn>" "<token>"
+```
+
+Local preflight-only validation of the sample payload before contacting a deployed endpoint:
+
+```bash
+QUERY_GRAPH_PREFLIGHT_ONLY=true \
+QUERY_GRAPH_BUILD_PAYLOAD_FILE=./ops/scripts/azure/graph-smoke-payload.sample.json \
+QUERY_GRAPH_NODE_ID="a:nist-csf-gv-gv-oc-01" \
+./ops/scripts/azure/run-query-web-graph-smoke.sh
+```
+
+The smoke script performs:
+
+- `/health` preflight
+- optional `POST /api/graph/build`
+- `GET /api/graph/export`
+- `GET /api/graph/nodes/{id}`
+- `GET /api/graph/related`
+
+### Current Limitation
+
+This is an Azure snapshot-backed delivery model, not yet a fully Azure-native
+graph persistence/query implementation. The rollout currently proves:
+
+- Azure-hosted artifact publication
+- Azure-backed snapshot reads
+- API response-shape parity with the local baseline
+
+It does not yet prove:
+
+- native Azure graph storage semantics
+- large-scale incremental update behaviour
+- Azure-specific performance characteristics under production load
+
 **Result**: All primary code paths exercised and validated. No exceptions or edge cases encountered.
 
 ### Integration Points

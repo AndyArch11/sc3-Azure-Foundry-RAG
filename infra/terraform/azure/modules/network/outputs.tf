@@ -10,6 +10,10 @@ output "agent_subnet_id" {
   value = azurerm_subnet.agent.id
 }
 
+output "api_management_subnet_id" {
+  value = azurerm_subnet.api_management.id
+}
+
 output "container_apps_subnet_id" {
   value = azurerm_subnet.container_apps.id
 }

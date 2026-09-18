@@ -214,8 +214,7 @@ def test_build_filter_none_for_none():
 
 def test_build_filter_none_for_unsupported_syntax():
     client, _ = _make_client()
-    # Only simple "field eq 'value'" is supported
-    assert client._build_filter("framework ne 'ISM'") is None
+    assert client._build_filter("framework ne 'ISM'") is not None
 
 
 def test_build_filter_returns_filter_for_eq_expression():
@@ -235,6 +234,40 @@ def test_build_filter_returns_filter_for_eq_expression():
     assert cond.key == "framework"
     assert cond.match is not None
     assert cast(MatchValue, cond.match).value == "ISM"
+
+
+def test_build_filter_supports_or_clauses() -> None:
+    from qdrant_client.models import FieldCondition, Filter
+
+    client, _ = _make_client()
+    result = client._build_filter("corpus eq 'c' or corpus_role eq 'assessed_artifact'")
+    assert isinstance(result, Filter)
+    assert isinstance(result.should, list)
+    assert len(result.should) == 2
+    assert all(isinstance(condition, FieldCondition) for condition in result.should)
+
+
+def test_build_filter_supports_ne_expression() -> None:
+    from qdrant_client.models import Filter
+
+    client, _ = _make_client()
+    result = client._build_filter("framework ne ''")
+    assert isinstance(result, Filter)
+    assert result.must_not is not None
+    assert len(result.must_not) == 1
+
+
+def test_parse_eq_filter_clauses_handles_parenthesized_or_expression() -> None:
+    client, _ = _make_client()
+    clauses = client._parse_filter_clauses(
+        "(corpus eq 'b' or corpus_role eq 'narrative_guidance') or (corpus eq 'c' or corpus_role eq 'assessed_artifact')"
+    )
+    assert clauses == [
+        ("eq", "corpus", "b"),
+        ("eq", "corpus_role", "narrative_guidance"),
+        ("eq", "corpus", "c"),
+        ("eq", "corpus_role", "assessed_artifact"),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +310,42 @@ def test_fallback_text_search_applies_odata_filter():
         query_text="text",
         top=10,
         filters="framework eq 'ISM'",
+        select=None,
+        include_total_count=False,
+    )
+    assert len(results) == 1
+    assert results[0]["framework"] == "ISM"
+
+
+def test_fallback_text_search_applies_or_filter_for_corpus_scope() -> None:
+    docs = [
+        {"content": "artifact evidence", "corpus": "c", "corpus_role": "assessed_artifact"},
+        {"content": "narrative guidance", "corpus": "b", "corpus_role": "narrative_guidance"},
+    ]
+    client, _ = _make_client(docs=docs)
+
+    results = client._fallback_text_search(
+        query_text="evidence",
+        top=10,
+        filters="corpus eq 'c' or corpus_role eq 'assessed_artifact'",
+        select=None,
+        include_total_count=False,
+    )
+    assert len(results) == 1
+    assert results[0]["corpus"] == "c"
+
+
+def test_fallback_text_search_applies_ne_filter() -> None:
+    docs = [
+        {"content": "text", "framework": "ISM"},
+        {"content": "text", "framework": ""},
+    ]
+    client, _ = _make_client(docs=docs)
+
+    results = client._fallback_text_search(
+        query_text="text",
+        top=10,
+        filters="framework ne ''",
         select=None,
         include_total_count=False,
     )

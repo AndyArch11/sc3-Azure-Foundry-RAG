@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "description": "Golden retrieval-eval cases for low-k crowding and framework-scoped RAG behaviour.",
+  "cases": [
+    {
+      "id": "low-k-mixed-framework-general-question",
+      "question": "What are the top secure-by-design control priorities for this environment?",
+      "retrieve_k": 5,
+      "max_dominant_framework_share": 0.75,
+      "expected_relevant_frameworks": ["essential_eight", "ism", "nist_csf"],
+      "notes": "General question should not collapse entirely into one framework family at low k."
+    },
+    {
+      "id": "backup-bias-test",
+      "question": "What vulnerabilities do backups address?",
+      "retrieve_k": 5,
+      "max_dominant_framework_share": 0.75,
+      "expected_relevant_frameworks": ["essential_eight", "ism", "aescsf", "nist_csf"],
+      "notes": "General question should not collapse entirely into one framework family at low k."
+    },
+    {
+      "id": "explicit-pci-intent",
+      "question": "Only compare PCI-DSS obligations for this requirement set.",
+      "retrieve_k": 5,
+      "controls_framework": "pci_dss",
+      "min_diversity": 1,
+      "expected_relevant_frameworks": ["pci_dss"],
+      "notes": "Explicit framework intent should preserve framework dominance when requested."
+    },
+    {
+      "id": "explicit-aescsf-intent",
+      "question": "Assess this evidence against AESCSF requirements only.",
+      "retrieve_k": 5,
+      "controls_framework": "aescsf",
+      "min_diversity": 1,
+      "expected_relevant_frameworks": ["aescsf"],
+      "notes": "Framework override path should remain stable under low-k."
+    },
+    {
+      "id": "general-governance-comparison",
+      "question": "Compare governance-focused controls across relevant frameworks.",
+      "retrieve_k": 8,
+      "max_dominant_framework_share": 0.7,
+      "expected_relevant_frameworks": ["ism", "nist_csf", "pspf"],
+      "notes": "Cross-framework comparative asks should retain diversity in top-k retrieval."
+    },
+    {
+      "id": "low-k-cis-vs-pci",
+      "question": "How do CIS Controls and PCI-DSS differ for vulnerability management?",
+      "retrieve_k": 6,
+      "expected_relevant_frameworks": ["cis_controls", "pci_dss"],
+      "notes": "Cross-framework query should return at least 2 expected frameworks in top-k."
+    },
+    {
+      "id": "nist-ai-rmf-safety",
+      "question": "What AI risk management requirements are most relevant to this scenario?",
+      "retrieve_k": 6,
+      "max_dominant_framework_share": 0.7,
+      "expected_relevant_frameworks": ["nist_ai_rmf", "nist_csf"],
+      "notes": "AI governance prompts should surface nist_ai_rmf coverage."
+    },
+    {
+      "id": "scope-none-in-scope-empty-selection",
+      "question": "Assess control coverage for this deployment.",
+      "retrieve_k": 5,
+      "evidence_corpora_include": [],
+      "expected_scope_mode": "none_in_scope",
+      "expected_in_scope_corpora": [],
+      "expected_retrieved_corpora": [],
+      "expected_in_scope_without_retrieval": [],
+      "min_precision": 0.0,
+      "min_diversity": 0,
+      "expected_relevant_frameworks": ["unknown"],
+      "notes": "Explicit empty corpus selection should produce deterministic none_in_scope mode."
+    },
+    {
+      "id": "scope-a-only-selected",
+      "question": "When is PCI-DSS applicable for this environment?",
+      "retrieve_k": 5,
+      "evidence_corpora_include": ["a"],
+      "expected_scope_mode": "a_only",
+      "expected_in_scope_corpora": ["a"],
+      "min_precision": 0.0,
+      "min_diversity": 0,
+      "expected_relevant_frameworks": ["unknown"],
+      "notes": "Corpus A-only selection should route to framework-only scope mode."
+    },
+    {
+      "id": "scope-b-only-selected",
+      "question": "What internal standards process should trigger PCI review?",
+      "retrieve_k": 5,
+      "evidence_corpora_include": ["b"],
+      "expected_scope_mode_any": ["b_only", "none_in_scope"],
+      "min_precision": 0.0,
+      "min_diversity": 0,
+      "expected_relevant_frameworks": ["unknown"],
+      "notes": "Corpus B-only selection should prefer b_only when B is populated, otherwise none_in_scope."
+    },
+    {
+      "id": "scope-c-only-selected",
+      "question": "Do the uploaded review artifacts address payment control requirements?",
+      "retrieve_k": 5,
+      "evidence_corpora_include": ["c"],
+      "expected_scope_mode_any": ["c_only", "none_in_scope"],
+      "min_precision": 0.0,
+      "min_diversity": 0,
+      "expected_relevant_frameworks": ["unknown"],
+      "notes": "Corpus C-only selection should prefer c_only when review docs exist, otherwise none_in_scope."
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # Hosted AI Cyber Safety Platform
 
-This repository provisions and operates a privately networked Azure AI Foundry solution for a cyber security target persona
+This repository provisions and operates a privately networked Azure AI Foundry solution for a cyber security target persona. It also supports local Ollama and AWS Bedrock deployments.
 
 ## Scope
 
@@ -63,6 +63,7 @@ sc3-Azure-Foundry-RAG/
 │
 ├── docs/                           # Architecture, plans, ADRs, and runbooks
 │   ├── adr/                        # Architecture decision records
+│   ├── contracts                   # various behavioural contracts and an OpenAPI contract
 │   └── *.md                        # Implementation plans, observability, phase guides, etc.
 │
 ├── contracts/                      # MCP tool and provider event YAML contracts
@@ -157,9 +158,9 @@ sc3-Azure-Foundry-RAG/
   - Supports conversational retrieval-augmented generation.
   - Uses hybrid retrieval with reranking.
 - Default model values (configurable):
-  - Embedding model: `text-embedding-ada-002`
+  - Embedding model: `text-embedding-3-small`
   - Query model: `gpt-5.1-chat`
-  - Query evaluation model: `gpt-4.1-mini`
+  - Query evaluation model: `gpt-5.1-mini`
 
 ## Environment and Subscription Assumptions
 
@@ -229,27 +230,26 @@ For clean Corpus C local evidence, keep framework source reference files (for ex
 Recommended local split:
 - `runtime/samples/api/corpus-a/` for Corpus A parser source references
 - `runtime/samples/api/corpus-b/` for local Corpus B narrative grounding source files
-- `runtime/samples/api/corpus-c/` for Corpus C evidence files used by local chunk generation
+- `runtime/samples/api/corpus-c/` for a small set of manually uploaded review documents
 
-Corpus B is grounding data that supports Corpus A grounding and should be managed separately from Corpus C evidence sources.
+Corpus B is narrative grounding data that supports Corpus A grounding and should be managed separately from Corpus C review documents.
+Local compose starts with an empty Corpus C. Upload the documents you want reviewed from the Query Console, or replace them with new review documents as needed.
 
 If no evidence files are available yet, the app and seeder will start with an empty evidence index and log a warning — queries will simply return no grounding documents until the index is populated.
 
 Control data (`parsed-controls/`) is not committed to the repository and must be generated before starting the local stack. Run the controls runner once from the repo root:
 
 ```bash
-cd runtime
 source .venv/bin/activate
 
 # Generate all frameworks that fetch their source data automatically
-python3 -m ingestion.controls_runner --mode parse --framework essential_eight
-python3 -m ingestion.controls_runner --mode parse --framework aescsf
-python3 -m ingestion.controls_runner --mode parse --framework ism
-python3 -m ingestion.controls_runner --mode parse --framework nist_csf
-python3 -m ingestion.controls_runner --mode parse --framework nist_ai_rmf
-python3 -m ingestion.controls_runner --mode parse --framework pspf
-
-cd ..
+python3 -m runtime.ingestion.controls_runner --mode parse --framework essential_eight
+python3 -m runtime.ingestion.controls_runner --mode parse --framework aescsf
+python3 -m runtime.ingestion.controls_runner --mode parse --framework ism
+python3 -m runtime.ingestion.controls_runner --mode parse --framework nist_csf
+python3 -m runtime.ingestion.controls_runner --mode parse --framework nist_ai_rmf
+python3 -m runtime.ingestion.controls_runner --mode parse --framework nist_sp_800_53
+python3 -m runtime.ingestion.controls_runner --mode parse --framework pspf
 ```
 
 > **Note:** CIS Controls and PCI DSS cannot be fetched automatically due to licensing restrictions. They require operator-supplied source files staged in `runtime/samples/api/corpus-a/` before parsing:
@@ -272,7 +272,7 @@ python3 -m pip install -r requirements-dev.txt
 
 # Pull Ollama models once
 ollama pull nomic-embed-text
-ollama pull gemma3:27b
+ollama pull gemma4:26b
 
 # Set environment and start the app
 CLOUD_PROVIDER=local \
@@ -281,7 +281,7 @@ LOCAL_EVIDENCE_JSONL_PATH=./runtime/out/chunks.jsonl \
 LOCAL_CONTROLS_JSONL_PATH=./parsed-controls \
 PRECEDENCE_POLICY_PATH=./query_web/policies/precedence_policy.json \
 OLLAMA_BASE_URL=http://host.docker.internal:11434  \
-OLLAMA_MODEL=gemma3:27b \
+OLLAMA_MODEL=gemma4:26b \
 QUERY_WEB_AUTH_TOKEN='' \
 uvicorn query_web.app:app --host 0.0.0.0 --port 8080 --reload
 ```
@@ -319,7 +319,7 @@ LOCAL_VECTOR_BACKEND=qdrant \
 QDRANT_URL=http://host.docker.internal:6333 \
 PRECEDENCE_POLICY_PATH=./query_web/policies/precedence_policy.json \
 OLLAMA_BASE_URL=http://host.docker.internal:11434 \
-OLLAMA_MODEL=gemma3:27b \
+OLLAMA_MODEL=gemma4:26b \
 QUERY_WEB_AUTH_TOKEN='' \
 uvicorn query_web.app:app --host 0.0.0.0 --port 8080 --reload
 ```
@@ -349,13 +349,22 @@ docker compose -f docker-compose.local.yml --env-file .env.local up --build
 QUERY_WEB_BASE_URL=http://host.docker.internal:${QUERY_WEB_HOST_PORT:-8080} ./ops/scripts/local/smoke-local-ask.sh
 ```
 
-When local evidence or controls source data changes, rebuild and force the init service once to refresh volume contents:
+When local controls source data changes, rebuild and force the init service once to refresh volume contents:
 
 ```bash
 docker compose -f docker-compose.local.yml --env-file .env.local up --build --force-recreate local-data-init
 ```
 
+Corpus C is intentionally left empty by the init service. Use the Query Console to upload review documents when you want Corpus C populated.
+
 Model names (`OLLAMA_MODEL`, `OLLAMA_EMBEDDING_MODEL`) are read from `.env.local` and used consistently by the model-puller, seeder, and query-web services. Change them in one place only.
+
+The Ollama server and model-puller use the same image from `OLLAMA_IMAGE` and are configured to refresh it on startup. If an existing stack still reports that a model requires a newer Ollama version, pull the image and recreate those services before starting the full stack:
+
+```bash
+docker compose -f docker-compose.local.yml --env-file .env.local pull ollama model-puller
+docker compose -f docker-compose.local.yml --env-file .env.local up --force-recreate ollama model-puller
+```
 
 `THINKING_MODE` controls default retrieval/generation depth presets across query and assessment paths:
 - `quick`: lower retrieval depth and shorter completions for lower latency/cost
@@ -388,12 +397,13 @@ Run this on top of the local compose stack to scrape `query-web`, auto-provision
 Prometheus, Alertmanager, Loki, and Promtail local configs are generated at container startup (under `/tmp`) so this profile also avoids fragile `/workspaces/...` bind-mounted config paths.
 
 ```bash
-# Start app stack + observability profile together
+# Start app stack + api gateway + observability profile together
 docker compose \
   -f docker-compose.local.yml \
   -f docker-compose.observability.yml \
   --env-file .env.local \
   --profile observability \
+  --profile gateway \
   up --build
 ```
 
@@ -500,7 +510,7 @@ Deployment assumes that a target Azure subscription has already been created. Se
 Run the environment build scripts in order (can take over 1 hour to provision the Azure resources):
 
 1. Create Azure resources required to support Terraform:
-  - `./ops/scripts/azure/e1-bootstrap.sh "${TARGET_ENV}"`
+  - `./ops/scripts/azure/phase1-bootstrap.sh "${TARGET_ENV}"`
 2. Create Azure resources required to secure solution by private network (not required if bringing your own network, run phase 3 instead):
   - `./ops/scripts/azure/phase2-network-dns.sh "${TARGET_ENV}" apply`
 3. Optional Create Foundry related Azure resources (only required if BYOL network resources or wanting the jumpbox/bastion host):
@@ -907,3 +917,40 @@ python3 -m mypy runtime/ingestion --ignore-missing-imports
 # Test Coverage
 python3 -m pytest tests --cov-report=term-missing --cov=query_web --cov=runtime
 ```
+
+### UI / E2E Testing (Playwright)
+
+`tests/e2e/` contains browser-based UI tests (using [Playwright](https://playwright.dev/python/))
+that exercise the rendered Query Console against a running `query-web` instance.
+They automatically skip (rather than fail) when no server is reachable, so they
+are safe to include in `pytest tests`.
+
+```bash
+# One-time setup: install the test dependency and its browser binaries
+pip install -r requirements-dev.txt
+playwright install --with-deps chromium
+
+# Start the local stack (see "Local Development" above), then run:
+pytest tests/e2e -v
+
+# or
+QUERY_WEB_BASE_URL="http://host.docker.internal:18080" pytest tests/e2e -v
+
+# Skip the slower LLM-backed smoke test:
+pytest tests/e2e -v -m "not e2e_llm"
+```
+
+Environment variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `QUERY_WEB_BASE_URL` | auto-detected | Explicit base URL; otherwise E2E tests try `http://localhost:8080`, then the Docker host |
+| `QUERY_WEB_HOST_PORT` | `8080` | Host port used for the `host.docker.internal` fallback |
+| `QUERY_WEB_AUTH_TOKEN` | `""` | Auth token submitted with forms, if the instance requires one |
+
+When `QUERY_WEB_BASE_URL` is unset, the tests probe `localhost` first and then
+`host.docker.internal` for dev-container/Docker Compose setups.
+
+- `test_navigation.py` — fast, deterministic tab-switching checks; no LLM/search calls.
+- `test_ask_smoke.py` (marked `e2e_llm`) — submits a real question through the Ask form and
+  waits for a rendered answer or error; requires a populated corpus and reachable LLM provider.

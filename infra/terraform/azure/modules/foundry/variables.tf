@@ -20,8 +20,8 @@ variable "embedding_model" {
     capacity = optional(number, 10)
   })
   default = {
-    name     = "text-embedding-ada-002"
-    version  = "2"
+    name     = "text-embedding-3-small"
+    version  = "1"
     capacity = 10
   }
 }
@@ -44,8 +44,8 @@ variable "evaluation_model" {
     capacity = optional(number, 1)
   })
   default = {
-    name     = "gpt-4.1-mini"
-    version  = "2025-04-14"
+    name     = "gpt-5.1-mini"
+    version  = "2025-11-13"
     capacity = 1
   }
 }
@@ -56,8 +56,8 @@ variable "validator_model" {
     capacity = optional(number, 1)
   })
   default = {
-    name     = "gpt-4.1-mini"
-    version  = "2025-04-14"
+    name     = "gpt-5.1-mini"
+    version  = "2025-11-13"
     capacity = 1
   }
 }

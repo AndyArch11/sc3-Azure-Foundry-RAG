@@ -701,7 +701,9 @@ def test_endpoint_report_no_corpus_c_returns_400() -> None:
     client = _build_client(_make_endpoint_svc(corpus_c_total=0))
     resp = client.post("/api/compliance/report", json={"auth_token": "tok"})
     assert resp.status_code == 400
-    assert "Corpus C" in resp.json()["error"]
+    body = resp.json()
+    assert body["title"] == "Bad Request"
+    assert "Corpus C" in body["detail"]
 
 
 def test_endpoint_report_batch_filter_no_docs_returns_400() -> None:
@@ -718,7 +720,9 @@ def test_endpoint_report_batch_filter_no_docs_returns_400() -> None:
         json={"auth_token": "tok", "corpus_c_upload_batch": "batch-xyz"},
     )
     assert resp.status_code == 400
-    assert "upload batch" in resp.json()["error"].lower()
+    body = resp.json()
+    assert body["title"] == "Bad Request"
+    assert "upload batch" in body["detail"].lower()
 
 
 def test_endpoint_report_success() -> None:
@@ -735,7 +739,9 @@ def test_endpoint_report_schema_validation_error_returns_500() -> None:
     client = _build_client(svc)
     resp = client.post("/api/compliance/report", json={"auth_token": "tok"})
     assert resp.status_code == 500
-    assert "schema validation" in resp.json()["error"].lower()
+    body = resp.json()
+    assert body["title"] == "Internal Server Error"
+    assert "schema validation" in body["detail"].lower()
 
 
 def test_endpoint_report_generic_exception_returns_500() -> None:
@@ -743,7 +749,9 @@ def test_endpoint_report_generic_exception_returns_500() -> None:
     client = _build_client(svc)
     resp = client.post("/api/compliance/report", json={"auth_token": "tok"})
     assert resp.status_code == 500
-    assert resp.json()["error"] == "An internal error occurred."
+    body = resp.json()
+    assert body["title"] == "Internal Server Error"
+    assert body["detail"] == "An internal error occurred."
 
 
 # POST /api/compliance/report/azure
@@ -778,7 +786,9 @@ def test_endpoint_azure_report_schema_error_returns_500() -> None:
         json={"subscription_id": "s", "resource_group": "rg", "auth_token": "tok"},
     )
     assert resp.status_code == 500
-    assert "schema validation" in resp.json()["error"].lower()
+    body = resp.json()
+    assert body["title"] == "Internal Server Error"
+    assert "schema validation" in body["detail"].lower()
 
 
 def test_endpoint_azure_report_generic_exception_returns_500() -> None:
@@ -789,7 +799,9 @@ def test_endpoint_azure_report_generic_exception_returns_500() -> None:
         json={"subscription_id": "s", "resource_group": "rg", "auth_token": "tok"},
     )
     assert resp.status_code == 500
-    assert resp.json()["error"] == "An internal error occurred."
+    body = resp.json()
+    assert body["title"] == "Internal Server Error"
+    assert body["detail"] == "An internal error occurred."
 
 
 # POST /api/compliance/report/start
@@ -934,7 +946,9 @@ def test_endpoint_get_job_not_found() -> None:
         "/api/compliance/report/jobs/00000000-0000-0000-0000-000000000000?auth_token=tok"
     )
     assert resp.status_code == 404
-    assert resp.json()["error"] == "Job not found"
+    body = resp.json()
+    assert body["title"] == "Not Found"
+    assert body["detail"] == "Job not found"
 
 
 def test_endpoint_get_job_queued_has_no_result() -> None:
@@ -1135,6 +1149,37 @@ def test_assess_control_finding_with_llm_includes_corpus_context() -> None:
     assert "b guidance" in user_msg["content"] or "b.pdf" in user_msg["content"]
 
 
+def test_assess_control_finding_with_llm_static_constraints_in_system_message() -> None:
+    """Static instructions/constraints should live in a system message (not the
+    per-call user message) so provider prompt-prefix caching can reuse them
+    across the many per-control calls issued within one report."""
+    calls: list[list] = []
+
+    def _capture(msgs, *, deployment, temperature):
+        calls.append(msgs)
+        return '{"finding_id":"f-1","requirement_id":"R-1","framework":"ISM","status":"compliant","severity":"low","rationale":"ok","evidence_sources":["doc.pdf"],"gaps":[],"recommendations":[]}'
+
+    svc = _make_llm_svc()
+    svc._chat_completion_with_empty_retry = _capture
+    _assess_control_finding_with_llm(
+        svc=svc,
+        question="test",
+        control={
+            "requirement_id": "R-1",
+            "framework": "ISM",
+            "requirement_text": "Req",
+            "guidance_text": "",
+        },
+        corpus_b_chunks=[],
+        corpus_c_chunks=[],
+        temperature=0.5,
+    )
+    system_msgs = [m for m in calls[0] if m["role"] == "system"]
+    user_msg = next(m for m in calls[0] if m["role"] == "user")
+    assert any("Constraints" in m["content"] for m in system_msgs)
+    assert "Constraints" not in user_msg["content"]
+
+
 # ---------------------------------------------------------------------------
 # _build_per_control_report_payload
 # ---------------------------------------------------------------------------
@@ -1183,6 +1228,76 @@ def test_build_per_control_report_payload_calls_progress_cb() -> None:
         progress_cb=_progress,
     )
     assert len(progress_calls) >= 2  # before + after each control
+
+
+def test_build_per_control_report_payload_uses_targeted_retrieval_per_control() -> None:
+    """When corpus_c_filter is provided, each control issues its own hybrid_search call
+    scoped to its own requirement text, instead of sharing one pre-fetched pool."""
+    svc = _make_llm_svc()
+    svc._chunk_reference_label = lambda c, fallback="": c.get("source_name", fallback)
+    search_calls: list[dict] = []
+
+    def _hybrid_search(query_text, *, retrieve_k, evidence_filter):
+        search_calls.append({"query": query_text, "filter": evidence_filter})
+        source = f"{evidence_filter}-doc"
+        return [{"content": query_text, "source_name": source}], {"search_s": 0.01}
+
+    svc._hybrid_search = _hybrid_search
+    controls = [
+        {
+            "requirement_id": "C-1",
+            "framework": "ISM",
+            "requirement_text": "req one",
+            "guidance_text": "",
+        },
+        {
+            "requirement_id": "C-2",
+            "framework": "ISM",
+            "requirement_text": "req two",
+            "guidance_text": "",
+        },
+    ]
+    result = _build_per_control_report_payload(
+        svc=svc,
+        question="test",
+        controls=controls,
+        corpus_b_filter="corpus eq 'b'",
+        corpus_c_filter="corpus eq 'c'",
+        evidence_retrieve_k=5,
+        temperature=0.5,
+    )
+    # 2 controls * (1 corpus B search + 1 corpus C search) = 4 targeted calls.
+    assert len(search_calls) == 4
+    assert {c["filter"] for c in search_calls} == {"corpus eq 'b'", "corpus eq 'c'"}
+    assert result["corpus_b_retrieved_count"] >= 1
+    assert result["corpus_c_retrieved_count"] >= 1
+
+
+def test_build_per_control_report_payload_legacy_shared_pool_no_retrieval() -> None:
+    """Without corpus_c_filter, falls back to selecting from the pre-fetched pool
+    (used by the Azure live-resource path) and never calls _hybrid_search."""
+    svc = _make_llm_svc()
+    svc._chunk_reference_label = lambda c, fallback="": c.get("source_name", fallback)
+    svc._hybrid_search = Mock(side_effect=AssertionError("should not be called"))
+    controls = [
+        {
+            "requirement_id": "C-1",
+            "framework": "ISM",
+            "requirement_text": "req",
+            "guidance_text": "",
+        },
+    ]
+    result = _build_per_control_report_payload(
+        svc=svc,
+        question="test",
+        controls=controls,
+        corpus_b_chunks=[{"content": "b evidence", "source_name": "guide.pdf"}],
+        corpus_c_chunks=[{"content": "c evidence", "source_name": "artifact.pdf"}],
+        temperature=0.5,
+    )
+    svc._hybrid_search.assert_not_called()
+    assert result["corpus_b_retrieved_count"] == 1
+    assert result["corpus_c_retrieved_count"] == 1
 
 
 def test_build_per_control_report_payload_risk_high_on_non_compliant() -> None:
@@ -1335,6 +1450,10 @@ def test_generate_compliance_report_result_single_pass_success() -> None:
     assert result["mode"] == "compliance-report"
     assert result["schema_valid"] is True
     assert result["assessment_strategy"] == "single_pass"
+    assert result["token_usage"]["llm_calls"] == 1
+    assert result["token_usage"]["total_tokens"] > 0
+    assert result["token_usage"]["estimated"] is True
+    assert "## Token Usage" in result["report_markdown"]
 
 
 def test_generate_compliance_report_result_empty_question_builds_default() -> None:
@@ -1376,6 +1495,43 @@ def test_generate_compliance_report_result_per_control_strategy() -> None:
     payload = ComplianceReportRequest(question="test", assessment_strategy="per_control")
     result = generate_compliance_report_result(payload, svc=svc)
     assert result["assessment_strategy"] == "per_control"
+    assert result["token_usage"]["llm_calls"] == len(controls)
+    assert result["token_usage"]["total_tokens"] > 0
+
+
+def test_generate_compliance_report_result_per_control_retrieves_per_control() -> None:
+    """Per-control mode should search per control (scoped to that control's own
+    text) rather than sharing one small upfront pool across every control."""
+    controls = [
+        {
+            "requirement_id": "C-1",
+            "framework": "ISM",
+            "requirement_text": "req one",
+            "guidance_text": "",
+        },
+        {
+            "requirement_id": "C-2",
+            "framework": "ISM",
+            "requirement_text": "req two",
+            "guidance_text": "",
+        },
+    ]
+    llm_response = '{"finding_id":"f-1","requirement_id":"C-1","framework":"ISM","status":"compliant","severity":"low","rationale":"ok","evidence_sources":["doc.pdf"],"gaps":[],"recommendations":[]}'
+    svc = _make_pipeline_svc(controls=controls, model_response=llm_response)
+    search_calls: list[str] = []
+    original_hybrid_search = svc._hybrid_search
+
+    def _tracking_hybrid_search(q, retrieve_k, evidence_filter):
+        search_calls.append(q)
+        return original_hybrid_search(q, retrieve_k, evidence_filter)
+
+    svc._hybrid_search = _tracking_hybrid_search
+    payload = ComplianceReportRequest(question="test", assessment_strategy="per_control")
+    generate_compliance_report_result(payload, svc=svc)
+    # 2 controls * 2 corpora (b + c) = 4 targeted searches, none using the shared question.
+    assert len(search_calls) == 4
+    assert all(q != "test" for q in search_calls)
+    assert "req one" in search_calls[0] or "req two" in search_calls[0]
 
 
 def test_generate_compliance_report_result_with_batch_filters() -> None:

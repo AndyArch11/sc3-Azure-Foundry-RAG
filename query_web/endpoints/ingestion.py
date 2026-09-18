@@ -147,12 +147,114 @@ class IngestionService:
         if not docs:
             return
 
-        target = os.getenv("LOCAL_EVIDENCE_JSONL_PATH", "").strip() or "./runtime/out/chunks.jsonl"
-        target_path = Path(target)
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        with target_path.open("a", encoding="utf-8") as handle:
+        configured_target = (
+            os.getenv("LOCAL_EVIDENCE_JSONL_PATH", "").strip() or "./runtime/out/chunks.jsonl"
+        )
+        target_path = Path(configured_target)
+
+        try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with target_path.open("a", encoding="utf-8") as handle:
+                for doc in docs:
+                    handle.write(json.dumps(doc, ensure_ascii=True) + "\n")
+            return
+        except PermissionError:
+            pass
+        except OSError as exc:
+            # Read-only filesystems commonly surface as errno 30 (EROFS).
+            if getattr(exc, "errno", None) != 30:
+                raise
+
+        fallback_target = self._resolve_local_evidence_fallback_path()
+        fallback_path = Path(fallback_target)
+        fallback_path.parent.mkdir(parents=True, exist_ok=True)
+        with fallback_path.open("a", encoding="utf-8") as handle:
             for doc in docs:
                 handle.write(json.dumps(doc, ensure_ascii=True) + "\n")
+
+        # Keep process-local reads/writes aligned after switching to writable fallback.
+        os.environ["LOCAL_EVIDENCE_JSONL_PATH"] = str(fallback_path)
+        logger.warning(
+            "Configured LOCAL_EVIDENCE_JSONL_PATH was not writable (%s); switched to %s",
+            configured_target,
+            fallback_path,
+        )
+
+    def _resolve_local_evidence_fallback_path(self) -> str:
+        """Return a writable fallback JSONL path for local evidence persistence.
+
+        Preference order:
+        1) Sibling of LOCAL_STATE_DB_PATH when set
+        2) Workspace-local ./local_state/chunks.jsonl
+
+        Returns:
+            A filesystem path suitable for local evidence JSONL writes.
+        """
+
+        local_state_db_path = os.getenv("LOCAL_STATE_DB_PATH", "").strip()
+        if local_state_db_path:
+            return str(Path(local_state_db_path).expanduser().resolve().parent / "chunks.jsonl")
+        return str((Path("./local_state") / "chunks.jsonl").resolve())
+
+    def delete_local_evidence_docs_by_corpus(self, corpus: str) -> int:
+        """Remove persisted local evidence JSONL lines matching a corpus label.
+
+        Without this, cleared documents reappear on the next container start
+        because ``load_local_documents_if_needed()`` reloads the full JSONL
+        file (the clear endpoints only removed matches from the live search
+        index, not the on-disk source of truth).
+
+        Args:
+            corpus: The corpus label to remove ('b' or 'c').
+
+        Returns:
+            The number of lines removed, or 0 when not running in local mode
+            or the JSONL file does not exist.
+        """
+        if not self._is_local_provider():
+            return 0
+
+        configured_target = (
+            os.getenv("LOCAL_EVIDENCE_JSONL_PATH", "").strip() or "./runtime/out/chunks.jsonl"
+        )
+        target_path = Path(configured_target)
+        if not target_path.exists():
+            return 0
+
+        kept_lines: list[str] = []
+        removed = 0
+        # Use the same fallback inference as load time (explicit field, then
+        # source_path hints) so legacy lines written before corpus tagging
+        # existed are matched consistently, not just lines with an explicit
+        # "corpus" key.
+        from query_web.local_startup import _infer_local_corpus
+
+        with target_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    doc = json.loads(stripped)
+                except json.JSONDecodeError:
+                    kept_lines.append(stripped)
+                    continue
+                if not isinstance(doc, dict):
+                    kept_lines.append(stripped)
+                    continue
+                effective_corpus = _infer_local_corpus(
+                    str(doc.get("source_path") or ""), str(doc.get("corpus") or "")
+                )
+                if effective_corpus == corpus:
+                    removed += 1
+                    continue
+                kept_lines.append(stripped)
+
+        if removed:
+            with target_path.open("w", encoding="utf-8") as handle:
+                for kept in kept_lines:
+                    handle.write(kept + "\n")
+        return removed
 
     def _upload_corpus_files_local(
         self,
@@ -1278,15 +1380,90 @@ class IngestionService:
             A dictionary containing the results of the upload operation.
         """
 
+        framework_key, prepared_uploads = self.deps._prepare_corpus_a_reference_uploads(
+            framework, files
+        )
+
         if not self.is_corpus_upload_enabled():
+            if self._is_local_provider():
+                local_uploaded: list[dict[str, Any]] = []
+                local_failed: list[str] = []
+
+                ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+                upload_batch_id = str(uuid.uuid4())
+                local_sources_dir_env = os.getenv("LOCAL_CORPUS_A_SOURCES_DIR", "").strip()
+                if local_sources_dir_env:
+                    sources_root = Path(local_sources_dir_env)
+                else:
+                    local_state_db_path = os.getenv("LOCAL_STATE_DB_PATH", "").strip()
+                    if local_state_db_path:
+                        sources_root = Path(local_state_db_path).parent / "corpus-a-sources"
+                    else:
+                        sources_root = Path("/tmp") / "corpus-a-sources"
+
+                framework_dir = sources_root / framework_key
+                framework_dir.mkdir(parents=True, exist_ok=True)
+                source_prefix = f"local://{framework_dir.as_posix()}/{upload_batch_id}"
+
+                for file, original_name, target_name in prepared_uploads:
+                    try:
+                        content = file.file.read()
+                        if not content:
+                            raise ValueError(f"{original_name} is empty")
+
+                        target_path = framework_dir / target_name
+                        target_path.write_bytes(content)
+
+                        local_uploaded.append(
+                            {
+                                "blob_name": f"{source_prefix}/{target_name}",
+                                "target_filename": target_name,
+                                "local_path": str(target_path),
+                                "size_bytes": len(content),
+                                "content_type": file.content_type or "application/octet-stream",
+                                "metadata": {
+                                    "corpus": "a",
+                                    "framework": framework_key,
+                                    "upload_source": "query_web_local",
+                                    "uploaded_by": self.deps._sanitise_blob_name_component(
+                                        user_id or "anonymous"
+                                    ),
+                                    "upload_batch": upload_batch_id,
+                                    "uploaded_at": ts,
+                                    "original_filename": self.deps._sanitise_blob_name_component(
+                                        original_name
+                                    ),
+                                    "target_filename": target_name,
+                                },
+                            }
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to stage local Corpus A reference file %s: %s",
+                            original_name,
+                            exc,
+                            exc_info=True,
+                        )
+                        local_failed.append(f"{original_name}: upload failed")
+                    finally:
+                        try:
+                            file.file.close()
+                        except Exception:
+                            pass
+
+                return {
+                    "framework": framework_key,
+                    "framework_name": self.deps._CORPUS_A_FRAMEWORKS[framework_key],
+                    "source_prefix": source_prefix,
+                    "upload_batch_id": upload_batch_id,
+                    "uploaded": local_uploaded,
+                    "failed": local_failed,
+                    "local_staged": True,
+                }
             raise RuntimeError(
                 "Corpus upload is not configured. "
                 "Set AZURE_STORAGE_ACCOUNT_NAME (Azure) or S3_BUCKET_NAME (AWS) in query web configuration."
             )
-
-        framework_key, prepared_uploads = self.deps._prepare_corpus_a_reference_uploads(
-            framework, files
-        )
 
         if self._is_aws_provider():
             from runtime.storage.aws_s3 import AWSS3StorageClient

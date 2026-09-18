@@ -134,6 +134,39 @@ What is documented above versus what is actually wired:
 
 The timing dicts (`rag_retrieval_s` etc.) are **inline response fields only** — they are never scraped, never pushed to any metric store, and are invisible to dashboards. The AMW resource is effectively unused infrastructure.
 
+## Graph Observability (Implemented)
+
+Local graph APIs emits Prometheus metrics and response-level audit payloads for
+build/query/export operations.
+
+Metrics added:
+
+- `graph_operation_duration_seconds{operation=...}`
+- `graph_operations_total{operation=...,outcome=...}`
+- `graph_nodes_written_total`
+- `graph_edges_written_total`
+- `graph_query_truncated_total{operation=...}`
+
+Where emitted:
+
+- Build: `POST /api/graph/build`
+- Node lookup: `GET /api/graph/nodes/{node_id}`
+- Related subgraph: `GET /api/graph/related`
+- Export: `GET /api/graph/export`
+
+Audit payloads:
+
+- Each graph endpoint response includes an `audit` object with:
+  - `operation`
+  - `outcome`
+  - `started_at`
+  - `duration_s`
+  - `correlation_id`
+  - operation-specific `details`
+
+This enables fast local verification of graph behaviour even before cloud telemetry
+pipelines are fully wired.
+
 ---
 
 ## Prometheus Implementation Plan

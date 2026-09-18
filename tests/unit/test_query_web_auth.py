@@ -139,7 +139,8 @@ def test_clear_endpoints_require_entra_headers_when_group_auth_enabled(
 
     body = response.json()
     assert response.status_code == 401
-    assert "principal headers" in body["error"].lower() or "unauthorized" in body["error"].lower()
+    message = str(body.get("detail") or body.get("error") or "").lower()
+    assert "principal headers" in message or "unauthorized" in message
 
     delete_index.assert_not_called()
     delete_blobs.assert_not_called()
@@ -402,7 +403,8 @@ def test_search_resources_diagnostics_blocked_when_target_env_prod() -> None:
 
     body = response.json()
     assert response.status_code == 403
-    assert "disabled" in body["error"].lower()
+    message = str(body.get("detail") or body.get("error") or "").lower()
+    assert "disabled" in message
     assert body["target_env"] == "prod"
 
 
@@ -491,7 +493,8 @@ def test_storage_blobs_diagnostics_blocked_when_target_env_prod() -> None:
 
     body = response.json()
     assert response.status_code == 403
-    assert "disabled" in body["error"].lower()
+    message = str(body.get("detail") or body.get("error") or "").lower()
+    assert "disabled" in message
     assert body["target_env"] == "prod"
 
 
@@ -575,7 +578,8 @@ def test_ingestion_overview_diagnostics_blocked_when_target_env_prod() -> None:
 
     body = response.json()
     assert response.status_code == 403
-    assert "disabled" in body["error"].lower()
+    message = str(body.get("detail") or body.get("error") or "").lower()
+    assert "disabled" in message
     assert body["target_env"] == "prod"
 
 
@@ -704,7 +708,8 @@ def test_acr_images_diagnostics_blocked_when_target_env_prod() -> None:
 
     body = response.json()
     assert response.status_code == 403
-    assert "disabled" in body["error"].lower()
+    message = str(body.get("detail") or body.get("error") or "").lower()
+    assert "disabled" in message
     assert body["target_env"] == "prod"
 
 

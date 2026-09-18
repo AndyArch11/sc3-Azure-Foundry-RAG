@@ -16,7 +16,6 @@ Usage::
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Dict, List, Optional, Tuple
@@ -29,6 +28,7 @@ except ImportError:  # Container layout copies modules to /app, not /app/runtime
     from outbound_instrumentation import request_with_instrumentation
 
 from .base import BaseParser, RequirementRecord, filter_keywords
+from .utils import fetch_json_dict_with_instrumentation, slugify_text
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ def _slugify(text: str) -> str:
     Returns:
         A slugified version of the input string, suitable for use in identifiers or URLs.
     """
-    return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
+    return slugify_text(text, delimiter="_")
 
 
 def _requirement_id(oscal_id: str) -> str:
@@ -197,23 +197,16 @@ class IsmParser(BaseParser):
         Returns:
             The OSCAL catalog data as a dictionary.
         """
-        response = request_with_instrumentation(
-            "GET",
-            self._catalog_url,
+        return fetch_json_dict_with_instrumentation(
+            url=self._catalog_url,
             logger=logger,
             timeout=30,
             headers={"User-Agent": "ism-parser/1.0 (controls ingestion)"},
             system="githubusercontent",
             operation="download_ism_catalog",
+            instrumenter=request_with_instrumentation,
             request_callable=requests.get,
         )
-        response.raise_for_status()
-        if hasattr(response, "json"):
-            payload = response.json()
-            if isinstance(payload, dict):
-                return payload
-        raw = response.content
-        return json.loads(raw)
 
     def _build_records(self, data: dict) -> List[RequirementRecord]:
         """Run build records.

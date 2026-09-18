@@ -31,6 +31,7 @@ except ImportError:  # Container layout copies modules to /app, not /app/runtime
     from outbound_instrumentation import request_with_instrumentation
 
 from .base import BaseParser, RequirementRecord, filter_keywords
+from .utils import fetch_bytes_with_instrumentation, slugify_text
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +150,7 @@ def _slugify(text: str) -> str:
     Returns:
         A slugified version of the input text.
     """
-    return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
+    return slugify_text(text, delimiter="_")
 
 
 def _parse_maturity_level(value: object) -> Optional[int]:
@@ -222,18 +223,16 @@ class AescsfParser(BaseParser):
         Raises:
             RuntimeError: If the workbook cannot be fetched or is empty.
         """
-        response = request_with_instrumentation(
-            "GET",
-            self._toolkit_url,
+        return fetch_bytes_with_instrumentation(
+            url=self._toolkit_url,
             logger=logger,
             timeout=60,
             headers={"User-Agent": "aescsf-parser/1.0 (controls ingestion)"},
             system="aemo",
             operation="download_aescsf_workbook",
+            instrumenter=request_with_instrumentation,
             request_callable=requests.get,
         )
-        response.raise_for_status()
-        return response.content
 
     def _build_records(self, workbook_bytes: bytes) -> List[RequirementRecord]:
         """Run build records.

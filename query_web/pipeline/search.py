@@ -394,11 +394,11 @@ def _list_search_documents_by_filter(
         client: The search client instance to use for the list operation.
         filter_expr: The filter expression to identify documents for listing.
         select_fields: The list of fields to include in the returned documents.
-        limit: The maximum number of documents to return (capped at 200).
+        limit: The maximum number of documents to return (capped at 20000).
     Returns:
         A dictionary containing the total count, returned count, and the list of items.
     """
-    capped_limit = max(1, min(limit, 200))
+    capped_limit = max(1, min(limit, 20000))
     try:
         pager = _client_search(
             client,

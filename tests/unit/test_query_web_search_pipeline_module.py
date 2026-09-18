@@ -79,6 +79,29 @@ def test_client_search_unknown_provider_falls_back_to_azure_mapping() -> None:
     assert client.calls == [{"search_text": "*", "filter": "", "top": 1}]
 
 
+def test_client_search_local_mapping_includes_total_count() -> None:
+    client = _CaptureClient()
+
+    _client_search(
+        client,
+        query_text="*",
+        filter_expr="",
+        top=1,
+        include_total_count=True,
+        cloud_provider="local",
+    )
+
+    assert client.calls == [
+        {
+            "query_text": "*",
+            "filters": None,
+            "top": 1,
+            "select": None,
+            "include_total_count": True,
+        }
+    ]
+
+
 def _build_hybrid_svc(provider: str):
     svc = SimpleNamespace()
     svc.config = SimpleNamespace(cloud_provider=provider)

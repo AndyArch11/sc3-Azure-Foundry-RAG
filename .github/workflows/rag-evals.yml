@@ -1,0 +1,96 @@
+name: RAG Golden Evals
+
+on:
+  pull_request:
+    paths:
+      - query_web/**
+      - tests/evals/**
+      - ops/scripts/local/run-rag-golden-evals.sh
+      - requirements-dev.txt
+      - .github/workflows/rag-evals.yml
+  push:
+    branches:
+      - main
+    paths:
+      - query_web/**
+      - tests/evals/**
+      - ops/scripts/local/run-rag-golden-evals.sh
+      - requirements-dev.txt
+      - .github/workflows/rag-evals.yml
+  schedule:
+    - cron: "0 2 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  golden-eval-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Validate golden-set schema shape
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          suite = json.loads(Path("tests/evals/rag_golden_set.json").read_text(encoding="utf-8"))
+          assert suite.get("version") == 1, "rag_golden_set.json must use version=1"
+          cases = suite.get("cases") or []
+          assert isinstance(cases, list) and len(cases) >= 1, "golden set must include at least one case"
+          for c in cases:
+            assert c.get("id"), "case.id is required"
+            assert c.get("question"), "case.question is required"
+            rk = int(c.get("retrieve_k", 0))
+            assert 1 <= rk <= 50, f"invalid retrieve_k for case {c.get('id')}"
+            exp = c.get("expected_relevant_frameworks") or []
+            assert isinstance(exp, list) and len(exp) >= 1, f"expected_relevant_frameworks missing for {c.get('id')}"
+          print(f"Validated {len(cases)} golden cases")
+          PY
+
+      - name: Validate runner CLI
+        run: |
+          python tests/evals/run_rag_golden_eval.py --help >/dev/null
+
+  nightly-ragas:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      QUERY_WEB_BASE_URL: ${{ secrets.QUERY_WEB_BASE_URL }}
+      QUERY_WEB_AUTH_TOKEN: ${{ secrets.QUERY_WEB_AUTH_TOKEN }}
+      ENABLE_RAGAS: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Run nightly golden evals with RAGAS
+        run: |
+          if [[ -z "${QUERY_WEB_BASE_URL}" ]]; then
+            echo "QUERY_WEB_BASE_URL secret is not set; skipping nightly RAG eval run"
+            exit 0
+          fi
+          bash ./ops/scripts/local/run-rag-golden-evals.sh

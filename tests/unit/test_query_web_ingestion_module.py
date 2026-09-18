@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import io
+import json
 import os
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, Mock, patch
@@ -98,6 +100,50 @@ def test_is_corpus_upload_enabled_false_when_no_account() -> None:
     svc = _make_svc(storage_account="")
     service = IngestionService(svc)
     assert service.is_corpus_upload_enabled() is False
+
+
+def test_upload_corpus_a_reference_files_local_stages_to_local_sources_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLOUD_PROVIDER", "local")
+    monkeypatch.setenv("LOCAL_CORPUS_A_SOURCES_DIR", str(tmp_path / "corpus-a-sources"))
+
+    svc = _make_svc(storage_account="")
+    svc._CORPUS_A_FRAMEWORKS = {"cis_controls": "CIS Controls"}
+
+    file_xlsx = Mock()
+    file_xlsx.file = io.BytesIO(b"xlsx-bytes")
+    file_xlsx.content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    file_pdf = Mock()
+    file_pdf.file = io.BytesIO(b"pdf-bytes")
+    file_pdf.content_type = "application/pdf"
+
+    svc._prepare_corpus_a_reference_uploads = lambda framework, files: (
+        "cis_controls",
+        [
+            (file_xlsx, "controls.xlsx", "CIS_Controls_Version_8.xlsx"),
+            (
+                file_pdf,
+                "controls.pdf",
+                "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf",
+            ),
+        ],
+    )
+
+    service = IngestionService(svc)
+    result = service.upload_corpus_a_reference_files(
+        [file_xlsx, file_pdf],
+        "user-a",
+        framework="cis_controls",
+    )
+
+    framework_dir = tmp_path / "corpus-a-sources" / "cis_controls"
+    assert (framework_dir / "CIS_Controls_Version_8.xlsx").exists()
+    assert (framework_dir / "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf").exists()
+    assert result["framework"] == "cis_controls"
+    assert result["failed"] == []
+    assert len(result["uploaded"]) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -621,3 +667,124 @@ def test_upload_corpus_files_local_mode_indexes_without_storage(
     assert len(result["uploaded"]) == 1
     assert result["uploaded"][0]["local_documents"] == 1
     svc.search_client.load_documents.assert_called_once()
+
+
+def test_persist_local_evidence_docs_falls_back_when_target_not_writable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    svc = _make_svc(storage_account="")
+    service = IngestionService(svc)
+
+    readonly_target = tmp_path / "readonly" / "chunks.jsonl"
+    writable_state_db = tmp_path / "state" / "state.db"
+    monkeypatch.setenv("LOCAL_EVIDENCE_JSONL_PATH", str(readonly_target))
+    monkeypatch.setenv("LOCAL_STATE_DB_PATH", str(writable_state_db))
+
+    original_open = Path.open
+
+    def _patched_open(self: Path, *args: Any, **kwargs: Any):
+        if self == readonly_target:
+            raise PermissionError("permission denied")
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", _patched_open)
+
+    service._persist_local_evidence_docs([{"id": "1", "content": "doc"}])
+
+    fallback_path = writable_state_db.parent / "chunks.jsonl"
+    assert fallback_path.exists()
+    assert os.environ["LOCAL_EVIDENCE_JSONL_PATH"] == str(fallback_path)
+    lines = fallback_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+
+
+def test_delete_local_evidence_docs_by_corpus_removes_matching_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    svc = _make_svc(storage_account="")
+    service = IngestionService(svc)
+    monkeypatch.setenv("CLOUD_PROVIDER", "local")
+
+    target = tmp_path / "chunks.jsonl"
+    target.write_text(
+        "\n".join(
+            [
+                json.dumps({"id": "1", "content": "b doc", "corpus": "b"}),
+                json.dumps({"id": "2", "content": "c doc", "corpus": "c"}),
+                json.dumps({"id": "3", "content": "another b doc", "corpus": "b"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LOCAL_EVIDENCE_JSONL_PATH", str(target))
+
+    removed = service.delete_local_evidence_docs_by_corpus("b")
+
+    assert removed == 2
+    remaining = [json.loads(line) for line in target.read_text(encoding="utf-8").splitlines()]
+    assert len(remaining) == 1
+    assert remaining[0]["corpus"] == "c"
+
+
+def test_delete_local_evidence_docs_by_corpus_matches_legacy_lines_without_corpus_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lines written before corpus tagging existed have no explicit 'corpus'
+    key; the purge must still match them via source_path inference, the same
+    way load_local_documents_if_needed() infers their corpus at load time."""
+    svc = _make_svc(storage_account="")
+    service = IngestionService(svc)
+    monkeypatch.setenv("CLOUD_PROVIDER", "local")
+
+    target = tmp_path / "chunks.jsonl"
+    target.write_text(
+        "\n".join(
+            [
+                json.dumps({"id": "1", "content": "b doc", "source_path": "corpus-b/file.pdf"}),
+                json.dumps({"id": "2", "content": "c doc", "source_path": "corpus-c/file.pdf"}),
+                json.dumps({"id": "3", "content": "ambiguous doc"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LOCAL_EVIDENCE_JSONL_PATH", str(target))
+
+    removed = service.delete_local_evidence_docs_by_corpus("b")
+
+    # "b doc" is removed via path inference; "ambiguous doc" defaults to
+    # corpus 'c' (same fallback as load time) so it is not removed here.
+    assert removed == 1
+    remaining_ids = [
+        json.loads(line)["id"] for line in target.read_text(encoding="utf-8").splitlines()
+    ]
+    assert remaining_ids == ["2", "3"]
+
+
+def test_delete_local_evidence_docs_by_corpus_noop_when_not_local(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    svc = _make_svc(storage_account="")
+    service = IngestionService(svc)
+    monkeypatch.setenv("CLOUD_PROVIDER", "azure")
+
+    target = tmp_path / "chunks.jsonl"
+    target.write_text(json.dumps({"id": "1", "corpus": "b"}) + "\n", encoding="utf-8")
+    monkeypatch.setenv("LOCAL_EVIDENCE_JSONL_PATH", str(target))
+
+    removed = service.delete_local_evidence_docs_by_corpus("b")
+
+    assert removed == 0
+    assert len(target.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_delete_local_evidence_docs_by_corpus_missing_file_returns_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    svc = _make_svc(storage_account="")
+    service = IngestionService(svc)
+    monkeypatch.setenv("CLOUD_PROVIDER", "local")
+    monkeypatch.setenv("LOCAL_EVIDENCE_JSONL_PATH", str(tmp_path / "missing.jsonl"))
+
+    assert service.delete_local_evidence_docs_by_corpus("c") == 0

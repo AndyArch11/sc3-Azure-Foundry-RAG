@@ -39,24 +39,44 @@ def _create_blob_service_client(*, account_url: str, credential: Any) -> Any:
     return BlobServiceClient(account_url=account_url, credential=credential)
 
 
-def _count_blob_prefix(prefix: str, *, svc: Any) -> dict[str, int]:
-    """Count blobs under *prefix* without deleting them (dry-run support).
+def _resolve_blob_provider(svc: Any) -> str:
+    """Resolve the cloud provider used to decide which blob backend to hit.
 
-    Args:
-        prefix: The prefix of the blobs to count.
-        svc: The service object providing access to configuration and logging.
-        Returns:
-        A dictionary containing the number of blobs that would be deleted based on the prefix.
-
-    Returns:
-        A dictionary with a single key "would_delete" indicating the count of blobs under the specified prefix.
+    Falls back to 'azure' when the provider cannot be determined, matching
+    this module's historical default behaviour.
     """
     try:
-        provider = normalise_cloud_provider(
-            getattr(getattr(svc, "config", None), "cloud_provider", "")
-        )
+        return normalise_cloud_provider(getattr(getattr(svc, "config", None), "cloud_provider", ""))
     except Exception:
-        provider = "azure"
+        return "azure"
+
+
+def _count_blob_prefix(prefix: str, *, svc: Any) -> dict[str, int]:
+    """Count blobs/objects under *prefix* without deleting them (dry-run support).
+
+    Args:
+        prefix: The prefix of the blobs/objects to count.
+        svc: The service object providing access to configuration and logging.
+
+    Returns:
+        A dictionary with a single key "would_delete" indicating the count of
+        blobs/objects under the specified prefix. Always zero for providers
+        (e.g. local) that do not back corpus uploads with blob/object storage.
+    """
+    provider = _resolve_blob_provider(svc)
+
+    if provider == "aws":
+        if not svc._is_corpus_upload_enabled():
+            return {"would_delete": 0}
+        from runtime.storage.aws_s3 import AWSS3StorageClient
+
+        try:
+            client = AWSS3StorageClient(session=svc.credential)
+            keys = client.list_objects(svc.config.s3_bucket_name, prefix=prefix)
+        except Exception as exc:
+            svc.logger.warning(f"Failed to count S3 objects with prefix {prefix}: {exc}")
+            return {"would_delete": 0}
+        return {"would_delete": len(keys)}
 
     if provider != "azure":
         return {"would_delete": 0}
@@ -79,21 +99,34 @@ def _count_blob_prefix(prefix: str, *, svc: Any) -> dict[str, int]:
 
 
 def _delete_blob_prefix(prefix: str, *, svc: Any) -> dict[str, int]:
-    """Delete all blobs under *prefix* and return a deletion count.
+    """Delete all blobs/objects under *prefix* and return a deletion count.
 
     Args:
-        prefix: The prefix of the blobs to delete.
+        prefix: The prefix of the blobs/objects to delete.
         svc: The service object providing access to configuration and logging.
 
     Returns:
-        A dictionary containing the number of blobs deleted based on the prefix.
+        A dictionary containing the number of blobs/objects deleted. Always
+        zero for providers (e.g. local) that do not back corpus uploads with
+        blob/object storage.
     """
-    try:
-        provider = normalise_cloud_provider(
-            getattr(getattr(svc, "config", None), "cloud_provider", "")
-        )
-    except Exception:
-        provider = "azure"
+    provider = _resolve_blob_provider(svc)
+
+    if provider == "aws":
+        if not svc._is_corpus_upload_enabled():
+            return {"deleted": 0}
+        from runtime.storage.aws_s3 import AWSS3StorageClient
+
+        deleted = 0
+        try:
+            client = AWSS3StorageClient(session=svc.credential)
+            keys = client.list_objects(svc.config.s3_bucket_name, prefix=prefix)
+            for key in keys:
+                client.delete_object(svc.config.s3_bucket_name, key)
+                deleted += 1
+        except Exception as exc:
+            svc.logger.warning(f"Failed to delete S3 objects with prefix {prefix}: {exc}")
+        return {"deleted": deleted}
 
     if provider != "azure":
         return {"deleted": 0}

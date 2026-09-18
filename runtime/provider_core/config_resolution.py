@@ -168,7 +168,7 @@ def resolve_provider_settings(
         else:
             openai_endpoint = _required(values, "AZURE_OPENAI_ENDPOINT", error_type=missing_error)
         embedding_deployment = (
-            values.get("EMBEDDING_DEPLOYMENT_NAME") or "text-embedding-ada-002"
+            values.get("EMBEDDING_DEPLOYMENT_NAME") or "text-embedding-3-small"
         ).strip()
         query_deployment = (values.get("QUERY_DEPLOYMENT_NAME") or "gpt-5.1-chat").strip()
 
@@ -207,7 +207,7 @@ def resolve_query_web_provider_settings(
         cosmos_database_name = (values.get("AZURE_COSMOS_DATABASE_NAME") or "").strip()
         cosmos_container_name = (values.get("AZURE_COSMOS_CONTAINER_NAME") or "").strip()
     else:
-        evaluator_deployment = (values.get("EVALUATOR_DEPLOYMENT_NAME") or "gpt-4.1-mini").strip()
+        evaluator_deployment = (values.get("EVALUATOR_DEPLOYMENT_NAME") or "gpt-5.1-mini").strip()
         if common.is_local:
             cosmos_endpoint = (values.get("AZURE_COSMOS_ENDPOINT") or "").strip()
             cosmos_database_name = (

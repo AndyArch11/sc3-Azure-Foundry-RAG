@@ -17,6 +17,7 @@ locals {
   container_apps_subnet_id   = local.use_byol_network ? var.byol_container_apps_subnet_id : module.network[0].container_apps_subnet_id
   private_endpoint_subnet_id = local.use_byol_network ? var.byol_private_endpoint_subnet_id : module.network[0].private_endpoint_subnet_id
   agent_subnet_id            = local.use_byol_network ? var.byol_agent_subnet_id : module.network[0].agent_subnet_id
+  api_management_subnet_id   = local.use_byol_network ? var.byol_api_management_subnet_id : module.network[0].api_management_subnet_id
   jumpbox_subnet_id          = local.use_byol_network ? var.byol_jumpbox_subnet_id : module.network[0].jumpbox_subnet_id
   azure_bastion_subnet_id    = local.use_byol_network ? var.byol_azure_bastion_subnet_id : module.network[0].azure_bastion_subnet_id
 }
@@ -42,6 +43,7 @@ module "network" {
   vnet_cidr                    = var.vnet_cidr
   private_endpoint_subnet_cidr = var.private_endpoint_subnet_cidr
   agent_subnet_cidr            = var.agent_subnet_cidr
+  api_management_subnet_cidr   = var.api_management_subnet_cidr
   container_apps_subnet_cidr   = var.container_apps_subnet_cidr
   jumpbox_subnet_cidr          = var.jumpbox_subnet_cidr
   azure_bastion_subnet_cidr    = var.azure_bastion_subnet_cidr
@@ -126,6 +128,7 @@ module "private_endpoints" {
   resource_group_name        = module.foundation.resource_group_name
   location                   = var.location
   private_endpoint_subnet_id = local.private_endpoint_subnet_id
+  api_management_id          = module.api_management.id
   private_dns_zone_ids       = local.use_byol_network ? {} : module.dns[0].private_dns_zone_ids
   storage_account_id         = module.data_services.storage_account_id
   search_service_id          = module.data_services.search_service_id
@@ -248,7 +251,9 @@ module "agent_hosting" {
   embedding_dimensions                              = 1536
   query_top_k                                       = var.query_top_k
   query_default_temperature                         = var.query_default_temperature
+  query_default_top_p                               = var.query_default_top_p
   query_evaluator_temperature                       = var.query_evaluator_temperature
+  query_evaluator_top_p                             = var.query_evaluator_top_p
   query_eval_threshold                              = var.query_eval_threshold
   control_llm_review_enabled                        = var.control_llm_review_enabled
   control_llm_review_heuristic_threshold            = var.control_llm_review_heuristic_threshold
@@ -256,6 +261,7 @@ module "agent_hosting" {
   prompt_injection_validator_deployment             = trimspace(var.prompt_injection_validator_deployment) != "" ? var.prompt_injection_validator_deployment : var.validator_model.name
   prompt_injection_validator_threshold              = var.prompt_injection_validator_threshold
   prompt_injection_validator_temperature            = var.prompt_injection_validator_temperature
+  prompt_injection_validator_top_p                  = var.prompt_injection_validator_top_p
   prompt_injection_validator_timeout_s              = var.prompt_injection_validator_timeout_s
   prompt_injection_validator_mode                   = var.prompt_injection_validator_mode
   guardrail_metrics_in_response                     = var.guardrail_metrics_in_response

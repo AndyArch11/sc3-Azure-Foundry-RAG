@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 import re
 import warnings
 from pathlib import Path
 from typing import Any, Dict, List
 
 from .base import BaseParser, RequirementRecord, filter_keywords, keywordise_values
+from .utils import slugify_text
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +37,18 @@ JURISDICTION = "Global"
 SOURCE_URI = "https://www.cisecurity.org/controls/v8"
 
 _SAMPLES_ROOT = Path(__file__).resolve().parents[2] / "samples"
-_DEFAULT_WORKBOOK_PATH = _SAMPLES_ROOT / "api" / "corpus-a" / "CIS_Controls_Version_8.xlsx"
+
+
+def _default_sources_dir() -> Path:
+    local_sources = os.getenv("LOCAL_CORPUS_A_SOURCES_DIR", "").strip()
+    if local_sources:
+        return Path(local_sources) / "cis_controls"
+    return _SAMPLES_ROOT / "api" / "corpus-a"
+
+
+_DEFAULT_WORKBOOK_PATH = _default_sources_dir() / "CIS_Controls_Version_8.xlsx"
 _DEFAULT_PDF_PATH = (
-    _SAMPLES_ROOT / "api" / "corpus-a" / "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf"
+    _default_sources_dir() / "CIS_Controls__v8__Critical_Security_Controls__2023_08.pdf"
 )
 
 
@@ -50,7 +61,7 @@ def _slugify(text: str) -> str:
     Returns:
         A slugified version of the input string.
     """
-    return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
+    return slugify_text(text, delimiter="_")
 
 
 def _maturity_level_from_igs(ig1: Any, ig2: Any, ig3: Any) -> int | None:

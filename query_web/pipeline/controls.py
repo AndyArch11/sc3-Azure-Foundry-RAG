@@ -23,6 +23,7 @@ from runtime.assessment_orchestration._framework_patterns import (
 _CONTROLS_FRAMEWORK_FILTERS = {
     "nist_ai_rmf": "NIST AI RMF",
     "nist_csf": "NIST CSF",
+    "nist_sp_800_53": "NIST SP 800-53",
     "essential_eight": "Essential Eight",
     "aescsf": "AESCSF",
     "cis_controls": "CIS Controls",
@@ -46,10 +47,9 @@ _EVIDENCE_CORPUS_ALIASES = {
     "c": "c",
     "corpus-c": "c",
     "corpus_c": "c",
-    "legacy": "legacy",
 }
 
-_EVIDENCE_CORPUS_ORDER = ("a", "b", "c", "legacy")
+_EVIDENCE_CORPUS_ORDER = ("a", "b", "c")
 
 _QUERY_STOPWORDS = {
     "a",
@@ -73,9 +73,25 @@ _QUERY_STOPWORDS = {
     "in",
     "is",
     "it",
+    "its",
     "of",
     "on",
     "or",
+    "should",
+    "shouldn",
+    "shouldnt",
+    "use",
+    "used",
+    "using",
+    "when",
+    "where",
+    "who",
+    "why",
+    "how",
+    "must",
+    "need",
+    "needs",
+    "needed",
     "require",
     "required",
     "requires",
@@ -94,6 +110,10 @@ _QUERY_FRAMEWORK_TOKENS = {
     "management",
     "nists",
     "nist",
+    "sp",
+    "800",
+    "53",
+    "80053",
     "csf",
     "essential",
     "eight",
@@ -107,6 +127,33 @@ _QUERY_FRAMEWORK_TOKENS = {
 }
 
 _QUERY_SHORT_KEEP = {"mfa", "2fa", "iam", "sso"}
+
+_QUERY_TERM_EXPANSIONS: dict[str, tuple[str, ...]] = {
+    "mfa": (
+        "multi-factor authentication",
+        "multi factor authentication",
+        "multifactor authentication",
+        "2fa",
+        "two-factor authentication",
+    ),
+    "2fa": (
+        "two-factor authentication",
+        "two factor authentication",
+        "mfa",
+        "multi-factor authentication",
+    ),
+    "iam": (
+        "identity and access management",
+        "identity access management",
+        "identity management",
+        "access management",
+    ),
+    "sso": (
+        "single sign-on",
+        "single sign on",
+        "federated login",
+    ),
+}
 
 # Domain-specific expansion terms for policy-rule keywords.
 # When a preferred framework is selected by rule, these terms augment the
@@ -248,15 +295,13 @@ def _build_evidence_corpus_filter(selected_corpora: Iterable[str]) -> str | None
     if set(selected) == set(_EVIDENCE_CORPUS_ORDER):
         return None
 
-    # Some historical ingestion paths populated corpus_role but not corpus.
+    # Some ingestion paths populated corpus_role but not corpus.
     # Include role-based fallbacks so those documents remain retrievable.
     # Use simplified filter clauses without extra parentheses to avoid query_string parsing issues.
     clause_by_corpus = {
         "a": "corpus eq 'a'",
         "b": "corpus eq 'b' or corpus_role eq 'narrative_guidance'",
         "c": "corpus eq 'c' or corpus_role eq 'assessed_artifact'",
-        # Legacy/untagged docs may have an empty corpus value.
-        "legacy": "corpus eq 'legacy' or corpus eq ''",
     }
 
     clauses = [clause_by_corpus[corpus] for corpus in selected]
@@ -371,6 +416,14 @@ def _preferred_framework_context_for_question(question: str, svc: Any) -> dict[s
     text_tokens = re.findall(r"[a-z0-9]+", text)
 
     def _stem(token: str) -> str:
+        """Return a simple stemmed version of a token for lexical matching.
+
+        Args:
+            token: The token to stem.
+
+        Returns:
+            The stemmed version of the token.
+        """
         value = token.strip().lower()
         for suffix in ("ions", "ion", "ing", "ed", "es", "s"):
             if value.endswith(suffix) and len(value) > len(suffix) + 2:
@@ -380,6 +433,13 @@ def _preferred_framework_context_for_question(question: str, svc: Any) -> dict[s
     text_stems = {_stem(token) for token in text_tokens}
 
     def _keyword_matches_text(keyword: str) -> bool:
+        """Check if a keyword matches the question text or its tokens/stems.
+
+        Args:
+            keyword: The keyword to check.
+        Returns:
+            True if the keyword matches the text, tokens, or stems; False otherwise.
+        """
         key = keyword.strip().lower()
         if not key:
             return False
@@ -601,6 +661,18 @@ def _controls_query_variants(question: str) -> list[str]:
         variants.append(" ".join(focus_terms))
         variants.append(" ".join([*focus_terms, "control", "requirement"]))
 
+        # Expand compact security acronyms (for example MFA -> multi-factor
+        # authentication) so lexical retrieval can hit frameworks that spell
+        # out the phrase instead of the acronym.
+        expanded_focus_terms: list[str] = []
+        for term in focus_terms:
+            expanded_focus_terms.append(term)
+            expanded_focus_terms.extend(_QUERY_TERM_EXPANSIONS.get(term, ()))
+
+        if expanded_focus_terms:
+            variants.append(" ".join(expanded_focus_terms))
+            variants.append(" ".join([*expanded_focus_terms, "control", "requirement"]))
+
     # Preserve order while deduplicating.
     deduped: list[str] = []
     seen: set[str] = set()
@@ -737,8 +809,10 @@ def _fetch_controls(
         "framework_version",
         "control_family",
         "maturity_level",
+        "control_baselines",
         "requirement_text",
         "guidance_text",
+        "keywords",
         "source_uri",
     ]
     neutral_kwargs: dict[str, Any] = {}
@@ -782,8 +856,16 @@ def _fetch_controls(
                     "framework_version": r.get("framework_version") or "",
                     "control_family": r.get("control_family") or "",
                     "maturity_level": r.get("maturity_level"),
+                    "control_baselines": [
+                        str(value).strip()
+                        for value in (r.get("control_baselines") or [])
+                        if str(value).strip()
+                    ],
                     "requirement_text": requirement_text,
                     "guidance_text": (r.get("guidance_text") or "").strip(),
+                    "keywords": [
+                        str(k).strip() for k in (r.get("keywords") or []) if str(k).strip()
+                    ],
                     "source_uri": r.get("source_uri") or "",
                     "score": float(score) if score is not None else 0.0,
                 }
@@ -986,6 +1068,14 @@ def _summarise_controls_distribution(
         family_counts[family] = family_counts.get(family, 0) + 1
 
     def _as_sorted_items(counts: dict[str, int]) -> list[dict[str, Any]]:
+        """Convert a counts dictionary to a sorted list of items.
+
+        Args:
+            counts: A dictionary mapping names to counts.
+
+        Returns:
+            A sorted list of dictionaries with "name" and "count" keys.
+        """
         return [
             {"name": key, "count": value}
             for key, value in sorted(counts.items(), key=lambda item: (-item[1], item[0].lower()))
@@ -1061,6 +1151,14 @@ def _apply_framework_authority_preference(
     preferred_framework = _preferred_framework_for_question(question, svc)
     focus_terms = _question_focus_terms(question)
 
+    def _focus_term_matches_haystack(term: str, haystack: str) -> bool:
+        term_value = str(term or "").strip().lower()
+        if not term_value:
+            return False
+        if term_value in haystack:
+            return True
+        return any(alias in haystack for alias in _QUERY_TERM_EXPANSIONS.get(term_value, ()))
+
     def _concept_overlap(item: dict[str, Any]) -> int:
         """Count the number of focus terms that appear in the control item.
 
@@ -1077,9 +1175,10 @@ def _apply_framework_authority_preference(
                 str(item.get("requirement_text") or "").lower(),
                 str(item.get("control_family") or "").lower(),
                 str(item.get("guidance_text") or "").lower(),
+                " ".join(str(k).lower() for k in (item.get("keywords") or [])),
             ]
         )
-        return sum(1 for term in focus_terms if term in haystack)
+        return sum(1 for term in focus_terms if _focus_term_matches_haystack(term, haystack))
 
     def _preferred_rank(item: dict[str, Any]) -> int:
         """Determine the rank of a control item based on whether it matches the preferred framework.
@@ -1124,9 +1223,20 @@ def _control_concept_overlap_count(item: dict[str, Any], focus_terms: list[str])
             str(item.get("requirement_text") or "").lower(),
             str(item.get("control_family") or "").lower(),
             str(item.get("guidance_text") or "").lower(),
+            " ".join(str(k).lower() for k in (item.get("keywords") or [])),
         ]
     )
-    return sum(1 for term in focus_terms if term in haystack)
+    overlap = 0
+    for term in focus_terms:
+        term_value = str(term or "").strip().lower()
+        if not term_value:
+            continue
+        if term_value in haystack:
+            overlap += 1
+            continue
+        if any(alias in haystack for alias in _QUERY_TERM_EXPANSIONS.get(term_value, ())):
+            overlap += 1
+    return overlap
 
 
 def _is_acceptable_preferred_backfill_candidate(
@@ -1307,6 +1417,8 @@ def controls_search(
                 )
                 items = _merge_control_candidates(items, framework_items)
 
+    # TODO: replace the bounded search-page strategy with cursor pagination for
+    # complete framework enumeration when the requested cap exceeds one page.
     ranked_items = svc_apply_framework_authority_preference(
         items,
         top_k=max(len(items), retrieve_k),
@@ -1386,7 +1498,18 @@ def controls_search(
         timings["controls_preferred_framework_backfill_used"] = 1.0
 
     timings["controls_search_s"] = round(time.perf_counter() - t0, 3)
-    return items, timings
+    deduped_items: list[dict[str, Any]] = []
+    seen_requirement_ids: set[str] = set()
+    for item in items:
+        requirement_id = str(item.get("requirement_id") or "").strip()
+        dedupe_key = requirement_id or str(item.get("id") or "").strip()
+        if dedupe_key and dedupe_key in seen_requirement_ids:
+            continue
+        if dedupe_key:
+            seen_requirement_ids.add(dedupe_key)
+        deduped_items.append(item)
+
+    return deduped_items[:retrieve_k], timings
 
 
 # ---------------------------------------------------------------------------

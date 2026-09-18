@@ -1,7 +1,7 @@
 """Parser for PCI DSS v4.0.1 using a local sample PDF.
 
 The PDF provides both the normative requirement text and associated guidance
-(Purpose, Good Practice, Definitions, Customized Approach Objective sections).
+(Purpose, Good Practice, Definitions, Customised Approach Objective sections).
 
 Source file must be downloaded by the operator from:
     https://docs-prv.pcisecuritystandards.org/PCI%20DSS/Standard/PCI-DSS-v4_0_1.pdf
@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, List
@@ -44,7 +45,16 @@ JURISDICTION = "Global"
 SOURCE_URI = "https://docs-prv.pcisecuritystandards.org/PCI%20DSS/Standard/PCI-DSS-v4_0_1.pdf"
 
 _SAMPLES_ROOT = Path(__file__).resolve().parents[2] / "samples"
-_DEFAULT_PDF_PATH = _SAMPLES_ROOT / "api" / "corpus-a" / "PCI-DSS-v4_0_1.pdf"
+
+
+def _default_sources_dir() -> Path:
+    local_sources = os.getenv("LOCAL_CORPUS_A_SOURCES_DIR", "").strip()
+    if local_sources:
+        return Path(local_sources) / "pci_dss"
+    return _SAMPLES_ROOT / "api" / "corpus-a"
+
+
+_DEFAULT_PDF_PATH = _default_sources_dir() / "PCI-DSS-v4_0_1.pdf"
 
 # Top-level requirement number → (domain family, requirement title)
 _REQUIREMENT_FAMILIES: dict[str, tuple[str, str]] = {
@@ -107,7 +117,7 @@ _TESTING_VERB_RE = re.compile(
 # Noise labels from the guidance column that should not produce requirement text.
 _GUIDANCE_LABEL_RE = re.compile(
     r"^(Defined Approach Requirements|Defined Approach Testing Procedures|Purpose|"
-    r"Customized Approach Objective|Good Practice|Definitions|Examples|"
+    r"Customised Approach Objective|Good Practice|Definitions|Examples|"
     r"Applicability Notes|Requirements and Testing Procedures Guidance|"
     r"Note\b)",
     re.IGNORECASE,
@@ -344,7 +354,7 @@ class PciDssParser(BaseParser):
         pdf_path: str | Path = _DEFAULT_PDF_PATH,
         **_kwargs: Any,
     ) -> None:
-        """Initialize the PciDssParser.
+        """Initialise the PciDssParser.
 
         Args:
             pdf_path: Path to the PCI DSS PDF file.

@@ -167,6 +167,48 @@ class LocalQdrantSearchClient:
             budget = 6000
         return max(256, budget)
 
+    @staticmethod
+    def _dedupe_key(doc: dict[str, Any]) -> str:
+        """Return a stable duplicate-suppression key for retrieved payloads.
+
+        Args:
+            doc: The document for which to generate the deduplication key.
+
+        Returns:
+            A string representing the deduplication key.
+        """
+        for field in ("dedupe_hash", "content_sha256", "normalised_text_sha256"):
+            value = str(doc.get(field) or "").strip()
+            if value:
+                return value
+
+        source_name = str(doc.get("source_name") or "").strip().lower()
+        content = str(doc.get("content") or "").strip().lower()
+        return f"fallback:{source_name}:{content[:160]}"
+
+    @staticmethod
+    def _dedupe_results(items: list[dict[str, Any]], *, top: int) -> list[dict[str, Any]]:
+        """Preserve order while suppressing duplicate-like retrieval hits.
+
+        Args:
+            items: The list of retrieved items to deduplicate.
+            top: The maximum number of items to return.
+
+        Returns:
+            A list of deduplicated items, preserving the original order.
+        """
+        seen: set[str] = set()
+        deduped: list[dict[str, Any]] = []
+        for item in items:
+            key = LocalQdrantSearchClient._dedupe_key(item)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+            if len(deduped) >= top:
+                break
+        return deduped
+
     def _embed_text(self, text: str) -> list[float]:
         """Generate an embedding vector for the given text using Ollama.
 
@@ -329,18 +371,51 @@ class LocalQdrantSearchClient:
         if not filters:
             return None
 
-        m = re.match(r"^\s*([a-zA-Z0-9_]+)\s+eq\s+'([^']*)'\s*$", filters)
-        if not m:
-            return None
+        clauses = self._parse_filter_clauses(filters)
+        if not clauses:
+            # Fail closed if a filter is supplied but cannot be parsed.
+            clauses = [("eq", "__never_match__", "__never_match__")]
 
         from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-        return Filter(
-            must=cast(
-                Any,
-                [FieldCondition(key=m.group(1), match=MatchValue(value=m.group(2)))],
-            )
-        )
+        must_conditions = [
+            FieldCondition(key=field, match=MatchValue(value=value))
+            for operator, field, value in clauses
+            if operator == "eq"
+        ]
+        must_not_conditions = [
+            FieldCondition(key=field, match=MatchValue(value=value))
+            for operator, field, value in clauses
+            if operator == "ne"
+        ]
+
+        kwargs: dict[str, Any] = {}
+        if must_conditions:
+            if len(must_conditions) == 1:
+                kwargs["must"] = cast(Any, must_conditions)
+            else:
+                kwargs["should"] = cast(Any, must_conditions)
+        if must_not_conditions:
+            kwargs["must_not"] = cast(Any, must_not_conditions)
+        return Filter(**kwargs)
+
+    @staticmethod
+    def _parse_filter_clauses(filters: str | None) -> list[tuple[str, str, str]]:
+        """Parse simple `field eq 'value'` and `field ne 'value'` clauses.
+
+        The current RAG pipeline emits OR-combined equality clauses with optional
+        parentheses, for example:
+        `(corpus eq 'c') or (corpus_role eq 'assessed_artifact')`.
+        """
+        if not filters:
+            return []
+        clauses: list[tuple[str, str, str]] = []
+        for field, operator, value in re.findall(
+            r"([a-zA-Z0-9_]+)\s+(eq|ne)\s+'([^']*)'",
+            filters,
+        ):
+            clauses.append((operator, field, value))
+        return clauses
 
     def _fallback_text_search(
         self,
@@ -385,10 +460,26 @@ class LocalQdrantSearchClient:
             matched = [doc for _, doc in scored]
 
         if filters:
-            m = re.match(r"^\s*([a-zA-Z0-9_]+)\s+eq\s+'([^']*)'\s*$", filters)
-            if m:
-                field, value = m.group(1), m.group(2)
-                matched = [d for d in matched if str(d.get(field, "")) == value]
+            clauses = self._parse_filter_clauses(filters)
+            if not clauses:
+                matched = []
+            else:
+                matched = [
+                    d
+                    for d in matched
+                    if (
+                        all(
+                            str(d.get(field, "")) == value
+                            for operator, field, value in clauses
+                            if operator == "eq"
+                        )
+                        and all(
+                            str(d.get(field, "")) != value
+                            for operator, field, value in clauses
+                            if operator == "ne"
+                        )
+                    )
+                ]
 
         items = matched[:top]
         if select:
@@ -439,30 +530,53 @@ class LocalQdrantSearchClient:
         try:
             query_vector = vector_query if vector_query is not None else self._embed_text(effective_query)
             qfilter = self._build_filter(filters)
+            search_limit = max(1, top)
+            if search_limit > 1:
+                search_limit = max(search_limit * 4, search_limit)
             search_fn = cast(Any, getattr(self._client, "search", None))
-            if not callable(search_fn):
-                raise AttributeError("QdrantClient.search is unavailable")
-
-            result = search_fn(  # pylint: disable=not-callable
-                collection_name=self._index,
-                query_vector=query_vector,
-                limit=max(1, top),
-                query_filter=qfilter,
-                with_payload=True,
-            )
-            if not isinstance(result, Iterable):
-                raise TypeError("Qdrant search result is not iterable")
+            if callable(search_fn):
+                result = search_fn(  # pylint: disable=not-callable
+                    collection_name=self._index,
+                    query_vector=query_vector,
+                    limit=search_limit,
+                    query_filter=qfilter,
+                    with_payload=True,
+                )
+                if not isinstance(result, Iterable):
+                    raise TypeError("Qdrant search result is not iterable")
+                points = result
+            else:
+                query_points_fn = cast(Any, getattr(self._client, "query_points", None))
+                if not callable(query_points_fn):
+                    raise AttributeError(
+                        "Qdrant client has neither search() nor query_points()"
+                    )
+                response = query_points_fn(
+                    collection_name=self._index,
+                    query=query_vector,
+                    limit=search_limit,
+                    query_filter=qfilter,
+                    with_payload=True,
+                )
+                points = cast(Any, getattr(response, "points", []))
+                if not isinstance(points, Iterable):
+                    raise TypeError("Qdrant query_points result is not iterable")
 
             items: list[dict[str, Any]] = []
-            for point in result:
+            for point in points:
                 payload = dict(point.payload or {})
                 payload["@search.score"] = float(getattr(point, "score", 0.0) or 0.0)
                 if select:
                     payload = {k: payload[k] for k in select if k in payload}
                 items.append(payload)
-            total = len(items) if include_total_count else None
-            return _SearchResults(items, total_count=total)
-        except Exception:
+            deduped_items = self._dedupe_results(items, top=top)
+            total = len(deduped_items) if include_total_count else None
+            return _SearchResults(deduped_items, total_count=total)
+        except Exception as exc:
+            logger.warning(
+                "Qdrant vector search failed; falling back to in-memory text search: %s",
+                exc,
+            )
             # Keep local UX resilient when qdrant/ollama are temporarily unavailable.
             return self._fallback_text_search(
                 query_text=effective_query,

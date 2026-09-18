@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 os.environ.setdefault("AZURE_SEARCH_ENDPOINT", "https://test.search.windows.net")
 os.environ.setdefault("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
@@ -14,8 +18,10 @@ os.environ.setdefault("AZURE_COSMOS_ENDPOINT", "https://test.documents.azure.com
 os.environ.setdefault("AZURE_COSMOS_DATABASE_NAME", "rag-conversations")
 os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 
+from query_web.endpoints.controls import register_controls_endpoints
 from query_web.pipeline.controls import (
     _build_evidence_corpus_filter,
+    _control_concept_overlap_count,
     _controls_coverage_disclaimer,
     _controls_query_variants,
     _framework_authority_rank,
@@ -73,6 +79,18 @@ def _make_control(
     }
 
 
+def _build_controls_api_app() -> FastAPI:
+    app = FastAPI()
+    register_controls_endpoints(
+        app,
+        deps={
+            "_is_authorised_request": lambda: (lambda auth_token, request: auth_token == "ok"),
+            "_unauthorised_message": lambda: (lambda request: "Unauthorised."),
+        },
+    )
+    return app
+
+
 # ---------------------------------------------------------------------------
 # Evidence corpus normalisation
 # ---------------------------------------------------------------------------
@@ -94,8 +112,8 @@ def test_normalise_evidence_corpus_alias_c() -> None:
     assert _normalise_evidence_corpus("c") == "c"
 
 
-def test_normalise_evidence_corpus_legacy() -> None:
-    assert _normalise_evidence_corpus("legacy") == "legacy"
+def test_normalise_evidence_corpus_legacy_returns_none() -> None:
+    assert _normalise_evidence_corpus("legacy") is None
 
 
 def test_normalise_evidence_corpus_unknown_returns_none() -> None:
@@ -145,7 +163,7 @@ def test_parse_evidence_corpora_csv_deduplicated() -> None:
 
 def test_resolve_evidence_corpora_defaults_to_all() -> None:
     result = _resolve_evidence_corpora(None, None)
-    assert set(result) == {"a", "b", "c", "legacy"}
+    assert set(result) == {"a", "b", "c"}
 
 
 def test_resolve_evidence_corpora_include_overrides_default() -> None:
@@ -155,7 +173,6 @@ def test_resolve_evidence_corpora_include_overrides_default() -> None:
 
 def test_resolve_evidence_corpora_exclude_removes_from_defaults() -> None:
     result = _resolve_evidence_corpora(None, ["legacy", "c"])
-    assert "legacy" not in result
     assert "c" not in result
     assert "a" in result
     assert "b" in result
@@ -177,7 +194,7 @@ def test_resolve_evidence_corpora_with_default_corpora() -> None:
 
 
 def test_build_evidence_corpus_filter_all_returns_none() -> None:
-    result = _build_evidence_corpus_filter(["a", "b", "c", "legacy"])
+    result = _build_evidence_corpus_filter(["a", "b", "c"])
     assert result is None
 
 
@@ -434,6 +451,74 @@ def test_prepend_disclaimer_empty_answer_returns_disclaimer() -> None:
     assert _prepend_disclaimer("", "Notice") == "Notice"
 
 
+def test_framework_controls_endpoint_returns_framework_controls(monkeypatch, tmp_path) -> None:
+    controls_dir = tmp_path / "parsed-controls"
+    controls_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "requirement_id": "NIST-CSF-GV-GV-OC-01",
+        "framework": "NIST CSF",
+        "framework_version": "2.0",
+        "control_family": "GV.OC",
+        "requirement_text": "Mission and stakeholders are understood.",
+        "guidance_text": "Guidance text.",
+        "source_uri": "https://example.com/nist-csf",
+    }
+    (controls_dir / "nist_csf_2-0-enriched.jsonl").write_text(
+        json.dumps(payload) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LOCAL_CONTROLS_JSONL_PATH", str(controls_dir))
+
+    client = TestClient(_build_controls_api_app())
+    response = client.get("/api/frameworks/nist_csf/controls", params={"auth_token": "ok"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["framework_key"] == "nist_csf"
+    assert body["framework"] == "NIST CSF"
+    assert body["total_count"] == 1
+    assert body["items"][0]["requirement_id"] == "NIST-CSF-GV-GV-OC-01"
+
+
+def test_framework_controls_endpoint_returns_401_when_unauthorised(monkeypatch, tmp_path) -> None:
+    controls_dir = tmp_path / "parsed-controls"
+    controls_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("LOCAL_CONTROLS_JSONL_PATH", str(controls_dir))
+
+    client = TestClient(_build_controls_api_app())
+    response = client.get("/api/frameworks/nist_csf/controls", params={"auth_token": "bad"})
+
+    assert response.status_code == 401
+    body = response.json()
+    assert body["title"] == "Unauthorised"
+    assert body["status"] == 401
+
+
+def test_framework_controls_endpoint_returns_404_for_unknown_framework() -> None:
+    client = TestClient(_build_controls_api_app())
+    response = client.get("/api/frameworks/not-a-framework/controls", params={"auth_token": "ok"})
+    assert response.status_code == 404
+    body = response.json()
+    assert body["title"] == "Not Found"
+    assert "Unknown framework" in body["detail"]
+
+
+def test_framework_controls_endpoint_returns_404_when_framework_file_missing(
+    monkeypatch, tmp_path
+) -> None:
+    controls_dir = tmp_path / "parsed-controls"
+    controls_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("LOCAL_CONTROLS_JSONL_PATH", str(controls_dir))
+
+    client = TestClient(_build_controls_api_app())
+    response = client.get("/api/frameworks/nist_csf/controls", params={"auth_token": "ok"})
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["title"] == "Not Found"
+    assert body["framework_key"] == "nist_csf"
+
+
 # ---------------------------------------------------------------------------
 # _question_focus_terms
 # ---------------------------------------------------------------------------
@@ -467,6 +552,14 @@ def test_question_focus_terms_preserves_short_keep_list() -> None:
     assert "mfa" in terms
 
 
+def test_question_focus_terms_drops_low_signal_modal_terms() -> None:
+    terms = _question_focus_terms("When should MFA be used?")
+    assert "mfa" in terms
+    assert "when" not in terms
+    assert "should" not in terms
+    assert "used" not in terms
+
+
 # ---------------------------------------------------------------------------
 # _controls_query_variants
 # ---------------------------------------------------------------------------
@@ -486,6 +579,30 @@ def test_controls_query_variants_returns_multiple_for_real_question() -> None:
 def test_controls_query_variants_deduped() -> None:
     result = _controls_query_variants("backup backup backup")
     assert len(result) == len(set(v.strip().lower() for v in result))
+
+
+def test_controls_query_variants_expand_mfa_phrase() -> None:
+    result = _controls_query_variants("When should MFA be used?")
+    assert any("multi-factor authentication" in variant.lower() for variant in result)
+
+
+def test_control_concept_overlap_counts_mfa_alias_match() -> None:
+    item = {
+        "requirement_text": "Multi-factor authentication is required for privileged access.",
+        "control_family": "Identity and access management",
+        "guidance_text": "",
+    }
+    assert _control_concept_overlap_count(item, ["mfa"]) == 1
+
+
+def test_control_concept_overlap_counts_keyword_metadata() -> None:
+    item = {
+        "requirement_text": "Authentication controls are required.",
+        "control_family": "Identity and access management",
+        "guidance_text": "",
+        "keywords": ["MFA", "privileged"],
+    }
+    assert _control_concept_overlap_count(item, ["mfa"]) == 1
 
 
 # ---------------------------------------------------------------------------

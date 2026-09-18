@@ -66,13 +66,13 @@ def test_create_chat_completion_fn_ollama_available(monkeypatch: pytest.MonkeyPa
     monkeypatch.setitem(
         __import__("sys").modules, "runtime.assessment_orchestration.ollama_client", fake_ollama
     )
-    monkeypatch.setenv("OLLAMA_CHAT_MODEL", "gemma3:27b")
+    monkeypatch.setenv("OLLAMA_CHAT_MODEL", "gemma4:26b")
     monkeypatch.setenv("OLLAMA_NUM_CTX", "8192")
     monkeypatch.setenv("OLLAMA_FORCE_JSON", "true")
 
     fn = dev_llms.create_chat_completion_fn("ollama", config=cfg, credential=_CRED)
     assert fn([{"role": "user", "content": "hi"}]) == "ollama-ok"
-    assert calls["kwargs"]["model"] == "gemma3:27b"
+    assert calls["kwargs"]["model"] == "gemma4:26b"
     assert calls["kwargs"]["num_ctx"] == 8192
     assert calls["kwargs"]["temperature"] == 0.33
     assert calls["kwargs"]["top_p"] == 0.77

@@ -48,15 +48,6 @@ Successfully implemented Azure Foundry chat completion API integration with pers
 
 #### [query_web/requirements/base.txt](../query_web/requirements/base.txt)
 
-Added:
-- `openai==1.51.0` — Azure OpenAI SDK for Foundry API
-- `azure-cosmos==4.7.0` — CosmosDB Python SDK
-
-Updated for security:
-- `jinja2==3.1.6` (was 3.1.5)
-- `requests==2.32.4` (was 2.32.3)
-- `pypdf==6.11.0` (was 5.4.0 in runtime/requirements/local.txt)
-
 ---
 
 ### 3. Testing

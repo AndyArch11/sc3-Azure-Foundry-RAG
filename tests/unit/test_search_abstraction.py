@@ -240,6 +240,34 @@ class TestAzureSearchClient:
             documents=[{"requirement_id": "CTRL-1"}]
         )
 
+    def test_search_optional_dedupe_and_overfetch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from runtime.search.azure_search import AzureSearchClient
+
+        monkeypatch.setenv("SEARCH_RESULT_DEDUPE_ENABLED", "1")
+        monkeypatch.setenv("SEARCH_RESULT_OVERFETCH_MULTIPLIER", "4")
+
+        mock_sdk_client = MagicMock()
+        mock_sdk_client.search.return_value = [
+            {"content": "duplicate-a", "content_sha256": "hash-1"},
+            {"content": "duplicate-a", "content_sha256": "hash-1"},
+            {"content": "unique-b", "content_sha256": "hash-2"},
+        ]
+        with patch(
+            "runtime.search.azure_search._AzureSDKSearchClient", return_value=mock_sdk_client
+        ):
+            client = AzureSearchClient(
+                endpoint="https://endpoint.search.windows.net",
+                index="my-index",
+                credential=MagicMock(),
+            )
+
+        results = client.search(query_text="malware protection", top=2)
+
+        call_kwargs = mock_sdk_client.search.call_args.kwargs
+        assert call_kwargs["top"] == 8
+        assert len(results) == 2
+        assert [item["content"] for item in results] == ["duplicate-a", "unique-b"]
+
 
 # ---------------------------------------------------------------------------
 # AWSOpenSearchClient – mocked interactions
@@ -451,3 +479,37 @@ class TestAWSOpenSearchClient:
             '(((corpus:"b") OR (corpus_role:"narrative_guidance")) OR '
             '((corpus:"legacy") OR (NOT _exists_:corpus)))'
         )
+
+    def test_search_optional_dedupe_and_overfetch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from runtime.search.opensearch import AWSOpenSearchClient
+
+        monkeypatch.setenv("SEARCH_RESULT_DEDUPE_ENABLED", "1")
+        monkeypatch.setenv("SEARCH_RESULT_OVERFETCH_MULTIPLIER", "4")
+
+        response = MagicMock()
+        response.json.return_value = {
+            "hits": {
+                "hits": [
+                    {
+                        "_score": 1.25,
+                        "_source": {"content": "duplicate-a", "content_sha256": "hash-1"},
+                    },
+                    {
+                        "_score": 1.2,
+                        "_source": {"content": "duplicate-a", "content_sha256": "hash-1"},
+                    },
+                    {"_score": 0.8, "_source": {"content": "unique-b", "content_sha256": "hash-2"}},
+                ]
+            }
+        }
+
+        client = AWSOpenSearchClient(endpoint="https://search.example", index="controls")
+        client._signed_headers = MagicMock(return_value={"Authorization": "sig"})
+        client._http.post = MagicMock(return_value=response)
+
+        results = client.search(query_text="alpha", top=2)
+
+        body = json.loads(client._http.post.call_args.kwargs["data"])
+        assert body["size"] == 8
+        assert len(results) == 2
+        assert [item["content"] for item in results] == ["duplicate-a", "unique-b"]

@@ -72,6 +72,9 @@ EVIDENCE_INDEX = _env("EVIDENCE_INDEX", "grounding-index")
 CONTROLS_INDEX = _env("CONTROLS_INDEX", "controls-index")
 EVIDENCE_PATH = _env("LOCAL_EVIDENCE_JSONL_PATH", "./runtime/out/chunks.jsonl")
 CONTROLS_PATH = _env("LOCAL_CONTROLS_JSONL_PATH", "/app/parsed-controls")
+# Writable location for staleness-detection sidecar files. Must be separate from
+# CONTROLS_PATH, which local-data-init always wipes and resyncs from the image.
+SEED_STATE_DIR = _env("SEED_STATE_DIR", "/app/local_state")
 
 
 # ---------------------------------------------------------------------------
@@ -173,10 +176,11 @@ def _normalise_evidence(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if corpus in {"a", "b", "c"}:
             return corpus
 
-        normalised_path = (source_path or "").replace("\\", "/").lower()
-        if "/corpus-b/" in normalised_path:
+        normalised_path = (source_path or "").replace("\\", "/").strip("/").lower()
+        path_parts = set(normalised_path.split("/")) if normalised_path else set()
+        if "corpus-b" in path_parts:
             return "b"
-        if "/corpus-c/" in normalised_path:
+        if "corpus-c" in path_parts:
             return "c"
 
         return "c"
@@ -322,6 +326,52 @@ def _text_for_embedding(doc: dict[str, Any]) -> str:
     ).strip()
 
 
+def _manifest_hash_for_docs(docs: list[dict[str, Any]]) -> str:
+    """Compute a stable content hash for a list of normalised documents.
+
+    Used to detect when the source JSONL content has changed since the last
+    seed run, so a stale collection (e.g. from an updated framework catalog)
+    gets automatically re-seeded instead of silently skipped forever.
+
+    Args:
+        docs: The normalised documents that would be seeded.
+
+    Returns:
+        A hex-encoded SHA-256 digest of the canonical JSON representation.
+    """
+    canonical = json.dumps(docs, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _read_manifest_hash(manifest_path: Path) -> str | None:
+    """Read a previously stored manifest hash, if present.
+
+    Args:
+        manifest_path: Path to the manifest hash sidecar file.
+
+    Returns:
+        The stored hash, or None if the file is missing or unreadable.
+    """
+    try:
+        return manifest_path.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
+def _write_manifest_hash(manifest_path: Path, value: str) -> None:
+    """Persist a manifest hash for future staleness comparisons.
+
+    Args:
+        manifest_path: Path to the manifest hash sidecar file.
+        value: The hash value to store.
+    """
+    try:
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(value, encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Could not persist manifest hash to %s: %s", manifest_path, exc)
+
+
 def _point_id(doc: dict[str, Any], ordinal: int, collection: str) -> int:
     """Generate a unique point ID for a document.
 
@@ -435,6 +485,7 @@ def seed_collection(
     docs: list[dict[str, Any]],
     *,
     force: bool = False,
+    manifest_path: Path | None = None,
 ) -> int:
     """Embed and upsert docs into a Qdrant collection. Returns count of seeded docs.
 
@@ -442,12 +493,28 @@ def seed_collection(
         collection: The name of the Qdrant collection.
         docs: A list of documents to embed and upsert.
         force: If True, force re-seeding even if the collection already has vectors.
+        manifest_path: Optional sidecar file used to detect source content changes
+            (e.g. an updated framework catalog) so a stale collection is
+            automatically re-seeded instead of skipped forever.
 
     Returns:
         The number of seeded documents.
     """
     existing = _collection_count(collection)
-    if existing is not None and existing > 0 and not force:
+
+    content_hash = _manifest_hash_for_docs(docs) if manifest_path is not None else None
+    stale = False
+    if manifest_path is not None and existing is not None and existing > 0:
+        stored_hash = _read_manifest_hash(manifest_path)
+        if stored_hash != content_hash:
+            stale = True
+            logger.info(
+                "Source content for '%s' has changed since the last seed; forcing reseed.",
+                collection,
+            )
+
+    effective_force = force or stale
+    if existing is not None and existing > 0 and not effective_force:
         logger.info(
             "Collection '%s' already has %d vectors — skipping. Use --force to re-seed.",
             collection,
@@ -494,6 +561,8 @@ def seed_collection(
         for i, (doc, vec) in enumerate(zip(payload_docs, vectors))
     ]
     _upsert_points(collection, points)
+    if manifest_path is not None and content_hash is not None:
+        _write_manifest_hash(manifest_path, content_hash)
     logger.info("Seeded %d vectors into '%s'.", len(points), collection)
     return len(points)
 
@@ -589,7 +658,10 @@ def main() -> int:
         logger.info("Loaded %d raw control documents from %s", len(raw), CONTROLS_PATH)
         docs = _normalise_controls(raw)
         logger.info("Normalised to %d embeddable control documents", len(docs))
-        total_seeded += seed_collection(CONTROLS_INDEX, docs, force=args.force)
+        controls_manifest_path = Path(SEED_STATE_DIR) / "controls-index.manifest.sha256"
+        total_seeded += seed_collection(
+            CONTROLS_INDEX, docs, force=args.force, manifest_path=controls_manifest_path
+        )
 
     logger.info("=== Seeding complete. Total vectors indexed: %d ===", total_seeded)
     return 0

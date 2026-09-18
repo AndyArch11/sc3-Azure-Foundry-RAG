@@ -31,6 +31,7 @@ except ImportError:  # Container layout copies modules to /app, not /app/runtime
     from outbound_instrumentation import request_with_instrumentation
 
 from .base import BaseParser, RequirementRecord, filter_keywords
+from .utils import fetch_text_with_instrumentation, slugify_text
 
 logger = logging.getLogger(__name__)
 
@@ -202,10 +203,7 @@ def _slugify(text: str) -> str:
     Returns:
         A lowercase hyphen-delimited slug.
     """
-    slug = text.lower()
-    slug = re.sub(r"[^a-z0-9]+", "-", slug)
-    slug = slug.strip("-")
-    return slug
+    return slugify_text(text, delimiter="-")
 
 
 def _normalise_family_name(raw: str) -> Optional[str]:
@@ -252,18 +250,17 @@ def _fetch_soup(url: str):
         ) from exc
 
     logger.debug("Fetching %s", url)
-    resp = request_with_instrumentation(
-        "GET",
-        url,
+    html = fetch_text_with_instrumentation(
+        url=url,
         logger=logger,
         timeout=30,
         headers={"User-Agent": "Mozilla/5.0"},
         system="cyber-gov-au",
         operation="fetch_essential_eight_page",
+        instrumenter=request_with_instrumentation,
         request_callable=requests.get,
     )
-    resp.raise_for_status()
-    return BeautifulSoup(resp.text, "html.parser")
+    return BeautifulSoup(html, "html.parser")
 
 
 def _extract_introduction(soup) -> str:

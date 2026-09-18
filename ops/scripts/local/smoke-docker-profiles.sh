@@ -98,7 +98,7 @@ docker run -d \
   -e CLOUD_PROVIDER=local \
   -e LOCAL_VECTOR_BACKEND=inmemory \
   -e PRECEDENCE_POLICY_PATH=/app/policies/precedence_policy.json \
-  -e OLLAMA_MODEL=gemma3:27b \
+  -e OLLAMA_MODEL=gemma4:26b \
   -e OLLAMA_EMBEDDING_MODEL=nomic-embed-text \
   "${QUERY_WEB_FULL_IMAGE_TAG}" >/dev/null
 

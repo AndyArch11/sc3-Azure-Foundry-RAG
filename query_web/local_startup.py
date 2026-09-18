@@ -35,10 +35,11 @@ def _infer_local_corpus(source_path: str, explicit_corpus: str) -> str:
     if corpus in {"a", "b", "c"}:
         return corpus
 
-    normalised_path = (source_path or "").replace("\\", "/").lower()
-    if "/corpus-b/" in normalised_path:
+    normalised_path = (source_path or "").replace("\\", "/").strip("/").lower()
+    path_parts = set(normalised_path.split("/")) if normalised_path else set()
+    if "corpus-b" in path_parts:
         return "b"
-    if "/corpus-c/" in normalised_path:
+    if "corpus-c" in path_parts:
         return "c"
 
     return "c"
@@ -126,6 +127,7 @@ def _load_local_jsonl_documents(path_value: str, *, controls_mode: bool) -> list
                                 "framework_version": payload.get("framework_version") or "",
                                 "control_family": payload.get("control_family") or "",
                                 "maturity_level": payload.get("maturity_level"),
+                                "control_baselines": payload.get("control_baselines") or [],
                                 "requirement_text": req_text,
                                 "guidance_text": payload.get("guidance_text") or "",
                                 "source_uri": payload.get("source_uri") or str(file_path.name),

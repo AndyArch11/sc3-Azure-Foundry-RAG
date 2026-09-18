@@ -9,6 +9,7 @@ from azure.search.documents import SearchClient as _AzureSDKSearchClient
 from azure.search.documents.models import VectorizedQuery
 
 from runtime.outbound_instrumentation import sdk_call_with_instrumentation
+from runtime.search.result_hygiene import compute_search_limit, dedupe_results
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class AzureSearchClient:
         credential: Any,
         *,
         embedding_fn: Any = None,
-        embedding_deployment: str = "text-embedding-ada-002",
+        embedding_deployment: str = "text-embedding-3-small",
     ) -> None:
         """Initialise an AzureSearchClient instance.
 
@@ -119,7 +120,11 @@ class AzureSearchClient:
 
         kwargs: dict[str, Any] = {
             "search_text": query_text,
-            "top": top,
+            "top": compute_search_limit(
+                top=top,
+                provider_key="azure",
+                default_dedupe_enabled=False,
+            ),
         }
         if filters:
             kwargs["filter"] = filters
@@ -129,19 +134,19 @@ class AzureSearchClient:
         if vector_query is not None:
             vector_ctor = cast(Any, VectorizedQuery)
             try:
-                vectorized_query = vector_ctor(
+                vectorised_query = vector_ctor(
                     vector=vector_query,
-                    k=top,
+                    k=kwargs["top"],
                     fields="content_vector",
                 )
             except TypeError:
-                vectorized_query = vector_ctor(
+                vectorised_query = vector_ctor(
                     vector=vector_query,
-                    k_nearest_neighbors=top,
+                    k_nearest_neighbors=kwargs["top"],
                     fields="content_vector",
                 )
             kwargs["vector_queries"] = [
-                vectorized_query
+                vectorised_query
             ]
 
         # Forward provider-specific hints (e.g. query_type, semantic_configuration_name).
@@ -159,6 +164,15 @@ class AzureSearchClient:
         )
         total_count = results.get_count() if hasattr(results, "get_count") else None
         items = [dict(r) for r in results]
+        items = cast(
+            list[dict[str, Any]],
+            dedupe_results(
+                cast(list[dict[str, object]], items),
+                top=top,
+                provider_key="azure",
+                default_dedupe_enabled=False,
+            ),
+        )
         return _SearchResults(items=items, total_count=total_count)
 
     def delete_documents(self, *, documents: list[dict[str, Any]]) -> None:

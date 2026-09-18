@@ -19,7 +19,9 @@ from pydantic import BaseModel, Field
 
 from query_web.config import _normalise_thinking_mode, _thinking_defaults
 from query_web.constants import COMPLIANCE_REPORT_SCHEMA_VERSION
+from query_web.endpoints.problem_details import problem_response as _problem_response
 from query_web.utils import _utc_now_iso
+from runtime.llm.token_usage import estimate_tokens_from_text, pop_last_token_usage
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,7 @@ class ComplianceReportRequest(BaseModel):
 
     question: str = ""
     retrieve_k: int = Field(default=5, ge=1, le=20)
-    controls_top_k: int = Field(default=4, ge=1, le=2000)
+    controls_top_k: int = Field(default=4, ge=1, le=1500)
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
     top_p: float = Field(default=1.0, ge=0.0, le=1.0)
     thinking_mode: str = "balanced"
@@ -55,6 +57,7 @@ class ComplianceReportRequest(BaseModel):
     controls_comparison_mode: str = "auto-detect"
     corpus_b_upload_batch: str | None = None
     corpus_c_upload_batch: str | None = None
+    include_corpus_b: bool = True
     evidence_corpora_include: list[str] | None = None
     evidence_corpora_exclude: list[str] | None = None
     assessment_strategy: Literal["single_pass", "per_control"] = "single_pass"
@@ -85,7 +88,7 @@ class AzureComplianceReportRequest(BaseModel):
     resource_group: str
     resource_ids: list[str] = Field(default_factory=list)
     controls_framework: str = "NIST CSF"
-    controls_top_k: int = Field(default=4, ge=1, le=2000)
+    controls_top_k: int = Field(default=4, ge=1, le=1500)
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
     top_p: float = Field(default=1.0, ge=0.0, le=1.0)
     thinking_mode: str = "balanced"
@@ -120,7 +123,7 @@ class AwsComplianceReportRequest(BaseModel):
     region: str
     resource_arns: list[str] = Field(default_factory=list)
     controls_framework: str = "NIST CSF"
-    controls_top_k: int = Field(default=4, ge=1, le=2000)
+    controls_top_k: int = Field(default=4, ge=1, le=1500)
     retrieve_k: int = Field(default=5, ge=1, le=20)
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
     top_p: float = Field(default=1.0, ge=0.0, le=1.0)
@@ -183,9 +186,9 @@ class ComplianceReportStructured(BaseModel):
     schema_version: str = Field(min_length=1, max_length=32)
     executive_summary: str = Field(min_length=1, max_length=3000)
     scope_and_inputs: list[str] = Field(default_factory=list, min_length=1, max_length=40)
-    controls_assessed: list[str] = Field(default_factory=list, min_length=1, max_length=200)
+    controls_assessed: list[str] = Field(default_factory=list, min_length=1, max_length=1500)
     guidance_applied: list[str] = Field(default_factory=list, max_length=80)
-    findings: list[ComplianceFinding] = Field(default_factory=list, min_length=1, max_length=300)
+    findings: list[ComplianceFinding] = Field(default_factory=list, min_length=1, max_length=1500)
     overall_risk_rating: Literal["low", "medium", "high", "critical"]
     missing_evidence: list[str] = Field(default_factory=list, max_length=80)
     recommended_actions: list[str] = Field(default_factory=list, min_length=1, max_length=80)
@@ -226,6 +229,7 @@ class _ReportJob:
     current_requirement_id: str = ""
     result: dict[str, Any] | None = None
     error: str = ""
+    # TODO: persist resolved control IDs and completed IDs for resumable jobs.
 
 
 _REPORT_JOBS: dict[str, _ReportJob] = {}
@@ -241,6 +245,7 @@ def _new_report_job(kind: Literal["compliance", "azure", "aws"]) -> _ReportJob:
     Returns:
         The newly created report job.
     """
+
     now = _utc_now_iso()
     job = _ReportJob(
         job_id=str(uuid.uuid4()),
@@ -431,6 +436,30 @@ def _control_terms(control: dict[str, Any]) -> set[str]:
     return {token for token in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", text) if len(token) >= 4}
 
 
+def _build_control_search_query(control: dict[str, Any]) -> str:
+    """Build a targeted retrieval query from a single control's own text.
+
+    Used for per-control evidence retrieval so each control searches against
+    its own requirement/guidance text rather than a shared, generic query —
+    this keeps each retrieval call bounded (safe for arbitrarily large
+    corpora) while giving every control a fair chance at surfacing evidence
+    that is specific to it.
+
+    Args:
+        control: The compliance control dictionary.
+
+    Returns:
+        A query string derived from the control's identifying text.
+    """
+    parts = [
+        str(control.get("requirement_id") or ""),
+        str(control.get("control_family") or ""),
+        str(control.get("requirement_text") or "")[:600],
+        str(control.get("guidance_text") or "")[:300],
+    ]
+    return " ".join(part for part in parts if part).strip()
+
+
 def _select_chunks_for_control(
     control: dict[str, Any],
     chunks: list[dict[str, Any]],
@@ -461,6 +490,40 @@ def _select_chunks_for_control(
 
     scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
     return [item[2] for item in scored[:max_chunks]]
+
+
+def _enumerate_framework_controls(*, svc: Any, framework: str, limit: int) -> list[dict[str, Any]]:
+    """Enumerate distinct controls for a selected framework up to a hard limit."""
+    escaped_framework = framework.replace("'", "''")
+    selected_fields = [
+        "requirement_id",
+        "framework",
+        "framework_version",
+        "control_family",
+        "maturity_level",
+        "control_baselines",
+        "requirement_text",
+        "guidance_text",
+        "keywords",
+        "source_uri",
+    ]
+    controls: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    pager = svc.controls_search_client.search(
+        query_text="*",
+        filter=f"framework eq '{escaped_framework}'",
+        top=min(limit, 1500),
+        select=selected_fields,
+    )
+    for item in pager:
+        requirement_id = str(item.get("requirement_id") or "").strip()
+        if not requirement_id or requirement_id in seen_ids:
+            continue
+        seen_ids.add(requirement_id)
+        controls.append(dict(item))
+        if len(controls) >= limit:
+            break
+    return controls
 
 
 def _build_compliance_scope_inputs(
@@ -864,6 +927,82 @@ def _build_fallback_compliance_report_payload(
     }
 
 
+def _token_usage_markdown_section(usage: dict[str, Any]) -> str:
+    """Render a Markdown section summarising cumulative token usage.
+
+    Args:
+        usage: A token usage accumulator dict (see ``_new_token_usage_accumulator``).
+
+    Returns:
+        A Markdown-formatted section to append to a compliance report.
+    """
+    lines = [
+        "\n\n## Token Usage",
+        f"- Prompt tokens: {usage['prompt_tokens']:,}",
+        f"- Completion tokens: {usage['completion_tokens']:,}",
+        f"- Total tokens: {usage['total_tokens']:,}",
+        f"- LLM calls: {usage['llm_calls']:,}",
+    ]
+    if usage.get("estimated"):
+        lines.append(
+            "- Note: token counts are approximate (heuristic estimate); the active "
+            "provider did not report exact usage for at least one call."
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _new_token_usage_accumulator() -> dict[str, Any]:
+    """Create an empty cumulative token usage accumulator.
+
+    Returns:
+        A dict with zeroed prompt/completion/total token counts, an
+        ``llm_calls`` counter, and an ``estimated`` flag that is set to True
+        if any accumulated call falls back to heuristic estimation.
+    """
+    return {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "estimated": False,
+    }
+
+
+def _record_llm_call_usage(
+    accumulator: dict[str, Any] | None, *, prompt_text: str, response_text: str
+) -> None:
+    """Accumulate token usage for one LLM call into ``accumulator``.
+
+    Uses exact provider-reported usage when available (see
+    ``runtime.llm.token_usage``); otherwise falls back to a character-based
+    heuristic estimate derived from the prompt and response text so usage can
+    still be approximated across every provider (local Ollama, Azure Foundry,
+    AWS Bedrock).
+
+    Args:
+        accumulator: The running totals dict to update in place, or ``None``
+            to skip recording.
+        prompt_text: The text sent to the model for this call.
+        response_text: The text returned by the model for this call.
+    """
+    if accumulator is None:
+        return
+    usage = pop_last_token_usage()
+    if usage is not None:
+        accumulator["prompt_tokens"] += usage.prompt_tokens
+        accumulator["completion_tokens"] += usage.completion_tokens
+        accumulator["total_tokens"] += usage.total_tokens
+        accumulator["estimated"] = accumulator["estimated"] or usage.estimated
+    else:
+        prompt_tokens = estimate_tokens_from_text(prompt_text)
+        completion_tokens = estimate_tokens_from_text(response_text)
+        accumulator["prompt_tokens"] += prompt_tokens
+        accumulator["completion_tokens"] += completion_tokens
+        accumulator["total_tokens"] += prompt_tokens + completion_tokens
+        accumulator["estimated"] = True
+    accumulator["llm_calls"] += 1
+
+
 def _assess_control_finding_with_llm(
     *,
     svc: Any,
@@ -873,6 +1012,7 @@ def _assess_control_finding_with_llm(
     corpus_c_chunks: list[dict[str, Any]],
     temperature: float,
     top_p: float = 1.0,
+    token_usage_accumulator: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Assess a single compliance control using a language model.
@@ -885,6 +1025,8 @@ def _assess_control_finding_with_llm(
         corpus_c_chunks: A list of Corpus C chunks.
         temperature: The temperature setting for the language model.
         top_p: The top_p setting for the language model.
+        token_usage_accumulator: Optional running token usage totals dict to
+            update with this call's usage (exact or heuristic).
 
     Returns:
         A dictionary representing the assessed control finding.
@@ -907,7 +1049,15 @@ def _assess_control_finding_with_llm(
             "role": "system",
             "content": (
                 "Assess one compliance control and return exactly one JSON finding object with fields: "
-                "finding_id, requirement_id, framework, status, severity, rationale, evidence_sources, gaps, recommendations."
+                "finding_id, requirement_id, framework, status, severity, rationale, evidence_sources, gaps, recommendations.\n"
+                "Constraints:\n"
+                "- status must be one of compliant|partially_compliant|non_compliant|not_applicable|insufficient_evidence\n"
+                "- use not_applicable only when the control text itself is conditional (e.g. 'if using cloud services') "
+                "and the evidence affirmatively shows that condition does not hold; never use it merely because evidence is missing\n"
+                "- use insufficient_evidence when the control could apply but no retrieved evidence confirms or denies it\n"
+                "- severity must be one of low|medium|high|critical\n"
+                "- include at least one evidence source when possible\n"
+                "- return JSON object only"
             ),
         },
         {
@@ -921,12 +1071,7 @@ def _assess_control_finding_with_llm(
                 f"Requirement: {svc.sanitise_untrusted_text(str(control.get('requirement_text') or '')[:1600])}\n"
                 f"Guidance: {svc.sanitise_untrusted_text(str(control.get('guidance_text') or '')[:1000])}\n\n"
                 f"Corpus B guidance (optional):\n{b_context or 'No relevant Corpus B guidance.'}\n\n"
-                f"Corpus C evidence:\n{c_context or 'No relevant Corpus C evidence.'}\n\n"
-                "Constraints:\n"
-                "- status must be one of compliant|partially_compliant|non_compliant|not_applicable|insufficient_evidence\n"
-                "- severity must be one of low|medium|high|critical\n"
-                "- include at least one evidence source when possible\n"
-                "- return JSON object only"
+                f"Corpus C evidence:\n{c_context or 'No relevant Corpus C evidence.'}"
             ),
         },
     ]
@@ -945,6 +1090,11 @@ def _assess_control_finding_with_llm(
                 deployment=svc.config.query_deployment,
                 temperature=temperature,
             )
+        _record_llm_call_usage(
+            token_usage_accumulator,
+            prompt_text="\n".join(str(m.get("content") or "") for m in messages),
+            response_text=raw,
+        )
         parsed = _extract_json_object(raw, svc)
     except Exception:
         logger.exception(
@@ -983,8 +1133,11 @@ def _build_per_control_report_payload(
     svc: Any,
     question: str,
     controls: list[dict[str, Any]],
-    corpus_b_chunks: list[dict[str, Any]],
-    corpus_c_chunks: list[dict[str, Any]],
+    corpus_b_chunks: list[dict[str, Any]] | None = None,
+    corpus_c_chunks: list[dict[str, Any]] | None = None,
+    corpus_b_filter: str | None = None,
+    corpus_c_filter: str | None = None,
+    evidence_retrieve_k: int = 5,
     temperature: float,
     top_p: float = 1.0,
     progress_cb: Callable[[int, int, str, str], None] | None = None,
@@ -995,15 +1148,32 @@ def _build_per_control_report_payload(
     corpus_b_filtered_total: int | None = None,
     corpus_c_filtered_total: int | None = None,
     corpus_c_scope_label: str = "Corpus C artifacts retrieved",
+    token_usage_accumulator: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a compliance report payload by assessing each control individually.
+
+    When ``corpus_c_filter`` is supplied, each control performs its own
+    targeted Corpus B/C search (via ``svc._hybrid_search``) scoped to that
+    control's own requirement text, instead of sharing one fixed-size pool of
+    pre-fetched chunks. This keeps memory/latency bounded per call regardless
+    of how large the underlying corpora are, and gives every control a fair
+    chance at surfacing evidence specific to it. When no filter is supplied,
+    falls back to selecting from the pre-fetched ``corpus_b_chunks``/
+    ``corpus_c_chunks`` pool (used by the Azure live-resource path, where
+    evidence is already scoped to the assessed resources).
 
     Args:
         svc: The service instance for processing.
         question: The assessment question.
         controls: A list of compliance controls.
-        corpus_b_chunks: A list of Corpus B chunks.
-        corpus_c_chunks: A list of Corpus C chunks.
+        corpus_b_chunks: Pre-fetched Corpus B chunks (legacy/shared-pool mode).
+        corpus_c_chunks: Pre-fetched Corpus C chunks (legacy/shared-pool mode).
+        corpus_b_filter: Optional Corpus B search filter; when set, triggers
+            per-control targeted retrieval instead of the shared pool.
+        corpus_c_filter: Optional Corpus C search filter; when set, triggers
+            per-control targeted retrieval instead of the shared pool.
+        evidence_retrieve_k: Max chunks to retrieve per control per corpus
+            when using targeted retrieval.
         temperature: The temperature setting for the language model.
         top_p: The top_p setting for the language model.
         progress_cb: An optional callback function for reporting progress.
@@ -1014,19 +1184,45 @@ def _build_per_control_report_payload(
         corpus_b_filtered_total: The total number of filtered documents in Corpus B.
         corpus_c_filtered_total: The total number of filtered documents in Corpus C.
         corpus_c_scope_label: The scope label for Corpus C artifacts.
+        token_usage_accumulator: Optional running token usage totals dict,
+            updated in place with usage from each per-control LLM call.
 
     Returns:
         A compliance report payload with per-control findings."""
     findings: list[dict[str, Any]] = []
     total = len(controls)
+    per_control_retrieval = bool(corpus_c_filter)
+    retrieved_b_labels: set[str] = set()
+    retrieved_c_labels: set[str] = set()
 
     for index, control in enumerate(controls, start=1):
         requirement_id = str(control.get("requirement_id") or "").strip() or f"CTRL-{index}"
         if progress_cb:
             progress_cb(index - 1, total, requirement_id, f"Assessing control {index}/{total}")
 
-        relevant_b = _select_chunks_for_control(control, corpus_b_chunks, max_chunks=2)
-        relevant_c = _select_chunks_for_control(control, corpus_c_chunks, max_chunks=3)
+        if per_control_retrieval:
+            control_query = _build_control_search_query(control) or question
+            b_pool: list[dict[str, Any]] = []
+            if corpus_b_filter:
+                b_pool, _ = svc._hybrid_search(
+                    control_query, retrieve_k=evidence_retrieve_k, evidence_filter=corpus_b_filter
+                )
+            c_pool, _ = svc._hybrid_search(
+                control_query, retrieve_k=evidence_retrieve_k, evidence_filter=corpus_c_filter
+            )
+        else:
+            b_pool = corpus_b_chunks or []
+            c_pool = corpus_c_chunks or []
+
+        relevant_b = _select_chunks_for_control(control, b_pool, max_chunks=2)
+        relevant_c = _select_chunks_for_control(control, c_pool, max_chunks=3)
+        retrieved_b_labels.update(
+            label for c in relevant_b if (label := svc._chunk_reference_label(c, fallback=""))
+        )
+        retrieved_c_labels.update(
+            label for c in relevant_c if (label := svc._chunk_reference_label(c, fallback=""))
+        )
+
         finding = _assess_control_finding_with_llm(
             svc=svc,
             question=question,
@@ -1035,16 +1231,24 @@ def _build_per_control_report_payload(
             corpus_c_chunks=relevant_c,
             temperature=temperature,
             top_p=top_p,
+            token_usage_accumulator=token_usage_accumulator,
         )
         findings.append(finding)
         if progress_cb:
             progress_cb(index, total, requirement_id, f"Completed control {index}/{total}")
 
+    corpus_b_chunk_total = (
+        len(retrieved_b_labels) if per_control_retrieval else len(corpus_b_chunks or [])
+    )
+    corpus_c_chunk_total = (
+        len(retrieved_c_labels) if per_control_retrieval else len(corpus_c_chunks or [])
+    )
+
     scope_inputs = _build_compliance_scope_inputs(
         question=question,
         controls_count=len(controls),
-        corpus_b_chunk_count=len(corpus_b_chunks),
-        corpus_c_chunk_count=len(corpus_c_chunks),
+        corpus_b_chunk_count=corpus_b_chunk_total,
+        corpus_c_chunk_count=corpus_c_chunk_total,
         corpus_b_indexed_total=corpus_b_indexed_total,
         corpus_c_indexed_total=corpus_c_indexed_total,
         corpus_b_upload_batch=corpus_b_upload_batch,
@@ -1059,11 +1263,14 @@ def _build_per_control_report_payload(
         for c in controls
         if str(c.get("requirement_id") or "").strip()
     ]
-    source_names = [
-        svc._chunk_reference_label(item, fallback="")
-        for item in [*corpus_b_chunks, *corpus_c_chunks]
-        if svc._chunk_reference_label(item, fallback="")
-    ]
+    if per_control_retrieval:
+        source_names = sorted(retrieved_b_labels | retrieved_c_labels)
+    else:
+        source_names = [
+            svc._chunk_reference_label(item, fallback="")
+            for item in [*(corpus_b_chunks or []), *(corpus_c_chunks or [])]
+            if svc._chunk_reference_label(item, fallback="")
+        ]
 
     statuses = [str(item.get("status") or "").strip().lower() for item in findings]
     if any(s in {"non_compliant", "critical"} for s in statuses):
@@ -1097,6 +1304,8 @@ def _build_per_control_report_payload(
             "Collect missing evidence for controls marked insufficient_evidence.",
         ],
         "citations": source_names[:40] or ["No evidence sources retrieved"],
+        "corpus_b_retrieved_count": corpus_b_chunk_total,
+        "corpus_c_retrieved_count": corpus_c_chunk_total,
     }
 
 
@@ -1213,6 +1422,7 @@ def generate_compliance_report_result(
     """
 
     question = payload.question.strip()
+    framework_filter = svc._normalise_framework_filter(payload.controls_framework)
     effective_question = question
     if not effective_question:
         framework_hint = svc._canonical_framework_name(payload.controls_framework) or "selected"
@@ -1250,17 +1460,28 @@ def generate_compliance_report_result(
     elif report_top_p == 1.0 and payload.thinking_mode:
         report_top_p = float(mode_defaults.get("top_p", getattr(svc.config, "top_p", 1.0)))
 
-    controls, controls_timings = svc._controls_search(
-        effective_question,
-        retrieve_k=payload.controls_top_k,
-        use_semantic=svc.config.controls_semantic_default,
-        framework_filter_override=svc._normalise_framework_filter(payload.controls_framework),
-        comparison_mode=svc._normalise_controls_comparison_mode(payload.controls_comparison_mode),
-    )
+    if framework_filter and not question:
+        controls = _enumerate_framework_controls(
+            svc=svc, framework=framework_filter, limit=payload.controls_top_k
+        )
+        controls_timings = {"controls_search_s": 0.0, "controls_enumerated": 1.0}
+    else:
+        controls, controls_timings = svc._controls_search(
+            effective_question,
+            retrieve_k=payload.controls_top_k,
+            use_semantic=svc.config.controls_semantic_default,
+            framework_filter_override=framework_filter,
+            comparison_mode=svc._normalise_controls_comparison_mode(
+                payload.controls_comparison_mode
+            ),
+        )
 
-    selected_evidence_corpora = ["b"]
+    strategy = payload.assessment_strategy
+    per_control_mode = strategy == "per_control" and bool(controls)
+
+    selected_evidence_corpora = ["b"] if payload.include_corpus_b else []
     evidence_corpus_filter_expr = svc._build_evidence_corpus_filter(selected_evidence_corpora)
-    include_corpus_b = True
+    include_corpus_b = payload.include_corpus_b
     include_corpus_c = True
 
     corpus_b_filter = "corpus eq 'b'"
@@ -1277,11 +1498,17 @@ def generate_compliance_report_result(
             corpus_b_filtered_total = svc._count_search_documents_total_by_filter(
                 svc.search_client, filter_expr=corpus_b_filter
             )
-        corpus_b_chunks, b_timings = svc._hybrid_search(
-            effective_question,
-            retrieve_k=payload.retrieve_k,
-            evidence_filter=corpus_b_filter,
-        )
+        if per_control_mode:
+            # Each control retrieves its own bounded evidence set below instead of
+            # sharing one fixed-size pool, so this upfront search is skipped.
+            corpus_b_chunks = []
+            b_timings = {"search_s": 0.0}
+        else:
+            corpus_b_chunks, b_timings = svc._hybrid_search(
+                effective_question,
+                retrieve_k=payload.retrieve_k,
+                evidence_filter=corpus_b_filter,
+            )
     else:
         corpus_b_indexed_total = 0
         corpus_b_chunks = []
@@ -1302,26 +1529,31 @@ def generate_compliance_report_result(
             corpus_c_filtered_total = svc._count_search_documents_total_by_filter(
                 svc.search_client, filter_expr=corpus_c_filter
             )
-        corpus_c_chunks, c_timings = svc._hybrid_search(
-            effective_question,
-            retrieve_k=payload.retrieve_k,
-            evidence_filter=corpus_c_filter,
-        )
+        if per_control_mode:
+            corpus_c_chunks = []
+            c_timings = {"search_s": 0.0}
+        else:
+            corpus_c_chunks, c_timings = svc._hybrid_search(
+                effective_question,
+                retrieve_k=payload.retrieve_k,
+                evidence_filter=corpus_c_filter,
+            )
     else:
         corpus_c_indexed_total = 0
         corpus_c_chunks = []
         c_timings = {"search_s": 0.0}
         corpus_c_filter_expr = None
 
-    strategy = payload.assessment_strategy
     used_fallback_payload = False
-    if strategy == "per_control" and controls:
+    token_usage_accumulator = _new_token_usage_accumulator()
+    if per_control_mode:
         report_payload = _build_per_control_report_payload(
             svc=svc,
             question=effective_question,
             controls=controls,
-            corpus_b_chunks=corpus_b_chunks,
-            corpus_c_chunks=corpus_c_chunks,
+            corpus_b_filter=corpus_b_filter if include_corpus_b else None,
+            corpus_c_filter=corpus_c_filter,
+            evidence_retrieve_k=payload.retrieve_k,
             temperature=report_temperature,
             top_p=report_top_p,
             progress_cb=progress_cb,
@@ -1331,13 +1563,14 @@ def generate_compliance_report_result(
             corpus_c_upload_batch=payload.corpus_c_upload_batch,
             corpus_b_filtered_total=corpus_b_filtered_total,
             corpus_c_filtered_total=corpus_c_filtered_total,
+            token_usage_accumulator=token_usage_accumulator,
         )
     else:
         controls_context = "\n\n".join(
             (
                 f"Requirement ID: {c['requirement_id']}\n"
-                f"Framework: {c['framework']} {c['framework_version']}\n"
-                f"Control Family: {c['control_family']}\n"
+                f"Framework: {c.get('framework', '')} {c.get('framework_version', '')}\n"
+                f"Control Family: {c.get('control_family', '')}\n"
                 f"Requirement: {svc.sanitise_untrusted_text(c['requirement_text'][:1200])}\n"
                 f"Guidance: {svc.sanitise_untrusted_text(c['guidance_text'][:800]) or 'No supplementary guidance is available for this control; assess solely against the requirement text above.'}"
             )
@@ -1364,13 +1597,8 @@ def generate_compliance_report_result(
             {"role": "system", "content": COMPLIANCE_REPORT_PROMPT},
             {"role": "system", "content": svc.PROMPT_INJECTION_SYSTEM_PROMPT},
             {
-                "role": "user",
+                "role": "system",
                 "content": (
-                    f"Assessment question:\n{svc.sanitise_untrusted_text(effective_question)}\n\n"
-                    "Use the following corpora:\n"
-                    f"Corpus A (normative requirements):\n{controls_context or 'No Corpus A controls retrieved.'}\n\n"
-                    f"Corpus B (narrative guidance):\n{corpus_b_context or 'No Corpus B guidance retrieved.'}\n\n"
-                    f"Corpus C (assessed artifacts):\n{corpus_c_context or 'No Corpus C artifacts retrieved.'}\n\n"
                     "Generate only JSON that matches this exact schema and constraints:\n"
                     f"{COMPLIANCE_REPORT_JSON_SCHEMA_HINT}\n\n"
                     "Rules:\n"
@@ -1382,6 +1610,16 @@ def generate_compliance_report_result(
                     "- Return raw JSON object only."
                 ),
             },
+            {
+                "role": "user",
+                "content": (
+                    f"Assessment question:\n{svc.sanitise_untrusted_text(effective_question)}\n\n"
+                    "Use the following corpora:\n"
+                    f"Corpus A (normative requirements):\n{controls_context or 'No Corpus A controls retrieved.'}\n\n"
+                    f"Corpus B (narrative guidance):\n{corpus_b_context or 'No Corpus B guidance retrieved.'}\n\n"
+                    f"Corpus C (assessed artifacts):\n{corpus_c_context or 'No Corpus C artifacts retrieved.'}"
+                ),
+            },
         ]
 
         model_response = svc._chat_completion_with_empty_retry(
@@ -1389,6 +1627,11 @@ def generate_compliance_report_result(
             deployment=svc.config.query_deployment,
             temperature=report_temperature,
             top_p=report_top_p,
+        )
+        _record_llm_call_usage(
+            token_usage_accumulator,
+            prompt_text="\n".join(str(m.get("content") or "") for m in messages),
+            response_text=model_response,
         )
         try:
             report_payload = _extract_json_object(model_response, svc)
@@ -1464,6 +1707,9 @@ def generate_compliance_report_result(
         report_markdown = _report_to_markdown(report_structured)
         report_csv = _report_findings_to_csv(report_structured)
 
+    if token_usage_accumulator["llm_calls"] > 0:
+        report_markdown += _token_usage_markdown_section(token_usage_accumulator)
+
     report_filename_base = f"compliance-report-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
     return {
         "mode": "compliance-report",
@@ -1477,9 +1723,18 @@ def generate_compliance_report_result(
         "validation_mode": payload.validation_mode,
         "schema_valid": schema_valid,
         "validation_error": validation_error,
+        "token_usage": token_usage_accumulator,
         "controls_count": len(controls),
-        "corpus_b_count": len(corpus_b_chunks),
-        "corpus_c_count": len(corpus_c_chunks),
+        "corpus_b_count": (
+            report_payload.get("corpus_b_retrieved_count", 0)
+            if per_control_mode
+            else len(corpus_b_chunks)
+        ),
+        "corpus_c_count": (
+            report_payload.get("corpus_c_retrieved_count", 0)
+            if per_control_mode
+            else len(corpus_c_chunks)
+        ),
         "corpus_b_indexed_total": corpus_b_indexed_total,
         "corpus_c_indexed_total": corpus_c_indexed_total,
         "corpus_b_upload_batch_filter": payload.corpus_b_upload_batch,
@@ -1570,6 +1825,7 @@ def generate_azure_compliance_report_result(
     report_csv = ""
     schema_valid = False
     report_payload: dict[str, Any]
+    token_usage_accumulator: dict[str, Any] | None = None
 
     if payload.assessment_strategy == "per_control":
         if progress_cb:
@@ -1593,6 +1849,7 @@ def generate_azure_compliance_report_result(
             progress_cb(
                 0, len(controls), "", f"Starting per-control assessment: {len(controls)} controls"
             )
+        token_usage_accumulator = _new_token_usage_accumulator()
         report_payload = _build_per_control_report_payload(
             svc=svc,
             question=scope_desc,
@@ -1603,6 +1860,7 @@ def generate_azure_compliance_report_result(
             top_p=report_top_p,
             progress_cb=progress_cb,
             corpus_c_scope_label="Live Azure artifacts collected",
+            token_usage_accumulator=token_usage_accumulator,
         )
     else:
         if progress_cb:
@@ -1630,6 +1888,9 @@ def generate_azure_compliance_report_result(
         if payload.validation_mode == "hard":
             raise RuntimeError("Compliance report schema validation failed") from exc
 
+    if token_usage_accumulator and token_usage_accumulator["llm_calls"] > 0:
+        report_markdown += _token_usage_markdown_section(token_usage_accumulator)
+
     report_filename_base = f"azure-compliance-report-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
     return {
         "mode": "azure-compliance-report",
@@ -1651,6 +1912,7 @@ def generate_azure_compliance_report_result(
         "validation_mode": payload.validation_mode,
         "schema_valid": schema_valid,
         "validation_error": validation_error,
+        "token_usage": token_usage_accumulator,
     }
 
 
@@ -1761,8 +2023,12 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
             JSONResponse: The response containing the compliance report or an error message.
         """
         if not svc._is_authorised_request(payload.auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
-
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=str(svc._unauthorised_message(request)),
+                instance=str(request.url.path),
+            )
         try:
             corpus_c_base_filter = "corpus eq 'c'"
             corpus_c_indexed_total = svc._count_search_documents_total_by_filter(
@@ -1770,14 +2036,14 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
                 filter_expr=corpus_c_base_filter,
             )
             if corpus_c_indexed_total <= 0:
-                return JSONResponse(
-                    {
-                        "error": (
-                            "Compliance report is unavailable because there are no Corpus C "
-                            "documents to assess. Upload and index Corpus C artifacts first."
-                        )
-                    },
-                    status_code=400,
+                return _problem_response(
+                    status=400,
+                    title="Bad Request",
+                    detail=(
+                        "Compliance report is unavailable because there are no Corpus C "
+                        "documents to assess. Upload and index Corpus C artifacts first."
+                    ),
+                    instance=str(request.url.path),
                 )
 
             if payload.corpus_c_upload_batch:
@@ -1788,14 +2054,14 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
                     filter_expr=batch_filter,
                 )
                 if corpus_c_batch_total <= 0:
-                    return JSONResponse(
-                        {
-                            "error": (
-                                "Compliance report is unavailable because the selected Corpus C "
-                                "upload batch has no indexed documents to assess."
-                            )
-                        },
-                        status_code=400,
+                    return _problem_response(
+                        status=400,
+                        title="Bad Request",
+                        detail=(
+                            "Compliance report is unavailable because the selected Corpus C "
+                            "upload batch has no indexed documents to assess."
+                        ),
+                        instance=str(request.url.path),
                     )
 
             return JSONResponse(svc._generate_compliance_report_result(payload))
@@ -1804,11 +2070,19 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
                 logger.exception(
                     "Failed /api/compliance/report request due to schema validation: %s", exc
                 )
-                return JSONResponse(
-                    {"error": "Compliance report schema validation failed."}, status_code=500
+                return _problem_response(
+                    status=500,
+                    title="Internal Server Error",
+                    detail="Compliance report schema validation failed.",
+                    instance=str(request.url.path),
                 )
             logger.exception("Failed /api/compliance/report request: %s", exc)
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=str(svc._INTERNAL_ERROR_MESSAGE),
+                instance=str(request.url.path),
+            )
 
     @app.post("/api/compliance/report/azure")
     def generate_azure_compliance_report(
@@ -1823,8 +2097,12 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
             JSONResponse: The response containing the Azure compliance report or an error message.
         """
         if not svc._is_authorised_request(payload.auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
-
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=str(svc._unauthorised_message(request)),
+                instance=str(request.url.path),
+            )
         try:
             return JSONResponse(svc._generate_azure_compliance_report_result(payload))
         except Exception as exc:
@@ -1832,11 +2110,19 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
                 logger.exception(
                     "Failed /api/compliance/report/azure due to schema validation: %s", exc
                 )
-                return JSONResponse(
-                    {"error": "Compliance report schema validation failed."}, status_code=500
+                return _problem_response(
+                    status=500,
+                    title="Internal Server Error",
+                    detail="Compliance report schema validation failed.",
+                    instance=str(request.url.path),
                 )
             logger.exception("Failed /api/compliance/report/azure request: %s", exc)
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=str(svc._INTERNAL_ERROR_MESSAGE),
+                instance=str(request.url.path),
+            )
 
     @app.post("/api/compliance/report/aws")
     def generate_aws_compliance_report(
@@ -1851,7 +2137,12 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
             JSONResponse: The response containing the AWS compliance report or an error message.
         """
         if not svc._is_authorised_request(payload.auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=str(svc._unauthorised_message(request)),
+                instance=str(request.url.path),
+            )
 
         try:
             return JSONResponse(svc._generate_aws_compliance_report_result(payload))
@@ -1860,11 +2151,19 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
                 logger.exception(
                     "Failed /api/compliance/report/aws due to schema validation: %s", exc
                 )
-                return JSONResponse(
-                    {"error": "Compliance report schema validation failed."}, status_code=500
+                return _problem_response(
+                    status=500,
+                    title="Internal Server Error",
+                    detail="Compliance report schema validation failed.",
+                    instance=str(request.url.path),
                 )
             logger.exception("Failed /api/compliance/report/aws request: %s", exc)
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=str(svc._INTERNAL_ERROR_MESSAGE),
+                instance=str(request.url.path),
+            )
 
     @app.post("/api/compliance/report/start")
     def start_compliance_report(request: Request, payload: ComplianceReportRequest) -> JSONResponse:
@@ -1877,7 +2176,12 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
             JSONResponse: The response containing the compliance report or an error message.
         """
         if not svc._is_authorised_request(payload.auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=str(svc._unauthorised_message(request)),
+                instance=str(request.url.path),
+            )
 
         try:
             corpus_c_base_filter = "corpus eq 'c'"
@@ -1886,14 +2190,14 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
                 filter_expr=corpus_c_base_filter,
             )
             if corpus_c_indexed_total <= 0:
-                return JSONResponse(
-                    {
-                        "error": (
-                            "Compliance report is unavailable because there are no Corpus C "
-                            "documents to assess. Upload and index Corpus C artifacts first."
-                        )
-                    },
-                    status_code=400,
+                return _problem_response(
+                    status=400,
+                    title="Bad Request",
+                    detail=(
+                        "Compliance report is unavailable because there are no Corpus C "
+                        "documents to assess. Upload and index Corpus C artifacts first."
+                    ),
+                    instance=str(request.url.path),
                 )
 
             if payload.corpus_c_upload_batch:
@@ -1904,18 +2208,23 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
                     filter_expr=batch_filter,
                 )
                 if corpus_c_batch_total <= 0:
-                    return JSONResponse(
-                        {
-                            "error": (
-                                "Compliance report is unavailable because the selected Corpus C "
-                                "upload batch has no indexed documents to assess."
-                            )
-                        },
-                        status_code=400,
+                    return _problem_response(
+                        status=400,
+                        title="Bad Request",
+                        detail=(
+                            "Compliance report is unavailable because the selected Corpus C "
+                            "upload batch has no indexed documents to assess."
+                        ),
+                        instance=str(request.url.path),
                     )
         except Exception as exc:
             logger.exception("Failed compliance report preflight validation: %s", exc)
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=str(svc._INTERNAL_ERROR_MESSAGE),
+                instance=str(request.url.path),
+            )
 
         job = _new_report_job("compliance")
 
@@ -1966,7 +2275,12 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
             JSONResponse: The response containing the Azure compliance report or an error message.
         """
         if not svc._is_authorised_request(payload.auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=str(svc._unauthorised_message(request)),
+                instance=str(request.url.path),
+            )
 
         job = _new_report_job("azure")
 
@@ -2027,7 +2341,12 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
             JSONResponse: The response containing the AWS compliance report or an error message.
         """
         if not svc._is_authorised_request(payload.auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=str(svc._unauthorised_message(request)),
+                instance=str(request.url.path),
+            )
 
         job = _new_report_job("aws")
 
@@ -2079,11 +2398,21 @@ def register_compliance_endpoints(app: Any, svc: Any = None, *, deps: dict | Non
             JSONResponse: The response containing the status of the compliance report job or an error message.
         """
         if not svc._is_authorised_request(auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=str(svc._unauthorised_message(request)),
+                instance=str(request.url.path),
+            )
 
         job = _get_report_job(job_id)
         if not job:
-            return JSONResponse({"error": "Job not found"}, status_code=404)
+            return _problem_response(
+                status=404,
+                title="Not Found",
+                detail="Job not found",
+                instance=str(request.url.path),
+            )
 
         return JSONResponse(
             {

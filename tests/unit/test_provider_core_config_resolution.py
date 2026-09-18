@@ -167,7 +167,7 @@ def test_resolve_query_web_provider_settings_local_defaults() -> None:
         missing_error=RuntimeError,
     )
 
-    assert cfg.evaluator_deployment == "gpt-4.1-mini"
+    assert cfg.evaluator_deployment == "gpt-5.1-mini"
     assert cfg.cosmos_endpoint == ""
     assert cfg.cosmos_database_name == "local-db"
     assert cfg.cosmos_container_name == "local-conversations"

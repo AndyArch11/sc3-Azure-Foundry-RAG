@@ -94,7 +94,10 @@ def test_get_conversations_returns_unauthorised_when_auth_fails() -> None:
     response = client.get("/api/conversations/user-1")
 
     assert response.status_code == 401
-    assert response.json() == {"error": "denied"}
+    body = response.json()
+    assert body["title"] == "Unauthorised"
+    assert body["status"] == 401
+    assert body["detail"] == "denied"
 
 
 def test_get_conversations_returns_empty_list_without_container() -> None:
@@ -134,7 +137,10 @@ def test_get_conversations_returns_internal_error_on_query_failure() -> None:
     response = client.get("/api/conversations/user-1?auth_token=ok")
 
     assert response.status_code == 500
-    assert response.json() == {"error": "Internal server error; check logs for details."}
+    body = response.json()
+    assert body["title"] == "Internal Server Error"
+    assert body["status"] == 500
+    assert body["detail"] == "Internal server error; check logs for details."
 
 
 def test_get_conversation_history_returns_serialised_session() -> None:
@@ -165,7 +171,10 @@ def test_get_conversation_history_returns_unauthorised_when_auth_fails() -> None
     response = client.get("/api/conversations/user-1/conv-1")
 
     assert response.status_code == 401
-    assert response.json() == {"error": "denied"}
+    body = response.json()
+    assert body["title"] == "Unauthorised"
+    assert body["status"] == 401
+    assert body["detail"] == "denied"
 
 
 def test_get_conversation_history_returns_internal_error_on_load_failure() -> None:
@@ -176,7 +185,10 @@ def test_get_conversation_history_returns_internal_error_on_load_failure() -> No
     response = client.get("/api/conversations/user-1/conv-1?auth_token=ok")
 
     assert response.status_code == 500
-    assert response.json() == {"error": "Internal server error; check logs for details."}
+    body = response.json()
+    assert body["title"] == "Internal Server Error"
+    assert body["status"] == 500
+    assert body["detail"] == "Internal server error; check logs for details."
 
 
 def test_create_conversation_returns_unauthorised_when_auth_fails() -> None:
@@ -185,7 +197,10 @@ def test_create_conversation_returns_unauthorised_when_auth_fails() -> None:
     response = client.post("/api/conversations/new", data={"auth_token": "secret-token"})
 
     assert response.status_code == 401
-    assert response.json() == {"error": "denied"}
+    body = response.json()
+    assert body["title"] == "Unauthorised"
+    assert body["status"] == 401
+    assert body["detail"] == "denied"
 
 
 def test_create_conversation_returns_internal_error_on_save_failure() -> None:
@@ -197,7 +212,10 @@ def test_create_conversation_returns_internal_error_on_save_failure() -> None:
         response = client.post("/api/conversations/new", data={"auth_token": "secret-token"})
 
     assert response.status_code == 500
-    assert response.json() == {"error": "Internal server error; check logs for details."}
+    body = response.json()
+    assert body["title"] == "Internal Server Error"
+    assert body["status"] == 500
+    assert body["detail"] == "Internal server error; check logs for details."
 
 
 def test_create_conversation_persists_and_returns_ids() -> None:
@@ -230,7 +248,10 @@ def test_add_message_to_conversation_returns_unauthorised_when_auth_fails() -> N
     )
 
     assert response.status_code == 401
-    assert response.json() == {"error": "denied"}
+    body = response.json()
+    assert body["title"] == "Unauthorised"
+    assert body["status"] == 401
+    assert body["detail"] == "denied"
 
 
 def test_add_message_to_conversation_returns_internal_error_on_load_failure() -> None:
@@ -249,7 +270,10 @@ def test_add_message_to_conversation_returns_internal_error_on_load_failure() ->
     )
 
     assert response.status_code == 500
-    assert response.json() == {"error": "Internal server error; check logs for details."}
+    body = response.json()
+    assert body["title"] == "Internal Server Error"
+    assert body["status"] == 500
+    assert body["detail"] == "Internal server error; check logs for details."
 
 
 def test_add_message_to_conversation_appends_message_and_updates_session() -> None:
@@ -294,7 +318,10 @@ def test_add_response_rating_returns_unauthorised_when_auth_fails() -> None:
     )
 
     assert response.status_code == 401
-    assert response.json() == {"error": "denied"}
+    body = response.json()
+    assert body["title"] == "Unauthorised"
+    assert body["status"] == 401
+    assert body["detail"] == "denied"
 
 
 def test_add_response_rating_rejects_invalid_rating() -> None:
@@ -306,7 +333,10 @@ def test_add_response_rating_rejects_invalid_rating() -> None:
     )
 
     assert response.status_code == 400
-    assert response.json() == {"error": "rating must be between 1 and 5"}
+    body = response.json()
+    assert body["title"] == "Bad Request"
+    assert body["status"] == 400
+    assert body["detail"] == "rating must be between 1 and 5"
 
 
 def test_add_response_rating_returns_not_found_for_missing_assistant_timestamp() -> None:
@@ -330,7 +360,10 @@ def test_add_response_rating_returns_not_found_for_missing_assistant_timestamp()
     )
 
     assert response.status_code == 404
-    assert response.json() == {"error": "assistant message not found for assistant_timestamp"}
+    body = response.json()
+    assert body["title"] == "Not Found"
+    assert body["status"] == 404
+    assert body["detail"] == "assistant message not found for assistant_timestamp"
 
 
 def test_add_response_rating_returns_internal_error_on_load_failure() -> None:
@@ -344,7 +377,10 @@ def test_add_response_rating_returns_internal_error_on_load_failure() -> None:
     )
 
     assert response.status_code == 500
-    assert response.json() == {"error": "Internal server error; check logs for details."}
+    body = response.json()
+    assert body["title"] == "Internal Server Error"
+    assert body["status"] == 500
+    assert body["detail"] == "Internal server error; check logs for details."
 
 
 def test_add_response_rating_appends_feedback_and_updates_session() -> None:

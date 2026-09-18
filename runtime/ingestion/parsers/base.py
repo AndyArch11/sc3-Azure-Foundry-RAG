@@ -149,6 +149,7 @@ class RequirementRecord:
     source_section: str  # Section name within the source document
     effective_date: str  # Publication or effective date string
     jurisdiction_or_scope: str  # e.g. "Australia"
+    control_baselines: Optional[List[str]] = None  # e.g. ["LOW", "MODERATE", "HIGH"]
 
     def to_dict(self) -> dict:
         """Convert the RequirementRecord instance to a dictionary."""

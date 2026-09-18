@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from query_web.constants import GRAPH_SCHEMA_VERSION
 from runtime.provider_core import (
     parse_framework_authority_order,
     resolve_provider_settings,
@@ -47,6 +48,13 @@ _FRAMEWORK_ALIASES: dict[str, str] = {
     "csf 2": "NIST CSF",
     "csf 2.0": "NIST CSF",
     "nist_csf": "NIST CSF",
+    "nist sp 800-53": "NIST SP 800-53",
+    "nist_sp_800_53": "NIST SP 800-53",
+    "nist sp800-53": "NIST SP 800-53",
+    "sp 800-53": "NIST SP 800-53",
+    "sp800-53": "NIST SP 800-53",
+    "800-53": "NIST SP 800-53",
+    "80053": "NIST SP 800-53",
     "essential eight": "Essential Eight",
     "essential_eight": "Essential Eight",
     "e8": "Essential Eight",
@@ -68,6 +76,7 @@ _FRAMEWORK_ALIASES: dict[str, str] = {
 _CANONICAL_FRAMEWORKS: set[str] = {
     "NIST AI RMF",
     "NIST CSF",
+    "NIST SP 800-53",
     "Essential Eight",
     "AESCSF",
     "CIS Controls",
@@ -348,6 +357,8 @@ class QueryConfig:
         default_temperature: The default temperature for completions.
         top_p: The default top_p value for completions.
         evaluator_temperature: The temperature for evaluation completions.
+        evaluator_top_p: The top_p value for evaluation completions.
+        prompt_injection_validator_top_p: The top_p value for prompt injection validator completions.
         evaluation_threshold: The threshold for evaluation scoring.
         max_completion_tokens: The maximum number of tokens for completions.
         evaluator_max_completion_tokens: The maximum number of tokens for evaluation completions.
@@ -364,6 +375,34 @@ class QueryConfig:
         prompt_injection_validator_timeout_s: The timeout in seconds for the prompt injection validator.
         prompt_injection_validator_mode: The mode for the prompt injection validator.
         guardrail_metrics_in_response: Whether to include guardrail metrics in the response.
+        graph_enabled: Whether relationship-graph features are enabled.
+        graph_backend: Graph backend selection (`local`, `azure`, `aws`) for adapter routing.
+        graph_azure_emulation_enabled: Enable Azure backend local-emulation mode for parity testing.
+        graph_azure_artifacts_dir: Optional artifact snapshot directory used by azure parity mode.
+        graph_azure_artifacts_container: Optional object/container name for Azure snapshot artifacts.
+        graph_azure_artifacts_prefix: Optional object key prefix for Azure snapshot artifacts.
+        graph_azure_publish_enabled: Publish local graph build artifacts to Azure object storage.
+        graph_aws_artifacts_bucket: Optional S3 bucket for AWS graph snapshot artifacts.
+        graph_aws_artifacts_prefix: Optional object key prefix for AWS graph snapshot artifacts.
+        graph_aws_publish_enabled: Publish local graph build artifacts to AWS object storage.
+        graph_schema_version: The schema version used by graph artifacts and APIs.
+        graph_size_small_edges: Edge-count threshold for small graph defaults.
+        graph_size_large_edges: Edge-count threshold for large graph defaults.
+        graph_depth_small_default: Default traversal depth for small graphs.
+        graph_depth_small_max: Max traversal depth for small graphs.
+        graph_depth_medium_default: Default traversal depth for medium graphs.
+        graph_depth_medium_max: Max traversal depth for medium graphs.
+        graph_depth_large_default: Default traversal depth for large graphs.
+        graph_depth_large_max: Max traversal depth for large graphs.
+        graph_fanout_depth1: Neighbor fan-out cap for first traversal hop.
+        graph_fanout_depth2: Neighbor fan-out cap for second traversal hop.
+        graph_fanout_depth3_plus: Neighbor fan-out cap for hops three and beyond.
+        graph_guidance_threshold_small: Confidence threshold for inferred guidance edges on small graphs.
+        graph_guidance_threshold_medium: Confidence threshold for inferred guidance edges on medium graphs.
+        graph_guidance_threshold_large: Confidence threshold for inferred guidance edges on large graphs.
+        graph_min_marginal_new_node_gain_pct: Early-stop threshold for traversal expansion.
+        graph_traversal_max_edges: Hard cap on traversed edges per query.
+        graph_traversal_max_payload_bytes: Hard cap on graph response payload size.
         branding_static_path: The path to the static branding assets.
         app_title: The title of the application.
     """
@@ -399,6 +438,8 @@ class QueryConfig:
     default_temperature: float
     top_p: float
     evaluator_temperature: float
+    evaluator_top_p: float
+    prompt_injection_validator_top_p: float
     evaluation_threshold: float
     max_completion_tokens: int
     evaluator_max_completion_tokens: int
@@ -417,6 +458,35 @@ class QueryConfig:
     prompt_injection_validator_timeout_s: int
     prompt_injection_validator_mode: str
     guardrail_metrics_in_response: bool
+
+    graph_enabled: bool
+    graph_backend: str
+    graph_azure_emulation_enabled: bool
+    graph_azure_artifacts_dir: str
+    graph_azure_artifacts_container: str
+    graph_azure_artifacts_prefix: str
+    graph_azure_publish_enabled: bool
+    graph_aws_artifacts_bucket: str
+    graph_aws_artifacts_prefix: str
+    graph_aws_publish_enabled: bool
+    graph_schema_version: str
+    graph_size_small_edges: int
+    graph_size_large_edges: int
+    graph_depth_small_default: int
+    graph_depth_small_max: int
+    graph_depth_medium_default: int
+    graph_depth_medium_max: int
+    graph_depth_large_default: int
+    graph_depth_large_max: int
+    graph_fanout_depth1: int
+    graph_fanout_depth2: int
+    graph_fanout_depth3_plus: int
+    graph_guidance_threshold_small: float
+    graph_guidance_threshold_medium: float
+    graph_guidance_threshold_large: float
+    graph_min_marginal_new_node_gain_pct: float
+    graph_traversal_max_edges: int
+    graph_traversal_max_payload_bytes: int
 
     branding_static_path: str
     app_title: str
@@ -458,6 +528,7 @@ def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
         "ISM",
         "AESCSF",
         "NIST AI RMF",
+        "NIST SP 800-53",
         "NIST CSF",
         "PSPF",
         "PCI DSS",
@@ -625,6 +696,10 @@ def load_config() -> QueryConfig:
         evaluator_temperature=float(
             os.getenv("EVALUATOR_TEMPERATURE", str(defaults["evaluator_temperature"]))
         ),
+        evaluator_top_p=float(os.getenv("EVALUATOR_TOP_P", "1.0")),
+        prompt_injection_validator_top_p=float(
+            os.getenv("PROMPT_INJECTION_VALIDATOR_TOP_P", "1.0")
+        ),
         evaluation_threshold=float(
             os.getenv("ACCEPTABLE_SCORE_THRESHOLD", str(defaults["evaluation_threshold"]))
         ),
@@ -652,7 +727,7 @@ def load_config() -> QueryConfig:
         ),
         prompt_injection_validator_deployment=os.getenv(
             "PROMPT_INJECTION_VALIDATOR_DEPLOYMENT",
-            os.getenv("EVALUATOR_DEPLOYMENT_NAME", "gpt-4.1-mini"),
+            os.getenv("EVALUATOR_DEPLOYMENT_NAME", "gpt-5.1-mini"),
         ),
         prompt_injection_validator_threshold=float(
             os.getenv("PROMPT_INJECTION_VALIDATOR_THRESHOLD", "0.85")
@@ -665,6 +740,43 @@ def load_config() -> QueryConfig:
         ),
         prompt_injection_validator_mode=os.getenv("PROMPT_INJECTION_VALIDATOR_MODE", "off").lower(),
         guardrail_metrics_in_response=_env_bool("GUARDRAIL_METRICS_IN_RESPONSE", default=False),
+        graph_enabled=_env_bool("GRAPH_ENABLED", default=False),
+        graph_backend=(os.getenv("GRAPH_BACKEND", "local").strip().lower() or "local"),
+        graph_azure_emulation_enabled=_env_bool("GRAPH_AZURE_EMULATION_ENABLED", default=False),
+        graph_azure_artifacts_dir=os.getenv("GRAPH_AZURE_ARTIFACTS_DIR", "").strip(),
+        graph_azure_artifacts_container=os.getenv("GRAPH_AZURE_ARTIFACTS_CONTAINER", "").strip(),
+        graph_azure_artifacts_prefix=os.getenv("GRAPH_AZURE_ARTIFACTS_PREFIX", "").strip(),
+        graph_azure_publish_enabled=_env_bool("GRAPH_AZURE_PUBLISH_ENABLED", default=False),
+        graph_aws_artifacts_bucket=(
+            os.getenv("GRAPH_AWS_ARTIFACTS_BUCKET", "").strip()
+            or os.getenv("S3_BUCKET_NAME", "").strip()
+        ),
+        graph_aws_artifacts_prefix=os.getenv("GRAPH_AWS_ARTIFACTS_PREFIX", "").strip(),
+        graph_aws_publish_enabled=_env_bool("GRAPH_AWS_PUBLISH_ENABLED", default=False),
+        graph_schema_version=os.getenv("GRAPH_SCHEMA_VERSION", GRAPH_SCHEMA_VERSION).strip()
+        or GRAPH_SCHEMA_VERSION,
+        graph_size_small_edges=max(1000, int(os.getenv("GRAPH_SIZE_SMALL_EDGES", "50000"))),
+        graph_size_large_edges=max(5000, int(os.getenv("GRAPH_SIZE_LARGE_EDGES", "250000"))),
+        graph_depth_small_default=max(1, int(os.getenv("GRAPH_DEPTH_SMALL_DEFAULT", "3"))),
+        graph_depth_small_max=max(1, int(os.getenv("GRAPH_DEPTH_SMALL_MAX", "4"))),
+        graph_depth_medium_default=max(1, int(os.getenv("GRAPH_DEPTH_MEDIUM_DEFAULT", "2"))),
+        graph_depth_medium_max=max(1, int(os.getenv("GRAPH_DEPTH_MEDIUM_MAX", "3"))),
+        graph_depth_large_default=max(1, int(os.getenv("GRAPH_DEPTH_LARGE_DEFAULT", "1"))),
+        graph_depth_large_max=max(1, int(os.getenv("GRAPH_DEPTH_LARGE_MAX", "2"))),
+        graph_fanout_depth1=max(1, int(os.getenv("GRAPH_FANOUT_DEPTH1", "50"))),
+        graph_fanout_depth2=max(1, int(os.getenv("GRAPH_FANOUT_DEPTH2", "20"))),
+        graph_fanout_depth3_plus=max(1, int(os.getenv("GRAPH_FANOUT_DEPTH3_PLUS", "8"))),
+        graph_guidance_threshold_small=float(os.getenv("GRAPH_GUIDANCE_THRESHOLD_SMALL", "0.50")),
+        graph_guidance_threshold_medium=float(os.getenv("GRAPH_GUIDANCE_THRESHOLD_MEDIUM", "0.65")),
+        graph_guidance_threshold_large=float(os.getenv("GRAPH_GUIDANCE_THRESHOLD_LARGE", "0.75")),
+        graph_min_marginal_new_node_gain_pct=float(
+            os.getenv("GRAPH_MIN_MARGINAL_NEW_NODE_GAIN_PCT", "5.0")
+        ),
+        graph_traversal_max_edges=max(100, int(os.getenv("GRAPH_TRAVERSAL_MAX_EDGES", "10000"))),
+        graph_traversal_max_payload_bytes=max(
+            1024,
+            int(os.getenv("GRAPH_TRAVERSAL_MAX_PAYLOAD_BYTES", str(2 * 1024 * 1024))),
+        ),
         branding_static_path=os.getenv("BRANDING_STATIC_PATH", "").strip(),
         app_title=os.getenv("APP_TITLE", "RAG Query Console").strip(),
     )

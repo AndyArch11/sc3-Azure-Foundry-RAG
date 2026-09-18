@@ -9,6 +9,9 @@ QUERY_WEB_VERSION_SIGNATURE = "query-web-meta-safe-v2-20260417"
 
 COMPLIANCE_REPORT_SCHEMA_VERSION = "v1.1"
 
+# Relationship graph schema version for Corpus A/B graph artifacts and APIs.
+GRAPH_SCHEMA_VERSION = "v1"
+
 # Storage schema version stamped on every Cosmos document written by query-web.
 # Bump this when the document shape changes and follow the rolling migration playbook
 # in docs/compliance-rag-recommended-approach.md.

@@ -25,6 +25,7 @@ Frameworks:
   ism                 ISM (Information Security Manual)
   nist_ai_rmf         NIST AI Risk Management Framework
   nist_csf            NIST Cybersecurity Framework 2.0
+  nist_sp_800_53      NIST SP 800-53 Rev. 5 control catalog
   pci_dss             PCI DSS v4.0.1 (requires source document)
   pspf                Protected Security Policy Framework (2025 release)
 
@@ -56,10 +57,10 @@ shift || true
 
 # Validate framework
 case "${FRAMEWORK}" in
-  aescsf|all|cis_controls|essential_eight|ism|nist_ai_rmf|nist_csf|pci_dss|pspf) ;;
+  aescsf|all|cis_controls|essential_eight|ism|nist_ai_rmf|nist_csf|nist_sp_800_53|pci_dss|pspf) ;;
   *)
     echo "ERROR: Unsupported framework '${FRAMEWORK}'." >&2
-    echo "Use one of: aescsf, all, cis_controls, essential_eight, ism, nist_ai_rmf, nist_csf, pci_dss, pspf" >&2
+    echo "Use one of: aescsf, all, cis_controls, essential_eight, ism, nist_ai_rmf, nist_csf, nist_sp_800_53, pci_dss, pspf" >&2
     exit 1
     ;;
 esac

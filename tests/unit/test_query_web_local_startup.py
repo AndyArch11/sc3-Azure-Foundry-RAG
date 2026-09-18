@@ -95,6 +95,27 @@ def test_load_evidence_preserves_existing_corpus(tmp_path: Path):
     assert result[0]["corpus"] == "a"
 
 
+def test_load_evidence_infers_corpus_b_from_relative_path_without_leading_slash(tmp_path: Path):
+    """A source_path like 'corpus-b/file.pdf' (no leading slash) must still be
+    tagged corpus 'b', not silently fall back to corpus 'c'."""
+    f = tmp_path / "chunks.jsonl"
+    f.write_text(
+        json.dumps({"content": "guidance text", "source_path": "corpus-b/file.pdf"}) + "\n"
+    )
+
+    result = _load_local_jsonl_documents(str(f), controls_mode=False)
+    assert result[0]["corpus"] == "b"
+
+
+def test_load_evidence_infers_corpus_b_from_nested_relative_path(tmp_path: Path):
+    f = tmp_path / "chunks.jsonl"
+    doc = {"content": "guidance text", "source_path": "samples/api/corpus-b/file.pdf"}
+    f.write_text(json.dumps(doc) + "\n")
+
+    result = _load_local_jsonl_documents(str(f), controls_mode=False)
+    assert result[0]["corpus"] == "b"
+
+
 def test_load_evidence_uses_chunk_id_as_id(tmp_path: Path):
     f = tmp_path / "chunks.jsonl"
     f.write_text(json.dumps({"content": "text", "chunk_id": "cid-42"}) + "\n")

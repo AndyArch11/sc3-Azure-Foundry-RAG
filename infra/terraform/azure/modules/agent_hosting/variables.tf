@@ -38,7 +38,9 @@ variable "controls_index_name" { type = string }
 variable "embedding_dimensions" { type = number }
 variable "query_top_k" { type = number }
 variable "query_default_temperature" { type = number }
+variable "query_default_top_p" { type = number }
 variable "query_evaluator_temperature" { type = number }
+variable "query_evaluator_top_p" { type = number }
 variable "query_eval_threshold" { type = number }
 variable "control_llm_review_enabled" {
   type        = bool
@@ -58,7 +60,7 @@ variable "prompt_injection_validator_enabled" {
 variable "prompt_injection_validator_deployment" {
   type        = string
   description = "Model deployment name used for prompt injection validator classification, typically resolved from validator_model.name by the root module."
-  default     = "gpt-4.1-mini"
+  default     = "gpt-5.1-mini"
 }
 variable "prompt_injection_validator_threshold" {
   type        = number
@@ -69,6 +71,11 @@ variable "prompt_injection_validator_temperature" {
   type        = number
   description = "Temperature used for prompt injection validator model calls."
   default     = 0.5
+}
+variable "prompt_injection_validator_top_p" {
+  type        = number
+  description = "Top-p used for prompt injection validator model calls."
+  default     = 1.0
 }
 variable "prompt_injection_validator_timeout_s" {
   type        = number

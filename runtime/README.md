@@ -195,7 +195,7 @@ Controls index environment variables:
 | Variable | Default | Notes |
 |---|---|---|
 | `AZURE_SEARCH_INDEX_NAME` | `grounding-index` | |
-| `EMBEDDING_DEPLOYMENT_NAME` | `text-embedding-ada-002` | Must match deployed model name |
+| `EMBEDDING_DEPLOYMENT_NAME` | `text-embedding-3-small` | Must match deployed model name |
 | `EMBEDDING_DIMENSIONS` | `1536` | Match the embedding model |
 | `AZURE_STORAGE_CONTAINER_NAME` | `grounding-data` | Pre-provisioned by Terraform |
 | `CHUNK_SIZE` | `1200` | Characters per chunk |
@@ -455,7 +455,7 @@ export AZURE_SEARCH_ENDPOINT="https://<search-service>.search.windows.net"
 export AZURE_OPENAI_ENDPOINT="https://<foundry-account>.openai.azure.com"
 export AZURE_SEARCH_INDEX_NAME="grounding-index"
 export QUERY_DEPLOYMENT_NAME="gpt-5.1-chat"
-export EMBEDDING_DEPLOYMENT_NAME="text-embedding-ada-002"
+export EMBEDDING_DEPLOYMENT_NAME="text-embedding-3-small"
 export CONFLUENCE_BASE_URL="https://api.atlassian.com/ex/confluence/<cloud-id>"
 export CONFLUENCE_AUTH_MODE="basic"
 export CONFLUENCE_AUTH_EMAIL="<service-account-email>"

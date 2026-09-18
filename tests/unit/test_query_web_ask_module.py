@@ -37,8 +37,33 @@ class _AskRequest(BaseModel):
     controls_semantic: bool | None = None
     controls_framework: str | None = None
     controls_comparison_mode: str = "auto-detect"
+    include_graph_expansion: bool = False
+    graph_expansion_depth: int | None = None
+    graph_expansion_max_edges: int | None = None
     evidence_corpora_include: list[str] | None = None
     evidence_corpora_exclude: list[str] | None = None
+    max_completion_tokens: int | None = None
+    evaluator_max_completion_tokens: int | None = None
+    auth_token: str = ""
+
+
+class _StrictAskRequest(BaseModel):
+    question: str
+    retrieve_k: int = 5
+    controls_context_cap: int | None = None
+    temperature: float = 0.5
+    top_p: float = 1.0
+    thinking_mode: str = "balanced"
+    controls_semantic: bool | None = None
+    controls_framework: str | None = None
+    controls_comparison_mode: str = "auto-detect"
+    include_graph_expansion: bool = False
+    graph_expansion_depth: int | None = None
+    graph_expansion_max_edges: int | None = None
+    evidence_corpora_include: list[str] | None = None
+    evidence_corpora_exclude: list[str] | None = None
+    max_completion_tokens: int | None = None
+    evaluator_max_completion_tokens: int | None = None
     auth_token: str = ""
 
 
@@ -50,6 +75,8 @@ class _AskResponse(BaseModel):
     evaluation: dict[str, Any] | None
     iterations: int | None
     metrics: dict[str, Any] | None
+    runtime_hints: dict[str, Any] | None = None
+    graph_capabilities: dict[str, Any] | None = None
     audit: dict[str, Any] | None
     error: str
 
@@ -121,12 +148,14 @@ def _make_svc() -> SimpleNamespace:
     return svc
 
 
-def _make_client(svc: SimpleNamespace) -> TestClient:
+def _make_client(
+    svc: SimpleNamespace, *, request_model: type[BaseModel] = _AskRequest
+) -> TestClient:
     app = FastAPI()
     register_ask_endpoints(
         app,
         svc,
-        ask_request_model=_AskRequest,
+        ask_request_model=request_model,
         ask_response_model=_AskResponse,
     )
     return TestClient(app)
@@ -195,7 +224,7 @@ def test_ask_post_authorised_updates_conversation_and_clamps_inputs() -> None:
     body = response.json()
     assert body["answer"] == "answer"
     assert body["retrieve_k"] == 20
-    assert body["controls_context_cap"] == 2000
+    assert body["controls_context_cap"] == 3000
     assert body["temperature"] == 1.0
     assert body["controls_framework"] == "ism"
     assert len(session.messages) == 2
@@ -251,7 +280,7 @@ def test_ask_post_context_query_model_display_uses_ollama_model_in_local_mode(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("CLOUD_PROVIDER", "local")
-    monkeypatch.setenv("OLLAMA_MODEL", "gemma3:27b")
+    monkeypatch.setenv("OLLAMA_MODEL", "gemma4:26b")
 
     svc = _make_svc()
     client = _make_client(svc)
@@ -268,7 +297,7 @@ def test_ask_post_context_query_model_display_uses_ollama_model_in_local_mode(
 
     assert response.status_code == 200
     body = response.json()
-    assert body["query_model_display"] == "gemma3:27b"
+    assert body["query_model_display"] == "gemma4:26b"
 
 
 def test_api_ask_empty_question_returns_validation_error_payload() -> None:
@@ -285,8 +314,30 @@ def test_api_ask_empty_question_returns_validation_error_payload() -> None:
         },
     )
 
-    assert response.status_code == 200
-    assert response.json()["error"] == "Question must not be empty."
+    assert response.status_code == 422
+    body = response.json()
+    assert body["title"] == "Unprocessable Content"
+    assert body["detail"] == "Question must not be empty."
+    assert body["instance"] == "/api/ask"
+
+
+def test_api_ask_missing_question_returns_structured_validation_error() -> None:
+    svc = _make_svc()
+    client = _make_client(svc, request_model=_StrictAskRequest)
+
+    response = client.post(
+        "/api/ask",
+        json={
+            "auth_token": "ok",
+        },
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["title"] == "Unprocessable Content"
+    assert body["detail"] == "Invalid request payload."
+    assert body["instance"] == "/api/ask"
+    assert body["errors"]
 
 
 def test_api_ask_unauthorised_returns_error() -> None:
@@ -303,8 +354,11 @@ def test_api_ask_unauthorised_returns_error() -> None:
         },
     )
 
-    assert response.status_code == 200
-    assert response.json()["error"] == "unauthorised"
+    assert response.status_code == 401
+    body = response.json()
+    assert body["title"] == "Unauthorized"
+    assert body["detail"] == "unauthorised"
+    assert body["instance"] == "/api/ask"
 
 
 def test_api_ask_success_uses_default_controls_semantic_when_none() -> None:
@@ -344,6 +398,125 @@ def test_api_ask_success_uses_default_controls_semantic_when_none() -> None:
     assert captured["controls_context_cap"] == 4
 
 
+def test_api_ask_without_include_corpora_preserves_default_selection() -> None:
+    svc = _make_svc()
+    captured: dict[str, Any] = {}
+
+    def _run_rag(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {
+            "answer": "ok",
+            "results": [],
+            "controls_results": [],
+            "controls_debug": None,
+            "evaluation": {"acceptable": True, "score": 1.0},
+            "iterations": 1,
+            "metrics": {"total_s": 0.1},
+            "audit": {"x": 1},
+        }
+
+    svc._run_rag = _run_rag
+    client = _make_client(svc)
+
+    response = client.post(
+        "/api/ask",
+        json={
+            "question": "hello",
+            "retrieve_k": 5,
+            "temperature": 0.2,
+            "auth_token": "ok",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["error"] == ""
+    assert captured["evidence_corpora_include"] is None
+    assert captured["evidence_corpora_exclude"] == []
+
+
+def test_api_ask_explicit_empty_include_sets_warning() -> None:
+    svc = _make_svc()
+    captured: dict[str, Any] = {}
+
+    def _run_rag(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {
+            "answer": "No relevant chunks were found in the index.",
+            "results": [],
+            "controls_results": [],
+            "controls_debug": None,
+            "evaluation": {"acceptable": False, "score": 0.0},
+            "iterations": 1,
+            "metrics": {"total_s": 0.1},
+            "audit": {},
+        }
+
+    svc._run_rag = _run_rag
+    client = _make_client(svc)
+
+    response = client.post(
+        "/api/ask",
+        json={
+            "question": "hello",
+            "retrieve_k": 5,
+            "temperature": 0.2,
+            "auth_token": "ok",
+            "evidence_corpora_include": [],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["error"] == ""
+    assert captured["evidence_corpora_include"] == []
+    assert body["audit"]["warnings"] == [
+        "No evidence corpora selected for retrieval. Provide evidence_corpora_include with one or more of: a, b, c."
+    ]
+
+
+def test_api_ask_legacy_include_falls_back_to_default_scope() -> None:
+    svc = _make_svc()
+    captured: dict[str, Any] = {}
+    svc._normalise_evidence_corpora = lambda values: [
+        v for v in (values or []) if v in {"a", "b", "c"}
+    ]
+
+    def _run_rag(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {
+            "answer": "ok",
+            "results": [],
+            "controls_results": [],
+            "controls_debug": None,
+            "evaluation": {"acceptable": True, "score": 1.0},
+            "iterations": 1,
+            "metrics": {"total_s": 0.1},
+            "audit": {},
+        }
+
+    svc._run_rag = _run_rag
+    client = _make_client(svc)
+
+    response = client.post(
+        "/api/ask",
+        json={
+            "question": "hello",
+            "retrieve_k": 5,
+            "temperature": 0.2,
+            "auth_token": "ok",
+            "evidence_corpora_include": ["legacy"],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["error"] == ""
+    assert captured["evidence_corpora_include"] is None
+    assert body["audit"]["warnings"] == [
+        "Unsupported evidence_corpora_include values were ignored. Using default corpora: a, b, c."
+    ]
+
+
 def test_api_ask_thinking_mode_applies_top_p_preset_when_not_overridden() -> None:
     svc = _make_svc()
     captured: dict[str, Any] = {}
@@ -380,6 +553,164 @@ def test_api_ask_thinking_mode_applies_top_p_preset_when_not_overridden() -> Non
     assert response.json()["error"] == ""
     assert captured["temperature"] == 0.2
     assert captured["top_p"] == 0.85
+    assert response.json()["runtime_hints"]["max_completion_tokens_source"] == (
+        "thinking_mode_preset"
+    )
+
+
+def test_api_ask_runtime_hints_prefers_model_metadata_and_request_override(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("MODEL_MAX_POSITION_EMBEDDINGS", "131072")
+
+    svc = _make_svc()
+    client = _make_client(svc)
+
+    response = client.post(
+        "/api/ask",
+        json={
+            "question": "hello",
+            "retrieve_k": 5,
+            "temperature": 0.2,
+            "auth_token": "ok",
+            "max_completion_tokens": 1800,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["error"] == ""
+    assert body["runtime_hints"]["context_window_tokens_hint"] == 131072
+    assert body["runtime_hints"]["context_window_source"] == "model_metadata"
+    assert body["runtime_hints"]["max_completion_tokens_effective"] == 1800
+    assert body["runtime_hints"]["max_completion_tokens_source"] == "request_override"
+
+
+def test_api_ask_runtime_hints_caps_tokens_from_model_capabilities() -> None:
+    svc = _make_svc()
+    captured: dict[str, Any] = {}
+
+    def _run_rag(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {
+            "answer": "ok",
+            "results": [],
+            "controls_results": [],
+            "controls_debug": None,
+            "evaluation": {"acceptable": True, "score": 1.0},
+            "iterations": 1,
+            "metrics": {"total_s": 0.1},
+            "audit": {"x": 1},
+        }
+
+    svc._run_rag = _run_rag
+    svc._resolve_query_model_capabilities = lambda: {
+        "source": "model_metadata",
+        "context_window_tokens": 65536,
+        "max_output_tokens": 900,
+    }
+    client = _make_client(svc)
+
+    response = client.post(
+        "/api/ask",
+        json={
+            "question": "hello",
+            "retrieve_k": 5,
+            "temperature": 0.2,
+            "auth_token": "ok",
+            "max_completion_tokens": 1800,
+            "evaluator_max_completion_tokens": 1500,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["error"] == ""
+    assert body["runtime_hints"]["context_window_tokens_hint"] == 65536
+    assert body["runtime_hints"]["context_window_source"] == "model_metadata"
+    assert body["runtime_hints"]["max_completion_tokens_effective"] == 900
+    assert body["runtime_hints"]["max_completion_tokens_source"] == "model_metadata"
+    assert body["runtime_hints"]["evaluator_max_completion_tokens_effective"] == 900
+    assert captured["max_completion_tokens"] == 900
+    assert captured["evaluator_max_completion_tokens"] == 900
+
+
+def test_api_ask_forwards_graph_expansion_options() -> None:
+    svc = _make_svc()
+    captured: dict[str, Any] = {}
+
+    def _run_rag(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {
+            "answer": "ok",
+            "results": [],
+            "controls_results": [],
+            "controls_debug": None,
+            "evaluation": {"acceptable": True, "score": 1.0},
+            "iterations": 1,
+            "metrics": {"total_s": 0.1},
+            "audit": {"x": 1},
+        }
+
+    svc._run_rag = _run_rag
+    client = _make_client(svc)
+
+    response = client.post(
+        "/api/ask",
+        json={
+            "question": "hello",
+            "retrieve_k": 5,
+            "temperature": 0.2,
+            "auth_token": "ok",
+            "include_graph_expansion": True,
+            "graph_expansion_depth": 2,
+            "graph_expansion_max_edges": 40,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["error"] == ""
+    assert captured["include_graph_expansion"] is True
+    assert captured["graph_expansion_depth"] == 2
+    assert captured["graph_expansion_max_edges"] == 40
+
+
+def test_ask_console_path_allows_corpus_c_filters() -> None:
+    svc = _make_svc()
+    captured: dict[str, Any] = {}
+
+    def _run_rag(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {
+            "answer": "ok",
+            "results": [],
+            "controls_results": [],
+            "controls_debug": None,
+            "evaluation": {"acceptable": True, "score": 1.0},
+            "iterations": 1,
+            "metrics": {"total_s": 0.1},
+            "audit": {"x": 1},
+        }
+
+    svc._run_rag = _run_rag
+    client = _make_client(svc)
+
+    response = client.post(
+        "/ask",
+        data={
+            "question": "hello",
+            "retrieve_k": "5",
+            "temperature": "0.2",
+            "controls_semantic": "false",
+            "auth_token": "ok",
+            "evidence_corpora_include": ["b", "c"],
+            "evidence_corpora_exclude": ["legacy"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["evidence_corpora_include"] == ["b", "c"]
+    assert captured["evidence_corpora_exclude"] == ["legacy"]
 
 
 def test_api_ask_exception_returns_internal_error() -> None:
@@ -397,5 +728,8 @@ def test_api_ask_exception_returns_internal_error() -> None:
         },
     )
 
-    assert response.status_code == 200
-    assert response.json()["error"] == "internal"
+    assert response.status_code == 500
+    body = response.json()
+    assert body["title"] == "Internal Server Error"
+    assert body["detail"] == "internal"
+    assert body["instance"] == "/api/ask"

@@ -14,9 +14,10 @@
 </head>
 <body>
   <div class="wrap">
-    <script id="server-data" type="application/json">{"question": {{ question | tojson }}, "answer": {{ answer | tojson }}, "error": {{ error | tojson }}, "user_id": {{ user_id | tojson }}}</script>
-    <script id="ask-defaults" type="application/json">{"retrieve_k": {{ retrieve_k | tojson }}, "controls_context_cap": {{ controls_context_cap | default(4) | tojson }}, "temperature": {{ temperature | tojson }}, "top_p": {{ top_p | default(1.0) | tojson }}, "max_completion_tokens": {{ max_completion_tokens | tojson }}, "evaluator_max_completion_tokens": {{ evaluator_max_completion_tokens | tojson }}, "controls_semantic": {{ (1 if controls_semantic else 0) | tojson }}, "controls_framework": {{ (controls_framework or "") | tojson }}, "controls_comparison_mode": {{ (controls_comparison_mode or "auto-detect") | tojson }}}</script>
+    <script id="server-data" type="application/json">{"question": {{ question | tojson }}, "answer": {{ answer | tojson }}, "error": {{ error | tojson }}, "user_id": {{ user_id | tojson }}, "controls_results": {{ controls_results | default([]) | tojson }}, "results": {{ results | default([]) | tojson }}, "graph_summary": {{ graph_summary | default(None) | tojson }}, "graph_links": {{ graph_links | default([]) | tojson }}}</script>
+    <script id="ask-defaults" type="application/json">{"retrieve_k": {{ retrieve_k | tojson }}, "controls_context_cap": {{ controls_context_cap | default(4) | tojson }}, "temperature": {{ temperature | tojson }}, "top_p": {{ top_p | default(1.0) | tojson }}, "max_completion_tokens": {{ max_completion_tokens | tojson }}, "evaluator_max_completion_tokens": {{ evaluator_max_completion_tokens | tojson }}, "controls_semantic": {{ (1 if controls_semantic else 0) | tojson }}, "controls_framework": {{ (controls_framework or "") | tojson }}, "controls_comparison_mode": {{ (controls_comparison_mode or "auto-detect") | tojson }}, "include_graph_expansion": {{ (1 if include_graph_expansion else 0) | tojson }}, "graph_expansion_depth": {{ graph_expansion_depth | tojson }}, "graph_expansion_max_edges": {{ graph_expansion_max_edges | tojson }}}</script>
     <script id="ask-thinking-presets" type="application/json">{{ thinking_mode_presets | tojson }}</script>
+    <script id="runtime-hints-ui" type="application/json">{{ runtime_hints_ui | default({}) | tojson }}</script>
     <div class="card">
       <div style="margin-bottom:6px">
         <picture id="page-logo" style="display:block;margin-bottom:6px">
@@ -36,6 +37,7 @@
         <button type="button" class="top-tab active" id="tab-btn-ask" role="tab" aria-controls="tab-ask" aria-selected="true" onclick="switchTab('ask')">Ask</button>
         <button type="button" class="top-tab" id="tab-btn-assess" role="tab" aria-controls="tab-assess" aria-selected="false" onclick="switchTab('assess')">Assess</button>
         <button type="button" class="top-tab" id="tab-btn-reference" role="tab" aria-controls="tab-reference" aria-selected="false" onclick="switchTab('reference')">Reference</button>
+        <button type="button" class="top-tab" id="tab-btn-graph" role="tab" aria-controls="tab-graph" aria-selected="false" onclick="switchTab('graph')">Graph</button>
       </div>
 
       <!-- ── Ask tab ──────────────────────────────────────────────────────── -->
@@ -89,7 +91,7 @@
             </div>
             <div class="field">
               <label for="controls_context_cap">Max controls in answer context</label>
-              <input id="controls_context_cap" name="controls_context_cap" type="number" min="1" max="2000" value="{{ controls_context_cap | default(4) }}" title="Upper bound on number of Corpus A controls included in Ask retrieval context. Lower match volume may return fewer." />
+              <input id="controls_context_cap" name="controls_context_cap" type="number" min="1" max="1500" value="{{ controls_context_cap | default(4) }}" title="Upper bound on number of Corpus A controls included in Ask retrieval context. Lower match volume may return fewer." />
             </div>
             <div class="field">
               <label for="temperature">Temperature</label>
@@ -102,10 +104,12 @@
             <div class="field">
               <label for="max_completion_tokens">Query max tokens</label>
               <input id="max_completion_tokens" name="max_completion_tokens" type="number" min="256" max="8192" step="1" value="{{ max_completion_tokens }}" title="Maximum completion tokens for answer generation in this request only. Accepted range: 256–8192." />
+              <p class="muted" id="max-completion-hint" style="margin:6px 0 0 0"></p>
             </div>
             <div class="field">
               <label for="evaluator_max_completion_tokens">Evaluator max tokens</label>
               <input id="evaluator_max_completion_tokens" name="evaluator_max_completion_tokens" type="number" min="128" max="4096" step="1" value="{{ evaluator_max_completion_tokens }}" title="Maximum completion tokens for evaluator scoring in this request only. Accepted range: 128–4096." />
+              <p class="muted" id="evaluator-max-completion-hint" style="margin:6px 0 0 0"></p>
             </div>
             <div class="field">
               <label for="controls_semantic">Controls ranking</label>
@@ -123,6 +127,7 @@
                 <option value="aescsf" {% if controls_framework == "aescsf" %}selected{% endif %}>AESCSF</option>
                 <option value="nist_ai_rmf" {% if controls_framework == "nist_ai_rmf" %}selected{% endif %}>NIST AI RMF</option>
                 <option value="nist_csf" {% if controls_framework == "nist_csf" %}selected{% endif %}>NIST CSF</option>
+                <option value="nist_sp_800_53" {% if controls_framework == "nist_sp_800_53" %}selected{% endif %}>NIST SP 800-53</option>
                 <option value="cis_controls" {% if controls_framework == "cis_controls" %}selected{% endif %}>CIS Controls</option>
                 <option value="pci_dss" {% if controls_framework == "pci_dss" %}selected{% endif %}>PCI DSS</option>
                 <option value="pspf" {% if controls_framework == "pspf" %}selected{% endif %}>PSPF</option>
@@ -141,13 +146,28 @@
                 <option value="a" {% if 'a' in (evidence_corpora_include or []) %}selected{% endif %}>Corpus A (controls)</option>
                 <option value="b" {% if 'b' in (evidence_corpora_include or []) %}selected{% endif %}>Corpus B (guidance)</option>
                 <option value="c" {% if 'c' in (evidence_corpora_include or []) %}selected{% endif %}>Corpus C (artifacts)</option>
-                <option value="legacy" {% if 'legacy' in (evidence_corpora_include or []) %}selected{% endif %}>Legacy (untagged docs)</option>
               </select>
+            </div>
+            <div class="field">
+              <label for="include_graph_expansion">Graph neighbour expansion</label>
+              <select id="include_graph_expansion" name="include_graph_expansion" title="Optionally expand retrieval through nearby graph nodes to complement vector and keyword search.">
+                <option value="0" {% if not include_graph_expansion %}selected{% endif %}>Disabled</option>
+                <option value="1" {% if include_graph_expansion %}selected{% endif %}>Enabled</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="graph_expansion_depth">Graph expansion depth</label>
+              <input id="graph_expansion_depth" name="graph_expansion_depth" type="number" min="1" max="4" value="{{ graph_expansion_depth or '' }}" title="Maximum neighbour expansion depth when graph expansion is enabled. Accepted range: 1–4." />
+            </div>
+            <div class="field">
+              <label for="graph_expansion_max_edges">Graph expansion edge budget</label>
+              <input id="graph_expansion_max_edges" name="graph_expansion_max_edges" type="number" min="1" max="200" value="{{ graph_expansion_max_edges or '' }}" title="Maximum number of graph edges considered during neighbour expansion. Accepted range: 1–200." />
             </div>
             <div class="field" style="grid-column:1/-1;display:flex;justify-content:flex-end;align-items:flex-end">
               <button type="button" class="btn-secondary" style="margin-top:0;font-size:.85rem;padding:6px 14px" onclick="resetAskAdvancedFields()" title="Reset all advanced settings to their configured defaults.">Reset to defaults</button>
             </div>
           </div>
+          <p class="muted" id="runtime-context-window-hint" style="margin:8px 0 0 0"></p>
           <input type="hidden" name="auth_token" id="auth_token" value="{{ auth_token or '' }}" />
           <input type="hidden" name="session_id" id="session_id_field" value="{{ session_id or '' }}" />
           <input type="hidden" name="conversation_id" id="conversation_id_field" value="{{ conversation_id or '' }}" />
@@ -195,6 +215,11 @@
             <div class="metric"><div class="k">Evaluator</div><div class="v">{{ '%.3f'|format(metrics.evaluator_s) }} s</div></div>
             <div class="metric"><div class="k">Query token cap</div><div class="v">{{ metrics.max_completion_tokens_used|default('—') }}</div></div>
             <div class="metric"><div class="k">Evaluator token cap</div><div class="v">{{ metrics.evaluator_max_completion_tokens_used|default('—') }}</div></div>
+            <div class="metric"><div class="k">LLM prompt tokens</div><div class="v">{{ metrics.llm_prompt_tokens|default('—') }}</div></div>
+            <div class="metric"><div class="k">LLM completion tokens</div><div class="v">{{ metrics.llm_completion_tokens|default('—') }}</div></div>
+            <div class="metric"><div class="k">LLM total tokens</div><div class="v">{{ metrics.llm_total_tokens|default('—') }}</div></div>
+            <div class="metric"><div class="k">LLM calls</div><div class="v">{{ metrics.llm_token_usage_calls|default('—') }}</div></div>
+            <div class="metric"><div class="k">Token counts</div><div class="v">{% if metrics.llm_token_usage_estimated|default(0) >= 0.5 %}estimated{% else %}provider reported{% endif %}</div></div>
           </div>
         </div>
         {% endif %}
@@ -215,6 +240,7 @@
               <span class="muted">
                 {{ c.framework }} {{ c.framework_version }}
                 {% if c.maturity_level is not none %}| ML{{ c.maturity_level }}{% endif %}
+                {% if c.control_baselines %}| Baselines: {{ c.control_baselines | join(', ') }}{% endif %}
                 {% if c.control_family %}| {{ c.control_family }}{% endif %}
                 | score={{ '%.4f'|format(c.score) }}
               </span><br />
@@ -278,7 +304,7 @@
             </div>
             <div class="field">
               <label for="cr-controls-top-k">Controls top-k</label>
-              <input id="cr-controls-top-k" type="number" min="1" max="2000" value="4" title="Number of Corpus A control requirements to include in report assessment. Accepted range: 1–2000." />
+              <input id="cr-controls-top-k" type="number" min="1" max="1500" value="4" title="Number of Corpus A control requirements to include in report assessment. Accepted range: 1–1500." />
             </div>
             <div class="field">
               <label for="cr-temperature">Temperature</label>
@@ -314,10 +340,24 @@
                 <option value="aescsf">AESCSF</option>
                 <option value="nist_ai_rmf">NIST AI RMF</option>
                 <option value="nist_csf">NIST CSF</option>
+                <option value="nist_sp_800_53">NIST SP 800-53</option>
                 <option value="cis_controls">CIS Controls</option>
                 <option value="pci_dss">PCI DSS</option>
                 <option value="pspf">PSPF</option>
               </select>
+            </div>
+            <div class="field">
+              <label for="cr-assessment-strategy">Assessment strategy</label>
+              <select id="cr-assessment-strategy" title="Choose one-pass synthesis or one assessment per selected control.">
+                <option value="single_pass">Single pass</option>
+                <option value="per_control" selected>Per control</option>
+              </select>
+            </div>
+            <div class="field" style="display:flex;align-items:flex-end">
+              <label for="cr-include-corpus-b" style="display:flex;gap:8px;align-items:center;cursor:pointer;margin:0">
+                <input id="cr-include-corpus-b" type="checkbox" checked title="Include Corpus B guidance in the compliance assessment." />
+                <span>Use Corpus B guidance</span>
+              </label>
             </div>
             <div class="field">
               <label for="cr-controls-comparison-mode">Comparison mode</label>
@@ -381,6 +421,7 @@
                 <option value="AESCSF">AESCSF</option>
                 <option value="NIST AI RMF">NIST AI RMF</option>
                 <option value="NIST CSF" selected>NIST CSF</option>
+                <option value="NIST SP 800-53">NIST SP 800-53</option>
                 <option value="CIS Controls">CIS Controls</option>
                 <option value="PCI DSS">PCI DSS</option>
                 <option value="PSPF">PSPF</option>
@@ -388,7 +429,7 @@
             </div>
             <div class="field">
               <label for="aws-controls-top-k">Controls top-k</label>
-              <input id="aws-controls-top-k" type="number" min="1" max="2000" value="4" title="Number of control requirements to assess for the selected framework. Accepted range: 1–2000." />
+              <input id="aws-controls-top-k" type="number" min="1" max="1500" value="4" title="Number of control requirements to assess for the selected framework. Accepted range: 1–1500." />
             </div>
             <div class="field">
               <label for="aws-retrieve-k">Top K chunks</label>
@@ -460,6 +501,7 @@
                 <option value="AESCSF">AESCSF</option>
                 <option value="NIST AI RMF">NIST AI RMF</option>
                 <option value="NIST CSF" selected>NIST CSF</option>
+                <option value="NIST SP 800-53">NIST SP 800-53</option>
                 <option value="CIS Controls">CIS Controls</option>
                 <option value="PCI DSS">PCI DSS</option>
                 <option value="PSPF">PSPF</option>
@@ -467,7 +509,7 @@
             </div>
             <div class="field">
               <label for="az-controls-top-k">Controls top-k</label>
-              <input id="az-controls-top-k" type="number" min="1" max="2000" value="4" title="Number of control requirements to assess for the selected framework. Accepted range: 1–2000." />
+              <input id="az-controls-top-k" type="number" min="1" max="1500" value="4" title="Number of control requirements to assess for the selected framework. Accepted range: 1–1500." />
             </div>
             <div class="field">
               <label for="az-temperature">Temperature</label>
@@ -561,6 +603,7 @@
               <label><input type="checkbox" class="ca-fw" value="nist_ai_rmf" checked title="Include NIST AI RMF controls in Corpus A ingestion." /> NIST AI RMF</label>
               <label><input type="checkbox" class="ca-fw" value="cis_controls" checked title="Include CIS Controls in Corpus A ingestion." /> CIS Controls</label>
               <label><input type="checkbox" class="ca-fw" value="nist_csf" checked title="Include NIST CSF controls in Corpus A ingestion." /> NIST CSF</label>
+              <label><input type="checkbox" class="ca-fw" value="nist_sp_800_53" checked title="Include NIST SP 800-53 controls in Corpus A ingestion." /> NIST SP 800-53</label>
               <label><input type="checkbox" class="ca-fw" value="pci_dss" checked title="Include PCI DSS controls in Corpus A ingestion." /> PCI DSS</label>
               <label><input type="checkbox" class="ca-fw" value="pspf" checked title="Include PSPF controls in Corpus A ingestion." /> PSPF</label>
             </div>
@@ -634,9 +677,149 @@
       </div>
       <!-- /Reference tab -->
 
+      <!-- ── Graph tab ───────────────────────────────────────────────────── -->
+      <div id="tab-graph" class="tab-panel" role="tabpanel" hidden>
+
+        <div class="source" id="graph-explorer-ops">
+          <h3>Relationship Graph Explorer</h3>
+          <p class="muted">Load a graph snapshot or a related-node subgraph, then filter nodes and edges by framework, type, confidence, and seed node scope.</p>
+          <div class="grid">
+            <div class="field">
+              <label for="gx-node-id">Seed node ID (optional)</label>
+              <input id="gx-node-id" type="text" placeholder="a:nist-csf-gv-gv-oc-01" title="Optional node ID for focused related-subgraph loading." />
+            </div>
+            <div class="field">
+              <label for="gx-depth">Depth</label>
+              <input id="gx-depth" type="number" min="1" max="8" value="2" title="Traversal depth for related-subgraph loading. Accepted range: 1–8." />
+            </div>
+            <div class="field">
+              <label for="gx-max-edges">Max edges</label>
+              <input id="gx-max-edges" type="number" min="1" max="5000" value="200" title="Maximum edges returned when loading a related subgraph. Accepted range: 1–5000." />
+            </div>
+            <div class="field">
+              <label for="gx-max-nodes-export">Max nodes (snapshot)</label>
+              <input id="gx-max-nodes-export" type="number" min="1" max="1000000" value="500" title="Maximum nodes returned when loading the graph snapshot." />
+            </div>
+            <div class="field">
+              <label for="gx-build-min-community-size">Min community size (build)</label>
+              <input id="gx-build-min-community-size" type="number" min="2" max="100" value="3" title="Minimum nodes required to treat a component as a community in graph outputs." />
+            </div>
+            <div class="field">
+              <label for="gx-framework-filter">Framework filter</label>
+              <select id="gx-framework-filter" title="Filter graph nodes to a specific framework when rendering the explorer.">
+                <option value="">All frameworks</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="gx-node-type-filter">Node type filter</label>
+              <select id="gx-node-type-filter" title="Filter rendered graph nodes by node type.">
+                <option value="">All node types</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="gx-edge-type-filter">Edge type filter</label>
+              <select id="gx-edge-type-filter" title="Filter rendered graph edges by edge type.">
+                <option value="">All edge types</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="gx-min-confidence">Min edge confidence</label>
+              <input id="gx-min-confidence" type="number" min="0" max="1" step="0.05" value="0" title="Only show edges at or above this confidence threshold." />
+            </div>
+            <div class="field">
+              <label for="gx-layout-mode">Layout mode</label>
+              <select id="gx-layout-mode" title="Choose how nodes are laid out in the graph canvas.">
+                <option value="radial" selected>Radial</option>
+                <option value="force">Force-like clustering</option>
+                <option value="force-3d">Force-like clustering (3D rotatable)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="gx-performance-mode">Performance mode</label>
+              <select id="gx-performance-mode" title="Choose rendering detail profile for Cytoscape.">
+                <option value="auto" selected>Auto</option>
+                <option value="dense">Dense (faster)</option>
+                <option value="quality">Quality (richer)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="gx-3d-sensitivity">3D sensitivity</label>
+              <select id="gx-3d-sensitivity" title="Control 3D camera feel: calm for steady, fast for responsive movement.">
+                <option value="calm">Calm</option>
+                <option value="standard" selected>Standard</option>
+                <option value="fast">Fast</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="gx-label-zoom-threshold">Label zoom threshold</label>
+              <input id="gx-label-zoom-threshold" type="number" min="0.5" max="3" step="0.1" value="1" title="Node labels are hidden below this zoom level to improve rendering speed." />
+            </div>
+            <div class="field">
+              <label for="gx-safe-max-visible-edges">Safe max visible edges</label>
+              <input id="gx-safe-max-visible-edges" type="number" min="100" max="50000" step="100" value="8000" title="When edge count exceeds this value, only top-confidence edges are rendered unless override is enabled." />
+            </div>
+            <div class="field">
+              <label for="gx-community-filter">Community filter</label>
+              <select id="gx-community-filter" title="Filter graph nodes and edges by detected semantic community.">
+                <option value="">All communities</option>
+              </select>
+            </div>
+            <div class="field" style="display:flex;align-items:flex-end">
+              <label for="gx-community-isolate" style="display:flex;gap:8px;align-items:center;cursor:pointer;margin:0">
+                <input id="gx-community-isolate" type="checkbox" onchange="applyGraphExplorerFilters()" />
+                <span>Isolate community (dim others)</span>
+              </label>
+            </div>
+            <div class="field" style="display:flex;align-items:flex-end">
+              <label for="gx-allow-large-render" style="display:flex;gap:8px;align-items:center;cursor:pointer;margin:0">
+                <input id="gx-allow-large-render" type="checkbox" onchange="applyGraphExplorerFilters()" />
+                <span>Allow rendering above safe edge cap</span>
+              </label>
+            </div>
+          </div>
+          <div class="ops-row">
+            <button type="button" id="gx-load-snapshot-btn" onclick="loadGraphSnapshot()" title="Load the persisted graph snapshot for exploration.">Load Graph Snapshot</button>
+            <button type="button" id="gx-load-related-btn" class="btn-secondary" onclick="loadGraphRelated()" title="Load a subgraph around the provided seed node ID.">Load Related Subgraph</button>
+            <button type="button" id="gx-apply-filters-btn" class="btn-secondary" onclick="applyGraphExplorerFilters()" title="Apply the selected graph explorer filters to the current graph view.">Apply Filters</button>
+            <button type="button" class="btn-secondary" onclick="resetGraphExplorerFilters()" title="Reset graph explorer filters to their defaults.">Reset Filters</button>
+            <button type="button" id="gx-build-btn" class="btn-secondary" onclick="buildGraphFromAsk()" title="Build or rebuild the graph from the loaded Corpus A/B controls indexes.">Build Graph From Loaded Index</button>
+          </div>
+          <div class="ops-row">
+            <input id="gx-jump-node" type="text" placeholder="Jump to node ID (e.g., a:nist-csf-gv-gv-oc-01)" title="Enter a node ID to focus and centre it in the graph visualisation." />
+            <button type="button" class="btn-secondary" onclick="jumpGraphNode()" title="Focus and center the selected node in the visualisation.">Jump To Node</button>
+            <button type="button" id="gx-recenter-3d-btn" class="btn-secondary" onclick="recenterGraph3dCamera()" title="Recenter the 3D camera to fit the current graph.">Recenter 3D Camera</button>
+          </div>
+          <div id="gx-build-banner" class="graph-build-banner">Build status: unknown.</div>
+          <div id="gx-hyper-warning" class="graph-hyper-warning" style="display:none"></div>
+          <div id="gx-status" class="ops-status">Graph explorer not loaded yet.</div>
+          <div id="gx-summary" class="ops-status" style="display:none"></div>
+          <div class="source" id="gx-visual" style="display:none">
+            <h4>Graph Visualisation</h4>
+            <div id="gx-render-mode-hint" class="graph-render-mode-hint" style="display:none"></div>
+            <div id="gx-render-budget" class="graph-render-budget" style="display:none"></div>
+            <div id="gx-hover-node" class="graph-hover-node" style="display:none"></div>
+            <div id="gx-focus-node" class="graph-focus-node" style="display:none"></div>
+            <div id="gx-edge-legend" class="graph-legend" style="display:none"></div>
+            <div id="gx-community-list" class="graph-community-list" style="display:none"></div>
+            <div id="gx-community-summary" class="graph-community-summary" style="display:none"></div>
+            <div id="gx-canvas" class="graph-canvas" aria-label="Interactive relationship graph"></div>
+          </div>
+          <div id="gx-results" class="source" style="display:none">
+            <h4>Visible Nodes</h4>
+            <div id="gx-nodes" class="ops-status"></div>
+            <h4>Visible Edges</h4>
+            <div id="gx-edges" class="ops-status"></div>
+          </div>
+        </div>
+
+      </div>
+      <!-- /Graph tab -->
+
     </div>
   </div>
 <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.2/dist/cytoscape.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.78.4/dist/3d-force-graph.min.js" crossorigin="anonymous"></script>
 <script src="/static/index.js?v={{ static_version }}"></script>
 </body>
 </html>

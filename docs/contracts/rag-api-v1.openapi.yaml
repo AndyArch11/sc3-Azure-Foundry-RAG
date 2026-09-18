@@ -5,6 +5,33 @@ info:
   description: |
     Stable service contract for external integrations that consume the query-web RAG API
     through an edge gateway (Azure APIM or AWS API Gateway).
+
+    Graph build operations are intentionally excluded from this published contract.
+    External consumers may query and export graph data through the documented graph
+    endpoints, but graph build remains an internal/admin operation and must not be
+    exposed through APIM, API Gateway, or other public gateway surfaces.
+
+    Tracing headers are supported for distributed logging and request correlation:
+    - `x-correlation-id`: application-level correlation identifier propagated by query-web
+    - `traceparent`: W3C trace context header
+    - `tracestate`: optional W3C trace context state header
+
+    The service echoes correlation/trace headers on responses when present.
+
+    Operational constraints for `/api/v1/ask`:
+    - Effective prompt context window is deployment/model dependent. This contract does not guarantee a fixed
+      maximum input token capacity across all environments.
+    - Effective generation token budget should be surfaced as runtime metadata (`runtime_hints.max_completion_tokens_effective`)
+      because practical limits depend on both model capabilities and environment/runtime constraints.
+    - For hosted/cloud LLMs, context-window hints should be derived from model/provider metadata when available
+      (for example max position embeddings or equivalent provider capability fields).
+    - Client-supplied token budgets are bounded by schema validation (`max_completion_tokens` up to 8192,
+      `evaluator_max_completion_tokens` up to 4096).
+    - Long-running requests are expected for complex prompts or deep retrieval configurations. Client timeouts
+      should be set accordingly at gateway and caller layers.
+    - Runtime may normalise unsupported sampling combinations or reject requests that exceed provider/model limits.
+      Treat this contract as the stable API surface, not as a guarantee of provider-specific LLM capabilities.
+    - Clients that need limits before first ask should call `/api/v1/provider-status` to retrieve advisory runtime hints.
 servers:
   - url: https://api.example.com
     description: Gateway base URL
@@ -13,6 +40,10 @@ paths:
     get:
       summary: Health check
       operationId: getHealth
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+        - $ref: "#/components/parameters/TraceparentHeader"
+        - $ref: "#/components/parameters/TracestateHeader"
       responses:
         "200":
           description: Service is healthy
@@ -21,19 +52,62 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
-  /api/ask:
+  /api/v1/provider-status:
+    get:
+      summary: Get provider/runtime status and advisory limits
+      operationId: getProviderStatus
+      description: |
+        Pre-ask discovery endpoint for runtime/model constraints.
+        Use this to fetch advisory token/context hints before calling `/api/v1/ask`.
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+        - $ref: "#/components/parameters/TraceparentHeader"
+        - $ref: "#/components/parameters/TracestateHeader"
+      responses:
+        "200":
+          description: Provider/runtime status payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderStatusResponse"
+  /api/v1/ask:
     post:
       summary: Generate a RAG answer
       operationId: postAsk
       description: |
         Primary integration entry point for question answering.
         Deployments should expose this operation via APIM/API Gateway and keep query-web private.
+        See request/response examples `explicit_empty_evidence_include`, `empty_include_warning`,
+        `explicit_valid_evidence_include`, and `valid_include_success` for side-by-side behaviour.
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+        - $ref: "#/components/parameters/TraceparentHeader"
+        - $ref: "#/components/parameters/TracestateHeader"
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/AskRequest"
+            examples:
+              explicit_empty_evidence_include:
+                summary: Explicit empty include list (no retrieval corpora selected)
+                value:
+                  question: Summarise control themes from my upload
+                  retrieve_k: 5
+                  temperature: 0.2
+                  thinking_mode: balanced
+                  evidence_corpora_include: []
+              explicit_valid_evidence_include:
+                summary: Explicit valid include list (retrieval over corpora a and b)
+                value:
+                  question: Summarise control themes from my upload
+                  retrieve_k: 5
+                  temperature: 0.2
+                  thinking_mode: balanced
+                  evidence_corpora_include:
+                    - a
+                    - b
       responses:
         "200":
           description: Ask response
@@ -41,23 +115,447 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AskResponse"
+              examples:
+                empty_include_warning:
+                  summary: Response when evidence_corpora_include is explicitly empty
+                  value:
+                    answer: No relevant chunks were found in the index.
+                    results: []
+                    controls_results: []
+                    controls_debug:
+                      total_controls: 0
+                      distinct_frameworks: 0
+                    evaluation:
+                      acceptable: false
+                      score: 0.0
+                      reason: No search context returned.
+                    iterations: 1
+                    metrics:
+                      total_s: 0.003
+                    runtime_hints:
+                      context_window_tokens_hint: 65536
+                      context_window_source: runtime_config
+                      max_completion_tokens_effective: 2200
+                      max_completion_tokens_source: thinking_mode_preset
+                      evaluator_max_completion_tokens_effective: 1000
+                      request_timeout_seconds_hint: 420
+                      provider_constraints_note: Runtime limits vary by provider/model and deployment configuration. Treat hints as advisory.
+                    audit:
+                      evidence_corpus_filter_expr: __none__
+                      evidence_corpora_selected: []
+                      warnings:
+                        - No evidence corpora selected for retrieval. Provide evidence_corpora_include with one or more of: a, b.
+                    error: ""
+                valid_include_success:
+                  summary: Response when evidence_corpora_include includes a and b
+                  value:
+                    answer: |
+                      Key themes include identity governance, privileged access controls,
+                      logging/monitoring, and data handling safeguards.
+                    results:
+                      - content: Identity and access controls should enforce least privilege.
+                        source_name: nist_csf_2-0
+                        corpus: a
+                      - content: Security monitoring baselines should include centralised log retention.
+                        source_name: corporate_security_policy
+                        corpus: b
+                    controls_results: []
+                    controls_debug:
+                      total_controls: 0
+                      distinct_frameworks: 0
+                    evaluation:
+                      acceptable: true
+                      score: 0.82
+                      reason: Grounded response generated from retrieved evidence.
+                    iterations: 1
+                    metrics:
+                      total_s: 0.41
+                    runtime_hints:
+                      context_window_tokens_hint: 65536
+                      context_window_source: runtime_config
+                      max_completion_tokens_effective: 2200
+                      max_completion_tokens_source: thinking_mode_preset
+                      evaluator_max_completion_tokens_effective: 1000
+                      request_timeout_seconds_hint: 420
+                      provider_constraints_note: Runtime limits vary by provider/model and deployment configuration. Treat hints as advisory.
+                    audit:
+                      evidence_corpus_filter_expr: (corpus eq 'a') or (corpus eq 'b' or corpus_role eq 'narrative_guidance')
+                      evidence_corpora_selected:
+                        - a
+                        - b
+                    error: ""
         "401":
           description: Unauthorised request
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AskResponse"
+                $ref: "#/components/schemas/ProblemDetails"
         "422":
-          description: Validation error
+          description: Validation error (unprocessable request payload)
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/graph/nodes/{node_id}:
+    get:
+      summary: Get graph node by ID
+      operationId: getGraphNode
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+        - $ref: "#/components/parameters/TraceparentHeader"
+        - $ref: "#/components/parameters/TracestateHeader"
+        - name: node_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: auth_token
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Graph node
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphNode"
+        "401":
+          description: Unauthorised request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Node not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/graph/related:
+    get:
+      summary: Get related subgraph from a node
+      operationId: getGraphRelated
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+        - $ref: "#/components/parameters/TraceparentHeader"
+        - $ref: "#/components/parameters/TracestateHeader"
+        - name: node_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: depth
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 8
+            default: 1
+        - name: max_edges
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5000
+            default: 500
+        - name: auth_token
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Related subgraph
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphExportResponse"
+        "401":
+          description: Unauthorised request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Seed node not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/graph/export:
+    get:
+      summary: Export persisted graph
+      operationId: getGraphExport
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+        - $ref: "#/components/parameters/TraceparentHeader"
+        - $ref: "#/components/parameters/TracestateHeader"
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [json, graphml]
+            default: json
+        - name: max_nodes
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000000
+            default: 100000
+        - name: max_edges
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000000
+            default: 100000
+        - name: auth_token
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Graph export payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphExportResponse"
+        "400":
+          description: Unsupported format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Unauthorised request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "503":
+          description: Graph backend unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/graph/query:
+    post:
+      summary: Query a bounded graph subgraph
+      operationId: queryGraph
+      description: |
+        Read-only graph query intended for agent and MCP consumers.
+        Use `seed_node_id` for bounded traversal, or omit it for a bounded snapshot query.
+        Results are filtered server-side and always subject to `max_nodes` and `max_edges`.
+        Graph build is not available through this operation.
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+        - $ref: "#/components/parameters/TraceparentHeader"
+        - $ref: "#/components/parameters/TracestateHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GraphQueryRequest"
+      responses:
+        "200":
+          description: Bounded graph query result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphExportResponse"
+        "401":
+          description: Unauthorised request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Seed node not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "422":
+          description: Invalid graph query bounds or filters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "503":
+          description: Graph backend unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/graph/status:
+    get:
+      summary: Get graph readiness and build eligibility status
+      operationId: getGraphStatus
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+        - $ref: "#/components/parameters/TraceparentHeader"
+        - $ref: "#/components/parameters/TracestateHeader"
+        - name: auth_token
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Graph status payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphStatusResponse"
+        "401":
+          description: Unauthorised request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/frameworks/{framework}/controls:
+    get:
+      summary: List controls for a security framework
+      operationId: getFrameworkControls
+      parameters:
+        - $ref: "#/components/parameters/CorrelationIdHeader"
+        - $ref: "#/components/parameters/TraceparentHeader"
+        - $ref: "#/components/parameters/TracestateHeader"
+        - name: framework
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: auth_token
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Framework controls payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FrameworkControlsResponse"
+        "401":
+          description: Unauthorised request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Framework not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
 components:
+  parameters:
+    CorrelationIdHeader:
+      name: x-correlation-id
+      in: header
+      required: false
+      description: |
+        Optional application-level correlation identifier.
+        If omitted, the service generates a correlation ID and echoes it in the response header.
+      schema:
+        type: string
+        maxLength: 128
+    TraceparentHeader:
+      name: traceparent
+      in: header
+      required: false
+      description: |
+        Optional W3C Trace Context header used for distributed tracing.
+        If provided, the service propagates it and echoes it in the response header.
+      schema:
+        type: string
+    TracestateHeader:
+      name: tracestate
+      in: header
+      required: false
+      description: |
+        Optional W3C Trace Context state header.
+        Only meaningful when `traceparent` is also present.
+      schema:
+        type: string
   schemas:
+    ProblemDetails:
+      type: object
+      description: |
+        RFC 7807 / RFC 9457 Problem Details response.
+        Error payload for client-visible non-success API responses.
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 100
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+      required:
+        - type
+        - title
+        - status
+        - detail
+        - instance
+      additionalProperties: true
+
     AskRequest:
       type: object
+      description: |
+        Parameter precedence and side effects (API path):
+
+        | Parameter | If explicitly set | If left default/omitted | Notes |
+        |---|---|---|---|
+        | `thinking_mode` | Selects preset family (`quick`, `balanced`, `deep`) | Defaults to `balanced` | Presets affect retrieval depth, control context, sampling, and token budgets. |
+        | `retrieve_k` | Uses explicit value | If value remains default (`5`) and `thinking_mode` is set, service may apply mode preset | Clamp range: 1..20. |
+        | `controls_context_cap` | Uses explicit value | If omitted, service applies mode preset | Clamp range: 1..3000. |
+        | `temperature` | Uses explicit value when not left at default sentinel (`1.0`) | If `1.0` with `thinking_mode`, service may apply mode preset temperature | Model/provider guards may still normalise unsupported sampling values at runtime. |
+        | `top_p` | Uses explicit value when not left at default sentinel (`1.0`) | If `1.0` with `thinking_mode`, service may apply mode preset top_p | Clamp range: 0..1. |
+        | `max_completion_tokens` | Uses explicit value | If omitted, service applies mode preset token budget | Clamp range: 256..8192. |
+        | `evaluator_max_completion_tokens` | Uses explicit value | If omitted, service applies mode preset evaluator budget | Clamp range: 128..4096. |
+        | `controls_semantic` | Uses explicit true/false | If `null`/omitted, service uses `controls_semantic_default` | Controls retrieval strategy selector. |
+        | `controls_comparison_mode` | Uses explicit enum value | Defaults to `auto-detect` | `force_cross_framework_comparison` forces cross-framework comparison behaviour. |
+        | `controls_framework` | Applies explicit framework filter when recognised | No framework filter when omitted/unrecognised | Canonical keys documented below; aliases may be accepted. |
+
+        Additional notes:
+        - Graph expansion is opt-in (`include_graph_expansion=false` by default).
+        - External clients should not provide `auth_token`; gateway injection is expected.
+        - The API always appends Corpus C (`c`) to the effective exclusion set before backend retrieval.
+
+        Operational guidance for resilient clients:
+        - Keep prompts concise and task-focused to reduce risk of provider context overflow.
+        - Prefer `thinking_mode` presets unless strict overrides are required; avoid simultaneously maximising
+          retrieval depth, context cap, and output token budgets on latency-sensitive flows.
+        - Use bounded client timeouts with retry/backoff for transient model/runtime failures.
+        - Treat `runtime_hints.max_completion_tokens_effective` as the primary output-budget signal.
+        - Use `runtime_hints.context_window_tokens_hint` (when present) for prompt-sizing guidance.
+        - Treat response `runtime_hints` (when present) as advisory metadata for tuning and diagnostics.
       required:
         - question
       properties:
@@ -69,43 +567,121 @@ components:
           minimum: 1
           maximum: 20
           default: 5
+          description: |
+            Number of evidence chunks to retrieve.
+            Preset interaction: when `thinking_mode` is set and `retrieve_k` remains the default value (`5`),
+            the service may replace it with the thinking-mode preset value.
         controls_context_cap:
           type: integer
           minimum: 1
-          maximum: 2000
+          maximum: 3000
           nullable: true
+          description: |
+            Maximum control-context budget sent to generation.
+            If omitted, the service uses the thinking-mode preset.
         temperature:
           type: number
           minimum: 0.0
           maximum: 1.0
           default: 1.0
+          description: |
+            Sampling temperature for generation.
+            Preset interaction: when `thinking_mode` is provided and `temperature` remains `1.0`,
+            the service applies the thinking-mode preset temperature instead.
+            Set a non-default explicit value to override presets.
         top_p:
           type: number
           minimum: 0.0
           maximum: 1.0
           default: 1.0
+          description: |
+            Nucleus sampling parameter.
+            Preset interaction: when `thinking_mode` is provided and `top_p` remains `1.0`,
+            the service applies the thinking-mode preset top_p instead.
+            Set a non-default explicit value to override presets.
         thinking_mode:
           type: string
           default: balanced
+          enum:
+            - quick
+            - balanced
+            - deep
+          description: |
+            High-level reasoning preset.
+            Modes tune multiple parameters together (retrieve depth, control context, generation settings,
+            and token budgets). Canonical values are `quick`, `balanced`, and `deep`.
+            If omitted, the API defaults to `balanced`.
         controls_semantic:
           type: boolean
           nullable: true
+          description: |
+            Controls retrieval strategy selector.
+            - `true`: prefer semantic controls retrieval.
+            - `false`: use non-semantic/keyword-style controls retrieval.
+            - `null` (or omitted): use server default (`controls_semantic_default`).
         controls_framework:
           type: string
           nullable: true
+          description: |
+            Optional framework filter for controls retrieval.
+            Canonical framework keys include: `nist_ai_rmf`, `nist_csf`, `nist_sp_800_53`, `essential_eight`, `aescsf`,
+            `cis_controls`, `ism`, `pci_dss`, `pspf`.
+            Common aliases may also be accepted by the service.
         controls_comparison_mode:
           type: string
           default: auto-detect
+          enum:
+            - auto-detect
+            - force_cross_framework_comparison
+          description: |
+            Controls comparison behaviour.
+            - `auto-detect`: infer whether cross-framework comparison is needed from query intent.
+            - `force_cross_framework_comparison`: always enable cross-framework comparison behaviour.
+        include_graph_expansion:
+          type: boolean
+          default: false
+          description: |
+            Explicit client opt-in for graph-assisted expansion on this request.
+            Defaults to false; clients should only enable when graph is available and desired.
+        graph_expansion_depth:
+          type: integer
+          minimum: 1
+          maximum: 4
+          nullable: true
+        graph_expansion_max_edges:
+          type: integer
+          minimum: 1
+          maximum: 200
+          nullable: true
         evidence_corpora_include:
           type: array
           items:
             type: string
+            enum:
+              - a
+              - b
           nullable: true
+          description: |
+            Optional allow-list of evidence corpora.
+            Valid external values: `a`, `b`.
+            Corpora `a` contains security framework controls and related grounding evidence.
+            Corpora `b` contains corporate security guidance and related grounding evidence.
+            If omitted or null, the service applies default corpus selection.
+            If explicitly provided as an empty array (`[]`), no evidence corpora are selected,
+            retrieval returns no chunks, and a warning is added at `audit.warnings`.
         evidence_corpora_exclude:
           type: array
           items:
             type: string
+            enum:
+              - a
+              - b
           nullable: true
+          description: |
+            Optional deny-list of evidence corpora.
+            Applied after include/default corpus resolution.
+            The API always appends Corpus C (`c`) to the effective exclusion set before backend retrieval.
+            Corpora `a` and `b` are always included by default; this parameter allows clients to restrict to a subset.
         max_completion_tokens:
           type: integer
           minimum: 256
@@ -156,9 +732,122 @@ components:
           nullable: true
           additionalProperties:
             type: number
+        runtime_hints:
+          type: object
+          nullable: true
+          description: |
+            Optional advisory runtime metadata for client-side tuning and diagnostics.
+            Values are informational, may be omitted, and can vary by deployment/model/provider.
+          properties:
+            context_window_tokens_hint:
+              type: integer
+              minimum: 1
+              nullable: true
+              description: |
+                Advisory context-window estimate in tokens.
+                Prefer model/provider capability metadata for hosted/cloud LLMs when available.
+                For local/self-hosted deployments, this may be derived from runtime configuration.
+            context_window_source:
+              type: string
+              nullable: true
+              enum:
+                - runtime_config
+                - provider_runtime
+                - model_metadata
+                - unknown
+              description: Source used to derive `context_window_tokens_hint`.
+            max_completion_tokens_effective:
+              type: integer
+              minimum: 1
+              nullable: true
+              description: |
+                Effective max completion token limit applied at runtime.
+                This is the recommended primary token-budget signal for client request shaping.
+            max_completion_tokens_source:
+              type: string
+              nullable: true
+              enum:
+                - request_override
+                - thinking_mode_preset
+                - provider_runtime
+                - model_metadata
+                - runtime_config
+                - unknown
+              description: Source used to derive `max_completion_tokens_effective`.
+            evaluator_max_completion_tokens_effective:
+              type: integer
+              minimum: 1
+              nullable: true
+              description: Effective evaluator token limit applied at runtime.
+            request_timeout_seconds_hint:
+              type: integer
+              minimum: 1
+              nullable: true
+              description: Advisory timeout hint for this request class.
+            provider_constraints_note:
+              type: string
+              nullable: true
+              description: Human-readable provider/model constraint summary when available.
+          additionalProperties: true
+        graph_capabilities:
+          type: object
+          nullable: true
+          properties:
+            available:
+              type: boolean
+            requested:
+              type: boolean
+            used:
+              type: boolean
+          additionalProperties: false
+        graph_summary:
+          type: object
+          nullable: true
+          properties:
+            enabled:
+              type: boolean
+            requested:
+              type: boolean
+            used:
+              type: boolean
+            available:
+              type: boolean
+            reason:
+              type: string
+              nullable: true
+          additionalProperties: true
+        community_summaries:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: object
+            additionalProperties: true
+        corpus_a_entities:
+          type: array
+          nullable: true
+          items:
+            type: object
+            additionalProperties: true
+        corpus_b_entities:
+          type: array
+          nullable: true
+          items:
+            type: object
+            additionalProperties: true
+        graph_links:
+          type: array
+          nullable: true
+          items:
+            type: object
+            additionalProperties: true
         audit:
           type: object
           nullable: true
+          description: |
+            Optional diagnostic metadata.
+            When `evidence_corpora_include` is explicitly empty (`[]`) on `/api/v1/ask`,
+            the response may include `audit.warnings` with a message explaining that
+            no evidence corpora were selected.
           additionalProperties: true
         error:
           type: string
@@ -167,3 +856,240 @@ components:
         - answer
         - results
         - controls_results
+    GraphNode:
+      type: object
+      properties:
+        node_id:
+          type: string
+        node_type:
+          type: string
+        label:
+          type: string
+        graph_schema_version:
+          type: string
+        attributes:
+          type: object
+          additionalProperties: true
+      required:
+        - node_id
+        - node_type
+    GraphEdge:
+      type: object
+      properties:
+        edge_id:
+          type: string
+        from_id:
+          type: string
+        to_id:
+          type: string
+        edge_type:
+          type: string
+        confidence:
+          type: number
+        evidence_key:
+          type: string
+        graph_schema_version:
+          type: string
+        attributes:
+          type: object
+          additionalProperties: true
+      required:
+        - edge_id
+        - from_id
+        - to_id
+        - edge_type
+    GraphExportResponse:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphNode"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEdge"
+        counts:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: integer
+        community_summaries:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: object
+            additionalProperties: true
+        truncated:
+          type: boolean
+        limits:
+          type: object
+          additionalProperties:
+            type: integer
+    GraphQueryRequest:
+      type: object
+      properties:
+        seed_node_id:
+          type: string
+          maxLength: 256
+        depth:
+          type: integer
+          minimum: 1
+          maximum: 8
+          default: 1
+        max_nodes:
+          type: integer
+          minimum: 1
+          maximum: 5000
+          default: 200
+        max_edges:
+          type: integer
+          minimum: 1
+          maximum: 5000
+          default: 500
+        framework:
+          type: string
+          maxLength: 128
+        node_type:
+          type: string
+          maxLength: 128
+        edge_type:
+          type: string
+          maxLength: 128
+        community:
+          type: string
+          maxLength: 128
+        min_confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0
+    GraphStatusResponse:
+      type: object
+      properties:
+        backend:
+          type: string
+        controls_loaded:
+          type: boolean
+        controls_count:
+          type: integer
+        corpus_b_loaded:
+          type: boolean
+        corpus_b_count:
+          type: integer
+        index_loaded:
+          type: boolean
+        index_count:
+          type: integer
+        graph_built:
+          type: boolean
+        graph_ready:
+          type: boolean
+        graph_needs_rebuild:
+          type: boolean
+        graph_available_for_visualisation:
+          type: boolean
+        graph_available_for_ask_expansion:
+          type: boolean
+        allow_build:
+          type: boolean
+        allow_visualisation:
+          type: boolean
+        allow_ask_expansion:
+          type: boolean
+        reason:
+          type: string
+        audit:
+          type: object
+          nullable: true
+          additionalProperties: true
+      additionalProperties: true
+    FrameworkControlsResponse:
+      type: object
+      properties:
+        framework_key:
+          type: string
+        framework:
+          type: string
+        total_count:
+          type: integer
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      required:
+        - framework_key
+        - framework
+        - total_count
+        - items
+    ProviderStatusResponse:
+      type: object
+      properties:
+        provider:
+          type: string
+        query_deployment:
+          type: string
+        embedding_deployment:
+          type: string
+        runtime_hints:
+          type: object
+          nullable: true
+          description: |
+            Optional advisory runtime metadata for client-side tuning and diagnostics.
+            Values are informational, may be omitted, and can vary by deployment/model/provider.
+          properties:
+            context_window_tokens_hint:
+              type: integer
+              minimum: 1
+              nullable: true
+              description: |
+                Advisory context-window estimate in tokens.
+                Prefer model/provider capability metadata for hosted/cloud LLMs when available.
+                For local/self-hosted deployments, this may be derived from runtime configuration.
+            context_window_source:
+              type: string
+              nullable: true
+              enum:
+                - runtime_config
+                - provider_runtime
+                - model_metadata
+                - unknown
+              description: Source used to derive `context_window_tokens_hint`.
+            max_completion_tokens_effective:
+              type: integer
+              minimum: 1
+              nullable: true
+              description: |
+                Effective max completion token limit applied at runtime.
+                This is the recommended primary token-budget signal for client request shaping.
+            max_completion_tokens_source:
+              type: string
+              nullable: true
+              enum:
+                - request_override
+                - thinking_mode_preset
+                - provider_runtime
+                - model_metadata
+                - runtime_config
+                - unknown
+              description: Source used to derive `max_completion_tokens_effective`.
+            evaluator_max_completion_tokens_effective:
+              type: integer
+              minimum: 1
+              nullable: true
+              description: Effective evaluator token limit applied at runtime.
+            request_timeout_seconds_hint:
+              type: integer
+              minimum: 1
+              nullable: true
+              description: Advisory timeout hint for this request class.
+            provider_constraints_note:
+              type: string
+              nullable: true
+              description: Human-readable provider/model constraint summary when available.
+          additionalProperties: true
+      required:
+        - provider
+        - query_deployment
+        - embedding_deployment

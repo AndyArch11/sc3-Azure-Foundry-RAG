@@ -4,12 +4,12 @@
 	"remoteUser": "vscode",
 	"features": {
 		"ghcr.io/devcontainers/features/azure-cli:1": {},
-		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1.10.1": {
 			"moby": false
 		},
 		"ghcr.io/devcontainers/features/python:1": {},
-		"ghcr.io/devcontainers/features/powershell:2": {},
-		"ghcr.io/devcontainers/features/terraform:1": {}
+		"ghcr.io/devcontainers/features/powershell:2.0.3": {},
+		"ghcr.io/devcontainers/features/terraform:1.5.0": {}
 	},
 	"customizations": {
 		"vscode": {

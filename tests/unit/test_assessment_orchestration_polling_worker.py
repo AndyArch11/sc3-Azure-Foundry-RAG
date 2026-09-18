@@ -382,6 +382,7 @@ def test_requested_frameworks_from_text_requires_explicit_all_intent() -> None:
         "ISM",
         "AESCSF",
         "NIST AI RMF",
+        "NIST SP 800-53",
         "NIST CSF",
         "PSPF",
         "PCI DSS",
@@ -607,12 +608,13 @@ def test_process_assessment_event_falls_back_to_history_when_trigger_comment_mis
         "ISM",
         "AESCSF",
         "NIST AI RMF",
+        "NIST SP 800-53",
         "NIST CSF",
         "PSPF",
         "PCI DSS",
         "CIS Controls",
     ]
-    assert len(server.posts) == 8
+    assert len(server.posts) == 9
     assert server.posts[0]["idempotency_key"].endswith("essential-eight")
     assert server.posts[-1]["idempotency_key"].endswith("cis-controls")
 

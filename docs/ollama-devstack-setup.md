@@ -12,8 +12,8 @@ This guide explains how to use Ollama (local LLMs) instead of Azure OpenAI for d
 The Foundry backend supports **two LLM backends**:
 
 1. **Azure OpenAI** (production/default):
-   - GPT-5.1 chat model for compliance report generation
-   - Text embedding Ada-002 for semantic search
+   - `GPT-5.1` chat model for compliance report generation
+   - Text embedding `text-embedding-3-small` for semantic search
    - Configured via `AZURE_OPENAI_ENDPOINT` environment variable
 
 2. **Ollama** (local development):
@@ -164,7 +164,7 @@ else:
 
 ### Embeddings
 
-| Dimension | Ada-002 (Azure) | Nomic-Embed (Ollama) |
+| Dimension | 3-small (Azure) | Nomic-Embed (Ollama) |
 |-----------|-----------------|---------------------|
 | Dimensions | 1536 | 768 |
 | Speed | ~0.5s | ~0.2s (local) |

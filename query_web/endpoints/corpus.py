@@ -10,10 +10,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import uuid
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
 import requests  # type: ignore[import-untyped]
@@ -21,6 +24,7 @@ from fastapi import File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from query_web.endpoints.problem_details import problem_response as _problem_response
 from query_web.request_context import outbound_trace_headers
 from runtime.provider_core import normalise_cloud_provider
 
@@ -153,30 +157,40 @@ def register_corpus_endpoints(
             A JSONResponse containing the upload and ingestion results or an error message.
         """
         if not svc._is_authorised_request(auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=svc._unauthorised_message(request),
+                instance=str(request.url.path),
+            )
 
         if not files:
-            return JSONResponse({"error": "No files uploaded."}, status_code=400)
+            return _problem_response(
+                status=400,
+                title="Bad Request",
+                detail="No files uploaded.",
+                instance=str(request.url.path),
+            )
         for file in files:
             if not svc._is_allowed_filetype(file.filename or ""):
-                return JSONResponse(
-                    {
-                        "error": (
-                            f"File type not allowed: {file.filename}. "
-                            f"Allowed: {', '.join(sorted(svc.ALLOWED_EXTENSIONS))}"
-                        )
-                    },
-                    status_code=400,
+                return _problem_response(
+                    status=400,
+                    title="Bad Request",
+                    detail=(
+                        f"File type not allowed: {file.filename}. "
+                        f"Allowed: {', '.join(sorted(svc.ALLOWED_EXTENSIONS))}"
+                    ),
+                    instance=str(request.url.path),
                 )
             if not svc._extension_matches_mime(file.filename or "", file.content_type or ""):
-                return JSONResponse(
-                    {
-                        "error": (
-                            f"File type/content mismatch: {file.filename} "
-                            f"(content_type: {file.content_type})"
-                        )
-                    },
-                    status_code=400,
+                return _problem_response(
+                    status=400,
+                    title="Bad Request",
+                    detail=(
+                        f"File type/content mismatch: {file.filename} "
+                        f"(content_type: {file.content_type})"
+                    ),
+                    instance=str(request.url.path),
                 )
 
         user_id = svc._get_user_id(auth_token, str(uuid.uuid4()))
@@ -302,7 +316,12 @@ def register_corpus_endpoints(
                     "exc_type": type(exc).__name__,
                 },
             )
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=svc._INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.post("/api/corpus-c/ingest")
     async def upload_corpus_c_and_trigger(
@@ -325,30 +344,40 @@ def register_corpus_endpoints(
             A JSONResponse containing the upload and ingestion results or an error message.
         """
         if not svc._is_authorised_request(auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=svc._unauthorised_message(request),
+                instance=str(request.url.path),
+            )
 
         if not files:
-            return JSONResponse({"error": "No files uploaded."}, status_code=400)
+            return _problem_response(
+                status=400,
+                title="Bad Request",
+                detail="No files uploaded.",
+                instance=str(request.url.path),
+            )
         for file in files:
             if not svc._is_allowed_filetype(file.filename or ""):
-                return JSONResponse(
-                    {
-                        "error": (
-                            f"File type not allowed: {file.filename}. "
-                            f"Allowed: {', '.join(sorted(svc.ALLOWED_EXTENSIONS))}"
-                        )
-                    },
-                    status_code=400,
+                return _problem_response(
+                    status=400,
+                    title="Bad Request",
+                    detail=(
+                        f"File type not allowed: {file.filename}. "
+                        f"Allowed: {', '.join(sorted(svc.ALLOWED_EXTENSIONS))}"
+                    ),
+                    instance=str(request.url.path),
                 )
             if not svc._extension_matches_mime(file.filename or "", file.content_type or ""):
-                return JSONResponse(
-                    {
-                        "error": (
-                            f"File type/content mismatch: {file.filename} "
-                            f"(content_type: {file.content_type})"
-                        )
-                    },
-                    status_code=400,
+                return _problem_response(
+                    status=400,
+                    title="Bad Request",
+                    detail=(
+                        f"File type/content mismatch: {file.filename} "
+                        f"(content_type: {file.content_type})"
+                    ),
+                    instance=str(request.url.path),
                 )
 
         user_id = svc._get_user_id(auth_token, str(uuid.uuid4()))
@@ -472,7 +501,12 @@ def register_corpus_endpoints(
                     "exc_type": type(exc).__name__,
                 },
             )
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=svc._INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.post("/api/corpus-a/clear")
     def clear_corpus_a(request: Request, payload: CorpusAClearRequest) -> JSONResponse:
@@ -486,7 +520,12 @@ def register_corpus_endpoints(
             A JSONResponse containing the results of the clear operation or an error message.
         """
         if not svc._is_authorised_request(payload.auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=svc._unauthorised_message(request),
+                instance=str(request.url.path),
+            )
 
         frameworks = svc._selected_corpus_a_frameworks(payload.frameworks)
         per_framework: dict[str, Any] = {}
@@ -532,7 +571,12 @@ def register_corpus_endpoints(
                     "exc_type": type(exc).__name__,
                 },
             )
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=svc._INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.post("/api/corpus-b/clear")
     def clear_corpus_b(request: Request, payload: CorpusClearRequest) -> JSONResponse:
@@ -546,7 +590,12 @@ def register_corpus_endpoints(
             A JSONResponse containing the results of the clear operation or an error message.
         """
         if not svc._is_authorised_request(payload.auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=svc._unauthorised_message(request),
+                instance=str(request.url.path),
+            )
 
         try:
             if payload.dry_run:
@@ -560,6 +609,7 @@ def register_corpus_endpoints(
                     filter_expr="corpus eq 'b'",
                     key_field="id",
                 )
+                svc._delete_local_evidence_docs_by_corpus("b")
 
             blob_result: dict[str, int] = (
                 {"deleted": 0} if not payload.dry_run else {"would_delete": 0}
@@ -589,7 +639,12 @@ def register_corpus_endpoints(
                     "exc_type": type(exc).__name__,
                 },
             )
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=svc._INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.post("/api/corpus-c/clear")
     def clear_corpus_c(request: Request, payload: CorpusClearRequest) -> JSONResponse:
@@ -603,7 +658,12 @@ def register_corpus_endpoints(
             A JSONResponse containing the results of the clear operation or an error message.
         """
         if not svc._is_authorised_request(payload.auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=svc._unauthorised_message(request),
+                instance=str(request.url.path),
+            )
 
         try:
             if payload.dry_run:
@@ -617,6 +677,7 @@ def register_corpus_endpoints(
                     filter_expr="corpus eq 'c'",
                     key_field="id",
                 )
+                svc._delete_local_evidence_docs_by_corpus("c")
 
             blob_result = {"deleted": 0} if not payload.dry_run else {"would_delete": 0}
             if payload.clear_blobs:
@@ -644,7 +705,12 @@ def register_corpus_endpoints(
                     "exc_type": type(exc).__name__,
                 },
             )
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=svc._INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.post("/api/corpus-a/upload")
     async def upload_corpus_a_reference_documents(
@@ -673,30 +739,40 @@ def register_corpus_endpoints(
             A JSONResponse containing the upload and ingestion results or an error message.
         """
         if not svc._is_authorised_request(auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=svc._unauthorised_message(request),
+                instance=str(request.url.path),
+            )
 
         if not files:
-            return JSONResponse({"error": "No files uploaded."}, status_code=400)
+            return _problem_response(
+                status=400,
+                title="Bad Request",
+                detail="No files uploaded.",
+                instance=str(request.url.path),
+            )
         for file in files:
             if not svc._is_allowed_filetype(file.filename or ""):
-                return JSONResponse(
-                    {
-                        "error": (
-                            f"File type not allowed: {file.filename}. "
-                            f"Allowed: {', '.join(sorted(svc.ALLOWED_EXTENSIONS))}"
-                        )
-                    },
-                    status_code=400,
+                return _problem_response(
+                    status=400,
+                    title="Bad Request",
+                    detail=(
+                        f"File type not allowed: {file.filename}. "
+                        f"Allowed: {', '.join(sorted(svc.ALLOWED_EXTENSIONS))}"
+                    ),
+                    instance=str(request.url.path),
                 )
             if not svc._extension_matches_mime(file.filename or "", file.content_type or ""):
-                return JSONResponse(
-                    {
-                        "error": (
-                            f"File type/content mismatch: {file.filename} "
-                            f"(content_type: {file.content_type})"
-                        )
-                    },
-                    status_code=400,
+                return _problem_response(
+                    status=400,
+                    title="Bad Request",
+                    detail=(
+                        f"File type/content mismatch: {file.filename} "
+                        f"(content_type: {file.content_type})"
+                    ),
+                    instance=str(request.url.path),
                 )
 
         try:
@@ -706,13 +782,11 @@ def register_corpus_endpoints(
             if (not auto_mode) and (
                 not framework_key or framework_key not in svc._CORPUS_A_REFERENCE_UPLOAD_TARGETS
             ):
-                return JSONResponse(
-                    {
-                        "error": (
-                            "Corpus A source document upload supports cis_controls, pci_dss, or auto mode."
-                        )
-                    },
-                    status_code=400,
+                return _problem_response(
+                    status=400,
+                    title="Bad Request",
+                    detail="Corpus A source document upload supports cis_controls, pci_dss, or auto mode.",
+                    instance=str(request.url.path),
                 )
 
             user_id = svc._get_user_id(auth_token, str(uuid.uuid4()))
@@ -738,9 +812,17 @@ def register_corpus_endpoints(
                 )
 
             triggered_jobs: list[dict[str, Any]] = []
+            local_trigger_skipped = False
+            is_local_provider = (
+                str(getattr(svc.config, "cloud_provider", "")).strip().lower() == "local"
+            )
             if trigger_job:
+                if is_local_provider:
+                    local_trigger_skipped = True
                 for upload_result in upload_results:
                     if not upload_result["uploaded"] or upload_result["failed"]:
+                        continue
+                    if local_trigger_skipped:
                         continue
                     args_override = [
                         "--mode",
@@ -766,6 +848,19 @@ def register_corpus_endpoints(
 
             total_uploaded = sum(len(item["uploaded"]) for item in upload_results)
             total_failed = sum(len(item["failed"]) for item in upload_results)
+            local_source_paths: dict[str, list[str]] = {}
+            if is_local_provider:
+                for item in upload_results:
+                    framework_name = str(item.get("framework") or "").strip()
+                    if not framework_name:
+                        continue
+                    paths = [
+                        str(uploaded.get("local_path") or "").strip()
+                        for uploaded in (item.get("uploaded") or [])
+                        if str(uploaded.get("local_path") or "").strip()
+                    ]
+                    if paths:
+                        local_source_paths[framework_name] = sorted(paths)
 
             message = ""
             if total_failed:
@@ -777,6 +872,12 @@ def register_corpus_endpoints(
                 message = (
                     "Corpus A source files staged successfully. "
                     "Trigger the controls ingestion job separately if needed."
+                )
+            elif local_trigger_skipped:
+                message = (
+                    "Corpus A source files staged to local runtime samples successfully. "
+                    "Automatic controls ingestion trigger is unavailable in local mode; "
+                    "run controls parsing/publish manually."
                 )
             elif triggered_jobs:
                 triggered_frameworks = ", ".join(job["framework"] for job in triggered_jobs)
@@ -810,6 +911,7 @@ def register_corpus_endpoints(
                     "replace_existing": replace_existing,
                     "dry_run": dry_run,
                     "no_guidance": no_guidance,
+                    "local_source_paths": local_source_paths if is_local_provider else {},
                     "message": message,
                 },
                 status_code=status_code,
@@ -823,7 +925,12 @@ def register_corpus_endpoints(
                     "exc_type": type(exc).__name__,
                 },
             )
-            return JSONResponse({"error": "Invalid request parameters."}, status_code=400)
+            return _problem_response(
+                status=400,
+                title="Bad Request",
+                detail="Invalid request parameters.",
+                instance=str(request.url.path),
+            )
         except Exception as exc:
             logger.exception(
                 "Failed corpus upload request",
@@ -833,7 +940,12 @@ def register_corpus_endpoints(
                     "exc_type": type(exc).__name__,
                 },
             )
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=svc._INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.get("/api/corpus-a/status")
     def corpus_a_status(request: Request, auth_token: str = "") -> JSONResponse:
@@ -847,7 +959,12 @@ def register_corpus_endpoints(
             A JSONResponse containing the ingestion status or an error message.
         """
         if not svc._is_authorised_request(auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=svc._unauthorised_message(request),
+                instance=str(request.url.path),
+            )
 
         try:
             status = svc._controls_framework_ingestion_status()
@@ -866,7 +983,12 @@ def register_corpus_endpoints(
                     "exc_type": type(exc).__name__,
                 },
             )
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=svc._INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.get("/api/corpus-a/list")
     def corpus_a_list(
@@ -884,7 +1006,12 @@ def register_corpus_endpoints(
             A JSONResponse containing the list of documents or an error message.
         """
         if not svc._is_authorised_request(auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=svc._unauthorised_message(request),
+                instance=str(request.url.path),
+            )
 
         try:
             filter_expr = "framework ne ''"
@@ -906,6 +1033,9 @@ def register_corpus_endpoints(
                     "framework",
                     "framework_version",
                     "control_family",
+                    "requirement_text",
+                    "guidance_text",
+                    "maturity_level",
                     "source_uri",
                     "ingestion_loaded_at",
                 ],
@@ -928,7 +1058,12 @@ def register_corpus_endpoints(
                     "exc_type": type(exc).__name__,
                 },
             )
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=svc._INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.get("/api/ingestion-job/diagnostics")
     def ingestion_job_diagnostics(request: Request, auth_token: str = "") -> JSONResponse:
@@ -942,7 +1077,12 @@ def register_corpus_endpoints(
             A JSONResponse containing the ingestion job diagnostics or an error message.
         """
         if not svc._is_authorised_request(auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=svc._unauthorised_message(request),
+                instance=str(request.url.path),
+            )
 
         # AWS ECS path
         if svc._is_aws_ecs_trigger_enabled():
@@ -968,19 +1108,20 @@ def register_corpus_endpoints(
                 )
             except Exception as exc:
                 if "AccessDenied" in type(exc).__name__:
-                    return JSONResponse(
-                        {
-                            "configured": True,
+                    return _problem_response(
+                        status=503,
+                        title="Service Unavailable",
+                        detail=(
+                            "ECS diagnostics requires ecs:ListTasks and ecs:DescribeTasks. "
+                            "Ingestion trigger may still work, but task history cannot be read "
+                            "with the current IAM role."
+                        ),
+                        instance=str(request.url.path),
+                        extensions={
                             "provider": "aws",
                             "cluster": svc.config.ecs_cluster_name,
-                            "recent_executions": [],
-                            "message": (
-                                "ECS diagnostics requires ecs:ListTasks and ecs:DescribeTasks. "
-                                "Ingestion trigger may still work, but task history cannot be read "
-                                "with the current IAM role."
-                            ),
-                            "error": type(exc).__name__,
-                        }
+                            "error_type": type(exc).__name__,
+                        },
                     )
                 logger.exception(
                     "Failed ECS ingestion diagnostics request",
@@ -990,7 +1131,12 @@ def register_corpus_endpoints(
                         "exc_type": type(exc).__name__,
                     },
                 )
-                return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+                return _problem_response(
+                    status=500,
+                    title="Internal Server Error",
+                    detail=svc._INTERNAL_ERROR_MESSAGE,
+                    instance=str(request.url.path),
+                )
 
         # Azure Container Apps path
         if not svc._is_ingestion_job_trigger_enabled():
@@ -1020,12 +1166,15 @@ def register_corpus_endpoints(
             )
 
             if response.status_code >= 400:
-                return JSONResponse(
-                    {
-                        "configured": True,
-                        "error": f"Failed to fetch job executions: {response.status_code}",
-                        "details": response.text,
-                    }
+                return _problem_response(
+                    status=502,
+                    title="Bad Gateway",
+                    detail=f"Failed to fetch job executions: {response.status_code}",
+                    instance=str(request.url.path),
+                    extensions={
+                        "upstream_status": response.status_code,
+                        "upstream_details": response.text,
+                    },
                 )
 
             executions_data = response.json()
@@ -1077,7 +1226,12 @@ def register_corpus_endpoints(
                 "Failed ingestion job diagnostics request",
                 extra={"event": "ingestion_job_diagnostics_failed", "exc_type": type(exc).__name__},
             )
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=svc._INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.get("/api/corpus-b/list")
     def corpus_b_list(
@@ -1095,7 +1249,12 @@ def register_corpus_endpoints(
             A JSONResponse containing the list of documents or an error message.
         """
         if not svc._is_authorised_request(auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=svc._unauthorised_message(request),
+                instance=str(request.url.path),
+            )
 
         try:
             base_filter_expr = "corpus eq 'b'"
@@ -1145,7 +1304,12 @@ def register_corpus_endpoints(
                     "exc_type": type(exc).__name__,
                 },
             )
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=svc._INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.get("/api/corpus-c/list")
     def corpus_c_list(
@@ -1163,7 +1327,12 @@ def register_corpus_endpoints(
             A JSONResponse containing the list of documents or an error message.
         """
         if not svc._is_authorised_request(auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=svc._unauthorised_message(request),
+                instance=str(request.url.path),
+            )
 
         try:
             base_filter_expr = "corpus eq 'c'"
@@ -1213,7 +1382,12 @@ def register_corpus_endpoints(
                     "exc_type": type(exc).__name__,
                 },
             )
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=svc._INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.get("/api/ingestion-job/latest")
     def get_latest_ingestion_job_status(request: Request, auth_token: str = "") -> JSONResponse:
@@ -1227,7 +1401,12 @@ def register_corpus_endpoints(
             A JSONResponse containing the latest ingestion job status or an error message.
         """
         if not svc._is_authorised_request(auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=svc._unauthorised_message(request),
+                instance=str(request.url.path),
+            )
 
         try:
             latest = svc._latest_ingestion_job_execution()
@@ -1244,7 +1423,12 @@ def register_corpus_endpoints(
                 "Failed ingestion job latest request",
                 extra={"event": "ingestion_job_latest_failed", "exc_type": type(exc).__name__},
             )
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=svc._INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.get("/api/confluence/poll-status")
     def confluence_poll_status(
@@ -1263,7 +1447,12 @@ def register_corpus_endpoints(
             A JSONResponse containing the Confluence poll status and assessed pages for the look-back window, or an error message.
         """
         if not svc._is_authorised_request(auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=svc._unauthorised_message(request),
+                instance=str(request.url.path),
+            )
 
         try:
             since_hours = max(1, min(since_hours, 720))
@@ -1455,7 +1644,12 @@ def register_corpus_endpoints(
                 "Failed Confluence poll status request",
                 extra={"event": "confluence_poll_status_failed", "exc_type": type(exc).__name__},
             )
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=svc._INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )
 
     @app.post("/api/corpus-a/ingest")
     def corpus_a_ingest(request: Request, payload: CorpusAIngestRequest) -> JSONResponse:
@@ -1469,20 +1663,25 @@ def register_corpus_endpoints(
             A JSONResponse indicating the ingestion status or an error message.
         """
         if not svc._is_authorised_request(payload.auth_token, request):
-            return JSONResponse({"error": svc._unauthorised_message(request)}, status_code=401)
+            return _problem_response(
+                status=401,
+                title="Unauthorised",
+                detail=svc._unauthorised_message(request),
+                instance=str(request.url.path),
+            )
 
         # AWS path: trigger via ECS RunTask if configured
         if _current_provider() == "aws":
             if not svc._is_aws_ecs_trigger_enabled():
-                return JSONResponse(
-                    {
-                        "error": (
-                            "AWS ECS ingestion trigger is not configured. "
-                            "Set ECS_CLUSTER_NAME, INGESTION_TASK_DEFINITION_ARN, "
-                            "ECS_SG_ID, and ECS_SUBNET_ID environment variables."
-                        )
-                    },
-                    status_code=500,
+                return _problem_response(
+                    status=503,
+                    title="Service Unavailable",
+                    detail=(
+                        "AWS ECS ingestion trigger is not configured. "
+                        "Set ECS_CLUSTER_NAME, INGESTION_TASK_DEFINITION_ARN, "
+                        "ECS_SG_ID, and ECS_SUBNET_ID environment variables."
+                    ),
+                    instance=str(request.url.path),
                 )
             try:
                 selected = svc._selected_corpus_a_frameworks(payload.frameworks)
@@ -1560,18 +1759,215 @@ def register_corpus_endpoints(
                         "exc_type": type(exc).__name__,
                     },
                 )
-                return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+                return _problem_response(
+                    status=500,
+                    title="Internal Server Error",
+                    detail=svc._INTERNAL_ERROR_MESSAGE,
+                    instance=str(request.url.path),
+                )
 
         # Azure / local path
+        if _current_provider() == "local":
+            try:
+                selected = svc._selected_corpus_a_frameworks(payload.frameworks)
+                status = svc._controls_framework_ingestion_status()
+
+                already_ingested = [fw for fw in selected if status.get(fw, {}).get("ingested")]
+                pending = (
+                    selected
+                    if payload.replace_existing
+                    else [fw for fw in selected if fw not in already_ingested]
+                )
+
+                skipped = []
+                triggered = []
+
+                for fw in selected:
+                    if fw not in pending:
+                        skipped.append(
+                            {
+                                "framework": fw,
+                                "reason": "already_ingested",
+                                "status": status.get(fw, {}),
+                            }
+                        )
+
+                controls_output_dir_env = os.getenv("LOCAL_CONTROLS_JSONL_PATH", "").strip()
+                output_dir: Path
+                if controls_output_dir_env:
+                    output_dir = Path(controls_output_dir_env)
+                else:
+                    local_state_db_path = os.getenv("LOCAL_STATE_DB_PATH", "").strip()
+                    if local_state_db_path:
+                        output_dir = Path(local_state_db_path).parent / "parsed-controls"
+                    else:
+                        output_dir = Path("/tmp") / "parsed-controls"
+                output_dir.mkdir(parents=True, exist_ok=True)
+
+                from runtime.ingestion.controls_runner import _run_parse_detailed
+
+                framework_output_paths: dict[str, str] = {}
+
+                for fw in pending:
+                    try:
+                        outputs, _skipped = _run_parse_detailed(
+                            framework=fw,
+                            output_dir=output_dir,
+                            no_guidance=payload.no_guidance,
+                        )
+                        output_path = outputs.get(fw)
+                        if output_path is None or not output_path.exists():
+                            raise RuntimeError(f"No parser output generated for {fw}")
+                        framework_output_paths[fw] = str(output_path.resolve())
+
+                        parsed_docs: list[dict[str, Any]] = []
+                        with output_path.open("r", encoding="utf-8") as handle:
+                            for line in handle:
+                                text = line.strip()
+                                if not text:
+                                    continue
+                                parsed = json.loads(text)
+                                if isinstance(parsed, dict):
+                                    parsed_docs.append(parsed)
+
+                        if not parsed_docs:
+                            raise RuntimeError(f"Parser produced no records for {fw}")
+
+                        if payload.dry_run:
+                            triggered.append(
+                                {
+                                    "framework": fw,
+                                    "job": {
+                                        "provider": "local",
+                                        "mode": "controls-parse-dry-run",
+                                        "output_jsonl": str(output_path),
+                                        "records_parsed": len(parsed_docs),
+                                    },
+                                }
+                            )
+                            continue
+
+                        controls_client = svc.controls_search_client
+                        if not hasattr(controls_client, "load_documents"):
+                            raise RuntimeError(
+                                "Local controls ingestion requires controls_search_client.load_documents()."
+                            )
+
+                        existing_docs = list(getattr(controls_client, "_docs", []) or [])
+                        filtered_existing = [
+                            item
+                            for item in existing_docs
+                            if str(item.get("framework") or "").strip().lower()
+                            != str(parsed_docs[0].get("framework") or "").strip().lower()
+                        ]
+
+                        if payload.replace_existing:
+                            merged_docs = [*filtered_existing, *parsed_docs]
+                        else:
+                            merged_docs = [*existing_docs, *parsed_docs]
+
+                        controls_client.load_documents(merged_docs)
+
+                        triggered.append(
+                            {
+                                "framework": fw,
+                                "job": {
+                                    "provider": "local",
+                                    "mode": "controls-parse-and-load",
+                                    "output_jsonl": str(output_path),
+                                    "records_loaded": len(parsed_docs),
+                                    "replace_existing": payload.replace_existing,
+                                },
+                            }
+                        )
+                    except Exception as exc:
+                        skip_reason = (
+                            "source_upload_required"
+                            if fw in svc._CORPUS_A_SOURCE_UPLOAD_REQUIRED_FRAMEWORKS
+                            else "local_controls_ingest_failed"
+                        )
+                        skipped.append(
+                            {
+                                "framework": fw,
+                                "reason": skip_reason,
+                                "message": str(exc),
+                            }
+                        )
+
+                source_upload_required = [
+                    item["framework"]
+                    for item in skipped
+                    if item.get("reason") == "source_upload_required"
+                ]
+                local_sources_dir_env = os.getenv("LOCAL_CORPUS_A_SOURCES_DIR", "").strip()
+                if local_sources_dir_env:
+                    local_sources_root = Path(local_sources_dir_env)
+                else:
+                    local_state_db_path = os.getenv("LOCAL_STATE_DB_PATH", "").strip()
+                    if local_state_db_path:
+                        local_sources_root = Path(local_state_db_path).parent / "corpus-a-sources"
+                    else:
+                        local_sources_root = Path("/tmp") / "corpus-a-sources"
+
+                local_framework_paths = {
+                    fw: {
+                        "source_dir": str((local_sources_root / fw).resolve()),
+                        "output_jsonl": framework_output_paths.get(fw, ""),
+                    }
+                    for fw in selected
+                }
+
+                for trigger_item in triggered:
+                    framework_name = str(trigger_item.get("framework") or "").strip()
+                    if framework_name and framework_name in local_framework_paths:
+                        trigger_item["paths"] = local_framework_paths[framework_name]
+
+                return JSONResponse(
+                    {
+                        "mode": "corpus-a-ingest",
+                        "provider": "local",
+                        "selected_frameworks": selected,
+                        "already_ingested_frameworks": already_ingested,
+                        "source_upload_required_frameworks": source_upload_required,
+                        "replace_existing": payload.replace_existing,
+                        "dry_run": payload.dry_run,
+                        "no_guidance": payload.no_guidance,
+                        "triggered": triggered,
+                        "skipped": skipped,
+                        "framework_status": status,
+                        "local_paths": {
+                            "sources_root": str(local_sources_root.resolve()),
+                            "output_dir": str(output_dir.resolve()),
+                            "frameworks": local_framework_paths,
+                        },
+                    }
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Failed corpus ingest request",
+                    extra={
+                        "event": "corpus_ingest_failed",
+                        "corpus": "a",
+                        "provider": "local",
+                        "exc_type": type(exc).__name__,
+                    },
+                )
+                return _problem_response(
+                    status=500,
+                    title="Internal Server Error",
+                    detail=svc._INTERNAL_ERROR_MESSAGE,
+                    instance=str(request.url.path),
+                )
+
         if not svc._is_ingestion_job_trigger_enabled():
-            return JSONResponse(
-                {
-                    "error": (
-                        "Ingestion job trigger is not configured. "
-                        "Set INGESTION_JOB_SUBSCRIPTION_ID, INGESTION_JOB_RESOURCE_GROUP, and INGESTION_JOB_NAME."
-                    )
-                },
-                status_code=500,
+            return _problem_response(
+                status=503,
+                title="Service Unavailable",
+                detail=(
+                    "Ingestion job trigger is not configured. "
+                    "Set INGESTION_JOB_SUBSCRIPTION_ID, INGESTION_JOB_RESOURCE_GROUP, and INGESTION_JOB_NAME."
+                ),
+                instance=str(request.url.path),
             )
 
         try:
@@ -1661,4 +2057,9 @@ def register_corpus_endpoints(
                     "exc_type": type(exc).__name__,
                 },
             )
-            return JSONResponse({"error": svc._INTERNAL_ERROR_MESSAGE}, status_code=500)
+            return _problem_response(
+                status=500,
+                title="Internal Server Error",
+                detail=svc._INTERNAL_ERROR_MESSAGE,
+                instance=str(request.url.path),
+            )

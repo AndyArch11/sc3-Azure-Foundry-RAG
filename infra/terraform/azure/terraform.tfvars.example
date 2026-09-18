@@ -15,6 +15,7 @@ resource_group_name          = "rg-ai-platform-dev"
 vnet_cidr                    = "10.20.0.0/16"
 private_endpoint_subnet_cidr = "10.20.1.0/24"
 agent_subnet_cidr            = "10.20.2.0/24"
+api_management_subnet_cidr   = "10.20.6.0/24"
 container_apps_subnet_cidr   = "10.20.5.0/24"
 jumpbox_subnet_cidr          = "10.20.3.0/24"
 azure_bastion_subnet_cidr    = "10.20.4.0/26"
@@ -32,7 +33,9 @@ search_index_name            = "grounding-index"
 controls_index_name          = "controls-index"
 query_top_k                  = 5
 query_default_temperature    = 1.0
+query_default_top_p          = 1.0
 query_evaluator_temperature  = 1.0
+query_evaluator_top_p        = 1.0
 query_eval_threshold         = 0.72
 control_llm_review_enabled   = false
 control_llm_review_heuristic_threshold = 0.75
@@ -40,9 +43,10 @@ control_llm_review_heuristic_threshold = 0.75
 # Optional prompt injection validator settings.
 # Keep disabled/off by default; use shadow in lower environments before enforce.
 # prompt_injection_validator_enabled    = false
-# prompt_injection_validator_deployment = "gpt-4.1-mini" # Existing deployment name override. Omit to use validator_model.name.
+# prompt_injection_validator_deployment = "gpt-5.1-mini" # Existing deployment name override. Omit to use validator_model.name.
 # prompt_injection_validator_threshold  = 0.85
 # prompt_injection_validator_temperature = 0.5
+# prompt_injection_validator_top_p      = 1.0
 # prompt_injection_validator_timeout_s  = 15
 # prompt_injection_validator_mode       = "off" # off | shadow | enforce
 
@@ -51,6 +55,9 @@ control_llm_review_heuristic_threshold = 0.75
 
 # Optional overrides. These default in variables.tf and usually do not need to be set.
 # instance                   = "001"
+# api_management_name_override = "apim-dev-aue-001"
+# api_management_publisher_name = "Platform Team"
+# api_management_publisher_email = "platform@example.com"
 # cosmos_database_name       = "rag-conversations"
 # cosmos_container_name      = "conversations"
 # ingestion_job_image_tag    = "202603190340-localfix"
@@ -69,8 +76,8 @@ control_llm_review_heuristic_threshold = 0.75
 # confluence_poll_initial_lookback   = "PT1H"
 # confluence_poll_dry_run            = true
 # embedding_model = {
-#   name     = "text-embedding-ada-002"
-#   version  = "2"
+#   name     = "text-embedding-3-small"
+#   version  = "1"
 #   capacity = 10
 # }
 # query_model = {
@@ -79,13 +86,13 @@ control_llm_review_heuristic_threshold = 0.75
 #   capacity = 1
 # }
 # evaluation_model = {
-#   name     = "gpt-4.1-mini"
-#   version  = "2025-04-14"
+#   name     = "gpt-5.1-mini"
+#   version  = "2025-11-13"
 #   capacity = 1
 # }
 # validator_model = {
-#   name     = "gpt-4.1-mini"
-#   version  = "2025-04-14"
+#   name     = "gpt-5.1-mini"
+#   version  = "2025-11-13"
 #   capacity = 1
 # }
 # guardrail_metrics_in_response = false  # Set true to surface guardrail metrics in API responses. Disable in prod.
@@ -97,8 +104,26 @@ control_llm_review_heuristic_threshold = 0.75
 # byol_container_apps_subnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/container-apps"
 # byol_private_endpoint_subnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/private-endpoints"
 # byol_agent_subnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/agent"
+# byol_api_management_subnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/api-management"
 # byol_jumpbox_subnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/jumpbox"
 # byol_azure_bastion_subnet_id = "/subscriptions/..../resourceGroups/my-rg/providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/AzureBastionSubnet"
+
+# APIM MCP endpoint examples. Populate these to create APIM APIs and operations separately from the service.
+# mcp_endpoints = {
+#   azure = {
+#     display_name = "Azure MCP"
+#     path         = "azure"
+#     service_url  = "https://azure-mcp.internal.example"
+#     operations = {
+#       root = {
+#         operation_id = "root-post"
+#         display_name = "MCP root"
+#         method       = "POST"
+#         url_template = "/"
+#       }
+#     }
+#   }
+# }
 
 # Optional extra tags.
 # tags = {

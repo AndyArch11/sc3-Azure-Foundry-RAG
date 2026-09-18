@@ -12,7 +12,12 @@ os.environ.setdefault("AZURE_COSMOS_ENDPOINT", "https://test.documents.azure.com
 os.environ.setdefault("AZURE_COSMOS_DATABASE_NAME", "rag-conversations")
 os.environ.setdefault("AZURE_COSMOS_CONTAINER_NAME", "conversations")
 
-from query_web.pipeline.rag_pipeline import _run_rag
+from query_web.pipeline.rag_pipeline import (
+    _new_token_usage_accumulator,
+    _record_token_usage,
+    _run_rag,
+)
+from runtime.llm.token_usage import record_token_usage
 
 
 class _GuardrailDecision(SimpleNamespace):
@@ -109,10 +114,11 @@ def test_run_rag_returns_no_context_payload_when_no_chunks_and_no_controls() -> 
 
     result = _run_rag("q", 5, 0.2, True, svc=svc)
 
-    assert result["answer"] == "No relevant chunks were found in the index."
+    assert result["answer"].startswith("No selected corpus is currently in scope")
     assert result["results"] == []
     assert result["controls_results"] == []
     assert result["iterations"] == 1
+    assert result["audit"]["scope_mode"] == "none_in_scope"
 
 
 def test_run_rag_skips_controls_when_corpus_a_not_selected() -> None:
@@ -264,26 +270,32 @@ def test_run_rag_classifies_mixed_case_corpus_b_chunks() -> None:
     captured_context: dict[str, str] = {}
 
     svc._resolve_evidence_corpora = lambda include, exclude: ["b", "c"]
-    svc._build_evidence_corpus_filter = (
-        lambda selected: "(corpus eq 'b' or corpus eq 'c' or corpus eq 'legacy')"
-    )
-    svc._hybrid_search = lambda question, retrieve_k, evidence_filter: (
-        [
-            {
-                "corpus": "B",
-                "corpus_role": "",
-                "content": "Viva secure by design guidance text.",
-                "source_name": "b-upper.pdf",
-            },
-            {
-                "corpus": "",
-                "corpus_role": "NARRATIVE_GUIDANCE",
-                "content": "Additional narrative guidance from role-only metadata.",
-                "source_name": "b-role.pdf",
-            },
-        ],
-        {"embedding_s": 0.01, "search_s": 0.02},
-    )
+    svc._build_evidence_corpus_filter = lambda selected: "|".join(selected)
+
+    def _hybrid(
+        question: str, retrieve_k: int, evidence_filter: str
+    ) -> tuple[list[dict[str, Any]], dict[str, float]]:
+        if evidence_filter == "b":
+            return (
+                [
+                    {
+                        "corpus": "B",
+                        "corpus_role": "",
+                        "content": "Viva secure by design guidance text.",
+                        "source_name": "b-upper.pdf",
+                    },
+                    {
+                        "corpus": "",
+                        "corpus_role": "NARRATIVE_GUIDANCE",
+                        "content": "Additional narrative guidance from role-only metadata.",
+                        "source_name": "b-role.pdf",
+                    },
+                ],
+                {"embedding_s": 0.01, "search_s": 0.02},
+            )
+        return ([], {"embedding_s": 0.01, "search_s": 0.02})
+
+    svc._hybrid_search = _hybrid
     svc._controls_search = lambda question, **kwargs: ([], {"controls_comparison_detected": 0.0})
     svc._chat_completion_with_empty_retry = lambda *args, **kwargs: "good answer"
 
@@ -308,3 +320,474 @@ def test_run_rag_classifies_mixed_case_corpus_b_chunks() -> None:
     assert "No Corpus B items were retrieved for this query." not in context
     assert "Source: b-upper.pdf" in context
     assert "Source: b-role.pdf" in context
+
+
+def test_run_rag_graph_expansion_augments_controls_and_chunks() -> None:
+    svc = _base_svc()
+    svc.config.graph_enabled = True
+    captured_context: dict[str, str] = {}
+
+    svc._hybrid_search = lambda question, retrieve_k, evidence_filter: (
+        [
+            {
+                "corpus": "b",
+                "corpus_role": "narrative_guidance",
+                "content": "Original guidance chunk.",
+                "source_name": "guidance-1.md",
+                "source_path": "/tmp/guidance-1.md",
+                "normalised_text_sha256": "abc123",
+                "content_sha256": "",
+            }
+        ],
+        {"embedding_s": 0.01, "search_s": 0.02},
+    )
+    svc._controls_search = lambda question, **kwargs: (
+        [
+            {
+                "requirement_id": "CTRL-1",
+                "framework": "ISM",
+                "framework_version": "1",
+                "control_family": "Access",
+                "maturity_level": "ml1",
+                "requirement_text": "must do x",
+                "guidance_text": "",
+                "score": 0.8,
+            }
+        ],
+        {"controls_comparison_detected": 0.0},
+    )
+
+    class _GraphStore:
+        def subgraph(
+            self, *, seed_node_id: str, depth: int = 1, max_edges: int = 1000
+        ) -> dict[str, list[dict[str, Any]]]:
+            return {
+                "nodes": [
+                    {
+                        "node_id": "a:ctrl-2",
+                        "node_type": "CorpusAControl",
+                        "label": "CTRL-2",
+                        "attributes": {
+                            "requirement_id": "CTRL-2",
+                            "framework": "ISM",
+                            "framework_version": "1",
+                            "control_family": "Network",
+                            "maturity_level": "ml2",
+                            "requirement_text": "must do y",
+                            "guidance_text": "supplemental guidance",
+                            "source_uri": "controls://ctrl-2",
+                        },
+                    },
+                    {
+                        "node_id": "b:expanded-1",
+                        "node_type": "CorpusBGuidanceChunk",
+                        "label": "guidance-2.md",
+                        "attributes": {
+                            "source_name": "guidance-2.md",
+                            "source_path": "/tmp/guidance-2.md",
+                            "original_filename": "guidance-2.md",
+                            "normalised_text_sha256": "def456",
+                            "content_sha256": "",
+                            "corpus": "b",
+                            "corpus_role": "narrative_guidance",
+                            "content": "Expanded guidance chunk.",
+                        },
+                    },
+                ],
+                "edges": [
+                    {
+                        "edge_id": "e:1",
+                        "from_id": seed_node_id,
+                        "to_id": "a:ctrl-2",
+                        "edge_type": "GUIDANCE_SUPPORTS_CONTROL",
+                        "confidence": 0.9,
+                        "evidence_key": "ev:1",
+                    },
+                    {
+                        "edge_id": "e:2",
+                        "from_id": seed_node_id,
+                        "to_id": "b:expanded-1",
+                        "edge_type": "GUIDANCE_SUPPORTS_CONTROL",
+                        "confidence": 0.7,
+                        "evidence_key": "ev:2",
+                    },
+                ],
+            }
+
+    svc._create_graph_store = lambda: _GraphStore()
+    svc._chat_completion_with_empty_retry = lambda *args, **kwargs: "good answer"
+
+    def _capture_evaluate(
+        question: str, context: str, answer: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        captured_context["value"] = context
+        return {"acceptable": True, "score": 1.0, "reason": "ok"}
+
+    svc._evaluate = _capture_evaluate
+
+    result = _run_rag(
+        "What else is related?",
+        5,
+        0.2,
+        True,
+        svc=svc,
+        include_graph_expansion=True,
+        graph_expansion_depth=1,
+        graph_expansion_max_edges=20,
+    )
+
+    assert result["graph_summary"]["enabled"] is True
+    assert result["graph_summary"]["expanded_controls"] >= 1
+    assert result["graph_summary"]["expanded_chunks"] >= 1
+    assert any(item.get("requirement_id") == "CTRL-2" for item in result["controls_results"])
+    assert any(item.get("source_name") == "guidance-2.md" for item in result["results"])
+    context = captured_context.get("value", "")
+    assert "must do y" in context
+    assert "Expanded guidance chunk." in context
+
+
+def test_run_rag_low_k_rebalances_dominant_framework_chunks() -> None:
+    svc = _base_svc()
+    seen_sources: list[str] = []
+
+    svc._resolve_evidence_corpora = lambda include, exclude: ["b", "c"]
+    svc._build_evidence_corpus_filter = lambda selected: "|".join(selected)
+
+    def _hybrid(
+        question: str, retrieve_k: int, evidence_filter: str
+    ) -> tuple[list[dict[str, Any]], dict[str, float]]:
+        if evidence_filter == "b":
+            return (
+                [
+                    {
+                        "corpus": "b",
+                        "corpus_role": "narrative_guidance",
+                        "content": "pci chunk 1",
+                        "source_name": "pci_dss_v4_0_1-enriched.jsonl",
+                    },
+                    {
+                        "corpus": "b",
+                        "corpus_role": "narrative_guidance",
+                        "content": "pci chunk 2",
+                        "source_name": "pci_dss_v4_0_1-enriched.jsonl",
+                    },
+                    {
+                        "corpus": "b",
+                        "corpus_role": "narrative_guidance",
+                        "content": "pci chunk 3",
+                        "source_name": "pci_dss_v4_0_1-enriched.jsonl",
+                    },
+                    {
+                        "corpus": "b",
+                        "corpus_role": "narrative_guidance",
+                        "content": "aescsf chunk",
+                        "source_name": "aescsf_v2-enriched.jsonl",
+                    },
+                ],
+                {"embedding_s": 0.01, "search_s": 0.02},
+            )
+        return (
+            [
+                {
+                    "corpus": "c",
+                    "corpus_role": "assessed_artifact",
+                    "content": "artifact chunk",
+                    "source_name": "artifact-report.md",
+                }
+            ],
+            {"embedding_s": 0.01, "search_s": 0.02},
+        )
+
+    svc._hybrid_search = _hybrid
+
+    def _capture_context(question: str, context: str, answer: str, **kwargs: Any) -> dict[str, Any]:
+        for line in context.splitlines():
+            if line.startswith("Source: "):
+                seen_sources.append(line.replace("Source: ", "", 1).strip())
+        return {"acceptable": True, "score": 1.0, "reason": "ok"}
+
+    svc._evaluate = _capture_context
+
+    result = _run_rag(
+        "How do these controls compare?",
+        5,
+        0.2,
+        True,
+        svc=svc,
+        evidence_corpora_include=["b", "c"],
+    )
+
+    assert result["metrics"]["small_k_rebalance_enabled"] == 1.0
+    assert result["metrics"]["small_k_rebalance_applied"] == 1.0
+    assert result["audit"]["small_k_chunk_rebalance"]["reason"] == "rebalanced"
+    assert "aescsf_v2-enriched.jsonl" in seen_sources[:3]
+
+
+def test_run_rag_low_k_skips_rebalance_for_explicit_framework_intent() -> None:
+    svc = _base_svc()
+
+    svc._resolve_evidence_corpora = lambda include, exclude: ["b", "c"]
+    svc._build_evidence_corpus_filter = lambda selected: "|".join(selected)
+
+    def _hybrid(
+        question: str, retrieve_k: int, evidence_filter: str
+    ) -> tuple[list[dict[str, Any]], dict[str, float]]:
+        del question, retrieve_k, evidence_filter
+        return (
+            [
+                {
+                    "corpus": "b",
+                    "corpus_role": "narrative_guidance",
+                    "content": "pci chunk 1",
+                    "source_name": "pci_dss_v4_0_1-enriched.jsonl",
+                },
+                {
+                    "corpus": "b",
+                    "corpus_role": "narrative_guidance",
+                    "content": "pci chunk 2",
+                    "source_name": "pci_dss_v4_0_1-enriched.jsonl",
+                },
+                {
+                    "corpus": "b",
+                    "corpus_role": "narrative_guidance",
+                    "content": "pci chunk 3",
+                    "source_name": "pci_dss_v4_0_1-enriched.jsonl",
+                },
+                {
+                    "corpus": "b",
+                    "corpus_role": "narrative_guidance",
+                    "content": "aescsf chunk",
+                    "source_name": "aescsf_v2-enriched.jsonl",
+                },
+            ],
+            {"embedding_s": 0.01, "search_s": 0.02},
+        )
+
+    svc._hybrid_search = _hybrid
+
+    result = _run_rag(
+        "Only compare PCI-DSS controls and evidence.",
+        5,
+        0.2,
+        True,
+        svc=svc,
+        evidence_corpora_include=["b", "c"],
+    )
+
+    assert result["metrics"]["small_k_rebalance_enabled"] == 1.0
+    assert result["metrics"]["small_k_rebalance_applied"] == 0.0
+    assert result["audit"]["small_k_chunk_rebalance"]["reason"] == "framework_specific_intent"
+
+
+def test_run_rag_splits_guidance_and_evidence_retrieval_when_b_and_c_selected() -> None:
+    svc = _base_svc()
+    calls: list[str] = []
+
+    svc._resolve_evidence_corpora = lambda include, exclude: ["b", "c"]
+    svc._build_evidence_corpus_filter = lambda selected: "|".join(selected)
+
+    def _hybrid(
+        question: str, retrieve_k: int, evidence_filter: str
+    ) -> tuple[list[dict[str, Any]], dict[str, float]]:
+        calls.append(evidence_filter)
+        if evidence_filter == "b":
+            return (
+                [
+                    {
+                        "corpus": "b",
+                        "corpus_role": "narrative_guidance",
+                        "content": "guidance",
+                        "source_name": "b1",
+                    }
+                ],
+                {"embedding_s": 0.01, "search_s": 0.02},
+            )
+        if evidence_filter == "c":
+            return (
+                [
+                    {
+                        "corpus": "c",
+                        "corpus_role": "assessed_artifact",
+                        "content": "evidence",
+                        "source_name": "c1",
+                    }
+                ],
+                {"embedding_s": 0.03, "search_s": 0.04},
+            )
+        raise AssertionError(f"unexpected filter: {evidence_filter}")
+
+    svc._hybrid_search = _hybrid
+
+    result = _run_rag(
+        "q",
+        5,
+        0.2,
+        True,
+        svc=svc,
+        evidence_corpora_include=["b", "c"],
+    )
+
+    assert calls == ["b", "c"]
+    assert [item["source_name"] for item in result["results"]] == ["b1", "c1"]
+    assert result["metrics"]["split_guidance_evidence_search"] == 1.0
+    assert result["metrics"]["guidance_search_s"] == 0.02
+    assert result["metrics"]["evidence_search_s"] == 0.04
+    assert result["audit"]["evidence_chunk_retrieval"]["split_guidance_evidence_search"] is True
+
+
+def test_run_rag_adapts_corpus_c_prompt_for_empty_and_populated_cases() -> None:
+    empty_svc = _base_svc()
+    empty_messages: list[dict[str, str]] = []
+    empty_svc._corpus_has_content = lambda corpus: {"a": False, "b": True, "c": False}.get(corpus)
+
+    empty_svc._resolve_evidence_corpora = lambda include, exclude: ["b", "c"]
+    empty_svc._build_evidence_corpus_filter = lambda selected: "|".join(selected)
+
+    def _hybrid_empty(
+        question: str, retrieve_k: int, evidence_filter: str
+    ) -> tuple[list[dict[str, Any]], dict[str, float]]:
+        del question, retrieve_k
+        if evidence_filter == "b":
+            return (
+                [
+                    {
+                        "corpus": "b",
+                        "corpus_role": "narrative_guidance",
+                        "content": "guidance chunk",
+                        "source_name": "guidance-1.md",
+                    }
+                ],
+                {"embedding_s": 0.01, "search_s": 0.02},
+            )
+        return ([], {"embedding_s": 0.01, "search_s": 0.02})
+
+    empty_svc._hybrid_search = _hybrid_empty
+
+    def _capture_empty(messages: list[dict[str, str]], *args: Any, **kwargs: Any) -> str:
+        del args, kwargs
+        empty_messages.extend(messages)
+        return "good answer"
+
+    empty_svc._chat_completion_with_empty_retry = _capture_empty
+
+    _run_rag(
+        "What changed in the review set?",
+        5,
+        0.2,
+        True,
+        svc=empty_svc,
+        evidence_corpora_include=["b", "c"],
+    )
+
+    empty_user_message = next(msg["content"] for msg in empty_messages if msg["role"] == "user")
+    assert "mode: b_only" in empty_user_message
+    assert (
+        "Corpus C (assessed artifacts/review):\nOut of scope for this request."
+        in empty_user_message
+    )
+
+    populated_svc = _base_svc()
+    populated_messages: list[dict[str, str]] = []
+    populated_svc._corpus_has_content = lambda corpus: {"a": False, "b": True, "c": True}.get(
+        corpus
+    )
+
+    populated_svc._resolve_evidence_corpora = lambda include, exclude: ["b", "c"]
+    populated_svc._build_evidence_corpus_filter = lambda selected: "|".join(selected)
+
+    def _hybrid_populated(
+        question: str, retrieve_k: int, evidence_filter: str
+    ) -> tuple[list[dict[str, Any]], dict[str, float]]:
+        del question, retrieve_k
+        if evidence_filter == "c":
+            return (
+                [
+                    {
+                        "corpus": "c",
+                        "corpus_role": "assessed_artifact",
+                        "content": "review artifact",
+                        "source_name": "artifact-1.md",
+                    }
+                ],
+                {"embedding_s": 0.01, "search_s": 0.02},
+            )
+        return ([], {"embedding_s": 0.01, "search_s": 0.02})
+
+    populated_svc._hybrid_search = _hybrid_populated
+
+    def _capture_populated(messages: list[dict[str, str]], *args: Any, **kwargs: Any) -> str:
+        del args, kwargs
+        populated_messages.extend(messages)
+        return "good answer"
+
+    populated_svc._chat_completion_with_empty_retry = _capture_populated
+
+    _run_rag(
+        "What changed in the review set?",
+        5,
+        0.2,
+        True,
+        svc=populated_svc,
+        evidence_corpora_include=["b", "c"],
+    )
+
+    populated_user_message = next(
+        msg["content"] for msg in populated_messages if msg["role"] == "user"
+    )
+    assert "Use the retrieved Corpus C artifacts below" in populated_user_message
+    assert "mode: c_plus_a_or_b" in populated_user_message
+    assert "Source: artifact-1.md" in populated_user_message
+
+
+def test_run_rag_keeps_selected_nonempty_corpus_in_scope_without_retrieval() -> None:
+    svc = _base_svc()
+    captured_messages: list[dict[str, str]] = []
+
+    svc._resolve_evidence_corpora = lambda include, exclude: ["c"]
+    svc._corpus_has_content = lambda corpus: True if corpus == "c" else False
+    svc._build_evidence_corpus_filter = lambda selected: "c"
+    svc._hybrid_search = lambda question, retrieve_k, evidence_filter: (
+        [],
+        {"embedding_s": 0.01, "search_s": 0.02},
+    )
+
+    def _capture(messages: list[dict[str, str]], *args: Any, **kwargs: Any) -> str:
+        del args, kwargs
+        captured_messages.extend(messages)
+        return "good answer"
+
+    svc._chat_completion_with_empty_retry = _capture
+
+    result = _run_rag(
+        "Assess the uploaded review docs",
+        5,
+        0.2,
+        True,
+        svc=svc,
+        evidence_corpora_include=["c"],
+    )
+
+    assert result["answer"] == "good answer"
+    assert result["audit"]["scope_mode"] == "c_only"
+    assert result["audit"]["scope_profile"]["in_scope_corpora"] == ["c"]
+    assert result["audit"]["scope_profile"]["retrieved_corpora"] == []
+    assert result["audit"]["scope_profile"]["in_scope_without_retrieval"] == ["c"]
+
+    user_message = next(msg["content"] for msg in captured_messages if msg["role"] == "user")
+    assert "mode: c_only" in user_message
+    assert "No Corpus C items were retrieved for this query." in user_message
+
+
+def test_token_usage_accumulator_preserves_provider_counts() -> None:
+    accumulator = _new_token_usage_accumulator()
+    record_token_usage(prompt_tokens=120, completion_tokens=30, total_tokens=150)
+
+    _record_token_usage(accumulator, prompt_text="ignored", completion_text="ignored")
+
+    assert accumulator == {
+        "prompt_tokens": 120,
+        "completion_tokens": 30,
+        "total_tokens": 150,
+        "llm_calls": 1,
+        "estimated": False,
+    }

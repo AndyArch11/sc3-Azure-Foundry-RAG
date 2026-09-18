@@ -133,7 +133,7 @@ def test_ollama_chat_completion_retries_with_available_model_when_requested_miss
             attempted_models.append(json.get("model", ""))
             if json.get("model") == "llama3.2":
                 return _Resp(status_code=404, payload={"error": "model 'llama3.2' not found"})
-            if json.get("model") == "gemma3:27b":
+            if json.get("model") == "gemma4:26b":
                 return _Resp(payload={"message": {"content": '{"ok":true}'}})
         return _Resp(status_code=500, payload={})
 
@@ -144,7 +144,7 @@ def test_ollama_chat_completion_retries_with_available_model_when_requested_miss
                 payload={
                     "models": [
                         {"name": "nomic-embed-text"},
-                        {"name": "gemma3:27b"},
+                        {"name": "gemma4:26b"},
                     ]
                 },
             )
@@ -162,7 +162,7 @@ def test_ollama_chat_completion_retries_with_available_model_when_requested_miss
         model="llama3.2",
     )
     assert result == '{"ok":true}'
-    assert attempted_models == ["llama3.2", "gemma3:27b"]
+    assert attempted_models == ["llama3.2", "gemma4:26b"]
 
 
 def test_ollama_embedding_success_and_invalid(monkeypatch: pytest.MonkeyPatch) -> None:

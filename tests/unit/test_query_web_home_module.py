@@ -22,7 +22,7 @@ def _make_config(**overrides):
         evaluator_max_completion_tokens=800,
         controls_semantic_default=True,
         search_index_name="grounding-index",
-        embedding_deployment="text-embedding-ada-002",
+        embedding_deployment="text-embedding-3-small",
         query_deployment="gpt-4",
         evaluation_threshold=0.72,
         auth_token="",
@@ -144,6 +144,7 @@ def test_home_template_context_has_expected_keys():
         "retrieve_k",
         "temperature",
         "max_completion_tokens",
+        "runtime_hints_ui",
         "index_name",
         "query_deployment",
         "query_model_display",
@@ -156,12 +157,12 @@ def test_home_query_model_display_uses_ollama_model_in_local_mode(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.setenv("CLOUD_PROVIDER", "local")
-    monkeypatch.setenv("OLLAMA_MODEL", "gemma3:27b")
+    monkeypatch.setenv("OLLAMA_MODEL", "gemma4:26b")
 
     _, home, tpl = _app_with_home(is_authorised=True, config=_make_config(query_deployment="gpt-4"))
     home(_make_request())
     context = tpl.TemplateResponse.call_args[0][2]
-    assert context["query_model_display"] == "gemma3:27b"
+    assert context["query_model_display"] == "gemma4:26b"
 
 
 def test_home_context_retrieve_k_matches_config():
@@ -328,3 +329,40 @@ def test_home_uses_bearer_authorization_header_for_authorisation():
     response = registered[0](req)
     assert response.status_code == 200
     assert captured["token"] == "secret"
+
+
+def test_home_runtime_hints_use_model_capabilities_when_available():
+    app = MagicMock()
+    registered: list = []
+
+    def _get(path, **kwargs):
+        def decorator(fn):
+            registered.append(fn)
+            return fn
+
+        return decorator
+
+    app.get = _get
+    tpl = _make_templates()
+    register_home_endpoints(
+        app,
+        is_authorised_request=lambda token, req: True,
+        unauthorised_message=lambda _req: "Unauthorised.",
+        config=_make_config(max_completion_tokens=1400, evaluator_max_completion_tokens=800),
+        templates=tpl,
+        branding_ctx=lambda: {"app_title": "Test", "static_version": "1"},
+        resolve_query_model_capabilities=lambda: {
+            "source": "model_metadata",
+            "context_window_tokens": 65536,
+            "max_output_tokens": 900,
+        },
+    )
+
+    response = registered[0](_make_request())
+    assert response.status_code == 200
+    context = tpl.TemplateResponse.call_args[0][2]
+    assert context["max_completion_tokens"] == 900
+    assert context["evaluator_max_completion_tokens"] == 800
+    assert context["runtime_hints_ui"]["context_window_tokens_hint"] == 65536
+    assert context["runtime_hints_ui"]["max_completion_tokens_effective"] == 900
+    assert context["runtime_hints_ui"]["max_completion_tokens_source"] == "model_metadata"

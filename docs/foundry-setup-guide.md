@@ -8,8 +8,8 @@ This guide covers deploying Azure Foundry chat completion functionality and pers
 
 - Terraform-managed environment with:
   - Chat completion deployment (e.g., `gpt-5.1-chat`)
-  - Embedding deployment (e.g., `text-embedding-ada-002`)
-  - Evaluation/reasoning deployment (e.g., `gpt-4.1-mini`)
+  - Embedding deployment (e.g., `text-embedding-3-small`)
+  - Evaluation/reasoning deployment (e.g., `gpt-5.1-mini`)
 - Cosmos DB SQL API account, database, and container created by Terraform
 - Managed identity or operator identity with roles:
   - `Cognitive Services User` on Foundry account
@@ -40,6 +40,38 @@ PROMPT_INJECTION_VALIDATOR_TEMPERATURE=0.5
 ACCEPTABLE_SCORE_THRESHOLD=0.72
 QUERY_WEB_AUTH_TOKEN=<optional-auth-token>
 ```
+
+### Azure Graph Snapshot Environment
+
+If you are enabling the Azure relationship-graph rollout path, add the
+following environment variables to the query web Container App.
+
+Read path only:
+
+```bash
+GRAPH_ENABLED=true
+GRAPH_BACKEND=azure
+GRAPH_AZURE_ARTIFACTS_CONTAINER=grounding-data
+GRAPH_AZURE_ARTIFACTS_PREFIX=graph/dev
+```
+
+Build + publish + read path:
+
+```bash
+GRAPH_ENABLED=true
+GRAPH_BACKEND=azure
+GRAPH_AZURE_ARTIFACTS_CONTAINER=grounding-data
+GRAPH_AZURE_ARTIFACTS_PREFIX=graph/dev
+GRAPH_AZURE_PUBLISH_ENABLED=true
+```
+
+Notes:
+
+- `GRAPH_AZURE_ARTIFACTS_CONTAINER` should point to the blob container used for graph snapshot artifacts.
+- `GRAPH_AZURE_ARTIFACTS_PREFIX` scopes published objects such as `nodes.jsonl`, `edges.jsonl`, and `graph_build_report.json`.
+- The current Azure rollout path is snapshot-backed. It does not yet provide a fully Azure-native graph persistence/query backend.
+- The application reuses the existing Azure Blob credential path via managed identity and `AZURE_STORAGE_ACCOUNT_NAME`.
+- `POST /api/graph/build` is an internal/admin operation. Do not expose it through APIM, Front Door, or any external gateway contract; only graph query/export endpoints should be externally published.
 
 ### Resolve Values
 

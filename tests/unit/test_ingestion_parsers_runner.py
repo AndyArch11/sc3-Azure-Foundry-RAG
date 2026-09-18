@@ -50,6 +50,7 @@ def test_build_registry_includes_all_available_framework_parsers() -> None:
         "ism",
         "nist_ai_rmf",
         "nist_csf",
+        "nist_sp_800_53",
         "pci_dss",
         "pspf",
     }

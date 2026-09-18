@@ -14,13 +14,8 @@ services:
         mkdir -p /seed/runtime/out /seed/parsed-controls
 
         if [ ! -s /seed/runtime/out/chunks.jsonl ]; then
-          if [ -s /app/runtime/out/chunks.jsonl ]; then
-            cp /app/runtime/out/chunks.jsonl /seed/runtime/out/chunks.jsonl
-            echo "Seeded runtime chunks into named volume"
-          else
-            : > /seed/runtime/out/chunks.jsonl
-            echo "No packaged runtime chunks found; created empty chunks.jsonl"
-          fi
+          : > /seed/runtime/out/chunks.jsonl
+          echo "Created empty runtime chunks.jsonl for manual Corpus C uploads"
         else
           echo "Runtime chunks already present in named volume"
         fi
@@ -29,8 +24,15 @@ services:
           cp -R /app/parsed-controls/. /seed/parsed-controls/
           echo "Seeded parsed controls into named volume"
         else
-          echo "Parsed controls already present in named volume"
+          # parsed-controls is baked-in reference data (unlike runtime/out, which
+          # holds user-uploaded Corpus C content) — always resync so framework
+          # updates (e.g. a newer ISM catalog) aren't stuck behind a stale volume.
+          find /seed/parsed-controls -mindepth 1 -delete
+          cp -R /app/parsed-controls/. /seed/parsed-controls/
+          echo "Refreshed parsed controls in named volume from current image"
         fi
+
+        chown -R 1000:1000 /seed/parsed-controls /seed/runtime/out
     volumes:
       - local_runtime_out:/seed/runtime/out
       - local_parsed_controls:/seed/parsed-controls
@@ -45,7 +47,8 @@ services:
       - qdrant_data:/qdrant/storage
 
   ollama:
-    image: ollama/ollama:latest
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    pull_policy: always
     container_name: rag-ollama
     restart: unless-stopped
     gpus: all
@@ -55,7 +58,8 @@ services:
       - ollama_data:/root/.ollama
 
   model-puller:
-    image: ollama/ollama:latest
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    pull_policy: always
     container_name: rag-model-puller
     restart: "no"
     env_file:
@@ -80,6 +84,7 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
       LOCAL_EVIDENCE_JSONL_PATH: /app/runtime/out/chunks.jsonl
       LOCAL_CONTROLS_JSONL_PATH: /app/parsed-controls
+      SEED_STATE_DIR: /app/local_state
     depends_on:
       qdrant:
         condition: service_started
@@ -90,6 +95,7 @@ services:
     volumes:
       - local_runtime_out:/app/runtime/out:ro
       - local_parsed_controls:/app/parsed-controls:ro
+      - local_state:/app/local_state
     command: ["python", "/app/local/seed_local.py"]
 
   query-web:
@@ -114,9 +120,25 @@ services:
       seeder:
         condition: service_completed_successfully
     volumes:
-      - local_runtime_out:/app/runtime/out:ro
-      - local_parsed_controls:/app/parsed-controls:ro
+      - local_runtime_out:/app/runtime/out
+      - local_parsed_controls:/app/parsed-controls
       - local_state:/app/local_state
+
+  rag-gateway-local:
+    build:
+      context: .
+      dockerfile: ops/local-gateway/Dockerfile
+    container_name: rag-gateway-local
+    restart: unless-stopped
+    profiles: ["gateway"]
+    ports:
+      - "${RAG_GATEWAY_HOST_PORT:-18081}:8081"
+    environment:
+      QUERY_WEB_AUTH_TOKEN: ${QUERY_WEB_AUTH_TOKEN:-}
+      GATEWAY_BEARER_TOKEN: ${GATEWAY_BEARER_TOKEN:-}
+    depends_on:
+      query-web:
+        condition: service_started
 
   confluence-poller:
     profiles: ["confluence-poller"]

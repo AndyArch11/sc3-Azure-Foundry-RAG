@@ -90,6 +90,56 @@ def test_run_local_success(
     assert out.exists()
 
 
+def test_run_local_tags_corpus_from_input_dir_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Chunks discovered under a 'corpus-b' directory must be written with
+    corpus='b' in the output JSONL, not left for downstream inference to guess."""
+    in_dir = tmp_path / "corpus-b"
+    in_dir.mkdir()
+    f = in_dir / "guidance.pdf"
+    f.write_bytes(b"x")
+    out = tmp_path / "out" / "chunks.jsonl"
+
+    args = argparse.Namespace(
+        input_dir=str(in_dir),
+        output_jsonl=str(out),
+        chunk_size=100,
+        chunk_overlap=10,
+        enable_local_ocr=False,
+        local_ocr_min_text_chars=80,
+    )
+
+    monkeypatch.setattr(runner, "discover_supported_files", lambda path: [f])
+    monkeypatch.setattr(
+        runner, "extract_source_document", lambda *args, **kwargs: {"source_path": "a.pdf"}
+    )
+    monkeypatch.setattr(
+        runner,
+        "chunk_documents",
+        lambda docs, chunk_size, chunk_overlap: [
+            type(
+                "Chunk",
+                (),
+                {
+                    "chunk_id": "c1",
+                    "source_path": str(f),
+                    "source_type": "pdf",
+                    "chunk_index": 0,
+                    "content": "hello",
+                },
+            )()
+        ],
+    )
+
+    code = runner._run_local(args)
+    capsys.readouterr()
+    assert code == 0
+    lines = out.read_text().strip().splitlines()
+    assert len(lines) == 1
+    assert json.loads(lines[0])["corpus"] == "b"
+
+
 def test_run_azure_configuration_error(monkeypatch: pytest.MonkeyPatch) -> None:
     class _BadCfg:
         @classmethod

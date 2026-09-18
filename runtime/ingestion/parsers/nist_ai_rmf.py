@@ -38,6 +38,7 @@ except ImportError:  # Container layout copies modules to /app, not /app/runtime
     from outbound_instrumentation import request_with_instrumentation
 
 from .base import BaseParser, RequirementRecord, filter_keywords, keywordise_values
+from .utils import fetch_bytes_with_instrumentation, fetch_text_with_instrumentation, slugify_text
 
 logger = logging.getLogger(__name__)
 
@@ -177,17 +178,16 @@ class NistAiRmfParser(BaseParser):
                 return _PdfReader(str(path))
 
         logger.info("NIST AI RMF: downloading source PDF from %s", SOURCE_URI)
-        response = request_with_instrumentation(
-            "GET",
-            SOURCE_URI,
+        payload = fetch_bytes_with_instrumentation(
+            url=SOURCE_URI,
             logger=logger,
             timeout=90,
             system="nist",
             operation="download_nist_ai_rmf_pdf",
+            instrumenter=request_with_instrumentation,
             request_callable=requests.get,
         )
-        response.raise_for_status()
-        return _PdfReader(io.BytesIO(response.content))
+        return _PdfReader(io.BytesIO(payload))
 
     def _extract_text(self, reader: Any) -> str:
         """Extract plain text from PDF.
@@ -324,17 +324,16 @@ def _build_playbook_guidance_map(fetch_guidance: bool = True) -> dict[str, tuple
     for function_token, slug in _PLAYBOOK_SLUG_BY_TOKEN.items():
         page_url = f"{_PLAYBOOK_BASE_URI}/{slug}/"
         try:
-            response = request_with_instrumentation(
-                "GET",
-                page_url,
+            html = fetch_text_with_instrumentation(
+                url=page_url,
                 logger=logger,
                 timeout=30,
                 headers={"User-Agent": "Mozilla/5.0"},
                 system="nist",
                 operation="fetch_nist_ai_rmf_playbook",
+                instrumenter=request_with_instrumentation,
                 request_callable=requests.get,
             )
-            response.raise_for_status()
         except Exception as exc:  # pragma: no cover - network dependent
             logger.warning(
                 "Failed to fetch NIST AI RMF playbook page %s: %s",
@@ -343,7 +342,7 @@ def _build_playbook_guidance_map(fetch_guidance: bool = True) -> dict[str, tuple
             )
             continue
 
-        soup = BeautifulSoup(response.text, "html.parser")
+        soup = BeautifulSoup(html, "html.parser")
         guidance_map.update(_extract_playbook_page_guidance(soup, function_token, page_url))
 
     return guidance_map
@@ -432,7 +431,4 @@ def _slugify(text: str) -> str:
     >>> _slugify("Risk Assessment and Mitigation")
     'risk-assessment-and-mitigation'
     """
-    slug = text.lower()
-    slug = re.sub(r"[^a-z0-9]+", "-", slug)
-    slug = slug.strip("-")
-    return slug
+    return slugify_text(text, delimiter="-")

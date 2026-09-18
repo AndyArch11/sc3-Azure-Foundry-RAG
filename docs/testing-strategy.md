@@ -110,6 +110,73 @@ Future task:
 - Small Excel fixtures representing multi-sheet controls.
 - Deterministic expected outputs where practical.
 
+## Golden-Set RAG Evals
+
+To prevent ranking regressions (for example low-k framework crowding), maintain a golden set and evaluate it on every meaningful retrieval/ranking change.
+
+Golden-set assets:
+
+- `tests/evals/rag_golden_set.json`: curated cases and expected framework relevance.
+- `tests/evals/schemas/rag_eval_schemas.json`: suite schema for governance and review consistency.
+- `tests/evals/run_rag_golden_eval.py`: live eval runner against `/api/ask`.
+- `ops/scripts/local/run-rag-golden-evals.sh`: convenience wrapper.
+
+Deterministic retrieval metrics produced per case:
+
+- `precision_at_k`
+- `framework_diversity_at_k`
+- `dominant_framework_share`
+- `expected_framework_coverage`
+
+Run locally:
+
+```bash
+QUERY_WEB_BASE_URL="http://127.0.0.1:8080" \
+QUERY_WEB_AUTH_TOKEN="<optional-token>" \
+bash ./ops/scripts/local/run-rag-golden-evals.sh
+```
+
+Output report:
+
+- `local_state/evals/rag_eval_latest.json`
+
+Optional answer-quality layer (RAGAS):
+
+```bash
+ENABLE_RAGAS=true \
+QUERY_WEB_BASE_URL="http://127.0.0.1:8080" \
+bash ./ops/scripts/local/run-rag-golden-evals.sh
+```
+
+Notes:
+
+- Deterministic retrieval checks should be the primary regression gate for pull requests.
+- RAGAS should be treated as a secondary signal (nightly or release-candidate), because evaluator-model drift can move scores over time.
+- Use temperature-0 style evaluator settings and fixed evaluator model versions where possible for reproducibility.
+
+### Qdrant Retrieval-Only Golden Evals
+
+When retrieval bias appears to originate in vector ranking (for example framework crowding at low-k), run retrieval-only evals directly against the Qdrant collection.
+
+Artifacts:
+
+- `tests/evals/run_qdrant_retrieval_eval.py`
+- `ops/scripts/local/run-qdrant-retrieval-evals.sh`
+
+Run locally:
+
+```bash
+QDRANT_URL="http://localhost:6333" \
+AZURE_SEARCH_INDEX_NAME="grounding-index" \
+bash ./ops/scripts/local/run-qdrant-retrieval-evals.sh
+```
+
+Output report:
+
+- `local_state/evals/qdrant_retrieval_eval_latest.json`
+
+This retrieval-only track should be treated as the primary gate for ranking and diversity regressions, with answer-quality RAGAS checks as a secondary signal.
+
 ## Exit Criteria per Phase
 
 - All unit tests pass for pull requests.

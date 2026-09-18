@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 import requests
 
+from runtime.llm.token_usage import record_token_usage
 from runtime.trace_context import outbound_trace_headers
 
 logger = logging.getLogger(__name__)
@@ -192,6 +193,13 @@ class BedrockLLMClient:
         message_obj = output.get("message") or {}
         content_list = message_obj.get("content") or []
         texts = [block.get("text") or "" for block in content_list if isinstance(block, dict)]
+        usage = response.get("usage") or {}
+        if usage:
+            record_token_usage(
+                prompt_tokens=int(usage.get("inputTokens") or 0),
+                completion_tokens=int(usage.get("outputTokens") or 0),
+                total_tokens=int(usage.get("totalTokens") or 0),
+            )
         return " ".join(t.strip() for t in texts if t.strip())
 
     def as_callable(self) -> Callable[[list[dict[str, str]]], str]:
@@ -306,6 +314,14 @@ class BedrockMantleLLMClient:
                 ) from exc
             raise
         body = response.json() if hasattr(response, "json") else {}
+
+        usage = body.get("usage") if isinstance(body, dict) else None
+        if isinstance(usage, dict):
+            record_token_usage(
+                prompt_tokens=int(usage.get("prompt_tokens") or 0),
+                completion_tokens=int(usage.get("completion_tokens") or 0),
+                total_tokens=int(usage.get("total_tokens") or 0),
+            )
 
         choices = body.get("choices") if isinstance(body, dict) else None
         if isinstance(choices, list) and choices:

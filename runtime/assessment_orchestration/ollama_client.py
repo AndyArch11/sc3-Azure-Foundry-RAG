@@ -13,7 +13,7 @@ Installation (on WSL host):
     OLLAMA_HOST=0.0.0.0 ollama serve  # bind to all interfaces so dev container can reach it
 
 Recommended models for compliance report generation:
-    ollama pull gemma3:27b        # best quality; fits in ~24 GB NVIDIA VRAM
+    ollama pull gemma4:26b        # best quality; fits in ~24 GB NVIDIA VRAM
     ollama pull llama4:scout      # strong alternative; 10M context, MoE architecture
     ollama pull nomic-embed-text  # lightweight embeddings
 
@@ -25,7 +25,7 @@ Usage:
             {"role": "system", "content": "You are a compliance expert."},
             {"role": "user", "content": "Assess this control..."}
         ],
-        model="gemma3:27b",
+        model="gemma4:26b",
         temperature=1.0,
         timeout=180,
     )
@@ -39,6 +39,7 @@ import os
 import time
 from typing import Any
 
+from runtime.llm.token_usage import record_token_usage
 from runtime.outbound_instrumentation import request_with_instrumentation
 
 logger = logging.getLogger(__name__)
@@ -316,7 +317,7 @@ def _chat_or_generate_once(
 def ollama_chat_completion(
     messages: list[dict[str, str]],
     *,
-    model: str = "gemma3:27b",
+    model: str = "gemma4:26b",
     base_url: str | None = None,
     temperature: float = 1.0,
     top_p: float = 1.0,
@@ -328,7 +329,7 @@ def ollama_chat_completion(
 
     Args:
         messages: List of messages in OpenAI format [{"role": "system|user", "content": str}]
-        model: Ollama model name (default: gemma3:27b)
+        model: Ollama model name (default: gemma4:26b)
         base_url: Ollama API endpoint — resolved from OLLAMA_HOST/OLLAMA_BASE_URL if not supplied
         temperature: Sampling temperature (0.0-2.0, default: 1.0)
         top_p: Nucleus sampling parameter (0.0-1.0, default: 1.0)
@@ -476,6 +477,14 @@ def ollama_chat_completion(
     if not content:
         raise RuntimeError(f"Ollama returned empty response: {result}")
 
+    prompt_eval_count = result.get("prompt_eval_count")
+    eval_count = result.get("eval_count")
+    if prompt_eval_count is not None or eval_count is not None:
+        record_token_usage(
+            prompt_tokens=int(prompt_eval_count or 0),
+            completion_tokens=int(eval_count or 0),
+        )
+
     return content
 
 
@@ -502,7 +511,7 @@ def ollama_embedding(
         ValueError: If response contains invalid embedding
 
     Note:
-        Ollama embeddings have different dimensionality than ada-002 (e.g., 384-768 vs 1536).
+        Ollama embeddings have different dimensionality than text-embedding-3-small (e.g., 384-768 vs 1536).
         This may affect search performance if indexes were built with Azure embeddings.
     """
     try:

@@ -21,6 +21,9 @@ class AskRequest(BaseModel):
         controls_semantic: Whether to use semantic search for controls (optional).
         controls_framework: The specific controls framework to filter by (optional).
         controls_comparison_mode: The comparison mode for controls (default is "auto-detect").
+        include_graph_expansion: Whether to expand retrieval via nearest-neighbour graph traversal.
+        graph_expansion_depth: Optional graph neighbour expansion depth when enabled.
+        graph_expansion_max_edges: Optional graph neighbour edge budget when enabled.
         evidence_corpora_include: List of evidence corpora to include (optional).
         evidence_corpora_exclude: List of evidence corpora to exclude (optional).
         max_completion_tokens: The maximum number of tokens for the LLM completion (optional).
@@ -30,7 +33,7 @@ class AskRequest(BaseModel):
 
     question: str
     retrieve_k: int = Field(default=5, ge=1, le=20)
-    controls_context_cap: int | None = Field(default=None, ge=1, le=2000)
+    controls_context_cap: int | None = Field(default=None, ge=1, le=3000)
     temperature: float = Field(default=1.0, ge=0.0, le=1.0)
     top_p: float = Field(default=1.0, ge=0.0, le=1.0)
     auth_token: str = ""
@@ -38,6 +41,9 @@ class AskRequest(BaseModel):
     controls_semantic: bool | None = None
     controls_framework: str | None = None
     controls_comparison_mode: str = "auto-detect"
+    include_graph_expansion: bool = False
+    graph_expansion_depth: int | None = Field(default=None, ge=1, le=4)
+    graph_expansion_max_edges: int | None = Field(default=None, ge=1, le=200)
     evidence_corpora_include: list[str] | None = None
     evidence_corpora_exclude: list[str] | None = None
     max_completion_tokens: int | None = Field(default=None, ge=256, le=8192)
@@ -56,6 +62,12 @@ class AskResponse(BaseModel):
         evaluation: Evaluation results (optional).
         iterations: The number of LLM iterations performed (optional).
         metrics: Timing metrics from the RAG pipeline (optional).
+        graph_capabilities: Compact graph capability summary for client-side toggles.
+        graph_summary: Optional summary metrics for graph-related response context.
+        community_summaries: Optional community summaries for graph-aware clients.
+        corpus_a_entities: Optional Corpus A entities surfaced for graph-aware clients.
+        corpus_b_entities: Optional Corpus B entities surfaced for graph-aware clients.
+        graph_links: Optional graph edge/link payload surfaced for graph-aware clients.
         audit: Audit information (optional).
         error: Error message, if any.
     """
@@ -67,5 +79,12 @@ class AskResponse(BaseModel):
     evaluation: dict[str, Any] | None = None
     iterations: int | None = None
     metrics: dict[str, float] | None = None
+    runtime_hints: dict[str, Any] | None = None
+    graph_capabilities: dict[str, Any] | None = None
+    graph_summary: dict[str, Any] | None = None
+    community_summaries: dict[str, dict[str, Any]] | None = None
+    corpus_a_entities: list[dict[str, Any]] | None = None
+    corpus_b_entities: list[dict[str, Any]] | None = None
+    graph_links: list[dict[str, Any]] | None = None
     audit: dict[str, Any] | None = None
     error: str | None = None

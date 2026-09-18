@@ -5,6 +5,12 @@ ingestion publish controls
 - supports optional enrichment of control applicability via Foundry assessment orchestration
 """
 
+# TODO: replace the scattered string literals in this module (field names like
+# "requirement_id"/"framework_version", result "action" values like
+# "skip_duplicate"/"would_replace"/"uploaded", and OData filter fragments) with
+# shared constants/enums so they can't drift out of sync with callers/tests.
+# Also consider centralising configuration values like the maximum top-k limit (currently 1500) to avoid magic numbers scattered throughout the code.
+
 from __future__ import annotations
 
 import hashlib
@@ -39,6 +45,7 @@ OPTIONAL_APPLICABILITY_FIELDS = {
     "control_applicability_scope",
     "applicability_confidence",
     "applicability_uncertain",
+    "control_baselines",
 }
 
 
@@ -82,7 +89,7 @@ def _embed_text_azure(text: str, credential: TokenCredential) -> list[float] | N
     endpoint = (
         os.getenv("AZURE_OPENAI_ENDPOINT", "").strip() or os.getenv("OPENAI_ENDPOINT", "").strip()
     ).rstrip("/")
-    deployment = os.getenv("EMBEDDING_DEPLOYMENT_NAME", "text-embedding-ada-002").strip()
+    deployment = os.getenv("EMBEDDING_DEPLOYMENT_NAME", "text-embedding-3-small").strip()
     if not endpoint or not deployment:
         return None
 
@@ -172,6 +179,7 @@ def _controls_manifest_hash(records: list[dict[str, Any]]) -> str:
                 "framework_version": record.get("framework_version", ""),
                 "control_family": record.get("control_family", ""),
                 "maturity_level": record.get("maturity_level"),
+                "control_baselines": sorted(record.get("control_baselines", []) or []),
                 "requirement_text": record.get("requirement_text", ""),
                 "guidance_text": record.get("guidance_text", ""),
                 "keywords": sorted(record.get("keywords", []) or []),
@@ -212,7 +220,7 @@ def _framework_version_state(
     pager = client.search(
         search_text="*",
         filter=filter_expr,
-        top=1000,
+        top=1500,
         select=["requirement_id", "ingestion_manifest_hash"],
     )
     for item in pager:

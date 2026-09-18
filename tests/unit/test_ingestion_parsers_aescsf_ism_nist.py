@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from runtime.ingestion.parsers import aescsf, ism, nist_ai_rmf, nist_csf
+from runtime.ingestion.parsers import aescsf, ism, nist_ai_rmf, nist_csf, nist_sp_800_53
 
 
 def test_aescsf_slugify_and_parse_maturity_level() -> None:
@@ -169,28 +169,27 @@ def test_ism_build_records_emits_expected_shape() -> None:
 def test_nist_helpers_and_parse_with_small_core(monkeypatch: pytest.MonkeyPatch) -> None:
     assert nist_csf._slugify("Risk Management") == "risk-management"
 
-    monkeypatch.setattr(
-        nist_csf,
-        "_CSF_CORE",
-        [
-            (
-                "ID",
-                "Identify",
-                "desc",
-                [
-                    (
-                        "ID.AM",
-                        "Asset Management",
-                        "category desc",
-                        [("ID.AM-01", "Inventory assets")],
-                    )
-                ],
-            )
-        ],
-    )
-    monkeypatch.setattr(nist_csf, "_CATEGORY_KEYWORDS", {"ID.AM": ["asset", "management"]})
+    xml = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<catalog xmlns=\"http://csrc.nist.gov/ns/oscal/1.0\">
+    <metadata>
+        <last-modified>2026-01-01T00:00:00Z</last-modified>
+    </metadata>
+    <group id=\"ID\" class=\"function\">
+        <title>IDENTIFY</title>
+        <control id=\"ID.AM\" class=\"category\">
+            <title>Asset Management</title>
+            <part name=\"statement\"><p>category desc</p></part>
+            <control id=\"ID.AM-01\" class=\"subcategory\">
+                <title>ID.AM-01</title>
+                <part name=\"statement\"><p>Inventory assets</p></part>
+            </control>
+        </control>
+    </group>
+</catalog>
+"""
 
-    parser = nist_csf.NistCsfParser(fetch_guidance=False)
+    parser = nist_csf.NistCsfParser(fetch_guidance=False, catalog_url="https://example.com/csf.xml")
+    monkeypatch.setattr(parser, "_fetch_xml_bytes", lambda: xml.encode("utf-8"))
     records = parser.parse()
 
     assert len(records) == 1
@@ -337,6 +336,96 @@ def test_nist_ai_rmf_downloads_pdf_when_local_files_absent(
     assert requested == {"method": "GET", "url": nist_ai_rmf.SOURCE_URI, "timeout": 90}
     assert len(called_with) == 1
     assert isinstance(called_with[0], io.BytesIO)
+
+
+def test_nist_sp_800_53_parse_maps_controls_to_baselines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog_xml = b"""
+<catalog xmlns=\"http://csrc.nist.gov/ns/oscal/1.0\">
+    <metadata>
+        <version>5</version>
+        <last-modified>2020-09-23T00:00:00Z</last-modified>
+    </metadata>
+    <group id=\"ac\">
+        <title>Access Control</title>
+        <control id=\"ac-1\">
+            <title>Policy and Procedures</title>
+            <part name=\"statement\"><prose>Develop access control policy.</prose></part>
+            <part name=\"discussion\"><prose>Applies to access governance.</prose></part>
+            <control id=\"ac-1(1)\">
+                <title>Enhancement</title>
+                <part name=\"statement\"><prose>Enhancement statement.</prose></part>
+            </control>
+        </control>
+    </group>
+</catalog>
+""".strip()
+    low_xml = b"""
+<profile xmlns=\"http://csrc.nist.gov/ns/oscal/1.0\">
+    <import><include-controls><with-id>ac-1</with-id><with-id>ac-1(1)</with-id></include-controls></import>
+</profile>
+""".strip()
+    moderate_xml = b"""
+<profile xmlns=\"http://csrc.nist.gov/ns/oscal/1.0\">
+    <import><include-controls><with-id>ac-1</with-id></include-controls></import>
+</profile>
+""".strip()
+    high_xml = b"""
+<profile xmlns=\"http://csrc.nist.gov/ns/oscal/1.0\">
+    <import><include-controls></include-controls></import>
+</profile>
+""".strip()
+    privacy_xml = b"""
+<profile xmlns=\"http://csrc.nist.gov/ns/oscal/1.0\">
+    <import><include-controls><with-id>ac-1(1)</with-id></include-controls></import>
+</profile>
+""".strip()
+
+    class _Resp:
+        def __init__(self, content: bytes):
+            self.content = content
+
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
+
+    payload_by_url = {
+        "catalog": catalog_xml,
+        "low": low_xml,
+        "moderate": moderate_xml,
+        "high": high_xml,
+        "privacy": privacy_xml,
+    }
+
+    def _fake_request(*args, **kwargs):
+        url = kwargs.get("url") or (args[1] if len(args) > 1 else "")
+        return _Resp(payload_by_url[url])
+
+    monkeypatch.setattr(nist_sp_800_53, "request_with_instrumentation", _fake_request)
+
+    parser = nist_sp_800_53.NistSp80053Parser(
+        catalog_url="catalog",
+        baseline_profile_urls={
+            "LOW": "low",
+            "MODERATE": "moderate",
+            "HIGH": "high",
+            "PRIVACY": "privacy",
+        },
+    )
+    records = parser.parse()
+
+    assert len(records) == 2
+    by_id = {record.requirement_id: record for record in records}
+
+    ac1 = by_id["NIST-SP-800-53-AC-1"]
+    assert ac1.framework == "NIST SP 800-53"
+    assert ac1.framework_version == "Rev. 5"
+    assert ac1.effective_date == "2020-09-23"
+    assert ac1.control_baselines == ["LOW", "MODERATE"]
+
+    ac1_enhancement = by_id["NIST-SP-800-53-AC-1-1"]
+    assert ac1_enhancement.control_baselines == ["LOW", "PRIVACY"]
 
 
 def test_nist_ai_rmf_extract_control_entries_parses_real_style_tokens() -> None:

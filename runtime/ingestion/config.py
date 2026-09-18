@@ -109,7 +109,7 @@ class IngestionConfig:
             ai_services_endpoint=_require("AI_SERVICES_ENDPOINT"),
             azure_openai_endpoint=_require("AZURE_OPENAI_ENDPOINT"),
             embedding_deployment_name=os.environ.get(
-                "EMBEDDING_DEPLOYMENT_NAME", "text-embedding-ada-002"
+                "EMBEDDING_DEPLOYMENT_NAME", "text-embedding-3-small"
             ),
             embedding_dimensions=int(os.environ.get("EMBEDDING_DIMENSIONS", "1536")),
             storage_account_name=_require("AZURE_STORAGE_ACCOUNT_NAME"),

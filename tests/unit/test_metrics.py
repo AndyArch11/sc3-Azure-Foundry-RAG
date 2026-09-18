@@ -229,6 +229,41 @@ class TestMetricsEndpoint:
         assert "/metrics" not in paths
 
 
+class TestObserveGraphOperation:
+    def test_graph_operation_metrics_increment(self) -> None:
+        from query_web.metrics import (
+            GRAPH_EDGES_WRITTEN_TOTAL,
+            GRAPH_NODES_WRITTEN_TOTAL,
+            GRAPH_OPERATIONS_TOTAL,
+            GRAPH_QUERY_TRUNCATED_TOTAL,
+            observe_graph_operation,
+        )
+
+        before_total = _counter_value(GRAPH_OPERATIONS_TOTAL, operation="build", outcome="success")
+        before_nodes = _counter_value(GRAPH_NODES_WRITTEN_TOTAL)
+        before_edges = _counter_value(GRAPH_EDGES_WRITTEN_TOTAL)
+        before_truncated = _counter_value(GRAPH_QUERY_TRUNCATED_TOTAL, operation="build")
+
+        observe_graph_operation(
+            operation="build",
+            duration_s=0.12,
+            outcome="success",
+            nodes_written=5,
+            edges_written=7,
+            truncated=True,
+        )
+
+        assert (
+            _counter_value(GRAPH_OPERATIONS_TOTAL, operation="build", outcome="success")
+            == before_total + 1
+        )
+        assert _counter_value(GRAPH_NODES_WRITTEN_TOTAL) == before_nodes + 5
+        assert _counter_value(GRAPH_EDGES_WRITTEN_TOTAL) == before_edges + 7
+        assert (
+            _counter_value(GRAPH_QUERY_TRUNCATED_TOTAL, operation="build") == before_truncated + 1
+        )
+
+
 # ---------------------------------------------------------------------------
 # Trace validation counters
 # ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ resource "azurerm_storage_account" "this" {
     default_action = "Deny"
     bypass         = ["None"]
   }
-  tags                            = var.tags
+  tags = var.tags
 }
 
 resource "azurerm_storage_container" "grounding_data" {
@@ -47,7 +47,7 @@ resource "azurerm_cosmosdb_account" "this" {
   resource_group_name           = var.resource_group_name
   offer_type                    = "Standard"
   kind                          = "GlobalDocumentDB"
-  local_authentication_disabled = true
+  local_authentication_enabled  = false
   public_network_access_enabled = false
 
   consistency_policy {

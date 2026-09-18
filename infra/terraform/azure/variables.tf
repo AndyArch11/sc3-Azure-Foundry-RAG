@@ -39,6 +39,11 @@ variable "private_endpoint_subnet_cidr" {
   description = "Private endpoint subnet CIDR block (/24)."
 }
 
+variable "api_management_subnet_cidr" {
+  type        = string
+  description = "API Management outbound integration subnet CIDR block (/24)."
+}
+
 variable "agent_subnet_cidr" {
   type        = string
   description = "Delegated agent subnet CIDR block (/24)."
@@ -96,8 +101,8 @@ variable "embedding_model" {
   })
   description = "Embedding model deployment name and version."
   default = {
-    name     = "text-embedding-ada-002"
-    version  = "2"
+    name     = "text-embedding-3-small"
+    version  = "1"
     capacity = 10
   }
 }
@@ -124,8 +129,8 @@ variable "evaluation_model" {
   })
   description = "Evaluation model deployment name and version."
   default = {
-    name     = "gpt-4.1-mini"
-    version  = "2025-04-14"
+    name     = "gpt-5.1-mini"
+    version  = "2025-11-13"
     capacity = 1
   }
 }
@@ -138,8 +143,8 @@ variable "validator_model" {
   })
   description = "Prompt injection validator model deployment name and version."
   default = {
-    name     = "gpt-4.1-mini"
-    version  = "2025-04-14"
+    name     = "gpt-5.1-mini"
+    version  = "2025-11-13"
     capacity = 1
   }
 }
@@ -154,6 +159,24 @@ variable "foundry_network_acl_bypass_azure_services" {
   type        = bool
   description = "Whether to allow AzureServices bypass on Foundry network ACLs. Keep false for strict private-network posture; set true only as a compatibility fallback."
   default     = false
+}
+
+variable "api_management_name_override" {
+  type        = string
+  description = "Optional explicit API Management service name override. Leave empty to use apim-<suffix>."
+  default     = ""
+}
+
+variable "api_management_publisher_name" {
+  type        = string
+  description = "Publisher name for the API Management service."
+  default     = "Platform Team"
+}
+
+variable "api_management_publisher_email" {
+  type        = string
+  description = "Publisher email for the API Management service."
+  default     = "platform@example.com"
 }
 
 variable "enable_hosted_query_agent_preview" {
@@ -378,9 +401,21 @@ variable "query_default_temperature" {
   default     = 1.0
 }
 
+variable "query_default_top_p" {
+  type        = number
+  description = "Default top-p value for query web app. Keep at 1.0 unless validated for a specific model."
+  default     = 1.0
+}
+
 variable "query_evaluator_temperature" {
   type        = number
   description = "Evaluator model temperature for quality checks in query web app. Keep at 1.0 for widest model compatibility unless validated otherwise."
+  default     = 1.0
+}
+
+variable "query_evaluator_top_p" {
+  type        = number
+  description = "Evaluator model top-p for quality checks in query web app. Keep at 1.0 unless validated otherwise."
   default     = 1.0
 }
 
@@ -424,6 +459,12 @@ variable "prompt_injection_validator_temperature" {
   type        = number
   description = "Prompt injection validator model temperature. Lower values can improve consistency but may not be supported by all models."
   default     = 0.5
+}
+
+variable "prompt_injection_validator_top_p" {
+  type        = number
+  description = "Prompt injection validator model top-p. Keep at 1.0 unless validated otherwise."
+  default     = 1.0
 }
 
 variable "prompt_injection_validator_timeout_s" {
@@ -487,6 +528,11 @@ variable "byol_agent_subnet_id" {
   description = "Optional: resource ID of pre-existing agent subnet (delegated to Microsoft.CognitiveServices)."
   default     = ""
 }
+variable "byol_api_management_subnet_id" {
+  type        = string
+  description = "Optional: resource ID of pre-existing API Management subnet (delegated to Microsoft.Web/serverFarms)."
+  default     = ""
+}
 variable "byol_jumpbox_subnet_id" {
   type        = string
   description = "Optional: resource ID of pre-existing jumpbox subnet."
@@ -501,5 +547,29 @@ variable "byol_azure_bastion_subnet_id" {
 variable "tags" {
   type        = map(string)
   description = "Additional tags."
+  default     = {}
+}
+
+variable "mcp_endpoints" {
+  type = map(object({
+    display_name           = string
+    path                   = string
+    service_url            = optional(string)
+    description            = optional(string)
+    api_type               = optional(string, "http")
+    openapi_spec_path      = optional(string)
+    openapi_content_format = optional(string, "openapi")
+    subscription_required  = optional(bool, false)
+    revision               = optional(string, "1")
+    protocols              = optional(list(string), ["https"])
+    operations = optional(map(object({
+      operation_id = string
+      display_name = string
+      method       = string
+      url_template = string
+      description  = optional(string)
+    })), {})
+  }))
+  description = "APIM endpoint definitions for MCP frontends. Set openapi_spec_path (for example ../../docs/contracts/rag-api-v1.openapi.yaml) to import API operations from an OpenAPI contract."
   default     = {}
 }

@@ -20,6 +20,13 @@ resource "azurerm_network_security_group" "agent" {
   tags                = var.tags
 }
 
+resource "azurerm_network_security_group" "api_management" {
+  name                = "nsg-api-management"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  tags                = var.tags
+}
+
 resource "azurerm_network_security_group" "jumpbox" {
   name                = "nsg-jumpbox"
   location            = var.location
@@ -288,6 +295,48 @@ resource "azurerm_network_security_rule" "agent_outbound_virtual_network" {
   network_security_group_name = azurerm_network_security_group.agent.name
 }
 
+resource "azurerm_network_security_rule" "api_management_outbound_storage" {
+  name                        = "allow-storage-outbound"
+  priority                    = 100
+  direction                   = "Outbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "443"
+  source_address_prefix       = "VirtualNetwork"
+  destination_address_prefix  = "Storage"
+  resource_group_name         = var.resource_group_name
+  network_security_group_name = azurerm_network_security_group.api_management.name
+}
+
+resource "azurerm_network_security_rule" "api_management_outbound_key_vault" {
+  name                        = "allow-key-vault-outbound"
+  priority                    = 110
+  direction                   = "Outbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "443"
+  source_address_prefix       = "VirtualNetwork"
+  destination_address_prefix  = "AzureKeyVault"
+  resource_group_name         = var.resource_group_name
+  network_security_group_name = azurerm_network_security_group.api_management.name
+}
+
+resource "azurerm_network_security_rule" "api_management_outbound_aad" {
+  name                        = "allow-aad-outbound"
+  priority                    = 120
+  direction                   = "Outbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "443"
+  source_address_prefix       = "VirtualNetwork"
+  destination_address_prefix  = "AzureActiveDirectory"
+  resource_group_name         = var.resource_group_name
+  network_security_group_name = azurerm_network_security_group.api_management.name
+}
+
 resource "azurerm_subnet" "private_endpoints" {
   name                 = "snet-private-endpoints"
   resource_group_name  = var.resource_group_name
@@ -318,6 +367,26 @@ resource "azurerm_subnet" "agent" {
 resource "azurerm_subnet_network_security_group_association" "agent" {
   subnet_id                 = azurerm_subnet.agent.id
   network_security_group_id = azurerm_network_security_group.agent.id
+}
+
+resource "azurerm_subnet" "api_management" {
+  name                 = "snet-api-management"
+  resource_group_name  = var.resource_group_name
+  virtual_network_name = azurerm_virtual_network.this.name
+  address_prefixes     = [var.api_management_subnet_cidr]
+
+  delegation {
+    name = "delegation-api-management"
+    service_delegation {
+      name    = "Microsoft.Web/serverFarms"
+      actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
+    }
+  }
+}
+
+resource "azurerm_subnet_network_security_group_association" "api_management" {
+  subnet_id                 = azurerm_subnet.api_management.id
+  network_security_group_id = azurerm_network_security_group.api_management.id
 }
 
 resource "azurerm_subnet" "container_apps" {

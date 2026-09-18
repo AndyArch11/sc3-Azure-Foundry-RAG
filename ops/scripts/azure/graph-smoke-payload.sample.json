@@ -1,0 +1,28 @@
+{
+  "auth_token": "<token>",
+  "controls": [
+    {
+      "requirement_id": "NIST-CSF-GV-GV-OC-01",
+      "framework": "NIST CSF",
+      "framework_version": "2.0",
+      "control_family": "GV.OC",
+      "requirement_text": "Mission and stakeholders are understood.",
+      "guidance_text": "Guidance for mission and stakeholders.",
+      "source_uri": "https://example.com/nist-csf"
+    }
+  ],
+  "chunks": [
+    {
+      "source_name": "guidance-1.md",
+      "source_path": "/tmp/guidance-1.md",
+      "normalised_text_sha256": "abc123",
+      "content_sha256": "",
+      "original_filename": "guidance-1.md",
+      "corpus": "b",
+      "corpus_role": "narrative_guidance",
+      "content": "Mission and stakeholder context for cybersecurity risk management.",
+      "score": 0.8
+    }
+  ],
+  "persist_store": false
+}

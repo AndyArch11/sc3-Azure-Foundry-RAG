@@ -5,6 +5,7 @@ import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Iterable, Protocol
 
 from query_web.log_config import configure_logging as _configure_logging
@@ -92,6 +93,7 @@ from query_web.corpus_a import (
 )
 from query_web.endpoints.ask import register_ask_endpoints
 from query_web.endpoints.compliance import register_compliance_endpoints
+from query_web.endpoints.controls import register_controls_endpoints
 from query_web.endpoints.conversations import (
     ConversationMessage,
     ConversationSession,
@@ -116,6 +118,7 @@ from query_web.endpoints.diagnostics import (
 from query_web.endpoints.diagnostics import (
     resolve_acr_registry_name as _diagnostics_resolve_acr_registry_name,
 )
+from query_web.endpoints.graph import register_graph_endpoints
 from query_web.endpoints.home import register_home_endpoints
 from query_web.endpoints.ingestion import IngestionService as _IngestionService
 from query_web.endpoints.status import register_status_endpoints
@@ -289,18 +292,32 @@ logger = logging.getLogger(__name__)
 class _ConversationContainer(Protocol):
     """Protocol for a conversation container that supports reading, upserting, and querying items.
 
-    Methods:
-        read_item(item: str, partition_key: str) -> dict[str, Any]: Read an item from the container.
-        upsert_item(body: dict[str, Any]) -> dict[str, Any]: Upsert an item into the container.
-        query_items(query: str, parameters: list[dict[str, Any]] | None = None, partition_key: str | None = None, max_item_count: int | None = None) -> Iterable[dict[str, Any]]: Query items in the container.
-
     Attributes:
         None
     """
 
-    def read_item(self, *, item: str, partition_key: str) -> dict[str, Any]: ...
+    def read_item(self, *, item: str, partition_key: str) -> dict[str, Any]:
+        """Read an item from the conversation container.
 
-    def upsert_item(self, body: dict[str, Any]) -> dict[str, Any]: ...
+        Args:
+            item: The ID of the item to read.
+            partition_key: The partition key of the item.
+
+        Returns:
+            A dictionary representing the item.
+        """
+        ...
+
+    def upsert_item(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Upsert an item into the conversation container.
+
+        Args:
+            body: The item data to upsert.
+
+        Returns:
+            A dictionary representing the upserted item.
+        """
+        ...
 
     def query_items(
         self,
@@ -309,7 +326,19 @@ class _ConversationContainer(Protocol):
         parameters: list[dict[str, Any]] | None = None,
         partition_key: str | None = None,
         max_item_count: int | None = None,
-    ) -> Iterable[dict[str, Any]]: ...
+    ) -> Iterable[dict[str, Any]]:
+        """Query items in the conversation container.
+
+        Args:
+            query: The SQL-like query string to execute.
+            parameters: Optional list of parameters for the query.
+            partition_key: Optional partition key to filter the query.
+            max_item_count: Optional maximum number of items to return.
+
+        Returns:
+            An iterable of dictionaries representing the queried items.
+        """
+        ...
 
 
 _INTERNAL_ERROR_MESSAGE = "An internal error occurred."
@@ -506,6 +535,8 @@ except ValueError:
     _is_local_provider = False
 
 
+# Cache local Ollama capabilities during query-web initialisation so API clients
+# receive stable model metadata without probing Ollama on every request.
 def _resolve_writable_sqlite_path(*candidates: str) -> str | None:
     """Return first candidate path whose parent directory is writable.
 
@@ -694,6 +725,115 @@ class _IngestionServiceDeps:
 _ingestion_svc = _IngestionService(_IngestionServiceDeps())
 
 
+def _graph_azure_storage_client() -> Any | None:
+    """Build an Azure object storage client for graph snapshot reads when configured.
+
+    Returns:
+        _GraphAzureStorageClient | None: An instance of the Azure storage client or None if not configured.
+    """
+
+    if config.cloud_provider != "azure":
+        return None
+    if not config.storage_account_name:
+        return None
+    if not config.graph_azure_artifacts_container:
+        return None
+
+    account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
+    try:
+        service_client = BlobServiceClient(account_url=account_url, credential=credential)
+    except Exception as exc:
+        logger.warning("Azure graph storage client unavailable: %s", exc)
+        return None
+
+    class _GraphAzureStorageClient:
+        """Azure object storage client for graph snapshot reads when configured.
+
+        Attributes:
+            service_client: The BlobServiceClient instance for interacting with Azure Blob Storage.
+        """
+
+        def put_object(
+            self,
+            bucket_or_container: str,
+            key: str,
+            data: bytes,
+            metadata: dict[str, str] | None = None,
+        ) -> None:
+            """Upload an object to Azure Blob Storage.
+
+            Args:
+                bucket_or_container: The name of the container.
+                key: The key of the object.
+                data: The data to upload.
+                metadata: Optional metadata for the object.
+            """
+            container = service_client.get_container_client(bucket_or_container)
+            container.upload_blob(name=key, data=data, overwrite=True, metadata=metadata or {})
+
+        def get_object_metadata(self, bucket_or_container: str, key: str) -> dict[str, Any]:
+            """Get metadata for an object in Azure Blob Storage.
+
+            Args:
+                bucket_or_container: The name of the container.
+                key: The key of the object.
+
+            Returns:
+                A dictionary containing the object's metadata.
+            """
+            container = service_client.get_container_client(bucket_or_container)
+            blob_client = container.get_blob_client(key)
+            props = blob_client.get_blob_properties()
+            return {
+                "content_length": int(getattr(props, "size", 0) or 0),
+                "content_type": getattr(
+                    getattr(props, "content_settings", None), "content_type", None
+                ),
+                "last_modified": (
+                    props.last_modified.isoformat()
+                    if getattr(props, "last_modified", None)
+                    else None
+                ),
+            }
+
+        def get_object(self, bucket_or_container: str, key: str) -> bytes:
+            """Get an object from Azure Blob Storage.
+
+            Args:
+                bucket_or_container: The name of the container.
+                key: The key of the object.
+
+            Returns:
+                The object's data as bytes.
+            """
+            container = service_client.get_container_client(bucket_or_container)
+            return container.download_blob(key).readall()  # type: ignore[union-attr]
+
+    return _GraphAzureStorageClient()
+
+
+def _graph_aws_storage_client() -> Any | None:
+    """Build an AWS object storage client for graph snapshot reads/publishes when configured.
+
+    Returns:
+        AWSS3StorageClient | None: An instance of the AWS S3 storage client or None if not configured.
+    """
+
+    if config.cloud_provider != "aws":
+        return None
+    bucket = (config.graph_aws_artifacts_bucket or config.s3_bucket_name).strip()
+    if not bucket:
+        return None
+
+    try:
+        from runtime.storage.aws_s3 import AWSS3StorageClient
+
+        return AWSS3StorageClient(session=credential)
+    except Exception as exc:
+        logger.warning("AWS graph storage client unavailable: %s", exc)
+        return None
+
+
 def _get_user_id(auth_token: str, session_id: str) -> str:
     """Return the user ID for the given authentication token and session ID.
 
@@ -874,6 +1014,18 @@ def _list_acr_tags_via_management_api(
     repository: str,
     limit: int,
 ) -> dict[str, Any]:
+    """List Azure Container Registry (ACR) tags via the management API.
+
+    Args:
+        subscription_id: The Azure subscription ID.
+        resource_group: The Azure resource group name.
+        registry_name: The ACR registry name.
+        repository: The ACR repository name.
+        limit: The maximum number of tags to return.
+
+    Returns:
+        A dictionary containing the list of ACR tags.
+    """
     return _diagnostics_list_acr_tags_via_management_api(
         credential=credential,
         requests_module=requests,
@@ -1020,6 +1172,46 @@ def _build_evidence_corpus_filter(selected_corpora: Iterable[str]) -> str | None
         A filter string for the selected evidence corpora, or None if no corpora are selected.
     """
     return controls._build_evidence_corpus_filter(selected_corpora)
+
+
+def _corpus_has_content(corpus: str) -> bool | None:
+    """Return whether the requested corpus currently has indexed content.
+
+    Returns None when content availability cannot be determined safely.
+
+    Args:
+        corpus: The name of the corpus to check.
+
+    Returns:
+        True if the corpus has content, False if it does not, or None if the content availability cannot be determined.
+    """
+    corpus_key = str(corpus or "").strip().lower()
+    if corpus_key not in {"a", "b", "c"}:
+        return None
+
+    try:
+        if corpus_key == "a":
+            listing = _list_search_documents_by_filter(
+                controls_search_client,
+                filter_expr="",
+                select_fields=["id"],
+                limit=1,
+            )
+            return int(listing.get("total_count", 0) or 0) > 0
+
+        filter_expr = _build_evidence_corpus_filter([corpus_key])
+        if not isinstance(filter_expr, str) or filter_expr == "__none__":
+            return False
+        listing = _list_search_documents_by_filter(
+            search_client,
+            filter_expr=filter_expr,
+            select_fields=["id"],
+            limit=1,
+        )
+        return int(listing.get("total_count", 0) or 0) > 0
+    except Exception:
+        logger.warning("Failed corpus content probe for corpus=%s", corpus_key, exc_info=True)
+        return None
 
 
 def _controls_coverage_disclaimer(
@@ -1393,6 +1585,9 @@ def _run_rag(
     controls_context_cap: int | None = None,
     controls_framework: str | None = None,
     controls_comparison_mode: str = "auto-detect",
+    include_graph_expansion: bool = False,
+    graph_expansion_depth: int | None = None,
+    graph_expansion_max_edges: int | None = None,
     evidence_corpora_include: list[str] | None = None,
     evidence_corpora_exclude: list[str] | None = None,
     conversation_history: list[ConversationMessage] | None = None,
@@ -1411,6 +1606,9 @@ def _run_rag(
         controls_context_cap: The maximum context size for controls (optional).
         controls_framework: The specific controls framework to use (optional).
         controls_comparison_mode: The comparison mode for controls (default is "auto-detect").
+        include_graph_expansion: Whether to enable graph neighbour expansion.
+        graph_expansion_depth: Optional graph neighbour expansion depth.
+        graph_expansion_max_edges: Optional graph neighbour edge budget.
         evidence_corpora_include: List of evidence corpora to include (optional).
         evidence_corpora_exclude: List of evidence corpora to exclude (optional).
         conversation_history: List of conversation messages (optional).
@@ -1429,6 +1627,9 @@ def _run_rag(
         svc=_svc,
         controls_framework=controls_framework,
         controls_comparison_mode=controls_comparison_mode,
+        include_graph_expansion=include_graph_expansion,
+        graph_expansion_depth=graph_expansion_depth,
+        graph_expansion_max_edges=graph_expansion_max_edges,
         evidence_corpora_include=evidence_corpora_include,
         evidence_corpora_exclude=evidence_corpora_exclude,
         conversation_history=conversation_history,
@@ -1600,6 +1801,212 @@ def _trigger_ingestion_task_with_args(args_override: list[str] | None) -> dict[s
     return _ingestion_svc.trigger_ingestion_task_with_args(args_override)
 
 
+def _env_truthy(name: str, default: bool = False) -> bool:
+    """Parse a boolean-like environment variable.
+
+    Args:
+        name: The name of the environment variable.
+        default: The default boolean value to return if the environment variable is not set.
+
+    Returns:
+        The boolean value of the environment variable, or the default if not set.
+    """
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+_QUERY_MODEL_CAPABILITIES_CACHE: dict[str, Any] = {}
+_QUERY_MODEL_CAPABILITIES_CACHE_INITIALISED = False
+
+
+def _probe_ollama_model_capabilities() -> dict[str, Any]:
+    """Probe configured local Ollama models for context/output token hints.
+
+    Returns:
+        A dictionary containing the model capabilities.
+    """
+    configured_models = list(
+        dict.fromkeys(
+            model
+            for model in (
+                str(os.getenv("OLLAMA_MODEL") or "").strip(),
+                str(os.getenv("OLLAMA_EMBEDDING_MODEL") or "").strip(),
+            )
+            if model
+        )
+    )
+    if not configured_models:
+        return {}
+    base_url = (os.getenv("OLLAMA_BASE_URL") or "http://localhost:11434").rstrip("/")
+
+    def _to_positive_int(value: Any) -> int | None:
+        """Convert a value to a positive integer, or return None if invalid.
+
+        Args:
+            value: The value to convert.
+
+        Returns:
+            The positive integer value, or None if invalid.
+        """
+        try:
+            parsed = int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
+
+    models: dict[str, dict[str, Any]] = {}
+    for model in configured_models:
+        try:
+            response = requests.post(
+                f"{base_url}/api/show",
+                json={"name": model},
+                timeout=2,
+            )
+            response.raise_for_status()
+            payload = response.json() if hasattr(response, "json") else {}
+        except Exception:
+            continue
+
+        model_info = payload.get("model_info") if isinstance(payload, dict) else {}
+        if not isinstance(model_info, dict):
+            model_info = {}
+        context_window = _to_positive_int(
+            model_info.get("llama.context_length")
+        ) or _to_positive_int(model_info.get("general.context_length"))
+        max_output = _to_positive_int(model_info.get("llama.n_predict"))
+        capabilities: dict[str, Any] = {"source": "model_metadata", "model_id": model}
+        if context_window is not None:
+            capabilities["context_window_tokens"] = context_window
+        if max_output is not None:
+            capabilities["max_output_tokens"] = max_output
+        models[model] = capabilities
+
+    active_model = str(os.getenv("OLLAMA_MODEL") or "").strip()
+    result: dict[str, Any] = {
+        "source": "model_metadata",
+        "model_id": active_model,
+        "models": models,
+    }
+    active_capabilities = models.get(active_model, {})
+    result.update(
+        {
+            key: value
+            for key, value in active_capabilities.items()
+            if key not in {"source", "model_id"}
+        }
+    )
+    return result
+
+
+def _probe_openai_compatible_model_capabilities() -> dict[str, Any]:
+    """Probe OpenAI-compatible model metadata endpoints for capability hints.
+
+    Returns:
+        A dictionary containing the model capabilities.
+    """
+    base_url = (os.getenv("OPENAI_BASE_URL") or os.getenv("BEDROCK_MANTLE_BASE_URL") or "").strip()
+    api_key = (os.getenv("OPENAI_API_KEY") or os.getenv("BEDROCK_API_KEY") or "").strip()
+    model = (
+        str(getattr(config, "query_deployment", "") or "").strip()
+        or (os.getenv("OPENAI_MODEL") or os.getenv("BEDROCK_MODEL_ID") or "").strip()
+    )
+    if not base_url or not api_key or not model:
+        return {}
+
+    try:
+        response = requests.get(
+            f"{base_url.rstrip('/')}/v1/models/{model}",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=2,
+        )
+        response.raise_for_status()
+        payload = response.json() if hasattr(response, "json") else {}
+    except Exception:
+        return {}
+
+    metadata = payload.get("metadata") if isinstance(payload, dict) else {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    def _to_positive_int(value: Any) -> int | None:
+        """Convert a value to a positive integer, or return None if invalid.
+
+        Args:
+            value: The value to convert.
+
+        Returns:
+            The positive integer value, or None if invalid.
+        """
+        try:
+            parsed = int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
+
+    context_window = (
+        _to_positive_int(payload.get("max_position_embeddings"))
+        or _to_positive_int(payload.get("max_context_tokens"))
+        or _to_positive_int(metadata.get("max_position_embeddings"))
+        or _to_positive_int(metadata.get("max_context_tokens"))
+        or _to_positive_int(metadata.get("context_window_tokens"))
+    )
+    max_output = (
+        _to_positive_int(payload.get("max_output_tokens"))
+        or _to_positive_int(metadata.get("max_output_tokens"))
+        or _to_positive_int(metadata.get("output_token_limit"))
+    )
+
+    result: dict[str, Any] = {
+        "source": "model_metadata",
+        "model_id": model,
+    }
+    if context_window is not None:
+        result["context_window_tokens"] = context_window
+    if max_output is not None:
+        result["max_output_tokens"] = max_output
+    return result
+
+
+def _resolve_query_model_capabilities() -> dict[str, Any]:
+    """Resolve optional query-model capabilities for runtime hints.
+
+    Local Ollama probing is enabled by default. Cloud-provider probing remains opt-in.
+
+    Returns:
+        A dictionary containing the resolved model capabilities.
+    """
+    global _QUERY_MODEL_CAPABILITIES_CACHE
+    global _QUERY_MODEL_CAPABILITIES_CACHE_INITIALISED
+
+    try:
+        provider = normalise_cloud_provider(os.getenv("CLOUD_PROVIDER"))
+    except ValueError:
+        provider = "azure"
+
+    if provider != "local" and not _env_truthy(
+        "QUERY_WEB_RUNTIME_HINTS_PROBE_MODEL_CAPABILITIES", default=False
+    ):
+        return {}
+
+    if _QUERY_MODEL_CAPABILITIES_CACHE_INITIALISED:
+        return dict(_QUERY_MODEL_CAPABILITIES_CACHE)
+
+    if provider == "local":
+        resolved = _probe_ollama_model_capabilities()
+    else:
+        resolved = _probe_openai_compatible_model_capabilities()
+
+    _QUERY_MODEL_CAPABILITIES_CACHE = dict(resolved or {})
+    _QUERY_MODEL_CAPABILITIES_CACHE_INITIALISED = True
+    return dict(_QUERY_MODEL_CAPABILITIES_CACHE)
+
+
+if _is_local_provider:
+    _resolve_query_model_capabilities()
+
+
 # Re-export the constant so diagnostics registration and other callers keep working.
 from query_web.endpoints.ingestion import (  # noqa: E402
     REQUIRED_INGESTION_METADATA_KEYS as _REQUIRED_INGESTION_METADATA_KEYS,
@@ -1719,7 +2126,16 @@ def _upload_corpus_a_reference_files(
 
 
 class _AppServices:
-    """A proxy class for accessing application services."""
+    """A proxy class for accessing application services.
+
+    This class provides dynamic access to application services by resolving
+    attributes from the module's global namespace at runtime. It allows for
+    flexible service access and supports testing scenarios where services may
+    be patched or replaced.
+
+    Attributes:
+        None directly defined; attributes are resolved dynamically from module globals.
+    """
 
     def __getattr__(self, name: str) -> Any:
         """Get the attribute with the given name from the module globals.
@@ -1786,6 +2202,7 @@ register_status_endpoints(
     _is_corpus_upload_enabled,
     _is_ingestion_job_trigger_enabled,
     COMPLIANCE_REPORT_SCHEMA_VERSION,
+    resolve_query_model_capabilities=_resolve_query_model_capabilities,
 )
 
 # Register extracted compliance and corpus endpoints.
@@ -1846,6 +2263,7 @@ register_corpus_endpoints(
         "_upload_corpus_a_reference_files": lambda: _upload_corpus_a_reference_files,
         "_upload_corpus_b_files": lambda: _upload_corpus_b_files,
         "_upload_corpus_c_files": lambda: _upload_corpus_c_files,
+        "_delete_local_evidence_docs_by_corpus": lambda: _ingestion_svc.delete_local_evidence_docs_by_corpus,
     },
 )
 register_home_endpoints(
@@ -1855,6 +2273,7 @@ register_home_endpoints(
     is_authorised_request=_is_authorised_request,
     unauthorised_message=_unauthorised_message,
     branding_ctx=_branding_ctx,
+    resolve_query_model_capabilities=_resolve_query_model_capabilities,
 )
 register_ask_endpoints(
     app,
@@ -1876,7 +2295,30 @@ register_ask_endpoints(
     save_conversation=_save_conversation,
     utc_now_iso=_utc_now_iso,
     branding_ctx=_branding_ctx,
+    resolve_query_model_capabilities=_resolve_query_model_capabilities,
     internal_error_message=_INTERNAL_ERROR_MESSAGE,
+)
+
+register_graph_endpoints(
+    app,
+    deps={
+        "config": lambda: config,
+        "_is_authorised_request": lambda: _is_authorised_request,
+        "_unauthorised_message": lambda: _unauthorised_message,
+        "controls_search_client": lambda: controls_search_client,
+        "search_client": lambda: search_client,
+        "_count_search_documents_total_by_filter": lambda: _count_search_documents_total_by_filter,
+        "graph_azure_storage_client": _graph_azure_storage_client,
+        "graph_aws_storage_client": _graph_aws_storage_client,
+    },
+)
+
+register_controls_endpoints(
+    app,
+    deps={
+        "_is_authorised_request": lambda: _is_authorised_request,
+        "_unauthorised_message": lambda: _unauthorised_message,
+    },
 )
 
 # Register conversations endpoints

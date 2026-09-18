@@ -204,6 +204,34 @@ def test_apply_framework_authority_preference_prioritises_concept_overlap() -> N
     assert ranked[0]["requirement_id"] == "N-1"
 
 
+def test_apply_framework_authority_preference_handles_mfa_aliases() -> None:
+    items = [
+        {
+            "requirement_id": "IR-1",
+            "framework": "ISM",
+            "control_family": "Governance",
+            "requirement_text": "A policy should be used and maintained by the organisation.",
+            "guidance_text": "",
+            "score": 9.1,
+        },
+        {
+            "requirement_id": "N-1",
+            "framework": "NIST CSF",
+            "control_family": "Identity and access management",
+            "requirement_text": "Multi-factor authentication is required for privileged access and remote access.",
+            "guidance_text": "",
+            "score": 4.2,
+        },
+    ]
+
+    ranked = app_module._apply_framework_authority_preference(
+        items,
+        top_k=2,
+        question="When should MFA be used?",
+    )
+    assert ranked[0]["requirement_id"] == "N-1"
+
+
 def test_controls_search_comparison_enables_diversity_and_expands_fetch_k() -> None:
     with (
         patch.object(

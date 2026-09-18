@@ -25,9 +25,9 @@ Operational convention:
 - Ingest workflow supporting PDF and Excel sources with repeatable chunking and index update behaviour.
 - Query workflow supporting conversational RAG with hybrid retrieval and reranking.
 - Configurable default models:
-  - Embedding model: `text-embedding-ada-002`
+  - Embedding model: `text-embedding-3-small`
   - Query model: `gpt-5.1-chat`
-  - Query evaluation model: `gpt-4.1-mini`
+  - Query evaluation model: `gpt-5.1-mini`
 - Runtime behaviour outcomes:
   - Identity-based access to Storage, Search, Foundry, and Cosmos without static secrets in code.
   - Traceable request path with correlated logs, metrics, and traces for ingest and query execution.

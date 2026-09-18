@@ -106,7 +106,16 @@ VALIDATOR_SYSTEM_PROMPT = (
 
 @dataclass(frozen=True)
 class GuardrailAssessment:
-    """Deterministic prompt-injection assessment result for a text payload."""
+    """Deterministic prompt-injection assessment result for a text payload.
+
+    Attributes:
+        flagged: True if any prompt-injection patterns were detected.
+        blocked: True if the text should be blocked based on scoring thresholds.
+        score: The cumulative score based on detected patterns.
+        categories: A tuple of detected threat categories.
+        matched_fragments: A tuple of text fragments that matched dangerous patterns.
+        normalised_text: The normalised version of the input text used for assessment.
+    """
 
     flagged: bool
     blocked: bool
@@ -118,7 +127,16 @@ class GuardrailAssessment:
 
 @dataclass(frozen=True)
 class ValidatorAssessment:
-    """Result from optional LLM-based prompt injection validator."""
+    """Result from optional LLM-based prompt injection validator.
+
+    Attributes:
+        malicious: True if the validator determined the text is malicious.
+        confidence: Confidence score (0.0 to 1.0) of the malicious assessment.
+        categories: A tuple of threat categories identified by the validator.
+        reason: A human-readable explanation of the validator's assessment.
+        error: An optional error message if the validator failed to execute properly.
+        invoked: True if the validator was actually called, False if it was skipped.
+    """
 
     malicious: bool
     confidence: float
@@ -130,7 +148,17 @@ class ValidatorAssessment:
 
 @dataclass(frozen=True)
 class GuardrailDecision:
-    """Final guardrail decision combining deterministic and optional validator."""
+    """Final guardrail decision combining deterministic and optional validator.
+
+    Attributes:
+        allowed: True if the text is allowed to proceed, False if it should be blocked.
+        reason: A human-readable explanation of the decision.
+        blocked_by_deterministic: True if the deterministic assessment alone caused blocking.
+        categories: A tuple of threat categories detected by either assessment.
+        validator_consulted: True if the optional validator was consulted, False otherwise.
+        validator_confidence: Confidence score from the validator (0.0 to 1.0), or 0.0 if not consulted.
+        metrics: Optional dictionary of additional metrics related to the assessment and decision process.
+    """
 
     allowed: bool
     reason: str

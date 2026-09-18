@@ -26,6 +26,26 @@ output "foundry_project_id" {
   value = module.foundry.foundry_project_id
 }
 
+output "api_management_id" {
+  value = module.api_management.id
+}
+
+output "api_management_name" {
+  value = module.api_management.name
+}
+
+output "api_management_gateway_url" {
+  value = module.api_management.gateway_url
+}
+
+output "api_management_management_api_url" {
+  value = module.api_management.management_api_url
+}
+
+output "api_management_endpoint_ids" {
+  value = { for name, api in module.api_management_endpoints.api_ids : name => api }
+}
+
 output "log_analytics_workspace_id" {
   value = module.observability.log_analytics_workspace_id
 }

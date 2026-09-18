@@ -44,6 +44,8 @@ def test_canonical_framework_name_known_alias() -> None:
     assert _canonical_framework_name("nist_ai_rmf") == "NIST AI RMF"
     assert _canonical_framework_name("ai rmf") == "NIST AI RMF"
     assert _canonical_framework_name("nist") == "NIST CSF"
+    assert _canonical_framework_name("nist_sp_800_53") == "NIST SP 800-53"
+    assert _canonical_framework_name("sp 800-53") == "NIST SP 800-53"
     assert _canonical_framework_name("e8") == "Essential Eight"
     assert _canonical_framework_name("ism") == "ISM"
     assert _canonical_framework_name("pci_dss") == "PCI DSS"
@@ -149,8 +151,9 @@ def test_parse_framework_authority_order_none_returns_default() -> None:
     assert result[0] == "Essential Eight"
     assert "ISM" in result
     assert "NIST AI RMF" in result
+    assert "NIST SP 800-53" in result
     assert "NIST CSF" in result
-    assert len(result) == 8
+    assert len(result) == 9
 
 
 def test_parse_framework_authority_order_empty_string_returns_default() -> None:
@@ -313,6 +316,86 @@ def test_load_config_applies_env_overrides() -> None:
         cfg = load_config()
     assert cfg.search_top_k == 10
     assert cfg.controls_top_k == 8
+
+
+def test_load_config_applies_top_p_env_overrides() -> None:
+    env = {
+        **_REQUIRED_ENVS,
+        "TOP_P": "0.92",
+        "EVALUATOR_TOP_P": "0.8",
+        "PROMPT_INJECTION_VALIDATOR_TOP_P": "0.75",
+    }
+    with patch.dict(os.environ, env):
+        cfg = load_config()
+
+    assert cfg.top_p == 0.92
+    assert cfg.evaluator_top_p == 0.8
+    assert cfg.prompt_injection_validator_top_p == 0.75
+
+
+def test_load_config_graph_defaults_are_populated() -> None:
+    with patch.dict(os.environ, _REQUIRED_ENVS):
+        cfg = load_config()
+
+    assert cfg.graph_enabled is False
+    assert cfg.graph_backend == "local"
+    assert cfg.graph_azure_emulation_enabled is False
+    assert cfg.graph_azure_artifacts_dir == ""
+    assert cfg.graph_azure_artifacts_container == ""
+    assert cfg.graph_azure_artifacts_prefix == ""
+    assert cfg.graph_azure_publish_enabled is False
+    assert cfg.graph_aws_artifacts_bucket == ""
+    assert cfg.graph_aws_artifacts_prefix == ""
+    assert cfg.graph_aws_publish_enabled is False
+    assert cfg.graph_schema_version
+    assert cfg.graph_size_small_edges == 50000
+    assert cfg.graph_size_large_edges == 250000
+    assert cfg.graph_depth_small_default == 3
+    assert cfg.graph_depth_small_max == 4
+    assert cfg.graph_fanout_depth1 == 50
+    assert cfg.graph_guidance_threshold_small == 0.50
+    assert cfg.graph_traversal_max_edges == 10000
+
+
+def test_load_config_graph_env_overrides_are_applied() -> None:
+    env = {
+        **_REQUIRED_ENVS,
+        "GRAPH_ENABLED": "true",
+        "GRAPH_BACKEND": "aws",
+        "GRAPH_AZURE_EMULATION_ENABLED": "true",
+        "GRAPH_AZURE_ARTIFACTS_DIR": "/tmp/graph-azure-artifacts",
+        "GRAPH_AZURE_ARTIFACTS_CONTAINER": "graph-artifacts",
+        "GRAPH_AZURE_ARTIFACTS_PREFIX": "env/dev/graph",
+        "GRAPH_AZURE_PUBLISH_ENABLED": "true",
+        "GRAPH_AWS_ARTIFACTS_BUCKET": "graph-artifacts-aws",
+        "GRAPH_AWS_ARTIFACTS_PREFIX": "env/dev/graph",
+        "GRAPH_AWS_PUBLISH_ENABLED": "true",
+        "GRAPH_SCHEMA_VERSION": "v2",
+        "GRAPH_SIZE_SMALL_EDGES": "60000",
+        "GRAPH_DEPTH_SMALL_DEFAULT": "2",
+        "GRAPH_FANOUT_DEPTH1": "40",
+        "GRAPH_GUIDANCE_THRESHOLD_LARGE": "0.8",
+        "GRAPH_TRAVERSAL_MAX_EDGES": "9000",
+    }
+    with patch.dict(os.environ, env):
+        cfg = load_config()
+
+    assert cfg.graph_enabled is True
+    assert cfg.graph_backend == "aws"
+    assert cfg.graph_azure_emulation_enabled is True
+    assert cfg.graph_azure_artifacts_dir == "/tmp/graph-azure-artifacts"
+    assert cfg.graph_azure_artifacts_container == "graph-artifacts"
+    assert cfg.graph_azure_artifacts_prefix == "env/dev/graph"
+    assert cfg.graph_azure_publish_enabled is True
+    assert cfg.graph_aws_artifacts_bucket == "graph-artifacts-aws"
+    assert cfg.graph_aws_artifacts_prefix == "env/dev/graph"
+    assert cfg.graph_aws_publish_enabled is True
+    assert cfg.graph_schema_version == "v2"
+    assert cfg.graph_size_small_edges == 60000
+    assert cfg.graph_depth_small_default == 2
+    assert cfg.graph_fanout_depth1 == 40
+    assert cfg.graph_guidance_threshold_large == 0.8
+    assert cfg.graph_traversal_max_edges == 9000
 
 
 def test_load_config_deep_thinking_mode_applies_defaults() -> None:

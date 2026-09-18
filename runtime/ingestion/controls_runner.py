@@ -72,6 +72,7 @@ def _build_parser_registry() -> dict[str, dict]:
     from .parsers.nist_ai_rmf import NistAiRmfParser  # noqa: PLC0415
     from .parsers.nist_csf import FRAMEWORK_VERSION as CSF_VERSION  # noqa: PLC0415
     from .parsers.nist_csf import NistCsfParser  # noqa: PLC0415
+    from .parsers.nist_sp_800_53 import NistSp80053Parser  # noqa: PLC0415
     from .parsers.pci_dss import PciDssParser  # noqa: PLC0415
     from .parsers.pspf import PspfParser  # noqa: PLC0415
 
@@ -105,6 +106,10 @@ def _build_parser_registry() -> dict[str, dict]:
         "nist_csf": {
             "factory": lambda fetch_guidance: NistCsfParser(fetch_guidance=fetch_guidance),
             "output_filename": f"nist_csf_{_slugify(CSF_VERSION)}.jsonl",
+        },
+        "nist_sp_800_53": {
+            "factory": lambda fetch_guidance: NistSp80053Parser(),
+            "output_filename": "nist_sp_800_53_rev5.jsonl",
         },
         "nist_ai_rmf": {
             "factory": lambda fetch_guidance: NistAiRmfParser(fetch_guidance=fetch_guidance),
@@ -153,6 +158,7 @@ def parse_args() -> argparse.Namespace:
             "ism",
             "nist_ai_rmf",
             "nist_csf",
+            "nist_sp_800_53",
             "pci_dss",
             "pspf",
         ],

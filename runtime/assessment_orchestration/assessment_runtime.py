@@ -110,7 +110,7 @@ class AssessmentRuntimeConfig:
         cloud_provider: The cloud provider to use (default: "azure").
         search_index_name: The name of the search index (default: "grounding-index").
         controls_index_name: The name of the controls index (default: "controls-index").
-        embedding_deployment: The deployment name for embeddings (default: "text-embedding-ada-002").
+        embedding_deployment: The deployment name for embeddings (default: "text-embedding-3-small").
         query_deployment: The deployment name for queries (default: "gpt-5.1-chat").
         controls_top_k: The number of top controls to retrieve (default: 4).
         guidance_top_k: The number of top guidance items to retrieve (default: 5).
@@ -118,7 +118,7 @@ class AssessmentRuntimeConfig:
         top_p: The top_p setting for the model (default: 1.0).
         controls_semantic_default: Whether to use semantic search for controls by default (default: False).
         controls_semantic_configuration_name: The name of the semantic configuration for controls (default: "controls-semantic").
-        framework_authority_order: The order of framework authorities (default: ("Essential Eight", "ISM", "AESCSF", "NIST CSF", "PSPF", "PCI DSS", "CIS Controls")).
+        framework_authority_order: The order of framework authorities (default: ("Essential Eight", "ISM", "AESCSF", "NIST SP 800-53", "NIST CSF", "PSPF", "PCI DSS", "CIS Controls")).
         validation_mode: The validation mode (default: "hard").
         artifact_content_chars: The number of characters to consider for artifact content (default: 6000).
         discussion_comment_limit: The limit for discussion comments (default: 8).
@@ -132,7 +132,7 @@ class AssessmentRuntimeConfig:
     cloud_provider: str = "azure"
     search_index_name: str = "grounding-index"
     controls_index_name: str = "controls-index"
-    embedding_deployment: str = "text-embedding-ada-002"
+    embedding_deployment: str = "text-embedding-3-small"
     query_deployment: str = "gpt-5.1-chat"
     controls_top_k: int = 4
     guidance_top_k: int = 5
@@ -144,6 +144,7 @@ class AssessmentRuntimeConfig:
         "Essential Eight",
         "ISM",
         "AESCSF",
+        "NIST SP 800-53",
         "NIST CSF",
         "PSPF",
         "PCI DSS",
@@ -192,6 +193,14 @@ def _normalise_thinking_mode(raw: str | None) -> str:
 
 
 def _assessment_thinking_defaults(mode: str) -> dict[str, float | int]:
+    """Get the default settings for the given thinking mode.
+
+    Args:
+        mode: The thinking mode.
+
+    Returns:
+        dict[str, float | int]: The default settings for the thinking mode.
+    """
     if mode == "quick":
         return {
             "controls_top_k": 3,
@@ -224,6 +233,7 @@ def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
         "Essential Eight",
         "ISM",
         "AESCSF",
+        "NIST SP 800-53",
         "NIST CSF",
         "PSPF",
         "PCI DSS",
@@ -234,6 +244,11 @@ def _parse_framework_authority_order(raw_value: str | None) -> tuple[str, ...]:
         "nist csf": "NIST CSF",
         "csf": "NIST CSF",
         "cyber security framework": "NIST CSF",
+        "nist sp 800-53": "NIST SP 800-53",
+        "nist_sp_800_53": "NIST SP 800-53",
+        "sp 800-53": "NIST SP 800-53",
+        "sp800-53": "NIST SP 800-53",
+        "800-53": "NIST SP 800-53",
         "essential eight": "Essential Eight",
         "essential_eight": "Essential Eight",
         "essential 8": "Essential Eight",
@@ -628,7 +643,14 @@ def _fetch_controls(
     items: list[dict[str, Any]] = []
 
     def _is_missing_controls_index_error(exc: Exception) -> bool:
-        """Return True if *exc* indicates the controls index does not exist."""
+        """Return True if *exc* indicates the controls index does not exist.
+
+        Args:
+            exc: The exception to check.
+
+        Returns:
+            bool: True if the exception indicates the controls index does not exist, False otherwise.
+        """
         # Azure: ResourceNotFoundError; other providers use different types.
         try:
             from azure.core.exceptions import ResourceNotFoundError as _AzureNotFound
@@ -1070,9 +1092,17 @@ def _apply_llm_control_applicability_review(
     chat_completion: Callable[[list[dict[str, str]]], str] | None = None,
 ) -> list[dict[str, Any]]:
     """
-    Optionally enrich controls with Mistral-based applicability confidence scores.
+    Optionally enrich controls with LLM-based applicability confidence scores.
     Reviews only ambiguous controls (below heuristic confidence threshold).
     Adds llm_scope, llm_confidence, llm_rationale, llm_agrees_with_heuristic to each control.
+
+    Args:
+        controls: The list of controls to enrich.
+        config: The assessment runtime configuration.
+        chat_completion: Optional callable for chat completion. If not provided, the default _chat_completion function will be used.
+
+    Returns:
+        list[dict[str, Any]]: The list of enriched controls.
     """
     if not config.control_llm_review_enabled:
         return controls

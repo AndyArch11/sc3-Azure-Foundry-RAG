@@ -54,6 +54,7 @@ ALL_FRAMEWORK_ORDER: tuple[str, ...] = (
         "AESCSF",
         "NIST AI RMF",
         "NIST CSF",
+        "NIST SP 800-53",
         "PSPF",
         "PCI DSS",
         "CIS Controls",
@@ -94,8 +95,18 @@ FRAMEWORK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         ),
     ),
     (
+        "NIST SP 800-53",
+        re.compile(
+            r"\b(nist\s*(sp|special\s+publication)\s*800[-\s]?53|nist\s*800[-\s]?53|sp\s*800[-\s]?53|800[-\s]?53)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
         "NIST CSF",
-        re.compile(r"\b(nist\s*csf|nist|csf\s*2(\.0)?)\b", re.IGNORECASE),
+        re.compile(
+            r"\b(nist\s*csf|csf\s*2(\.0)?|nist(?!\s*(ai\s*rmf|sp|special\s+publication|800[-\s]?53)))\b",
+            re.IGNORECASE,
+        ),
     ),
     (
         "PSPF",
@@ -145,6 +156,7 @@ _INFER_ORDER: tuple[str, ...] = (
     "PCI DSS",
     "CIS Controls",
     "AESCSF",
+    "NIST SP 800-53",
     "NIST CSF",
     "Essential Eight",
     "ISM",

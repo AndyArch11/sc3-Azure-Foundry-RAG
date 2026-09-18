@@ -6,6 +6,7 @@ resource_group_name          = "rg-ai-platform-prod"
 vnet_cidr                    = "10.40.0.0/16"
 private_endpoint_subnet_cidr = "10.40.1.0/24"
 agent_subnet_cidr            = "10.40.2.0/24"
+api_management_subnet_cidr   = "10.40.6.0/24"
 container_apps_subnet_cidr   = "10.40.5.0/24"
 jumpbox_subnet_cidr          = "10.40.3.0/24"
 azure_bastion_subnet_cidr    = "10.40.4.0/26"
@@ -24,11 +25,14 @@ controls_index_name          = "controls-index"
 # Optional overrides for globally-unique resource names (use when 409 name collisions occur).
 # search_service_name_override = "srch-prod-aue-20260329"
 # foundry_account_name_override = "foundry-prod-aue-20260329"
-query_top_k               = 5
-query_default_temperature = 1.0
-query_evaluator_temperature = 1.0
-query_eval_threshold      = 0.72
-control_llm_review_enabled = false
+api_management_name_override           = "apim-prod-aue-20260408"
+query_top_k                            = 5
+query_default_temperature              = 1.0
+query_default_top_p                    = 1.0
+query_evaluator_temperature            = 1.0
+query_evaluator_top_p                  = 1.0
+query_eval_threshold                   = 0.72
+control_llm_review_enabled             = false
 control_llm_review_heuristic_threshold = 0.75
 
 # Confluence poller settings (keep secrets out of tfvars where possible; pass via secure pipeline vars).
@@ -51,10 +55,10 @@ confluence_poll_dry_run            = true
 # prompt_injection_validator_threshold  = 0.85
 # prompt_injection_validator_temperature = 0.5
 # prompt_injection_validator_timeout_s  = 15
-# prompt_injection_validator_deployment = "gpt-4.1-mini" # Optional existing deployment override. Leave unset to use validator_model.name.
+# prompt_injection_validator_deployment = "gpt-5.1-mini" # Optional existing deployment override. Leave unset to use validator_model.name.
 # validator_model = {
-#   name     = "gpt-4.1-mini"
-#   version  = "2025-04-14"
+#   name     = "gpt-5.1-mini"
+#   version  = "2025-11-13"
 #   capacity = 1
 # }
 # guardrail_metrics_in_response = false  # Set true to surface guardrail metrics in API responses. Disable in prod.

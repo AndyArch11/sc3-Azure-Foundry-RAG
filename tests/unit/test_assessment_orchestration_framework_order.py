@@ -11,6 +11,7 @@ def test_parse_framework_authority_order_defaults_include_all_supported_framewor
         "Essential Eight",
         "ISM",
         "AESCSF",
+        "NIST SP 800-53",
         "NIST CSF",
         "PSPF",
         "PCI DSS",
