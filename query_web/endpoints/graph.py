@@ -34,7 +34,7 @@ class GraphBuildRequest(BaseModel):
     Attributes:
         controls: List of control dictionaries.
         chunks: List of chunk dictionaries.
-        output_dir: Optional output directory for graph artifacts.
+        output_dir: Legacy client-supplied output directory field; rejected in favour of server configuration.
         persist_store: Whether to persist the graph store.
         auth_token: Authentication token for the request."""
 
@@ -1392,19 +1392,14 @@ def register_graph_endpoints(
             )
             return unauth
 
-        configured_output_dir = Path(_default_output_dir()).expanduser().resolve()
-        try:
-            if payload.output_dir:
-                requested_output_dir = Path(payload.output_dir).expanduser().resolve()
-                if requested_output_dir != configured_output_dir:
-                    raise ValueError
-        except ValueError:
+        if payload.output_dir:
             return _problem_response(
                 status=400,
                 title="Invalid Request",
-                detail="output_dir must match the configured graph artifact directory.",
+                detail="output_dir is not accepted; configure GRAPH_ARTIFACTS_DIR on the server.",
                 instance=str(request.url.path),
             )
+        configured_output_dir = Path(_default_output_dir()).expanduser().resolve()
         output_dir = str(configured_output_dir)
         report = build_local_graph_artifacts(
             controls=list(payload.controls),

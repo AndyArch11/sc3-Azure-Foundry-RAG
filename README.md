@@ -187,22 +187,39 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    User[User or integration] --> API[Private API endpoint\nor gateway]
-    API --> Query[Query Web\nContainer Apps or ECS]
+    
+    User[User or integration]  
+    Sources[Corpus A/B/C\ndocuments]  
 
-    Query --> Security[Auth and\nprompt guard]
-    Security --> RAG[RAG pipeline]
-    RAG --> Search[Search adapter]
-    RAG --> Graph[Relationship graph\noptional expansion]
-    RAG --> Model[LLM adapter]
-    Query --> State[State adapter]
+    subgraph Container[Container App]
+        Security[Auth and\nprompt guard]
+        RAG[RAG pipeline]
+        Graph[Relationship graph\noptional expansion]
+        Ingest[Ingestion runtime\nand assessment workers]
+        Poller[MCP providers\nand source pollers]
+        API[Private API endpoint\nor gateway]
+        Query[Query Web\nContainer Apps or ECS]
+        Model[LLM adapter]
+        Search[Search adapter]
+        State[State adapter]
+        Storage[Storage adapter]
+        User --> API
+        API --> Query
+        Query --> Security
+        Security --> RAG
+        RAG --> Graph
+        Sources --> Ingest
+        Poller --> Ingest
+        Ingest --> Controls
+        Ingest --> Evidence
+        RAG --> Search
+        RAG --> Model
+        Query --> State
+        Ingest --> Storage
+        Ingest --> Search
+    end
 
-    Sources[Corpus A/B/C\ndocuments] --> Ingest[Ingestion runtime\nand assessment workers]
-    Poller[MCP providers\nand source pollers] --> Ingest
-    Ingest --> Controls[Control parsers\nand controls index]
-    Ingest --> Evidence[Chunks and\nevidence index]
-    Ingest --> Storage[Blob Storage or S3]
-    Ingest --> Search
+
 
     subgraph Azure[Azure private platform]
         Foundry[Azure AI Foundry\nand model deployments]

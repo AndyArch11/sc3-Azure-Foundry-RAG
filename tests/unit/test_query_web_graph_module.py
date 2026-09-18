@@ -992,6 +992,26 @@ def test_graph_smoke_sample_payload_matches_build_contract(monkeypatch, tmp_path
     assert response.json()["status"] == "ok"
 
 
+def test_graph_build_rejects_client_supplied_output_dir(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("GRAPH_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
+    app = _build_app(tmp_path, graph_enabled=True)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/graph/build",
+        json={
+            "auth_token": "ok",
+            "controls": [],
+            "chunks": [],
+            "output_dir": "../../outside-artifacts",
+            "persist_store": False,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "GRAPH_ARTIFACTS_DIR" in response.json()["detail"]
+
+
 def test_aws_graph_smoke_sample_payload_matches_build_contract(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("GRAPH_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
     sample_path = (
