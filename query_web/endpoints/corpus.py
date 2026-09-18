@@ -1880,7 +1880,11 @@ def register_corpus_endpoints(
                                 },
                             }
                         )
-                    except Exception as exc:
+                    except Exception:
+                        logger.exception(
+                            "Local controls ingestion failed for framework",
+                            extra={"event": "local_controls_ingest_failed", "framework": fw},
+                        )
                         skip_reason = (
                             "source_upload_required"
                             if fw in svc._CORPUS_A_SOURCE_UPLOAD_REQUIRED_FRAMEWORKS
@@ -1890,7 +1894,7 @@ def register_corpus_endpoints(
                             {
                                 "framework": fw,
                                 "reason": skip_reason,
-                                "message": str(exc),
+                                "message": "Framework ingestion was skipped after an internal error.",
                             }
                         )
 

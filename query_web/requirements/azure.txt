@@ -3,7 +3,7 @@
 # Shared HTTP/LLM client deps
 requests>=2.34.2
 openai==3.0.0
-httpx2==2.7.0
+httpx2==2.12.0
 
 # Azure SDK
 azure-identity==1.25.3

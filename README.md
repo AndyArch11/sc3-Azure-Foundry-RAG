@@ -61,12 +61,10 @@ sc3-Azure-Foundry-RAG/
 ├── .agents/
 │   └── skills/                     # Copilot agent skill definitions (SKILL.md files)
 │
-├── docs/                           # Architecture, plans, ADRs, and runbooks
+├── docs/                           # Architecture, plans, ADRs, runbooks, and contracts
 │   ├── adr/                        # Architecture decision records
-│   ├── contracts                   # various behavioural contracts and an OpenAPI contract
+│   ├── contracts/                  # API and behavioural contracts
 │   └── *.md                        # Implementation plans, observability, phase guides, etc.
-│
-├── contracts/                      # MCP tool and provider event YAML contracts
 │
 ├── infra/
 │   └── terraform/
@@ -107,10 +105,12 @@ sc3-Azure-Foundry-RAG/
 │       ├── azure/                  # Azure bootstrap, image build/push, jumpbox, rollout scripts
 │       └── local/                  # Local dev helpers (Terraform install, Qdrant seeder, smoke test)
 │
-├── parsed-controls/                # Generated JSONL control data (git-ignored; created by controls_runner)
+├── local_state/                    # Local runtime state and evaluation artefacts
+├── parsed-controls/                # Packaged/generated JSONL framework control data
 │
 ├── query_web/                      # Query web application (FastAPI, deployed to Container Apps / ECS)
 │   ├── endpoints/                  # Per-route modules: ask, compliance, conversations, corpus, diagnostics, etc.
+│   ├── graph_*.py                  # Relationship graph construction, storage, backends, and traversal
 │   ├── pipeline/                   # RAG pipeline: search, LLM chat, answer assembly, control retrieval
 │   ├── security/                   # Auth middleware, prompt injection guard
 │   ├── policies/                   # Precedence policy JSON
@@ -147,6 +147,89 @@ sc3-Azure-Foundry-RAG/
     ├── integration/                # Private-network integration tests (run from jumpbox / CI runner)
     ├── smoke/                      # Lightweight smoke tests (AWS infrastructure, local stack)
     └── evals/                      # Skill selection evaluation cases and schemas
+```
+
+## Solution Architecture
+
+The same query and ingestion abstractions are used across local, Azure, and AWS deployments. The provider-specific services sit behind the search, storage, state, and model adapters.
+
+### Local Deployment
+
+```mermaid
+flowchart LR
+    User[User or integration] --> Gateway[Optional gateway]
+    Gateway --> Query[Query Web\nFastAPI console and API]
+    User -. direct access .-> Query
+
+    Query --> Security[Auth and\nprompt guard]
+    Security --> RAG[RAG pipeline]
+    RAG --> Search[Hybrid search\nand reranking]
+    RAG --> Graph[Relationship graph\noptional expansion]
+    RAG --> Model[LLM adapter]
+    Query --> State[Conversation\nand audit state]
+
+    Sources[Corpus A/B/C\ndocuments] --> Ingest[Ingestion runtime]
+    Poller[Optional MCP\npoller] --> Ingest
+    Ingest --> Controls[Control parsers]
+    Ingest --> Evidence[Evidence chunks]
+    Controls --> Search
+    Evidence --> Search
+    Ingest --> Files[Local files]
+
+    Ollama[Ollama] --> Model
+    Qdrant[Qdrant] --> Search
+    Files --> State
+    Observability[Logs, traces,\nmetrics] -.-> Query
+    Observability -.-> Ingest
+```
+
+### Cloud Deployment
+
+```mermaid
+flowchart LR
+    User[User or integration] --> API[Private API endpoint\nor gateway]
+    API --> Query[Query Web\nContainer Apps or ECS]
+
+    Query --> Security[Auth and\nprompt guard]
+    Security --> RAG[RAG pipeline]
+    RAG --> Search[Search adapter]
+    RAG --> Graph[Relationship graph\noptional expansion]
+    RAG --> Model[LLM adapter]
+    Query --> State[State adapter]
+
+    Sources[Corpus A/B/C\ndocuments] --> Ingest[Ingestion runtime\nand assessment workers]
+    Poller[MCP providers\nand source pollers] --> Ingest
+    Ingest --> Controls[Control parsers\nand controls index]
+    Ingest --> Evidence[Chunks and\nevidence index]
+    Ingest --> Storage[Blob Storage or S3]
+    Ingest --> Search
+
+    subgraph Azure[Azure private platform]
+        Foundry[Azure AI Foundry\nand model deployments]
+        AzureSearch[Azure AI Search]
+        Cosmos[Cosmos DB]
+        AzureBlob[Azure Blob Storage]
+        Model --> Foundry
+        Search --> AzureSearch
+        State --> Cosmos
+        Storage --> AzureBlob
+    end
+
+    subgraph AWS[AWS platform]
+        Bedrock[Amazon Bedrock]
+        OpenSearch[OpenSearch Service]
+        Dynamo[DynamoDB]
+        S3[S3]
+        Model --> Bedrock
+        Search --> OpenSearch
+        State --> Dynamo
+        Storage --> S3
+    end
+
+    Terraform[Terraform and\nprovider deployment scripts] --> Azure
+    Terraform --> AWS
+    Observability[Logs, traces,\nmetrics, and alerts] -.-> Query
+    Observability -.-> Ingest
 ```
 
 ## Runtime Functional Targets

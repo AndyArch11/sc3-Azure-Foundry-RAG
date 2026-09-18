@@ -66,8 +66,12 @@ def _read_jsonl(path: str) -> list[dict[str, Any]]:
         FileNotFoundError: If the specified file does not exist.
     """
 
+    safe_path = Path(path).expanduser().resolve(strict=True)
+    if safe_path.name not in {"nodes.jsonl", "edges.jsonl"}:
+        raise ValueError("Graph artifact path must reference a known JSONL artifact.")
+
     records: list[dict[str, Any]] = []
-    with Path(path).open("r", encoding="utf-8") as handle:
+    with safe_path.open("r", encoding="utf-8") as handle:
         for line in handle:
             text = line.strip()
             if not text:

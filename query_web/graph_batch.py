@@ -192,7 +192,7 @@ def build_local_graph_artifacts(
 
     min_community_size = max(2, int(min_community_size))
 
-    out_dir = Path(output_dir)
+    out_dir = Path(output_dir).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     nodes: list[GraphNodeRecord] = []

@@ -198,7 +198,7 @@ def register_graph_endpoints(
             return None, _problem_response(
                 status=503,
                 title="Service Unavailable",
-                detail=str(exc),
+                detail="The graph backend is unavailable.",
                 instance="/api/graph",
                 type_uri="https://datatracker.ietf.org/doc/html/rfc9110#section-15.6.4",
                 extensions={"backend": backend},
@@ -216,6 +216,14 @@ def register_graph_endpoints(
         """
         clean_prefix = prefix.strip().strip("/")
         return f"{clean_prefix}/{name}" if clean_prefix else name
+
+    def _safe_graph_artifact_path(path_value: str, expected_name: str) -> Path:
+        """Resolve a graph artifact path and require the configured artifact root."""
+        root = Path(_default_output_dir()).expanduser().resolve()
+        candidate = Path(path_value).expanduser().resolve(strict=True)
+        if candidate.parent != root or candidate.name != expected_name:
+            raise ValueError("Graph artifact path is outside the configured artifact directory.")
+        return candidate
 
     def _last_successful_build_at() -> str:
         """Return last successful graph build timestamp from local report file."""
@@ -1187,7 +1195,7 @@ def register_graph_endpoints(
         analysed_edges = 0
         ignored_structural_edges = 0
         try:
-            edges_path = Path(edges_jsonl_path)
+            edges_path = _safe_graph_artifact_path(edges_jsonl_path, "edges.jsonl")
             if not edges_path.is_file():
                 return {
                     "detected": False,
@@ -1340,7 +1348,9 @@ def register_graph_endpoints(
             ("edges_jsonl", "edges.jsonl"),
             ("graph_build_report_json", "graph_build_report.json"),
         ):
-            file_path = Path(str(files.get(field_name) or "").strip())
+            file_path = _safe_graph_artifact_path(
+                str(files.get(field_name) or "").strip(), object_name
+            )
             if not file_path.is_file():
                 continue
             key = _graph_snapshot_key(prefix, object_name)
@@ -1382,7 +1392,20 @@ def register_graph_endpoints(
             )
             return unauth
 
-        output_dir = payload.output_dir or _default_output_dir()
+        configured_output_dir = Path(_default_output_dir()).expanduser().resolve()
+        try:
+            if payload.output_dir:
+                requested_output_dir = Path(payload.output_dir).expanduser().resolve()
+                if requested_output_dir != configured_output_dir:
+                    raise ValueError
+        except ValueError:
+            return _problem_response(
+                status=400,
+                title="Invalid Request",
+                detail="output_dir must match the configured graph artifact directory.",
+                instance=str(request.url.path),
+            )
+        output_dir = str(configured_output_dir)
         report = build_local_graph_artifacts(
             controls=list(payload.controls),
             chunks=list(payload.chunks),

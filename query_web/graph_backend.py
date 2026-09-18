@@ -422,9 +422,14 @@ class AzureGraphStoreAdapter:
             A dictionary with counts of loaded nodes and edges.
         """
         if self._uses_artifact_snapshot():
+            if self._snapshot_source is None:
+                raise RuntimeError("Graph snapshot source is unavailable.")
+            snapshot = self._snapshot_source.read_snapshot()
+            if snapshot is None:
+                raise FileNotFoundError("Graph snapshot artifacts are unavailable.")
             result = self._load_snapshot_records(
-                nodes_text=Path(nodes_jsonl).read_text(encoding="utf-8"),
-                edges_text=Path(edges_jsonl).read_text(encoding="utf-8"),
+                nodes_text=snapshot[0],
+                edges_text=snapshot[1],
             )
         else:
             if self._local_store is None:

@@ -30,7 +30,9 @@ def test_submitting_a_question_renders_an_answer_or_explicit_error(
         page.locator("#auth_token").fill(auth_token)
 
     page.locator("#question").fill("What is this system used for?")
-    page.locator("#ask-submit-btn").click()
+    ask_button = page.locator("#ask-submit-btn")
+    expect(ask_button).to_be_enabled(timeout=120_000)
+    ask_button.click(timeout=120_000)
 
     result_panel = page.locator("#answer-md, .answer, #ask-results-section")
     expect(result_panel.first).to_be_visible(timeout=120_000)
