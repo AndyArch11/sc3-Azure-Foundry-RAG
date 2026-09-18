@@ -186,10 +186,7 @@ flowchart LR
 ### Cloud Deployment
 
 ```mermaid
-flowchart LR
-    
-    User[User or integration]  
-    Sources[Corpus A/B/C\ndocuments]  
+flowchart LR 
 
     subgraph Container[Container App]
         Security[Auth and\nprompt guard]
@@ -203,12 +200,10 @@ flowchart LR
         Search[Search adapter]
         State[State adapter]
         Storage[Storage adapter]
-        User --> API
         API --> Query
         Query --> Security
         Security --> RAG
         RAG --> Graph
-        Sources --> Ingest
         Poller --> Ingest
         Ingest --> Controls
         Ingest --> Evidence
@@ -242,7 +237,10 @@ flowchart LR
         State --> Dynamo
         Storage --> S3
     end
-
+    
+    User[User or integration] --> API
+    Confluence[Confluence] --> Poller
+    Sources[Corpus A/B/C\ndocuments] --> Ingest
     Terraform[Terraform and\nprovider deployment scripts] --> Azure
     Terraform --> AWS
     Observability[Logs, traces,\nmetrics, and alerts] -.-> Query
@@ -366,7 +364,7 @@ No Qdrant or seeding step needed. JSONL files load directly into memory at app s
 
 ```bash
 # Install dependencies
-sudo python3 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -r requirements-dev.txt
 
@@ -626,7 +624,7 @@ Run the environment build scripts in order (can take over 1 hour to provision th
 #### Optional install verification
 
 ```bash
-sudo python3 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements-dev.txt
