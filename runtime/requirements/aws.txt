@@ -5,4 +5,4 @@ boto3==1.43.71
 
 # Controls ingestion parser deps (AESCSF/CIS require openpyxl; NIST AI RMF/PSPF/PCI/CIS PDF parsing requires pypdf)
 openpyxl==3.1.5
-pypdf>=6.16.0
+pypdf>=6.18.1
