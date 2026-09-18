@@ -186,7 +186,7 @@ class AzureSearchClient:
         if not callable(delete_fn):
             raise AttributeError("SearchClient.delete_documents is unavailable")
 
-        delete_fn(documents=documents)
+        delete_fn(documents=documents)  # pylint: disable=not-callable
 
     def load_documents(self, docs: list[dict[str, Any]]) -> None:
         """Unsupported for cloud backends; retained for protocol compatibility.
